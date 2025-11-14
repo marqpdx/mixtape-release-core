@@ -1,0 +1,16 @@
+# groups/models/__init__.py
+
+# 1. Enums first (no dependencies)
+from .dec_enums import *
+
+# 2. Base Group model (depends on enums)
+from .group import *
+
+# 3. Membership (depends on Group)
+from .membership import *
+
+# 4. Types (depends on Group)
+from .types import *
+
+# 5. Decorators subpackage (depends on Group and Membership)
+from .decorators import *
