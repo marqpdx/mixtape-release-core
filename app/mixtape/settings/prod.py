@@ -1,0 +1,90 @@
+# mixtape/settings/prod.py
+# Production settings for Phase 1
+
+import os
+import sys
+from pathlib import Path
+from dotenv import load_dotenv
+
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+# Load environment variables
+load_dotenv(BASE_DIR / ".env")
+load_dotenv(BASE_DIR / ".env.prod", override=True)
+
+# Import base settings
+from .base import *
+
+# Production settings
+DEBUG = False
+DJANGO_ENV = 'prod'
+
+# Database - PostgreSQL for production
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql_psycopg2',
+        "NAME": os.getenv("POSTGRES_DB", "mixtape_release"),
+        "USER": os.getenv("POSTGRES_USER", "mixtape_user"),
+        "PASSWORD": os.getenv("POSTGRES_PASSWORD"),
+        'HOST': os.getenv("POSTGRES_HOST", "localhost"),
+        'PORT': os.getenv("POSTGRES_PORT", "5432"),
+    }
+}
+
+# Static files
+STATIC_ROOT = os.path.join(BASE_DIR, 'static')
+STATIC_URL = '/static/'
+
+# JWT Cookie settings for production
+JWT_COOKIE_SECURE = True  # HTTPS required
+JWT_COOKIE_SAMESITE = "None"  # For cross-site requests
+
+# CORS - Production domains
+CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOWED_ORIGINS = [
+    "https://www.crossroads.place",
+    "https://crossroads.place",
+]
+
+# CSRF - Production domains
+CSRF_TRUSTED_ORIGINS = [
+    "https://www.crossroads.place",
+    "https://crossroads.place",
+]
+
+# Allowed hosts
+ALLOWED_HOSTS = [
+    'www.crossroads.place',
+    'crossroads.place',
+    '149.28.10.198',
+]
+
+# Logging
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'stream': sys.stdout,
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+}
+
+# ============================================================================
+# DEFERRED SETTINGS (Phase 2+)
+# ============================================================================
+# S3 Storage - Phase 2
+# STORAGES = {
+#     "default": {
+#         "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+#     },
+#     "staticfiles": {
+#         "BACKEND": "django.contrib.staticfiles.storage.ManifestStaticFilesStorage",
+#     },
+# }

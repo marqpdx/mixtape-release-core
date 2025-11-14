@@ -1,0 +1,31 @@
+# groups/utils/aggregator.py
+
+from itertools import chain
+from operator import attrgetter
+from django.db.models import Value, CharField
+
+class GroupAggregator:
+    def __init__(self, user=None):
+        from groups.models import Community, Circle  # Lazy import
+        self.user = user
+        self.sources = [
+            (Community, "community"),
+            (Circle, "circle"),
+        ]
+
+    def get_queryset(self):
+        querysets = []
+        for model, group_kind in self.sources:
+            qs = model.objects.all()
+            if self.user and not self.user.is_staff:
+                qs = qs.filter(members=self.user, memberships__is_active=True)
+            # qs = qs.annotate(group_kind=group_kind)
+            qs = qs.annotate(group_kind=Value("community", output_field=CharField()))
+            querysets.append(qs)
+        return list(chain(*querysets))
+
+    def sort(self, queryset, field="created_at", descending=True):
+        return sorted(queryset, key=attrgetter(field), reverse=descending)
+
+    def paginate(self, queryset, start=0, end=None):
+        return queryset[start:end]
