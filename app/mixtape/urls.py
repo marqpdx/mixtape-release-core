@@ -27,6 +27,9 @@ urlpatterns = [
     # Health check (for monitoring, tests, and deployment)
     path('health/', views.health_check, name='health_check'),
 
+    # CSRF token endpoint (for frontend auth initialization)
+    path('api/csrf/', views.csrf_token_view, name='csrf_token'),
+
     # === PHASE 1 ENDPOINTS ===
 
     # Authentication
@@ -38,6 +41,14 @@ urlpatterns = [
     # Endpoints: /api/members/, /api/members/<slug>
 
     # === END PHASE 1 ENDPOINTS ===
+
+    # === PHASE 2 ENDPOINTS ===
+
+    # Groups
+    path('api/groups', include('groups.api.urls')),
+    # Endpoints: /api/groups, /api/groups/<slug>, /api/groups/<slug>/members, etc.
+
+    # === END PHASE 2 ENDPOINTS ===
 ]
 # urlpatterns += router.urls  # Deferred - no router endpoints in Phase 1
 

@@ -1,7 +1,8 @@
 # groups/permissions.py
 
 from rest_framework import permissions
-from groups.models import Group
+from django.contrib.contenttypes.models import ContentType
+from groups.models import Group, GroupMembership
 
 class IsGroupAdminOrSteward(permissions.BasePermission):
     def has_permission(self, request, view):
@@ -17,8 +18,17 @@ class IsGroupAdminOrSteward(permissions.BasePermission):
         if request.user.is_superuser:
             return True
 
-        membership = group.groupmembership_set.filter(user=request.user).first()
-        return membership and membership.role in ["admin", "steward"]
+        # Fix: Use GenericForeignKey pattern with ContentType
+        user_ct = ContentType.objects.get_for_model(request.user)
+        membership = GroupMembership.objects.filter(
+            group=group,
+            member_content_type=user_ct,
+            member_object_id=request.user.id,
+            is_active=True
+        ).first()
+
+        # Fix: Check roles ArrayField using helper methods
+        return membership and (membership.is_admin() or membership.is_steward())
 
 
 # ============================================================================
@@ -58,9 +68,12 @@ def isGroupMemberUser(user, group):
         return False
 
     from groups.models import GroupMembership
+    # Fix: Use GenericForeignKey pattern
+    user_ct = ContentType.objects.get_for_model(user)
     return GroupMembership.objects.filter(
         group=group,
-        member_id=user.id,
+        member_content_type=user_ct,
+        member_object_id=user.id,
         is_active=True,
         is_pending=False
     ).exists()
@@ -102,10 +115,13 @@ def canUserModerateGroupUser(user, group):
         return True
 
     from groups.models import GroupMembership
+    # Fix: Use GenericForeignKey pattern and roles__overlap for ArrayField
+    user_ct = ContentType.objects.get_for_model(user)
     return GroupMembership.objects.filter(
         group=group,
-        member_id=user.id,
-        roles__in=['admin', 'steward'],
+        member_content_type=user_ct,
+        member_object_id=user.id,
+        roles__overlap=['admin', 'steward'],
         is_active=True,
         is_pending=False
     ).exists()
@@ -130,10 +146,13 @@ def hasGroupRole(user, group, role):
         return True
 
     from groups.models import GroupMembership
+    # Fix: Use GenericForeignKey pattern and roles__contains for ArrayField
+    user_ct = ContentType.objects.get_for_model(user)
     return GroupMembership.objects.filter(
         group=group,
-        member_id=user.id,
-        roles__contains=role,
+        member_content_type=user_ct,
+        member_object_id=user.id,
+        roles__contains=[role],
         is_active=True,
         is_pending=False
     ).exists()
@@ -154,9 +173,12 @@ def getUserGroupRoles(user, group):
         return []
 
     from groups.models import GroupMembership
+    # Fix: Use GenericForeignKey pattern
+    user_ct = ContentType.objects.get_for_model(user)
     membership = GroupMembership.objects.filter(
         group=group,
-        member_id=user.id,
+        member_content_type=user_ct,
+        member_object_id=user.id,
         is_active=True,
         is_pending=False
     ).first()
@@ -187,8 +209,11 @@ def getGroupsForUser(user, include_pending=False):
     if not user or not user.is_authenticated:
         return Group.objects.none()
 
+    # Fix: Use GenericForeignKey pattern
+    user_ct = ContentType.objects.get_for_model(user)
     query = GroupMembership.objects.filter(
-        member_id=user.id,
+        member_content_type=user_ct,
+        member_object_id=user.id,
         is_active=True
     )
 
@@ -217,11 +242,14 @@ def getGroupsUserCanModerate(user):
     if user.is_staff or user.is_superuser:
         return Group.objects.all()
 
+    # Fix: Use GenericForeignKey pattern and roles__overlap for ArrayField
+    user_ct = ContentType.objects.get_for_model(user)
     memberships = GroupMembership.objects.filter(
-        member_id=user.id,
+        member_content_type=user_ct,
+        member_object_id=user.id,
         is_active=True,
         is_pending=False,
-        roles__in=['admin', 'steward']
+        roles__overlap=['admin', 'steward']
     )
 
     group_ids = memberships.values_list('group_id', flat=True)

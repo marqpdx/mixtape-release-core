@@ -8,8 +8,8 @@ from groups.services.groups import GroupService
 from users.models import CustomUser
 
 from accounts.api.serializers import UserSerializer
-from groups.utils import prefetch_members
-from utils.storage.storage_utils import key_to_url
+# from groups.utils import prefetch_members
+# from utils.storage.storage_utils import key_to_url
 from ..models import AnnouncementDismissal, EmailStatus, Group, GroupAnnouncement, GroupInvitation, GroupMembership, InvitationStatus, InviteLink
 
 # ============================================================================
@@ -60,8 +60,8 @@ class GroupListSerializer(serializers.ModelSerializer):
     user_roles = serializers.SerializerMethodField()
     # emblem = EmblemInlineSerializer(read_only=True)  # PHASE 3: Deferred
 
-    profile_image_url = serializers.SerializerMethodField()
-    background_image_url = serializers.SerializerMethodField()
+    # profile_image_url = serializers.SerializerMethodField()
+    # background_image_url = serializers.SerializerMethodField()
 
     def get_member_count(self, obj):
         return obj.memberships.filter(
@@ -75,54 +75,54 @@ class GroupListSerializer(serializers.ModelSerializer):
         membership = GroupService.get_user_membership(obj, request.user)
         return membership.roles if membership else None
 
-    def get_profile_image_url(self, obj):
-        key = getattr(obj, "profile_image_path", None) or getattr(obj, "profile_image", None)
-        return key_to_url(key)
+    # def get_profile_image_url(self, obj):
+    #     key = getattr(obj, "profile_image_path", None) or getattr(obj, "profile_image", None)
+    #     return key_to_url(key)
 
-    def get_background_image_url(self, obj):
-        key = getattr(obj, "background_image_path", None) or getattr(obj, "background_image", None)
-        return key_to_url(key)
+    # def get_background_image_url(self, obj):
+    #     key = getattr(obj, "background_image_path", None) or getattr(obj, "background_image", None)
+    #     return key_to_url(key)
 
     class Meta:
         model = Group
         fields = [
             'id', 'title', 'slug', 'description', 'group_type', 'visibility',
-            'profile_image', 'background_image',                 # raw keys (optional to keep)
-            'profile_image_url', 'background_image_url',         # resolved URLs (use these in UI)
-            'is_active', 'created_at', 'member_count', 'user_roles', 'emblem',
+            # 'profile_image', 'background_image',                 # raw keys (optional to keep)
+            # 'profile_image_url', 'background_image_url',         # resolved URLs (use these in UI)
+            'is_active', 'created_at', 'member_count', 'user_roles',
         ]
 
 
 
 class GroupDetailSerializer(GroupListSerializer):
     # write-only inputs for updates
-    emblem_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
-    emblem_avatar_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
+    # emblem_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
+    # emblem_avatar_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
 
-    submitted_by_username = serializers.CharField(
-        source="submitted_by.username", read_only=True
-    )
+    # submitted_by_username = serializers.CharField(
+    #     source="submitted_by.username", read_only=True
+    # )
 
     class Meta(GroupListSerializer.Meta):
         fields = (
             list(GroupListSerializer.Meta.fields)
             + [
-                "submitted_by",
-                "submitted_by_username",
+                # "submitted_by",
+                # "submitted_by_username",
                 "updated_at",
                 # write-only inputs (included so DRF accepts them on PATCH)
-                "emblem_id",
-                "emblem_avatar_id",
+                # "emblem_id",
+                # "emblem_avatar_id",
             ]
         )
         read_only_fields = (
             "member_count",
             "user_roles",
-            "submitted_by",
-            "submitted_by_username",
+            # "submitted_by",
+            # "submitted_by_username",
             "created_at",
             "updated_at",
-            "emblem",  # already read_only=True, this is just redundant safety
+            # "emblem",  # already read_only=True, this is just redundant safety
         )
 
 
@@ -166,8 +166,8 @@ class GroupMembershipListSerializer(serializers.ModelSerializer):
     is_active_user = serializers.SerializerMethodField()
     profile_image = serializers.SerializerMethodField()
 
-    # Role - now returns the highest role for frontend
-    role = serializers.SerializerMethodField()
+    # Roles - returns all roles as array for frontend
+    roles = serializers.SerializerMethodField()
 
     # Group context
     group_title = serializers.CharField(source='group.title', read_only=True)
@@ -225,23 +225,24 @@ class GroupMembershipListSerializer(serializers.ModelSerializer):
         member = obj.member_object
         return getattr(member, 'profile_image', None)
 
-    def get_role(self, obj):
+    def get_roles(self, obj):
         """
-        Return highest role for frontend display.
+        Return all roles as array for frontend.
         Maps backend roles to frontend expectations:
         - admin → 'admin'
         - steward → 'moderator'
         - member → 'member'
         """
-        highest = obj.highest_role()
+        backend_roles = obj.roles or []
 
-        # Map to frontend expectations
-        if highest == 'admin':
-            return 'admin'
-        elif highest == 'steward':
-            return 'moderator'
-        else:
-            return 'member'
+        # Map each backend role to frontend expectation
+        role_mapping = {
+            'admin': 'admin',
+            'steward': 'moderator',
+            'member': 'member',
+        }
+
+        return [role_mapping.get(role, role) for role in backend_roles]
 
     def get_invited_by_username(self, obj):
         if obj.invited_by:
@@ -257,7 +258,7 @@ class GroupMembershipListSerializer(serializers.ModelSerializer):
             'is_active_user', 'profile_image',
 
             # Membership data
-            'role', 'date_joined', 'is_active', 'is_pending',
+            'roles', 'date_joined', 'is_active', 'is_pending',
             'invited_by_username',
 
             # Group context
@@ -275,7 +276,7 @@ class GroupMembershipSearchSerializer(serializers.ModelSerializer):
     username = serializers.SerializerMethodField()
     display_name = serializers.SerializerMethodField()
     email = serializers.SerializerMethodField()
-    role = serializers.CharField()
+    roles = serializers.SerializerMethodField()
 
     def get_member_id(self, obj):
         return str(obj.member_object_id)
@@ -303,34 +304,39 @@ class GroupMembershipSearchSerializer(serializers.ModelSerializer):
         member = obj.member_object
         return getattr(member, 'email', None)
 
+    def get_roles(self, obj):
+        """Return all roles as array, mapped to frontend expectations"""
+        backend_roles = obj.roles or []
+        role_mapping = {
+            'admin': 'admin',
+            'steward': 'moderator',
+            'member': 'member',
+        }
+        return [role_mapping.get(role, role) for role in backend_roles]
+
     class Meta:
         model = GroupMembership
-        fields = ['member_id', 'member_type', 'username', 'display_name', 'email', 'role']
+        fields = ['member_id', 'member_type', 'username', 'display_name', 'email', 'roles']
 
 
-class GroupCreateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Group
-        fields = [
-            "title",
-            "description",
-            "group_type",
-            "visibility",
-        ]
-
-    def create(self, validated_data):
-        user = self.context.get("request").user
-        validated_data["author"] = user
-
-        # Step 1: build instance (does NOT save to DB)
-        group = Group(**validated_data)
-
-        # Step 2: set required fields BEFORE saving
-        group.set_sponsor(user)
-        group.set_submitted_by(user)
-
-        group.save()
-        return group
+# ============================================================================
+# PHASE 2: Removed duplicate GroupCreateSerializer definition
+# ============================================================================
+# The correct GroupCreateSerializer is defined earlier in this file (lines 131-149)
+# This duplicate version has been removed to prevent conflicts.
+# Previous duplicate code:
+# class GroupCreateSerializer(serializers.ModelSerializer):
+#     class Meta:
+#         model = Group
+#         fields = ["title", "description", "group_type", "visibility"]
+#     def create(self, validated_data):
+#         user = self.context.get("request").user
+#         validated_data["author"] = user
+#         group = Group(**validated_data)
+#         group.set_sponsor(user)
+#         group.set_submitted_by(user)
+#         group.save()
+#         return group
 
 
 # class GroupListSerializer(serializers.ModelSerializer):
@@ -507,7 +513,7 @@ class GroupMembershipSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "group",
-            "role",
+            "roles",
             "is_active",
             "is_pending",
             "date_joined",

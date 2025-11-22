@@ -77,6 +77,20 @@ class GroupMembership(BaseModel):
 
     date_joined = models.DateTimeField(auto_now_add=True)
 
+    # ============================================================================
+    # PHASE 1: Permissions System - Decorators and Additional Permissions
+    # ============================================================================
+    decorators = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Semantic decorators applied to this membership (e.g., moderator)"
+    )
+    additional_permissions = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Direct permission grants for this member (use sparingly)"
+    )
+
     class Meta:
         db_table = "groups_groupmembership"
         unique_together = [

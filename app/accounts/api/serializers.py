@@ -85,19 +85,23 @@ class BaseUserSerializer(RoleMixin, serializers.ModelSerializer):
 
 
 # ============================================================================
-# DEFERRED: UserSerializer with Profile (Phase 2 - Image Storage)
+# PHASE 2: Minimal UserSerializer (without image storage)
 # ============================================================================
-# This serializer includes UserProfileSerializerInline which needs S3 storage
-# Will uncomment when we add image storage functionality
+# Simplified version for Phase 2 Groups integration
+# Image storage fields will be added in later phase
 # ============================================================================
-# class UserSerializer(BaseUserSerializer):
-#     profile = UserProfileSerializerInline(read_only=True)
-#
-#     class Meta(BaseUserSerializer.Meta):
-#         model = get_user_model()
-#         fields = BaseUserSerializer.Meta.fields + [
-#             "date_joined", "last_login", "profile",
-#         ]
+class UserSerializer(BaseUserSerializer):
+    """
+    Phase 2 user serializer for Groups integration.
+    Excludes profile image fields until storage is implemented.
+    """
+    display_name = serializers.CharField(source='profile.display_name', read_only=True)
+
+    class Meta(BaseUserSerializer.Meta):
+        model = get_user_model()
+        fields = BaseUserSerializer.Meta.fields + [
+            "date_joined", "last_login", "display_name",
+        ]
 
 
 
@@ -404,6 +408,10 @@ class EmailOrUsernameTokenSerializer(serializers.Serializer):
 
         logger.info(f"Successful login for user: {user.username}")
 
+        # Compute user permissions
+        from groups.services.permissions import PermissionService
+        permissions_data = PermissionService.compute_user_permissions(user)
+
         return {
             "refresh": str(refresh),
             "refresh_expires": refresh["exp"],
@@ -413,5 +421,6 @@ class EmailOrUsernameTokenSerializer(serializers.Serializer):
                 "id": str(user.id),
                 "username": user.username,
                 "email": user.email,
-            }
+            },
+            "permissions": permissions_data
         }

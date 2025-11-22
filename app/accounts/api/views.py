@@ -124,6 +124,10 @@ class CurrentUserIdentity(APIView):
             if not roles and groups.exists():
                 roles.append("member")
 
+            # Compute user permissions
+            from groups.services.permissions import PermissionService
+            permissions_data = PermissionService.compute_user_permissions(user)
+
             response_data = {
                 "id": str(user.id),
                 "username": user.username,
@@ -146,6 +150,7 @@ class CurrentUserIdentity(APIView):
                     }
                     for group in groups
                 ],
+                "permissions": permissions_data,
             }
 
             # Cache for 5 minutes
@@ -176,6 +181,36 @@ def check_username(request, username):
             {"available": not exists, "username": username},
             status=status.HTTP_200_OK
         )
+    except Exception as e:
+        return Response(
+            {"error": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def refresh_permissions(request):
+    """
+    GET /api/auth/permissions/refresh
+
+    Refresh and return the current user's permissions.
+    Useful after role/membership changes.
+    Clears the identity cache and returns fresh permissions.
+    """
+    try:
+        user = request.user
+
+        # Clear cached identity
+        cache_key = f"user_identity:{user.id}"
+        cache.delete(cache_key)
+
+        # Compute fresh permissions
+        from groups.services.permissions import PermissionService
+        permissions_data = PermissionService.compute_user_permissions(user)
+
+        return Response(permissions_data, status=status.HTTP_200_OK)
+
     except Exception as e:
         return Response(
             {"error": str(e)},

@@ -17,8 +17,12 @@ urlpatterns = [
     #   id, username, email, is_superuser, is_staff,
     #   roles: ["member", "steward"],
     #   profile: { ... },
-    #   groups: [ ... ]
+    #   groups: [ ... ],
+    #   permissions: { granted: [...], effective: [...], groups: {...} }
     # }
+
+    # Permissions
+    path('permissions/refresh', views.refresh_permissions, name='refresh-permissions'),
 
     # Registration
     path('signup', views.user_create_view, name='user-register'),

@@ -23,8 +23,8 @@ DJANGO_ENV = 'prod'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql_psycopg2',
-        "NAME": os.getenv("POSTGRES_DB", "mixtape_release"),
-        "USER": os.getenv("POSTGRES_USER", "mixtape_user"),
+        "NAME": os.getenv("POSTGRES_DB", "crossroads_prod"),
+        "USER": os.getenv("POSTGRES_USER", "crossroads_user"),
         "PASSWORD": os.getenv("POSTGRES_PASSWORD"),
         'HOST': os.getenv("POSTGRES_HOST", "localhost"),
         'PORT': os.getenv("POSTGRES_PORT", "5432"),

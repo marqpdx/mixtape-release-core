@@ -2,25 +2,24 @@
 
 """
 Service layer for Group invitation operations.
+
+Phase 2: Core invitation functionality without Activity system.
+Activity notifications will be added in a future phase.
 """
 
+from django.utils import timezone as dj_timezone
+import re
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 
-from activity.models import Action, ActionOutbox, ActivityType
-from activity.tasks import fanout_action_task
 from groups.models import Group, GroupMembership, GroupInvitation
 from groups.models.group import InviteLink
 from profiles.models import UserProfile
-from utils.email.shortcode import generate_shortcode
-
-from django.contrib.auth.tokens import default_token_generator
-from django.contrib.auth import get_user_model
 from users.models import Role
-import re
-
+from utils.email.shortcode import generate_shortcode
 from utils.tasks import send_transactional_email_task
 
 
@@ -139,11 +138,28 @@ class InvitationService:
         return membership
 
 
+
+
+
+
     @staticmethod
     def send_batch_invitations(invitations_data, group, invited_by, message):
-        """Send all invitations via single Celery task"""
+        """
+        Send invitation emails via Celery task.
 
+        Note: In-app notifications (Activity system) will be added in a future phase.
+        Currently only sends email invitations.
+
+        Args:
+            invitations_data: List of tuples (invitation, is_existing_user)
+            group: Group instance
+            invited_by: User who sent the invitation
+            message: Optional personal message
+        """
         import traceback
+
+        def debug_ts(message: str) -> None:
+            print(f"[{dj_timezone.now().isoformat()}] {message}")
 
         for invitation, is_existing_user in invitations_data:
             try:
@@ -157,9 +173,7 @@ class InvitationService:
 
                 template = "email/invite_to_group"
 
-                print(f"[DEBUG] About to call send_transactional_email_task")
-                print(f"[DEBUG] send_transactional_email_task type: {type(send_transactional_email_task)}")
-                print(f"[DEBUG] send_transactional_email_task: {send_transactional_email_task}")
+                debug_ts(f"[DEBUG] Sending invitation email to {invitation.invited_email}")
 
                 # Send email via Celery
                 send_transactional_email_task.delay(
@@ -170,52 +184,7 @@ class InvitationService:
                     invitation_id=invitation.id,
                 )
 
-                print(f"[DEBUG] Email task queued for {invitation.invited_email}")
-
-                # Create in-app notification for existing users
-                if is_existing_user:
-                    try:
-                        activity_type, _ = ActivityType.objects.get_or_create(
-                            code="group_invitation",
-                            defaults={
-                                "title": "Group Invitation",
-                                "summary": "Invited to join a group",
-                                "default_channel": "activity",
-                                "default_priority": "normal",
-                            }
-                        )
-
-                        group_ct = ContentType.objects.get_for_model(group)
-                        action = Action.objects.create(
-                            actor_content_type=ContentType.objects.get_for_model(invited_by),
-                            actor_id=str(invited_by.id),
-                            actor_label="user",
-                            object_content_type=group_ct,
-                            object_id=str(group.id),
-                            verb="invited",
-                            activity_type=activity_type,
-                            activity_code="group_invitation",
-                            channel="activity",
-                            priority="normal",
-                            metadata={"invite_url": invitation.invite_url},
-                            audience={"type": "user", "ids": [str(invitation.invited_user.id)]},
-                            dedupe_key=f"group_invite:{group.id}:{invitation.invited_user.id}",
-                            aggregate_key=f"group_invites:{group.id}",
-                        )
-
-                        print(f"✅ Action created: {action.id}")
-
-                        outbox = ActionOutbox.objects.create(action=action)
-                        print(f"📬 Calling fanout_action_task for action {action.id}")
-
-                        print(f"[DEBUG] fanout_action_task type: {type(fanout_action_task)}")
-                        print(f"[DEBUG] fanout_action_task: {fanout_action_task}")
-
-                        fanout_action_task.delay(str(action.id))
-
-                    except Exception as e:
-                        print(f"[ERROR] Failed to create in-app notification: {e}")
-                        traceback.print_exc()
+                debug_ts(f"[DEBUG] Email task queued for {invitation.invited_email}")
 
             except Exception as e:
                 print(f"[ERROR] send_batch_invitations failed for {invitation.invited_email}: {e}")

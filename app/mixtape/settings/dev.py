@@ -31,8 +31,19 @@ CORS_ORIGIN_ALLOW_ALL = True
 CORS_ALLOW_CREDENTIALS = True
 
 # JWT Cookie settings for development
+# Note: SameSite=None allows cross-port cookies (localhost:3010 → localhost:8000)
+# but browsers require Secure=True with SameSite=None, which requires HTTPS.
+# For HTTP development, we use Lax and accept that refresh won't work cross-port.
+# The access token (in memory) lasts 8 hours in dev, so you rarely need to re-login.
 JWT_COOKIE_SECURE = False  # False for http in dev
-JWT_COOKIE_SAMESITE = "Lax"
+JWT_COOKIE_SAMESITE = "Lax"  # Can't use "None" without Secure=True (HTTPS)
+
+# Extend access token lifetime for development convenience
+from datetime import timedelta
+SIMPLE_JWT = {
+    **SIMPLE_JWT,  # Inherit from base.py
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=8),  # Dev: 8 hours instead of 10 minutes
+}
 
 # Database - PostgreSQL (Phase 2: Required for Groups app with ArrayField)
 DATABASES = {
@@ -45,6 +56,13 @@ DATABASES = {
         'PORT': os.getenv('DB_PORT', '5433'),  # Docker exposes 5433->5432
     }
 }
+
+# CELERY_TASK_ROUTES = {
+#     "utils.tasks.send_transactional_email_task": {"queue": "release_queue"},
+# }
+
+CELERY_TASK_DEFAULT_QUEUE = "release_queue"
+
 
 # ============================================================================
 # DEFERRED: SQLite (Switched to PostgreSQL for Phase 2)
@@ -60,7 +78,11 @@ DATABASES = {
 # }
 
 # Email backend - console output in dev
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+# EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+# for emailing in dev
+FRONTEND_URL = 'http://localhost:3010'
+
 
 # ============================================================================
 # DEFERRED SETTINGS (Phase 2+)
