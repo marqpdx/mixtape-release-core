@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>You're invited to join {{ group_name }}</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background-color: #4F46E5;
+            color: white;
+            padding: 30px 20px;
+            text-align: center;
+            border-radius: 8px 8px 0 0;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        .content {
+            background-color: #f9fafb;
+            padding: 30px 20px;
+            border-radius: 0 0 8px 8px;
+        }
+        .message-box {
+            background-color: white;
+            border-left: 4px solid #4F46E5;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .button {
+            display: inline-block;
+            background-color: #4F46E5;
+            color: white;
+            text-decoration: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            margin: 20px 0;
+            font-weight: 500;
+        }
+        .button:hover {
+            background-color: #4338CA;
+        }
+        .footer {
+            text-align: center;
+            color: #6B7280;
+            font-size: 14px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>You're invited to join {{ group_name }}</h1>
+    </div>
+
+    <div class="content">
+        <p>Hi there,</p>
+
+        <p>
+            {% if invited_by_name %}
+                <strong>{{ invited_by_name }}</strong> has invited you
+            {% else %}
+                You've been invited
+            {% endif %}
+            to join <strong>{{ group_name }}</strong> on Mixtape.
+        </p>
+
+        {% if message %}
+        <div class="message-box">
+            <strong>Personal message:</strong>
+            <p>{{ message }}</p>
+        </div>
+        {% endif %}
+
+        <p>
+            {% if is_existing_user %}
+                Click the button below to accept your invitation:
+            {% else %}
+                Click the button below to create your account and join the group:
+            {% endif %}
+        </p>
+
+        <div style="text-align: center;">
+            <a href="{{ invite_url }}" class="button">
+                {% if is_existing_user %}
+                    Accept Invitation
+                {% else %}
+                    Create Account & Join
+                {% endif %}
+            </a>
+        </div>
+
+        <p style="font-size: 14px; color: #6B7280;">
+            Or copy and paste this link into your browser:<br>
+            <a href="{{ invite_url }}" style="color: #4F46E5;">{{ invite_url }}</a>
+        </p>
+    </div>
+
+    <div class="footer">
+        <p>If you have any questions, please don't hesitate to reach out.</p>
+        <p>Best regards,<br>The Mixtape Team</p>
+    </div>
+</body>
+</html>

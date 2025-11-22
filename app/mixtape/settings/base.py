@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django_filters',
+    'django_extensions',
 
     # Third-party
     'corsheaders',          # CORS handling for frontend
@@ -68,10 +69,12 @@ INSTALLED_APPS = [
 
     # Local - MINIMAL for Phase 1
     'accounts',      # Authentication (JWT, login, /auth/me)
-    'users',         # CustomUser, Role models
-    'profiles',      # UserProfile, Member API
     'fundamentals',  # BaseModel (timestamps, soft delete)
     'groups',        # Group model, GroupMembership, Invitations (Phase 2)
+    'profiles',      # UserProfile, Member API
+    'users',         # CustomUser, Role models
+    'utils',          # Utility functions and helpers
+    # 'activity',     # User activity tracking (Phase 1)
 ]
 
 # ============================================================================
@@ -217,8 +220,6 @@ EMAIL_PORT = '587'
 EMAIL_HOST_USER = 'REDACTED-MAILJET-API-KEY'
 EMAIL_HOST_PASSWORD = 'REDACTED-MAILJET-SECRET-KEY'
 EMAIL_USE_TLS = True
-
-
 
 
 # Internationalization

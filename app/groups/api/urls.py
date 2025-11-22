@@ -3,11 +3,25 @@
 from django.urls import include, path
 
 # ============================================================================
+# PHASE 2: Active Views
+# ============================================================================
+from .views import (
+    GroupDetailView,
+    GroupInvitationDetailView,
+    GroupInvitationsListView,
+    GroupListCreateView,
+    GroupMemberSearchView,
+    GroupMembersView,
+    UserGroupsView,
+    invite_to_group,
+)
+
+# ============================================================================
 # PHASE 3+: Deferred App Integrations
 # ============================================================================
 # from assets.api.views import GroupAssetFolderListView, GroupAssetListView, GroupAssetPresignView, GroupAssetUploadView
 # from writing.api.views import WritingPieceDetailView
-from .views import GroupAnnouncementCreateFromContentView, GroupAnnouncementDetailView, GroupAnnouncementDismissView, GroupAnnouncementListCreateView, GroupAnnouncementVisibleQueueView, GroupDetailView, GroupInvitationDetailView, GroupInvitationsListView, GroupListCreateView, GroupMemberSearchView, GroupMembersListView, GroupMembersView, GroupMembershipListView, GroupNoticeBoardView, UserGroupsView, invite_to_group
+# from .views import GroupAnnouncementCreateFromContentView, GroupAnnouncementDetailView, GroupAnnouncementDismissView, GroupAnnouncementListCreateView, GroupAnnouncementVisibleQueueView, GroupInvitationDetailView, GroupInvitationsListView, GroupMemberSearchView, GroupMembersListView, GroupMembersView, GroupMembershipListView, GroupNoticeBoardView, invite_to_group
 # from .views import GroupEmblemAttachView, GroupEmblemResetView, GroupWritingDetailView, GroupWritingDraftsListView, GroupWritingListCreateView  # PHASE 3+
 # from threadworks.api.urls import group_urlpatterns
 # from almanac.api.urls import group_event_patterns
@@ -26,16 +40,17 @@ urlpatterns = [
     # path('/<slug:group_slug>/earthlab', include(group_course_patterns)),
 
     path("", GroupListCreateView.as_view(), name="group-list-create"),
-    path("/my", UserGroupsView.as_view(), name="user-groups"),  # Moved from /api/user/
-    path("/<slug:slug>", GroupDetailView.as_view(), name="group-detail"),
+    path("/my", UserGroupsView.as_view(), name="user-groups"),  # /api/groups/my/
+    path("/<slug:slug>", GroupDetailView.as_view(), name="group-detail"),  # /api/groups/<slug>/
 
     # Group membership - consolidated single endpoint
     path("/<slug:slug>/members", GroupMembersView.as_view(), name="group-members"),
     path("/<slug:slug>/members/search", GroupMemberSearchView.as_view(), name="group-member-search"),
 
-    # Invitations
+#     # Invitations
     path("/<slug:slug>/invite", invite_to_group, name="group-invite"),
     path("/<slug:slug>/invitations", GroupInvitationsListView.as_view(), name="group-invitations"),
+    path("/<slug:group_slug>/invitations/<int:pk>", GroupInvitationDetailView.as_view(), name="group-invitation-detail", ),
 
     # ============================================================================
     # PHASE 3: Emblems (Deferred - requires identity app)
@@ -45,40 +60,40 @@ urlpatterns = [
 
 
     # Group Announcements
-    path('groups/<slug:group_slug>/announcements/',
-         GroupAnnouncementListCreateView.as_view(),
-         name='group-announcements-list'),
+#     path('groups/<slug:group_slug>/announcements/',
+#          GroupAnnouncementListCreateView.as_view(),
+#          name='group-announcements-list'),
 
-    path('groups/<slug:group_slug>/announcements/<uuid:pk>/',
-         GroupAnnouncementDetailView.as_view(),
-         name='group-announcements-detail'),
+#     path('groups/<slug:group_slug>/announcements/<uuid:pk>/',
+#          GroupAnnouncementDetailView.as_view(),
+#          name='group-announcements-detail'),
 
-    path('groups/<slug:group_slug>/announcements/visible-queue/',
-         GroupAnnouncementVisibleQueueView.as_view(),
-         name='group-announcements-visible-queue'),
+#     path('groups/<slug:group_slug>/announcements/visible-queue/',
+#          GroupAnnouncementVisibleQueueView.as_view(),
+#          name='group-announcements-visible-queue'),
 
-    path('groups/<slug:group_slug>/announcements/<uuid:pk>/dismiss/',
-         GroupAnnouncementDismissView.as_view(),
-         name='group-announcements-dismiss'),
+#     path('groups/<slug:group_slug>/announcements/<uuid:pk>/dismiss/',
+#          GroupAnnouncementDismissView.as_view(),
+#          name='group-announcements-dismiss'),
 
-    path('groups/<slug:group_slug>/announcements/create-from-content/',
-         GroupAnnouncementCreateFromContentView.as_view(),
-         name='group-announcements-create-from-content'),
+#     path('groups/<slug:group_slug>/announcements/create-from-content/',
+#          GroupAnnouncementCreateFromContentView.as_view(),
+#          name='group-announcements-create-from-content'),
 
-    path("/<slug:slug>/memberships", GroupMembershipListView.as_view(), name="group-memberships"),
+#     path("/<slug:slug>/memberships", GroupMembershipListView.as_view(), name="group-memberships"),
 
-    # ============================================================================
-    # PHASE 3+: Writing & Assets (Deferred)
-    # ============================================================================
-    # Move these to writing/api/urls.py later?
-    # path("/<slug:slug>/writing", GroupWritingListCreateView.as_view(), name="group-posts-list"),
-    # path("/<slug:slug>/writing/drafts", GroupWritingDraftsListView.as_view(), name="group-writing-drafts-list"),
-    # path("/<slug:slug>/writing/<slug:piece_slug>", GroupWritingDetailView.as_view(), name="group-posts-detail"),
-    # path("/<slug:group_slug>/writing/<slug:piece_slug>", WritingPieceDetailView.as_view(), name='writingpiece-detail'),
+#     # ============================================================================
+#     # PHASE 3+: Writing & Assets (Deferred)
+#     # ============================================================================
+#     # Move these to writing/api/urls.py later?
+#     # path("/<slug:slug>/writing", GroupWritingListCreateView.as_view(), name="group-posts-list"),
+#     # path("/<slug:slug>/writing/drafts", GroupWritingDraftsListView.as_view(), name="group-writing-drafts-list"),
+#     # path("/<slug:slug>/writing/<slug:piece_slug>", GroupWritingDetailView.as_view(), name="group-posts-detail"),
+#     # path("/<slug:group_slug>/writing/<slug:piece_slug>", WritingPieceDetailView.as_view(), name='writingpiece-detail'),
 
-    path("/<slug:slug>/noticeboard", GroupNoticeBoardView.as_view(), name="group-noticeboard"),
+#     path("/<slug:slug>/noticeboard", GroupNoticeBoardView.as_view(), name="group-noticeboard"),
 
-    path("/<slug:group_slug>/invitations/<int:pk>", GroupInvitationDetailView.as_view(), name="group-invitation-detail", ),
+#     path("/<slug:group_slug>/invitations/<int:pk>", GroupInvitationDetailView.as_view(), name="group-invitation-detail", ),
 
     # ============================================================================
     # PHASE 3: Assets (Deferred - requires assets app)

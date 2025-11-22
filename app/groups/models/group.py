@@ -1,14 +1,12 @@
-# /groups/models.py
+# groups/models.py
 
-from time import timezone
 from django.conf import settings
 import uuid
 from django.contrib.auth import get_user_model
 from django.db import models
 from django.utils.crypto import get_random_string
 from django.utils.text import slugify
-from django.utils.timezone import now
-from django.utils.crypto import get_random_string
+from django.utils import timezone
 from django.contrib.postgres.fields import ArrayField
 
 from django.contrib.contenttypes.fields import GenericForeignKey
@@ -51,6 +49,20 @@ class Group(LayoutParent, BaseContent):
         max_length=20,
         choices=GroupVisibility.choices,
         default=GroupVisibility.PUBLIC,
+    )
+
+    # ============================================================================
+    # PHASE 1: Permissions System - Decorators and Additional Permissions
+    # ============================================================================
+    decorators = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Semantic capability bundles applied to this group (e.g., education_hub, event_venue)"
+    )
+    additional_permissions = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Direct permission grants for edge cases (use sparingly)"
     )
 
     def is_member(self, user):

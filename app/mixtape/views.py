@@ -1,11 +1,13 @@
 # mixtape/views.py
 """
-Core application views including health check endpoint
+Core application views including health check and CSRF endpoints
 """
 
 from django.http import JsonResponse
 from django.db import connection
 from django.views.decorators.http import require_http_methods
+from django.middleware.csrf import get_token
+from django.views.decorators.csrf import ensure_csrf_cookie
 
 
 @require_http_methods(["GET"])
@@ -38,4 +40,23 @@ def health_check(request):
             "status": "unhealthy",
             "error": str(e),
         }, status=500)
+
+
+@require_http_methods(["GET"])
+@ensure_csrf_cookie
+def csrf_token_view(request):
+    """
+    CSRF token endpoint for frontend authentication.
+
+    Returns:
+        - 200 OK with CSRF token in JSON response
+        - Sets csrftoken cookie via @ensure_csrf_cookie decorator
+
+    Used by:
+        - Frontend auth initialization (lib/auth/api.ts)
+        - Called once on app mount to get CSRF token
+    """
+    return JsonResponse({
+        "csrfToken": get_token(request),
+    }, status=200)
 
