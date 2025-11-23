@@ -3,6 +3,12 @@
 # ============================================================================
 # Minimal dependencies for authentication + member profiles
 # ============================================================================
+#
+# 📌 MAINTENANCE REMINDER:
+# When you install a new package locally (pip install foo), add it here!
+# Use: pip freeze | grep package-name  # to get the exact installed version
+# Keep this file organized by category (see sections below)
+# ============================================================================
 
 # Django Core
 Django>=4.2,<5.0
@@ -19,12 +25,15 @@ django-cors-headers>=4.3.0
 # Database (PostgreSQL recommended for production, SQLite works for dev)
 psycopg2-binary>=2.9.9  # PostgreSQL adapter
 
+# Task Queue (for background email sending, etc.)
+celery>=5.3.0
+redis>=5.0.0  # Celery broker/backend
+
 # ============================================================================
 # DEFERRED DEPENDENCIES (Add back in later phases):
 # ============================================================================
 # Phase 2+:
 # - boto3, django-storages (S3 file uploads)
-# - celery, redis (background tasks)
 # - django-filters (advanced filtering)
 #
 # Phase 4+:
