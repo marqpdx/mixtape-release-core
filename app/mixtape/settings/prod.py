@@ -65,6 +65,15 @@ CSRF_TRUSTED_ORIGINS = [
     "https://crossroads.place",
 ]
 
+SESSION_COOKIE_DOMAIN = '.crossroads.place'  # Note the leading dot!
+CSRF_COOKIE_DOMAIN = '.crossroads.place'
+
+# For HTTPS
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_SAMESITE = 'None'  # Allows cross-site cookies with Secure
+CSRF_COOKIE_SAMESITE = 'None'
+
 # Allowed hosts
 ALLOWED_HOSTS = [
     'api.crossroads.place',      # API subdomain (MUST have this!)
