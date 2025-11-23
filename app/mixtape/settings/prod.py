@@ -44,6 +44,9 @@ DATABASES = {
 STATIC_ROOT = os.path.join(BASE_DIR, 'static')
 STATIC_URL = '/static/'
 
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_URL = '/media/'
+
 # JWT Cookie settings for production
 JWT_COOKIE_SECURE = True  # HTTPS required
 JWT_COOKIE_SAMESITE = "None"  # For cross-site requests
