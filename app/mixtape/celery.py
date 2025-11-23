@@ -18,8 +18,12 @@ CELERY_BEAT_SCHEDULE = {
 # Let the environment decide whether to use dev or prod
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", os.getenv("DJANGO_SETTINGS_MODULE", "mixtape.settings.dev"))
 
-# Configure Celery with RabbitMQ
-app = Celery('mixtape', broker='amqp://guest:guest@localhost//')
+# Configure Celery broker from environment variable (supports both dev and prod)
+# Dev: amqp://guest:guest@localhost//
+# Prod: amqp://celery_user:PASSWORD@localhost//
+broker_url = os.getenv('CELERY_BROKER_URL', 'amqp://guest:guest@localhost//')
+
+app = Celery('mixtape', broker=broker_url)
 app.config_from_object("django.conf:settings", namespace="CELERY")
 
 # Additional RabbitMQ configuration
