@@ -55,9 +55,12 @@ CSRF_TRUSTED_ORIGINS = [
 
 # Allowed hosts
 ALLOWED_HOSTS = [
-    'www.crossroads.place',
-    'crossroads.place',
-    '149.28.10.198',
+    'api.crossroads.place',      # API subdomain (MUST have this!)
+    'www.crossroads.place',      # Frontend domain
+    'crossroads.place',          # Main domain
+    '70.34.212.85',              # Server IP address
+    'localhost',                 # For local testing
+    '127.0.0.1',                 # For local testing
 ]
 
 # Logging
