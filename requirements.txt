@@ -1,43 +1,29 @@
-# ============================================================================
-# Mixtape Release - Phase 1 Requirements
-# ============================================================================
-# Minimal dependencies for authentication + member profiles
-# ============================================================================
-#
-# 📌 MAINTENANCE REMINDER:
-# When you install a new package locally (pip install foo), add it here!
-# Use: pip freeze | grep package-name  # to get the exact installed version
-# Keep this file organized by category (see sections below)
-# ============================================================================
-
-# Django Core
-Django>=4.2,<5.0
-python-dotenv>=1.0.0
-django-environ>=0.11.0
-
-# Django REST Framework
-djangorestframework>=3.14.0
-djangorestframework-simplejwt>=5.3.0
-
-# CORS
-django-cors-headers>=4.3.0
-
-# Database (PostgreSQL recommended for production, SQLite works for dev)
-psycopg2-binary>=2.9.9  # PostgreSQL adapter
-
-# Task Queue (for background email sending, etc.)
-celery>=5.3.0
-redis>=5.0.0  # Celery broker/backend
-
-# ============================================================================
-# DEFERRED DEPENDENCIES (Add back in later phases):
-# ============================================================================
-# Phase 2+:
-# - boto3, django-storages (S3 file uploads)
-# - django-filters (advanced filtering)
-#
-# Phase 4+:
-# - openai, langchain (AI features)
-# - channels, daphne (WebSockets/chat)
-# - many others from the old project
-# ============================================================================
+amqp==5.3.1
+asgiref==3.10.0
+billiard==4.2.3
+celery==5.5.3
+click==8.3.1
+click-didyoumean==0.3.1
+click-plugins==1.1.1.2
+click-repl==0.3.0
+Django==5.2.8
+django-cors-headers==4.9.0
+django-environ==0.12.0
+django-extensions==4.1
+django-filter==25.2
+djangorestframework==3.16.1
+djangorestframework_simplejwt==5.5.1
+dotenv==0.9.9
+environ==1.0
+kombu==5.5.4
+packaging==25.0
+prompt_toolkit==3.0.52
+psycopg2-binary==2.9.11
+PyJWT==2.10.1
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.1
+six==1.17.0
+sqlparse==0.5.3
+tzdata==2025.2
+vine==5.1.0
+wcwidth==0.2.14
