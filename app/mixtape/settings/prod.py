@@ -6,6 +6,10 @@ import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
+import environ
+
+env = environ.Env()
+
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 # Load environment variables
@@ -20,15 +24,20 @@ DEBUG = False
 DJANGO_ENV = 'prod'
 
 # Database - PostgreSQL for production
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql_psycopg2',
+#         "NAME": os.getenv("POSTGRES_DB", "crossroads_prod"),
+#         "USER": os.getenv("POSTGRES_USER", "crossroads_user"),
+#         "PASSWORD": os.getenv("POSTGRES_PASSWORD"),
+#         'HOST': os.getenv("POSTGRES_HOST", "localhost"),
+#         'PORT': os.getenv("POSTGRES_PORT", "5432"),
+#     }
+# }
+
+# Parse DATABASE_URL
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql_psycopg2',
-        "NAME": os.getenv("POSTGRES_DB", "crossroads_prod"),
-        "USER": os.getenv("POSTGRES_USER", "crossroads_user"),
-        "PASSWORD": os.getenv("POSTGRES_PASSWORD"),
-        'HOST': os.getenv("POSTGRES_HOST", "localhost"),
-        'PORT': os.getenv("POSTGRES_PORT", "5432"),
-    }
+    'default': env.db('DATABASE_URL')
 }
 
 # Static files
