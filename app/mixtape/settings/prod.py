@@ -40,6 +40,10 @@ DATABASES = {
     'default': env.db('DATABASE_URL')
 }
 
+# for emailing
+FRONTEND_URL = 'http://www.crossroads.place'
+
+
 # Static files
 STATIC_ROOT = os.path.join(BASE_DIR, 'static')
 STATIC_URL = '/static/'
