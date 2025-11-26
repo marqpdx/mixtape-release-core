@@ -90,6 +90,7 @@ def conversation_list_create(request):
 
 
 @api_view(["GET"])
+@authentication_classes([ServiceJWTAuthentication, JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def conversation_detail(request, slug):
     user = request.user
