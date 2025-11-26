@@ -1,0 +1,28 @@
+#!/bin/bash
+# ./run_celery_local.sh
+
+set -euo pipefail
+
+# Activate venv
+source "$(dirname "$0")/env/bin/activate"
+
+# Project root (adjust if needed)
+ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+APP_DIR="$ROOT_DIR/app"
+
+cd "$APP_DIR"
+
+# Ensure DJANGO_SETTINGS_MODULE is set (use .env value if present)
+export DJANGO_SETTINGS_MODULE="${DJANGO_SETTINGS_MODULE:-mixtape.settings.dev}"
+export CELERY_TASK_DEFAULT_QUEUE="${CELERY_TASK_DEFAULT_QUEUE:-stage_queue}"
+
+echo "🔄 Starting Celery worker on queue: ${CELERY_TASK_DEFAULT_QUEUE} (settings: $DJANGO_SETTINGS_MODULE)"
+
+PYTHONPATH=$(pwd) \
+celery -A mixtape worker \
+  --loglevel=info \
+  -E \
+  --concurrency=5 \
+  --prefetch-multiplier=5 \
+  -Q "${CELERY_TASK_DEFAULT_QUEUE}" \
+  -n release-worker@%h

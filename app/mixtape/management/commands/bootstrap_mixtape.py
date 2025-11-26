@@ -1,6 +1,8 @@
 # mixtape/management/commands/bootstrap_mixtape.py
 
-import os, sys, getpass
+import os
+import sys
+import getpass
 from django.core.management.base import BaseCommand
 from django.db import transaction, IntegrityError
 from django.contrib.auth import get_user_model
@@ -8,17 +10,16 @@ from django.conf import settings
 
 from groups.services.memberships import ensure_user_membership
 from mixtape.services.defaults import ensure_default_group
-# from identity.management.commands.seed_emblem_avatar_types import seed_emblem_types
-# from identity.management.commands.seed_public_emblems import seed_public_emblems
-# from identity.services.emblems import ensure_default_group_emblem, ensure_default_user_avatar
 from profiles.services.profiles import ensure_user_profile
-
 
 User = get_user_model()
 
 
 class Command(BaseCommand):
-    help = "Initialize Mixtape: superuser (if needed), default group, types, default emblem."
+    help = (
+        "Bootstrap Mixtape platform with superuser, default group (with polymorphic sponsor), "
+        "and initial memberships."
+    )
 
     # ---- Superuser helpers ----
     def _get_or_create_superuser_dev(self):
@@ -93,26 +94,24 @@ class Command(BaseCommand):
 
         # ---- Everything else can be atomic ----
         with transaction.atomic():
-            # 2. Seed emblem TYPES first
-            # types_created = seed_emblem_types() or 0
-            # self.stdout.write(self.style.SUCCESS(f"Created {types_created} emblem types"))
-
-            # 3. Create user profile + avatar
+            # 2. Create user profile
             su_profile = ensure_user_profile(su)
-            # ensure_default_user_avatar(su_profile)
-            self.stdout.write(self.style.SUCCESS(f"Superuser profile ready: {su_profile.slug} (avatar set)"))
+            self.stdout.write(self.style.SUCCESS(f"✓ Superuser profile: {su_profile.slug}"))
 
-            # 4. Default group + emblem
+            # 3. Default group with polymorphic sponsor
             default_group = ensure_default_group(sponsor_user=su)
-            # ensure_default_group_emblem(default_group)
-            self.stdout.write(self.style.SUCCESS(f"Default group & emblem: {default_group.title} ({default_group.pk})"))
+            self.stdout.write(self.style.SUCCESS(
+                f"✓ Default group: {default_group.title} (id={default_group.pk})"
+            ))
+            self.stdout.write(self.style.SUCCESS(
+                f"  ├─ Sponsor: {default_group.sponsor_display} (type={default_group.sponsor_type})"
+            ))
+            self.stdout.write(self.style.SUCCESS(
+                f"  └─ Author: {default_group.author_display}"
+            ))
 
-            # 5. Public emblems
-            # emblems_created = seed_public_emblems() or 0
-            # self.stdout.write(self.style.SUCCESS(f"Created {emblems_created} public emblems"))
-
-            # 6. Membership
+            # 4. Membership
             ensure_user_membership(default_group, su, role="admin", is_active=True)
-            self.stdout.write(self.style.SUCCESS("Superuser added to Default Group as admin."))
+            self.stdout.write(self.style.SUCCESS("✓ Superuser membership: admin role"))
 
-        self.stdout.write(self.style.SUCCESS("Bootstrap complete."))
+        self.stdout.write(self.style.SUCCESS("\n🎉 Bootstrap complete!"))

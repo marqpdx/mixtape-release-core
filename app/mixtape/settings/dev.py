@@ -49,7 +49,7 @@ SIMPLE_JWT = {
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DB_NAME', 'crossroads_live'),
+        'NAME': os.getenv('DB_NAME', 'crossroads_stage'),
         'USER': os.getenv('DB_USER', 'crossroads_user'),
         'PASSWORD': os.getenv('DB_PASSWORD', 'mixtape_dev_password'),
         'HOST': os.getenv('DB_HOST', 'localhost'),
@@ -57,11 +57,6 @@ DATABASES = {
     }
 }
 
-# CELERY_TASK_ROUTES = {
-#     "utils.tasks.send_transactional_email_task": {"queue": "release_queue"},
-# }
-
-CELERY_TASK_DEFAULT_QUEUE = "release_queue"
 
 
 # ============================================================================
@@ -80,7 +75,7 @@ CELERY_TASK_DEFAULT_QUEUE = "release_queue"
 # Email backend - console output in dev
 # EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
-# for emailing in dev
+# for emailing
 FRONTEND_URL = 'http://localhost:3010'
 
 
@@ -109,6 +104,3 @@ FRONTEND_URL = 'http://localhost:3010'
 #     },
 # }
 
-# Celery - Phase 3
-# CELERY_BROKER_URL = 'amqp://localhost'
-# CELERY_RESULT_BACKEND = 'rpc://'

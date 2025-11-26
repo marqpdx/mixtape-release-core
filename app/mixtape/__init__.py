@@ -1,3 +1,3 @@
-# ============================================================================
-# Celery removed for Phase 1 - will add back in Phase 3+
-# ============================================================================
+# mixtape/__init__.py
+from .celery import app as celery_app
+__all__ = ("celery_app",)

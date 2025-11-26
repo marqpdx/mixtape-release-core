@@ -69,12 +69,14 @@ INSTALLED_APPS = [
 
     # Local - MINIMAL for Phase 1
     'accounts',      # Authentication (JWT, login, /auth/me)
+    'activity',      # User activity tracking and notifications
+    'chat',          # Chat app, socket.io
+    'contexts',      # Context management
     'fundamentals',  # BaseModel (timestamps, soft delete)
     'groups',        # Group model, GroupMembership, Invitations (Phase 2)
     'profiles',      # UserProfile, Member API
     'users',         # CustomUser, Role models
-    'utils',          # Utility functions and helpers
-    # 'activity',     # User activity tracking (Phase 1)
+    'utils',         # Utility functions and helpers
 ]
 
 # ============================================================================
@@ -300,6 +302,17 @@ JWT_COOKIE_NAME = os.getenv("JWT_COOKIE_NAME", "refresh_token")
 JWT_COOKIE_SECURE = os.getenv("JWT_COOKIE_SECURE", "false").lower() in ("1", "true", "yes")
 JWT_COOKIE_SAMESITE = os.getenv("JWT_COOKIE_SAMESITE", "Lax")
 
+SERVICE_JWT_SECRET = os.getenv("SERVICE_JWT_SECRET")
+SERVICE_JWT_ALG = os.getenv("SERVICE_JWT_ALG", "HS256")
+SERVICE_JWT_ISS = os.getenv("SERVICE_JWT_ISS", "mixtape")
+SERVICE_JWT_AUD = os.getenv("SERVICE_JWT_AUD", "django-api")
+SERVICE_JWT_TTL_SECONDS = int(os.getenv("SERVICE_JWT_TTL_SECONDS", "600"))
+
+LIVEWIRE_JWT_SECRET = os.getenv("LIVEWIRE_JWT_SECRET")
+LIVEWIRE_JWT_ALG = os.getenv("LIVEWIRE_JWT_ALG", "HS256")
+LIVEWIRE_JWT_ISS = os.getenv("LIVEWIRE_JWT_ISS", "mixtape")
+LIVEWIRE_JWT_AUD = os.getenv("LIVEWIRE_JWT_AUD", "livewire")
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
@@ -313,20 +326,6 @@ EMAIL_PORT = '587'
 EMAIL_HOST_USER = 'REDACTED-MAILJET-API-KEY'
 EMAIL_HOST_PASSWORD = 'REDACTED-MAILJET-SECRET-KEY'
 EMAIL_USE_TLS = True
-
-
-# ============================================================================
-# CELERY (Deferred to Phase 3+)
-# ============================================================================
-# Background task processing - will add back when we need:
-# - Async email sending
-# - Scheduled tasks
-# - Long-running operations
-# ============================================================================
-# CELERY_ACCEPT_CONTENT = ["json"]
-# CELERY_TASK_SERIALIZER = "json"
-# CELERY_BROKER_URL = 'amqp://localhost'
-# CELERY_RESULT_BACKEND = 'rpc://'
 
 
 # CORS defaults (safe for local dev)

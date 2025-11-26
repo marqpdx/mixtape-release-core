@@ -4,6 +4,7 @@
 
 from django.urls import path
 from . import jwt_views, views
+from groups.api.views import accept_invite
 
 urlpatterns = [
     # Core auth
@@ -30,4 +31,5 @@ urlpatterns = [
     # Utilities
     path('csrf', views.csrf, name='csrf-token'),
     path('check-username/<str:username>', views.check_username, name='check-username'),
+    path("accept-invite", accept_invite, name="accept-invite"),
 ]

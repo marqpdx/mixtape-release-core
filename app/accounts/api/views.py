@@ -22,7 +22,8 @@ from profiles.models import UserProfile
 from users.models import Role
 
 from .serializers import UserCreateSerializer
-# from .serializers import UserSerializer, GroupSerializer  # Deferred to Phase 2+
+from .serializers import UserSerializer
+# from .serializers import GroupSerializer  # Deferred to Phase 3
 
 User = get_user_model()
 
@@ -32,33 +33,34 @@ def csrf(request):
 
 
 # ============================================================================
-# DEFERRED: UserViewSet and GroupViewSet (Phase 2+)
+# UserViewSet - Now enabled for Phase 2+
 # ============================================================================
-# These viewsets depend on UserSerializer and GroupSerializer which need
-# S3 storage functionality (Phase 2) and Groups (Phase 3)
-# For Phase 1, we only need: /auth/me, login, refresh, signup, check-username
+class UserViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    API endpoint that allows users to be viewed.
+    Read-only for now (list and retrieve only).
+    """
+    queryset = get_user_model().objects.none()
+    serializer_class = UserSerializer
+    permission_classes = [IsAuthenticated]  # Require authentication
+    pagination_class = None
+
+    def get_queryset(self):
+        """
+        Return all active users, prefetch roles for efficiency.
+        """
+        qs = get_user_model().objects.filter(
+            is_active=True
+        ).prefetch_related(
+            Prefetch('roles', queryset=Role.objects.only('name'))
+        ).select_related('profile').order_by('-date_joined')
+
+        return qs
+
+
 # ============================================================================
-# class UserViewSet(viewsets.ModelViewSet):
-#     """
-#     API endpoint that allows users to be viewed or edited.
-#     """
-#     queryset = get_user_model().objects.none()
-#     serializer_class = UserSerializer
-#     permission_classes = [permissions.AllowAny]
-#     pagination_class = None
-#
-#     def get_queryset(self):
-#         qs = get_user_model().objects.prefetch_related(
-#             Prefetch('roles', queryset=Role.objects.only('name'))
-#         ).order_by('-date_joined')
-#
-#         print("✅ Found users in queryset:")
-#         for user in qs:
-#             print(f" - {user.username} | Roles: {[r.name for r in user.roles.all()]}")
-#
-#         return qs
-#
-#
+# DEFERRED: GroupViewSet (Phase 3)
+# ============================================================================
 # class GroupViewSet(viewsets.ModelViewSet):
 #     """
 #     API endpoint that allows groups to be viewed or edited.
