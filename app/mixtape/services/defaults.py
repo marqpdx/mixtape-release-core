@@ -14,7 +14,7 @@ def _det_uuid(namespace: str, key: str) -> uuid.UUID:
 def ensure_default_group(*, sponsor_user) -> Group:
     """
     Idempotently ensure the Default Group exists and is sponsored by sponsor_user.
-    IMPORTANT: sets sponsor BEFORE first save to satisfy NOT NULL constraints.
+    Uses polymorphic sponsorship pattern via BaseContent.
     """
     name = getattr(settings, "MIXTAPE_DEFAULT_GROUP_NAME", "Crossroads")
     slug = getattr(settings, "MIXTAPE_DEFAULT_GROUP_SLUG", "") or slugify(name) or "crossroads"
@@ -30,7 +30,7 @@ def ensure_default_group(*, sponsor_user) -> Group:
     if group:
         return group
 
-    # Create new group
+    # Create new group with polymorphic sponsor
     group = Group(
         id=gid,
         title=name,
@@ -38,7 +38,15 @@ def ensure_default_group(*, sponsor_user) -> Group:
         is_active=True,
         group_type=GroupType.COMMUNITY
     )
-    # group.set_sponsor(sponsor_user)  # PHASE 4: Deferred - sponsor fields removed in Phase 2
+
+    # Set sponsor BEFORE first save to satisfy NOT NULL constraints
+    group.set_sponsor(sponsor_user)
+    group.set_submitted_by(sponsor_user)
+
+    # Set author fields (sponsor_user is both sponsor and author)
+    group.author = sponsor_user
+    group.author_name = sponsor_user.get_full_name() or sponsor_user.username
+
     group.save()
 
     CommunityGroup.objects.create(

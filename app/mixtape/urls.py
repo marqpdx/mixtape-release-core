@@ -1,14 +1,14 @@
-# mixtape/urls.py
+# app/mixtape/urls.py
 
 from django.contrib import admin
 from django.urls import include, path
 from rest_framework import routers
 from . import views
 
-# from accounts.api import views as userViews  # Deferred - UserViewSet needs Phase 2 serializers
+from accounts.api.views import UserViewSet
 
 router = routers.DefaultRouter()
-# router.register(r'api/users', userViews.UserViewSet)  # Deferred to Phase 2+
+router.register(r'users', UserViewSet, basename='user')
 
 # ============================================================================
 # PHASE 1: MINIMAL URL CONFIGURATION
@@ -38,6 +38,7 @@ urlpatterns = [
 
     # Members (User + Profile combined)
     path('api/members/', include('profiles.api.urls')),
+
     # Endpoints: /api/members/, /api/members/<slug>
 
     # === END PHASE 1 ENDPOINTS ===
@@ -49,14 +50,19 @@ urlpatterns = [
     # Endpoints: /api/groups, /api/groups/<slug>, /api/groups/<slug>/members, etc.
 
     # === END PHASE 2 ENDPOINTS ===
+
+    path('api/chat/', include('chat.api.urls')),
+    path('api/livewire/', include('livewire.api.urls')),
+
+    # DRF Router endpoints
+    path('api/', include(router.urls)),
 ]
-# urlpatterns += router.urls  # Deferred - no router endpoints in Phase 1
 
 # ============================================================================
 # DEFERRED ENDPOINTS (Add back in later phases):
 # - path('api/groups', include('groups.api.urls'))
 # - path('api/ai/', include('ai.api.urls'))
-# - path('api/chat/', include('chat.api.urls'))
+
 # - path('api/writing/', include('writing.api.urls'))
 # - path('api/assets', include('assets.api.urls'))
 # - path("api/identity/", include("identity.api.urls"))
