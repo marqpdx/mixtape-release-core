@@ -23,7 +23,7 @@ app = Celery("mixtape")
 app.conf.broker_url     = os.getenv("CELERY_BROKER_URL", "amqp://guest:guest@127.0.0.1:5672//")
 app.conf.result_backend = os.getenv("CELERY_RESULT_BACKEND", "rpc://")
 
-default_q = os.getenv("CELERY_TASK_DEFAULT_QUEUE", "stage_queue")
+default_q = os.getenv("SHARED_RABBIT_CHAT_QUEUE", "mixtape_shared_rabbit_chat_queue")
 app.conf.task_default_queue = default_q
 app.conf.task_queues = (
     Queue(default_q, routing_key=default_q),
