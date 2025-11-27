@@ -1,4 +1,5 @@
 # utils/chat/notify_socket_server.py
+
 """
 Send chat notifications to the Socket.IO server via RabbitMQ.
 Uses Celery for async delivery with retry logic.
@@ -6,17 +7,19 @@ Uses Celery for async delivery with retry logic.
 
 from celery import shared_task
 import json
+import os
 import logging
 
 logger = logging.getLogger(__name__)
 
+socket_q  = os.getenv("SHARED_RABBIT_CHAT_QUEUE", "mixtape_shared_rabbit_chat_queue")
 
 @shared_task(
     bind=True,
     max_retries=3,
     default_retry_delay=5,
     name="utils.chat.notify_socket_server",
-    queue="chat_events"  # Route to chat_events queue consumed by livewire
+    queue=socket_q  # Route to chat_events queue consumed by livewire
 )
 def notify_socket_server_task(self, conversation_data):
     """
