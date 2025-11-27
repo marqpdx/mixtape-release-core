@@ -95,7 +95,6 @@ class TokenViewBaseWithCookie(TokenViewBase):
                 path="/",
                 domain=getattr(settings, "SESSION_COOKIE_DOMAIN", None),
                 samesite=getattr(settings, "SESSION_COOKIE_SAMESITE", "Lax"),
-                secure=JWT_COOKIE_SECURE,
             )
 
             return resp
@@ -137,7 +136,6 @@ class Logout(APIView):
             domain=JWT_COOKIE_DOMAIN,
             path=JWT_COOKIE_PATH,
             samesite=JWT_COOKIE_SAMESITE,  # must match what was set
-            secure=JWT_COOKIE_SECURE,
         )
 
         # Safety deletions for legacy/host-only cookies (no domain or api-only domain)
@@ -147,7 +145,6 @@ class Logout(APIView):
                 domain=legacy_domain,
                 path="/",
                 samesite=JWT_COOKIE_SAMESITE,
-                secure=JWT_COOKIE_SECURE,
             )
 
         logger.info("User logged out (cookies cleared)")
