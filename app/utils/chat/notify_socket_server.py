@@ -19,12 +19,12 @@ socket_q  = os.getenv("SHARED_RABBIT_CHAT_QUEUE", "mixtape_shared_rabbit_chat_qu
     max_retries=3,
     default_retry_delay=5,
     name="utils.chat.notify_socket_server",
-    queue=socket_q  # Route to chat_events queue consumed by livewire
+    queue=socket_q  # Route to SHARED_RABBIT_CHAT_QUEUE queue consumed by livewire
 )
 def notify_socket_server_task(self, conversation_data):
     """
     Celery task to notify Socket.IO server about chat events.
-    Published to RabbitMQ 'chat_events' queue, consumed by livewire Socket.IO server.
+    Published to RabbitMQ SHARED_RABBIT_CHAT_QUEUE queue, consumed by livewire Socket.IO server.
 
     Args:
         conversation_data: Dict with conversation details
@@ -32,7 +32,7 @@ def notify_socket_server_task(self, conversation_data):
     try:
         logger.info(f"Publishing {conversation_data.get('event')} to RabbitMQ: {conversation_data.get('slug')}")
 
-        # This task publishes to the 'chat_events' queue
+        # This task publishes to the SHARED_RABBIT_CHAT_QUEUE queue
         # The livewire Socket.IO server consumes from this queue
         # and broadcasts events to connected WebSocket clients
 
