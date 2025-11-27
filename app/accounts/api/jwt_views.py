@@ -109,8 +109,6 @@ class RefreshToken(TokenViewBaseWithCookie):
     serializer_class = serializers.TokenRefreshSerializer
 
 
-
-
 class Logout(APIView):
     authentication_classes = []
     permission_classes = []
@@ -130,22 +128,15 @@ class Logout(APIView):
 
         resp = Response({"success": True, "detail": "Logged out successfully"}, status=status.HTTP_200_OK)
 
-        # Primary deletion: current canonical flags
+        # Delete refresh token cookie
+        # Note: Must NOT specify domain parameter to delete host-only cookies (dev)
+        # Production with SESSION_COOKIE_DOMAIN set will use that domain
         resp.delete_cookie(
             key=JWT_COOKIE_NAME,
-            domain=JWT_COOKIE_DOMAIN,
             path=JWT_COOKIE_PATH,
-            samesite=JWT_COOKIE_SAMESITE,  # must match what was set
+            samesite=JWT_COOKIE_SAMESITE,
+            domain=JWT_COOKIE_DOMAIN,  # Will be None in dev (host-only), set in production
         )
 
-        # Safety deletions for legacy/host-only cookies (no domain or api-only domain)
-        for legacy_domain in (None, "api.crossroads.place"):
-            resp.delete_cookie(
-                key=JWT_COOKIE_NAME,
-                domain=legacy_domain,
-                path="/",
-                samesite=JWT_COOKIE_SAMESITE,
-            )
-
-        logger.info("User logged out (cookies cleared)")
+        logger.info("User logged out successfully")
         return resp
