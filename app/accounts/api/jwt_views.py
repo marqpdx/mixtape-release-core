@@ -16,6 +16,12 @@ from . import serializers
 
 logger = logging.getLogger(__name__)
 
+# Centralize cookie names/flags
+JWT_COOKIE_NAME   = getattr(settings, "JWT_COOKIE_NAME", "refresh_token")
+JWT_COOKIE_DOMAIN = getattr(settings, "SESSION_COOKIE_DOMAIN", None)  # prod: ".crossroads.place"
+JWT_COOKIE_PATH   = "/"
+JWT_COOKIE_SAMESITE = getattr(settings, "JWT_COOKIE_SAMESITE", "Lax")  # prod: "None"
+JWT_COOKIE_SECURE   = getattr(settings, "JWT_COOKIE_SECURE", False)    # prod: True
 
 class TokenViewBaseWithCookie(TokenViewBase):
 
@@ -89,6 +95,7 @@ class TokenViewBaseWithCookie(TokenViewBase):
                 path="/",
                 domain=getattr(settings, "SESSION_COOKIE_DOMAIN", None),
                 samesite=getattr(settings, "SESSION_COOKIE_SAMESITE", "Lax"),
+                secure=JWT_COOKIE_SECURE,
             )
 
             return resp
@@ -103,11 +110,16 @@ class RefreshToken(TokenViewBaseWithCookie):
     serializer_class = serializers.TokenRefreshSerializer
 
 
-class Logout(APIView):
-    def post(self, request, *args, **kwargs):
-        refresh_token = request.COOKIES.get(settings.JWT_COOKIE_NAME)
 
-        # Try to blacklist if token exists and blacklist is enabled
+
+class Logout(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request, *args, **kwargs):
+        refresh_token = request.COOKIES.get(JWT_COOKIE_NAME)
+
+        # Try to blacklist if possible (only works if blacklist app is enabled)
         if refresh_token:
             try:
                 from rest_framework_simplejwt.tokens import RefreshToken
@@ -117,18 +129,26 @@ class Logout(APIView):
             except Exception as e:
                 logger.warning(f"Could not blacklist token on logout: {e}")
 
-        # Clear the cookie
-        resp = Response(
-            {"success": True, "detail": "Logged out successfully"},
-            status=status.HTTP_200_OK,
-        )
+        resp = Response({"success": True, "detail": "Logged out successfully"}, status=status.HTTP_200_OK)
 
+        # Primary deletion: current canonical flags
         resp.delete_cookie(
-            settings.JWT_COOKIE_NAME,
-            path="/",
-            domain=getattr(settings, "SESSION_COOKIE_DOMAIN", None),
-            samesite=getattr(settings, "SESSION_COOKIE_SAMESITE", "Lax"),
+            key=JWT_COOKIE_NAME,
+            domain=JWT_COOKIE_DOMAIN,
+            path=JWT_COOKIE_PATH,
+            samesite=JWT_COOKIE_SAMESITE,  # must match what was set
+            secure=JWT_COOKIE_SECURE,
         )
 
-        logger.info("User logged out")
+        # Safety deletions for legacy/host-only cookies (no domain or api-only domain)
+        for legacy_domain in (None, "api.crossroads.place"):
+            resp.delete_cookie(
+                key=JWT_COOKIE_NAME,
+                domain=legacy_domain,
+                path="/",
+                samesite=JWT_COOKIE_SAMESITE,
+                secure=JWT_COOKIE_SECURE,
+            )
+
+        logger.info("User logged out (cookies cleared)")
         return resp

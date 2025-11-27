@@ -298,9 +298,13 @@ SIMPLE_JWT = {
      "ALGORITHM": "HS256",
 }
 
+# JWT_COOKIE_NAME = os.getenv("JWT_COOKIE_NAME", "refresh_token")
+# JWT_COOKIE_SECURE = os.getenv("JWT_COOKIE_SECURE", "false").lower() in ("1", "true", "yes")
+# JWT_COOKIE_SAMESITE = os.getenv("JWT_COOKIE_SAMESITE", "Lax")
+
 JWT_COOKIE_NAME = os.getenv("JWT_COOKIE_NAME", "refresh_token")
-JWT_COOKIE_SECURE = os.getenv("JWT_COOKIE_SECURE", "false").lower() in ("1", "true", "yes")
-JWT_COOKIE_SAMESITE = os.getenv("JWT_COOKIE_SAMESITE", "Lax")
+JWT_COOKIE_SECURE = os.getenv("JWT_COOKIE_SECURE", "false").lower() in ("1","true","yes")
+JWT_COOKIE_SAMESITE = os.getenv("JWT_COOKIE_SAMESITE", "Lax")  # "Lax" locally
 
 SERVICE_JWT_SECRET = os.getenv("SERVICE_JWT_SECRET")
 SERVICE_JWT_ALG = os.getenv("SERVICE_JWT_ALG", "HS256")
@@ -379,10 +383,6 @@ CSRF_TRUSTED_ORIGINS = [
 #     'https://api.crossroads.network',
 #     'https://crossroads-dashboard.vercel.app/',
 # ]
-
-
-
-
 
 
 
