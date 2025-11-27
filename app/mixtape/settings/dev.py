@@ -27,7 +27,11 @@ DJANGO_ENV = 'dev'
 ALLOWED_HOSTS = ['*']
 
 # CORS - Allow frontend
-CORS_ORIGIN_ALLOW_ALL = True
+# IMPORTANT: Cannot use CORS_ORIGIN_ALLOW_ALL with CORS_ALLOW_CREDENTIALS
+# Must specify exact origins when credentials are enabled
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3010",  # Next.js frontend
+]
 CORS_ALLOW_CREDENTIALS = True
 
 # JWT Cookie settings for development
