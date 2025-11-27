@@ -52,8 +52,16 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 MEDIA_URL = '/media/'
 
 # JWT Cookie settings for production
-JWT_COOKIE_SECURE = True  # HTTPS required
-JWT_COOKIE_SAMESITE = "None"  # For cross-site requests
+
+JWT_COOKIE_SECURE = True
+JWT_COOKIE_SAMESITE = "None"
+
+SESSION_COOKIE_DOMAIN = ".crossroads.place"
+CSRF_COOKIE_DOMAIN = ".crossroads.place"
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_SAMESITE = "None"
+CSRF_COOKIE_SAMESITE = "None"
 
 # CORS - Production domains
 CORS_ALLOW_ALL_ORIGINS = False
@@ -68,15 +76,6 @@ CSRF_TRUSTED_ORIGINS = [
     "https://www.crossroads.place",
     "https://crossroads.place",
 ]
-
-SESSION_COOKIE_DOMAIN = '.crossroads.place'  # Note the leading dot!
-CSRF_COOKIE_DOMAIN = '.crossroads.place'
-
-# For HTTPS
-SESSION_COOKIE_SECURE = True
-CSRF_COOKIE_SECURE = True
-SESSION_COOKIE_SAMESITE = 'None'  # Allows cross-site cookies with Secure
-CSRF_COOKIE_SAMESITE = 'None'
 
 # Allowed hosts
 ALLOWED_HOSTS = [
