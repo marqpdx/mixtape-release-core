@@ -79,6 +79,8 @@ INSTALLED_APPS = [
     'utils',         # Utility functions and helpers
 ]
 
+INSTALLED_APPS += ["rest_framework_simplejwt.token_blacklist"]
+
 # ============================================================================
 # DEFERRED APPS (Add back in later phases):
 # - Phase 2: 'identity' (avatars), 'assets' (file storage)
@@ -297,6 +299,12 @@ SIMPLE_JWT = {
     'SIGNING_KEY': ACCESS_TOKEN_SIGNING_KEY,
      "ALGORITHM": "HS256",
 }
+
+SIMPLE_JWT.update({
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+})
+
 
 # JWT_COOKIE_NAME = os.getenv("JWT_COOKIE_NAME", "refresh_token")
 # JWT_COOKIE_SECURE = os.getenv("JWT_COOKIE_SECURE", "false").lower() in ("1", "true", "yes")
