@@ -77,6 +77,7 @@ INSTALLED_APPS = [
     'profiles',      # UserProfile, Member API
     'users',         # CustomUser, Role models
     'utils',         # Utility functions and helpers
+    'writing',       # Writing app
 ]
 
 INSTALLED_APPS += ["rest_framework_simplejwt.token_blacklist"]
@@ -245,15 +246,15 @@ STATIC_URL = '/static/'
 APPEND_SLASH=False
 
 # ============================================================================
-# SPONSOR MODELS (Polymorphic Content - Deferred to Phase 4+)
+# SPONSOR MODELS (Polymorphic Content)
 # ============================================================================
 # Used by BaseContent for polymorphic sponsor relationships
-# Will add back when we implement content creation features
+# Maps token strings to model labels for content type resolution
 # ============================================================================
-# SPONSOR_MODELS = {
-#     "member": AUTH_USER_MODEL,
-#     "group":  "groups.Group",
-# }
+SPONSOR_MODELS = {
+    "member": AUTH_USER_MODEL,
+    "group":  "groups.Group",
+}
 
 # REST Framework Configuration
 REST_FRAMEWORK = {

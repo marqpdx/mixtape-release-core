@@ -53,6 +53,7 @@ urlpatterns = [
 
     path('api/chat/', include('chat.api.urls')),
     path('api/livewire/', include('livewire.api.urls')),
+    path('api/writing/', include('writing.api.urls')),
 
     # DRF Router endpoints
     path('api/', include(router.urls)),
