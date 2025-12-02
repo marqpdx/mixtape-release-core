@@ -66,10 +66,12 @@ INSTALLED_APPS = [
     'corsheaders',          # CORS handling for frontend
     'rest_framework',       # Django REST Framework
     'rest_framework_simplejwt',  # JWT authentication
+    'storages',            # S3 and cloud storage support
 
     # Local - MINIMAL for Phase 1
     'accounts',      # Authentication (JWT, login, /auth/me)
     'activity',      # User activity tracking and notifications
+    'assets',        # Asset management (deferred to Phase 2)
     'chat',          # Chat app, socket.io
     'contexts',      # Context management
     'fundamentals',  # BaseModel (timestamps, soft delete)
@@ -172,13 +174,24 @@ WSGI_APPLICATION = 'mixtape.wsgi.application'
 # Will add S3/cloud storage in Phase 2 when we implement image uploads
 # ============================================================================
 # DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
-# AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "admin")
-# AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
-# AWS_S3_SIGNATURE_VERSION = os.getenv("AWS_S3_SIGNATURE_VERSION", "s3v4")
-# AWS_S3_ENDPOINT_URL = os.getenv("AWS_S3_ENDPOINT_URL", "http://localhost:9000")
-# AWS_STORAGE_BUCKET_NAME = os.getenv("AWS_STORAGE_BUCKET_NAME", "mixtape-assets")
-# AWS_S3_REGION_NAME = os.getenv("AWS_S3_REGION_NAME", "us-east-1")
-# AWS_S3_USE_SSL = os.getenv("AWS_S3_USE_SSL", "false").lower() == "true"
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "admin")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
+AWS_S3_SIGNATURE_VERSION = os.getenv("AWS_S3_SIGNATURE_VERSION", "s3v4")
+AWS_S3_ENDPOINT_URL = os.getenv("AWS_S3_ENDPOINT_URL", "http://localhost:9000")
+AWS_STORAGE_BUCKET_NAME = os.getenv("AWS_STORAGE_BUCKET_NAME", "mixtape-assets")
+AWS_S3_REGION_NAME = os.getenv("AWS_S3_REGION_NAME", "us-east-1")
+AWS_S3_USE_SSL = os.getenv("AWS_S3_USE_SSL", "false").lower() == "true"
+
+STORAGES = {
+    "default": {
+        "BACKEND": "storages.backends.s3.S3Storage",
+        # If you want, you can pass options here instead of via AWS_*,
+        # but the classic AWS_* settings are fine too.
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
 
 
 # ============================================================================

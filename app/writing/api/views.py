@@ -139,6 +139,7 @@ class WritingPieceListCreateView(generics.ListCreateAPIView):
 
         return response
 
+
 class WritingPieceRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = WritingPieceSerializer
     permission_classes = [permissions.IsAuthenticated, CanEditWritingPiece]
@@ -148,8 +149,46 @@ class WritingPieceRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIVie
         return WritingPiece.objects.filter(author=self.request.user)
 
 
+class WritingPiecePublicView(generics.RetrieveAPIView):
+    """
+    Retrieve a single published WritingPiece by slug (sponsor-agnostic).
+    Used for public viewing of published content.
+
+    GET /api/writing/pieces/view/{slug}
+    """
+    serializer_class = WritingPieceSerializer
+    permission_classes = [permissions.AllowAny]  # Visibility checks done in get_queryset
+    lookup_field = 'slug'
+
+    def get_queryset(self):
+        # Base queryset: published pieces only
+        queryset = WritingPiece.objects.filter(
+            status='published'
+        ).select_related(
+            'author',
+            'sponsor_content_type'
+        ).prefetch_related(
+            'versions',
+            'placements'
+        )
+
+        # TODO: Add visibility filtering based on placements if needed
+        # For now, all published pieces are viewable
+        # You can add logic here to check placement visibility
+
+        return queryset
+
+    def retrieve(self, request, *args, **kwargs):
+        """Override to increment view count"""
+        instance = self.get_object()
+        instance.increment_view_count()
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+
 class WritingPieceDetailView(generics.RetrieveAPIView):
     """
+    DEPRECATED: Use WritingPiecePublicView instead.
     Retrieve a single WritingPiece by slug within a group context.
     Enforces visibility and permission checks.
 
@@ -198,6 +237,7 @@ class WritingPieceDetailView(generics.RetrieveAPIView):
         instance.increment_view_count()
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
+
 
 class WritingPieceScheduleView(generics.GenericAPIView):
     serializer_class = WritingPieceSerializer
@@ -268,7 +308,6 @@ class SeedListCreateView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         serializer.save(author=self.request.user)
-
 
 
 class SeedDetailView(generics.RetrieveUpdateDestroyAPIView):

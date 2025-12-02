@@ -53,8 +53,7 @@ class SponsorPlacementsListView(generics.ListAPIView):
         ).select_related(
             'piece',
             'piece__author',
-            'piece__author__profile',
-            'channel'
+            'target_content_type'
         ).prefetch_related(
             'piece__versions'
         ).order_by('-piece__pinned_at', '-piece__published_at', '-updated_at')

@@ -1,6 +1,8 @@
 amqp==5.3.1
 asgiref==3.10.0
 billiard==4.2.3
+boto3==1.41.5
+botocore==1.41.5
 celery==5.5.3
 click==8.3.1
 click-didyoumean==0.3.1
@@ -11,10 +13,12 @@ django-cors-headers==4.9.0
 django-environ==0.12.0
 django-extensions==4.1
 django-filter==25.2
+django-storages==1.14.6
 djangorestframework==3.16.1
 djangorestframework_simplejwt==5.5.1
 dotenv==0.9.9
 environ==1.0
+jmespath==1.0.1
 kombu==5.5.4
 packaging==25.0
 pillow==12.0.0
@@ -23,8 +27,10 @@ psycopg2-binary==2.9.11
 PyJWT==2.10.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.1
+s3transfer==0.15.0
 six==1.17.0
 sqlparse==0.5.3
 tzdata==2025.2
+urllib3==2.5.0
 vine==5.1.0
 wcwidth==0.2.14

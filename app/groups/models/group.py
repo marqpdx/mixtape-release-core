@@ -28,10 +28,38 @@ class Group(LayoutParent, BaseContent):
     description = models.TextField(blank=True)
     group_type = models.CharField(max_length=20, choices=GroupType.choices)
 
+
+    # DEPRECATED: These fields store expired presigned URLs
+    # Will be removed in future migration once all code uses computed properties
     profile_image = models.CharField(max_length=500, blank=True, null=True)
-    profile_image_path = models.CharField(max_length=512, blank=True, null=True)
     background_image = models.CharField(max_length=500, blank=True, null=True)
+
+
+    # Authoritative storage paths (S3 keys) - use these!
+    profile_image_path = models.CharField(max_length=512, blank=True, null=True)
     background_image_path = models.CharField(max_length=512, blank=True, null=True)
+
+    @property
+    def profile_image_url(self) -> str | None:
+        """
+        Generate presigned URL for profile image on-demand.
+        Returns None if no image path is set.
+        """
+        if not self.profile_image_path:
+            return None
+        from django.core.files.storage import default_storage
+        return default_storage.url(self.profile_image_path)
+
+    @property
+    def background_image_url(self) -> str | None:
+        """
+        Generate presigned URL for background image on-demand.
+        Returns None if no image path is set.
+        """
+        if not self.background_image_path:
+            return None
+        from django.core.files.storage import default_storage
+        return default_storage.url(self.background_image_path)
 
     # ============================================================================
     # PHASE 3: Identity Integration (Deferred)
@@ -190,7 +218,9 @@ class GroupInvitation(BaseModel):
         constraints = []
 
     def is_expired(self):
-        return self.expires_at and self.expires_at < now()
+        if not self.expires_at:
+            return False
+        return self.expires_at < timezone.now()
 
     def __str__(self):
         return f"Invite to {self.group} for {self.invited_email}"
