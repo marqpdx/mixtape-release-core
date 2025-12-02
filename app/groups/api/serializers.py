@@ -58,10 +58,11 @@ class GroupListSerializer(serializers.ModelSerializer):
     """
     member_count = serializers.SerializerMethodField()
     user_roles = serializers.SerializerMethodField()
-    # emblem = EmblemInlineSerializer(read_only=True)  # PHASE 3: Deferred
 
-    # profile_image_url = serializers.SerializerMethodField()
-    # background_image_url = serializers.SerializerMethodField()
+    profile_image_url = serializers.ReadOnlyField()
+    background_image_url = serializers.ReadOnlyField()
+
+    # emblem = EmblemInlineSerializer(read_only=True)  # PHASE 3: Deferred
 
     def get_member_count(self, obj):
         return obj.memberships.filter(
@@ -75,26 +76,27 @@ class GroupListSerializer(serializers.ModelSerializer):
         membership = GroupService.get_user_membership(obj, request.user)
         return membership.roles if membership else None
 
-    # def get_profile_image_url(self, obj):
-    #     key = getattr(obj, "profile_image_path", None) or getattr(obj, "profile_image", None)
-    #     return key_to_url(key)
-
-    # def get_background_image_url(self, obj):
-    #     key = getattr(obj, "background_image_path", None) or getattr(obj, "background_image", None)
-    #     return key_to_url(key)
-
     class Meta:
         model = Group
         fields = [
             'id', 'title', 'slug', 'description', 'group_type', 'visibility',
-            # 'profile_image', 'background_image',                 # raw keys (optional to keep)
-            # 'profile_image_url', 'background_image_url',         # resolved URLs (use these in UI)
+            "profile_image_path",
+            "background_image_path",
+            'profile_image_url', 'background_image_url',         # resolved URLs (use these in UI)
             'is_active', 'created_at', 'member_count', 'user_roles',
         ]
 
+        read_only_fields = [
+            "profile_image_url",
+            "background_image_url",
+        ]
 
 
 class GroupDetailSerializer(GroupListSerializer):
+    # Computed image URLs (read-only, generated on-demand)
+    profile_image_url = serializers.ReadOnlyField()
+    background_image_url = serializers.ReadOnlyField()
+
     # write-only inputs for updates
     # emblem_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
     # emblem_avatar_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
@@ -110,6 +112,18 @@ class GroupDetailSerializer(GroupListSerializer):
                 # "submitted_by",
                 # "submitted_by_username",
                 "updated_at",
+                # Image storage paths (writable)
+                "profile_image_path",
+                "background_image_path",
+                # Computed image URLs (read-only, generated on-demand)
+                "profile_image_url",
+                "background_image_url",
+                # Additional content fields
+                "summary",
+                "body",
+                "author_name",
+                # "status",
+                # "display_layout",
                 # write-only inputs (included so DRF accepts them on PATCH)
                 # "emblem_id",
                 # "emblem_avatar_id",
@@ -122,10 +136,11 @@ class GroupDetailSerializer(GroupListSerializer):
             # "submitted_by_username",
             "created_at",
             "updated_at",
+            # Computed URLs (never writable)
+            "profile_image_url",
+            "background_image_url",
             # "emblem",  # already read_only=True, this is just redundant safety
         )
-
-
 
 
 class GroupCreateSerializer(serializers.ModelSerializer):
@@ -136,7 +151,10 @@ class GroupCreateSerializer(serializers.ModelSerializer):
         model = Group
         fields = [
             'title', 'description', 'group_type', 'visibility',
-            'profile_image', 'background_image',
+            # Only the path fields (URLs are computed properties)
+            'profile_image_path',
+            'background_image_path',
+            'summary', 'body', 'author_name',
         ]
 
     def validate_title(self, value):
@@ -146,8 +164,6 @@ class GroupCreateSerializer(serializers.ModelSerializer):
         if len(value.strip()) < 3:
             raise serializers.ValidationError("Title must be at least 3 characters.")
         return value.strip()
-
-
 
 
 class GroupMembershipListSerializer(serializers.ModelSerializer):
@@ -264,7 +280,6 @@ class GroupMembershipListSerializer(serializers.ModelSerializer):
             # Group context
             'group_title', 'group_slug',
         ]
-
 
 
 class GroupMembershipSearchSerializer(serializers.ModelSerializer):

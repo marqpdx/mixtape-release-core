@@ -9,6 +9,7 @@ from .views import (
     SeedPromoteView,
     WritingCommentListCreateView,
     WritingPieceListCreateView,
+    WritingPiecePublicView,
     WritingPiecePublishAndPlaceView,
     WritingPieceRetrieveUpdateDestroyView,
     WritingWorkingCopyUpsertView,
@@ -36,6 +37,7 @@ urlpatterns = [
     # Pieces
     path("pieces", WritingPieceListCreateView.as_view(), name="writingpiece-list-create"),
     path("pieces/<uuid:pk>", WritingPieceRetrieveUpdateDestroyView.as_view(), name="writingpiece-detail"),
+    path("pieces/view/<slug:slug>", WritingPiecePublicView.as_view(), name="writingpiece-public-view"),
 
     # Working copy (autosave buffer)
     path("pieces/<uuid:pk>/working-copy", WritingWorkingCopyUpsertView.as_view(), name="writingpiece-workingcopy"),

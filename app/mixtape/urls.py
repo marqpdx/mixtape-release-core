@@ -50,7 +50,7 @@ urlpatterns = [
     # Endpoints: /api/groups, /api/groups/<slug>, /api/groups/<slug>/members, etc.
 
     # === END PHASE 2 ENDPOINTS ===
-
+    path('api/assets/', include('assets.api.urls')),
     path('api/chat/', include('chat.api.urls')),
     path('api/livewire/', include('livewire.api.urls')),
     path('api/writing/', include('writing.api.urls')),
