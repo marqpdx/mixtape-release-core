@@ -1,0 +1,26 @@
+flowchart TD
+  A[Start — No Suggestions Yet] --> B[Input Keywords + Number]
+  B --> C[Press "Suggest New Assets"]
+  C --> D[Table of New Suggestions]
+
+  D -->|Approve| E1[Fade Row → Move to Pre-Approved Section]
+  D -->|Decline| E2[Fade Row → Move to Declined Section]
+  D -->|Delete| F[Fade Row → Permanently Removed]
+  D -->|Blacklist| G[Fade Row → Add to Blacklist + Remove]
+
+  E1 -->|Optional Undo| D
+  E2 -->|Optional Undo| D
+
+  E1 --> H[Button: "Begin Deep Curation 🚀"]
+  H --> CuratePage[Curate Page — Deep Curation Starts!]
+
+
+flowchart TD
+  SUGGESTED[SuggestedAsset<br>approved=False<br>retrieved=False<br>ingested=False]
+  PREAPPROVED[Pre-Approved<br>approved=True<br>retrieved=True<br>ingested=False]
+  CURATED[Curated (Deep Curated)<br>approved=True<br>retrieved=True<br>ingested=False]
+  INGESTED[Ingested<br>approved=True<br>retrieved=True<br>ingested=True]
+
+  SUGGESTED -->|Pre-Approve (fetch full text)| PREAPPROVED
+  PREAPPROVED -->|Deep Curation Metadata| CURATED
+  CURATED -->|Final Approve + Ingest| INGESTED

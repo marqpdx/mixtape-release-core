@@ -1,7 +1,9 @@
 # mixtape/assets/api/urls.py
 
 from django.urls import path
+
 from . import views
+
 
 # parent; api/assets
 
@@ -13,6 +15,8 @@ urlpatterns = [
 
     # Simple image upload (profile/background images, no DB records)
     path("upload", views.SponsorImageUploadView.as_view(), name="sponsor-image-upload"),
+    path("commit", views.CommitImageView.as_view(), name="commit-image"),
+    path("rollback", views.RollbackImageView.as_view(), name="rollback-image"),
 
     # Managed asset upload (full Asset records with metadata, privacy, etc.)
     path("managed/upload", views.SponsorAssetUploadView.as_view(), name="sponsor-asset-upload"),

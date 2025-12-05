@@ -6,11 +6,11 @@ Applies user notification preferences to determine delivery method and priority.
 Supports per-bucket and per-activity-code preferences.
 """
 
-from typing import Tuple
+
 from activity.models import NotificationPreference
 
 
-def apply_preferences(user, action) -> Tuple[str, str, str]:
+def apply_preferences(user, action) -> tuple[str, str, str]:
     """
     Apply user notification preferences to an action.
 
@@ -81,7 +81,7 @@ def get_user_preference(user, bucket=None, activity_code=None):
             user=user,
             activity_code=activity_code
         ).first()
-    elif bucket:
+    if bucket:
         return NotificationPreference.objects.filter(
             user=user,
             bucket=bucket

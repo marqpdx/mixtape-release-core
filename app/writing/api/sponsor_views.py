@@ -5,10 +5,10 @@ Works with both Group and Member sponsors.
 """
 
 from django.contrib.contenttypes.models import ContentType
-from rest_framework import generics, permissions, status
-from rest_framework.response import Response
+from rest_framework import generics, permissions
 
 from writing.models import WritingPlacement, WritingWorkingCopy
+
 from .serializers import WritingPlacementSerializer, WritingWorkingCopySerializer
 
 
@@ -25,19 +25,19 @@ class SponsorPlacementsListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        sponsor_type = self.request.query_params.get('sponsor_type')
-        sponsor_slug = self.request.query_params.get('sponsor_slug')
+        sponsor_type = self.request.query_params.get("sponsor_type")
+        sponsor_slug = self.request.query_params.get("sponsor_slug")
 
         if not sponsor_type or not sponsor_slug:
             return WritingPlacement.objects.none()
 
         # Get the content type for the sponsor model
         try:
-            if sponsor_type == 'group':
+            if sponsor_type == "group":
                 from groups.models import Group
                 content_type = ContentType.objects.get_for_model(Group)
                 sponsor = Group.objects.get(slug=sponsor_slug)
-            elif sponsor_type == 'member':
+            elif sponsor_type == "member":
                 from users.models import User
                 content_type = ContentType.objects.get_for_model(User)
                 sponsor = User.objects.get(username=sponsor_slug)  # or however members are identified
@@ -51,12 +51,12 @@ class SponsorPlacementsListView(generics.ListAPIView):
             piece__sponsor_content_type=content_type,
             piece__sponsor_object_id=sponsor.id
         ).select_related(
-            'piece',
-            'piece__author',
-            'target_content_type'
+            "piece",
+            "piece__author",
+            "target_content_type"
         ).prefetch_related(
-            'piece__versions'
-        ).order_by('-piece__pinned_at', '-piece__published_at', '-updated_at')
+            "piece__versions"
+        ).order_by("-piece__pinned_at", "-piece__published_at", "-updated_at")
 
         return qs
 
@@ -75,8 +75,8 @@ class SponsorDraftsListView(generics.ListAPIView):
     pagination_class = None  # No pagination for drafts
 
     def get_queryset(self):
-        sponsor_type = self.request.query_params.get('sponsor_type')
-        sponsor_slug = self.request.query_params.get('sponsor_slug')
+        sponsor_type = self.request.query_params.get("sponsor_type")
+        sponsor_slug = self.request.query_params.get("sponsor_slug")
         user = self.request.user
 
         if not sponsor_type or not sponsor_slug:
@@ -84,11 +84,11 @@ class SponsorDraftsListView(generics.ListAPIView):
 
         # Get the content type for the sponsor model
         try:
-            if sponsor_type == 'group':
+            if sponsor_type == "group":
                 from groups.models import Group
                 content_type = ContentType.objects.get_for_model(Group)
                 sponsor = Group.objects.get(slug=sponsor_slug)
-            elif sponsor_type == 'member':
+            elif sponsor_type == "member":
                 from users.models import User
                 content_type = ContentType.objects.get_for_model(User)
                 sponsor = User.objects.get(username=sponsor_slug)
@@ -102,15 +102,15 @@ class SponsorDraftsListView(generics.ListAPIView):
         qs = WritingWorkingCopy.objects.filter(
             piece__sponsor_content_type=content_type,
             piece__sponsor_object_id=sponsor.id,
-            piece__status='draft',
+            piece__status="draft",
             user=user  # Only show user's own drafts
         ).exclude(
             piece__is_empty=True  # ← Add this: Filter out empty pieces
         ).select_related(
-            'piece',
-            'piece__author',
-            'user',
-            'user__profile'
-        ).order_by('-last_saved_at')
+            "piece",
+            "piece__author",
+            "user",
+            "user__profile"
+        ).order_by("-last_saved_at")
 
         return qs

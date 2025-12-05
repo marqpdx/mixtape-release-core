@@ -1,6 +1,6 @@
 # groups/api/urls.py
 
-from django.urls import include, path
+from django.urls import path
 
 # ============================================================================
 # PHASE 2: Active Views
@@ -15,6 +15,7 @@ from .views import (
     UserGroupsView,
     invite_to_group,
 )
+
 
 # ============================================================================
 # PHASE 3+: Deferred App Integrations

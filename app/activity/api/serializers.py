@@ -1,8 +1,10 @@
 # activity/api/serializers.py
 
-from rest_framework import serializers
-from activity.models import Notification
 from django.contrib.contenttypes.models import ContentType
+from rest_framework import serializers
+
+from activity.models import Notification
+
 
 class NotificationSerializer(serializers.ModelSerializer):
     action_code = serializers.CharField(source="action.activity_code", read_only=True)
@@ -35,22 +37,22 @@ class NotificationSerializer(serializers.ModelSerializer):
 
     def get_actor_name(self, obj):
         if obj.action.actor:
-            return getattr(obj.action.actor, 'username', getattr(obj.action.actor, 'get_full_name', lambda: str(obj.action.actor))())
-        return 'System'
+            return getattr(obj.action.actor, "username", getattr(obj.action.actor, "get_full_name", lambda: str(obj.action.actor))())
+        return "System"
 
     def get_object_name(self, obj):
         if obj.action.object:
-            return getattr(obj.action.object, 'title', getattr(obj.action.object, 'name', str(obj.action.object)))
-        return ''
+            return getattr(obj.action.object, "title", getattr(obj.action.object, "name", str(obj.action.object)))
+        return ""
 
     def get_action_url(self, obj):
         # For group invitations, return the invite URL from metadata
-        if obj.action.activity_code == 'group_invitation':
-            return obj.action.metadata.get('invite_url', '')
+        if obj.action.activity_code == "group_invitation":
+            return obj.action.metadata.get("invite_url", "")
 
         # Otherwise construct based on object type
         if obj.action.object:
             ct = ContentType.objects.get_for_model(obj.action.object)
-            if ct.model == 'group':
+            if ct.model == "group":
                 return f"/groups/{obj.action.object.slug}"
-        return ''
+        return ""

@@ -6,77 +6,78 @@ Provides simple role-based permission computation.
 Will be enhanced in Phase 2 with permission tree and decorators.
 """
 
-from typing import Dict, List, Set
+
 from django.contrib.contenttypes.models import ContentType
+
 from groups.models import GroupMembership
 
 
 # Phase 1: Simple role → permissions mapping (hardcoded)
 # Will be replaced by permission tree in Phase 2A
 ROLE_PERMISSIONS = {
-    'admin': [
+    "admin": [
         # Course management
-        'create_course',
-        'edit_course',
-        'delete_course',
-        'publish_course',
-        'manage_courses',
+        "create_course",
+        "edit_course",
+        "delete_course",
+        "publish_course",
+        "manage_courses",
 
         # Member management
-        'manage_members',
-        'invite_members',
-        'remove_members',
-        'assign_roles',
+        "manage_members",
+        "invite_members",
+        "remove_members",
+        "assign_roles",
 
         # Group management
-        'edit_group',
-        'manage_group_settings',
+        "edit_group",
+        "manage_group_settings",
 
         # Content access
-        'view_content',
-        'view_drafts',
+        "view_content",
+        "view_drafts",
 
         # Enrollment
-        'enroll_in_courses',
+        "enroll_in_courses",
     ],
 
-    'steward': [
+    "steward": [
         # Course management (limited)
-        'create_course',
-        'edit_course',
-        'publish_course',
-        'manage_courses',
+        "create_course",
+        "edit_course",
+        "publish_course",
+        "manage_courses",
 
         # Member management (limited)
-        'invite_members',
+        "invite_members",
 
         # Content access
-        'view_content',
-        'view_drafts',
+        "view_content",
+        "view_drafts",
 
         # Enrollment
-        'enroll_in_courses',
+        "enroll_in_courses",
     ],
 
-    'coordinator': [
+    "coordinator": [
         # Course management (create only)
-        'create_course',
-        'edit_course',
+        "create_course",
+        "edit_course",
 
         # Content access
-        'view_content',
-        'view_drafts',
+        "view_content",
+        "view_drafts",
 
         # Enrollment
-        'enroll_in_courses',
+        "enroll_in_courses",
     ],
 
-    'member': [
+    "member": [
         # Basic content access
-        'view_content',
+        "view_content",
 
         # Enrollment
-        'enroll_in_courses',
+        "enroll_in_courses",
     ],
 }
 
@@ -92,7 +93,7 @@ class PermissionService:
     """
 
     @staticmethod
-    def compute_user_permissions(user) -> Dict:
+    def compute_user_permissions(user) -> dict:
         """
         Compute all permissions for a user across all their groups.
 
@@ -114,9 +115,9 @@ class PermissionService:
         """
         if not user or not user.is_authenticated:
             return {
-                'granted': [],
-                'effective': [],
-                'groups': {}
+                "granted": [],
+                "effective": [],
+                "groups": {}
             }
 
         # Get all active memberships for this user
@@ -128,10 +129,10 @@ class PermissionService:
             is_pending=False,
             is_banned=False,
             is_evicted=False
-        ).select_related('group')
+        ).select_related("group")
 
-        all_permissions: Set[str] = set()
-        groups_data: Dict[str, Dict] = {}
+        all_permissions: set[str] = set()
+        groups_data: dict[str, dict] = {}
 
         # Process each membership
         for membership in memberships:
@@ -139,15 +140,15 @@ class PermissionService:
             roles = membership.roles or []
 
             # Collect permissions from all roles
-            group_permissions: Set[str] = set()
+            group_permissions: set[str] = set()
             for role in roles:
                 role_perms = ROLE_PERMISSIONS.get(role, [])
                 group_permissions.update(role_perms)
 
             # Store per-group data
             groups_data[group_slug] = {
-                'roles': roles,
-                'permissions': sorted(list(group_permissions))
+                "roles": roles,
+                "permissions": sorted(list(group_permissions))
             }
 
             # Add to global set
@@ -157,9 +158,9 @@ class PermissionService:
         granted_list = sorted(list(all_permissions))
 
         return {
-            'granted': granted_list,
-            'effective': granted_list,  # In Phase 1, granted = effective
-            'groups': groups_data
+            "granted": granted_list,
+            "effective": granted_list,  # In Phase 1, granted = effective
+            "groups": groups_data
         }
 
     @staticmethod
@@ -186,16 +187,16 @@ class PermissionService:
 
         # If checking within a specific group
         if group_slug:
-            group_data = permissions_data['groups'].get(group_slug)
+            group_data = permissions_data["groups"].get(group_slug)
             if not group_data:
                 return False
-            return permission in group_data['permissions']
+            return permission in group_data["permissions"]
 
         # Check global permissions across all groups
-        return permission in permissions_data['effective']
+        return permission in permissions_data["effective"]
 
     @staticmethod
-    def get_user_permissions_in_group(user, group_slug: str) -> List[str]:
+    def get_user_permissions_in_group(user, group_slug: str) -> list[str]:
         """
         Get all permissions a user has within a specific group.
 
@@ -210,15 +211,15 @@ class PermissionService:
             return []
 
         permissions_data = PermissionService.compute_user_permissions(user)
-        group_data = permissions_data['groups'].get(group_slug)
+        group_data = permissions_data["groups"].get(group_slug)
 
         if not group_data:
             return []
 
-        return group_data['permissions']
+        return group_data["permissions"]
 
     @staticmethod
-    def get_user_roles_in_group(user, group_slug: str) -> List[str]:
+    def get_user_roles_in_group(user, group_slug: str) -> list[str]:
         """
         Get all roles a user has within a specific group.
 
@@ -233,25 +234,25 @@ class PermissionService:
             return []
 
         permissions_data = PermissionService.compute_user_permissions(user)
-        group_data = permissions_data['groups'].get(group_slug)
+        group_data = permissions_data["groups"].get(group_slug)
 
         if not group_data:
             return []
 
-        return group_data['roles']
+        return group_data["roles"]
 
 
 # Convenience functions for common checks
 def can_create_course(user, group_slug: str) -> bool:
     """Check if user can create courses in a group."""
-    return PermissionService.can_user_perform_action(user, 'create_course', group_slug)
+    return PermissionService.can_user_perform_action(user, "create_course", group_slug)
 
 
 def can_manage_members(user, group_slug: str) -> bool:
     """Check if user can manage members in a group."""
-    return PermissionService.can_user_perform_action(user, 'manage_members', group_slug)
+    return PermissionService.can_user_perform_action(user, "manage_members", group_slug)
 
 
 def can_edit_group(user, group_slug: str) -> bool:
     """Check if user can edit group settings."""
-    return PermissionService.can_user_perform_action(user, 'edit_group', group_slug)
+    return PermissionService.can_user_perform_action(user, "edit_group", group_slug)

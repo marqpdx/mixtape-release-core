@@ -1,11 +1,12 @@
-from django.db import models
+from django.contrib.contenttypes.fields import GenericForeignKey
 
 # Create your models here.
-from django.db import models
 from django.contrib.contenttypes.models import ContentType
-from django.contrib.contenttypes.fields import GenericForeignKey
 from django.core.exceptions import ValidationError
+from django.db import models
+
 from fundamentals.models import BaseData
+
 
 class ContextDefinition(BaseData):
     """

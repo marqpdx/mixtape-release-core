@@ -9,10 +9,12 @@ Usage:
     python manage.py create_test_users
 """
 
-from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
+from django.core.management.base import BaseCommand
 from django.db import transaction
+
 from profiles.services.profiles import ensure_user_profile
+
 
 User = get_user_model()
 
@@ -26,17 +28,17 @@ class Command(BaseCommand):
         with transaction.atomic():
             # Test admin user (for most tests)
             admin_user, created = User.objects.get_or_create(
-                username='admin',
-                email='admin@mixtape.com',
+                username="admin",
+                email="admin@mixtape.com",
                 defaults={
-                    'first_name': 'Admin',
-                    'last_name': 'User',
-                    'is_staff': True,
-                    'is_superuser': True,
+                    "first_name": "Admin",
+                    "last_name": "User",
+                    "is_staff": True,
+                    "is_superuser": True,
                 }
             )
-            if created or not admin_user.check_password('testpassword123'):
-                admin_user.set_password('testpassword123')
+            if created or not admin_user.check_password("testpassword123"):
+                admin_user.set_password("testpassword123")
                 admin_user.save()
                 self.stdout.write(self.style.SUCCESS(f"✓ Created/updated: {admin_user.username}"))
             else:
@@ -47,15 +49,15 @@ class Command(BaseCommand):
 
             # Existing site member (for @username invite tests)
             existing_user, created = User.objects.get_or_create(
-                username='existinguser',
-                email='existinguser@mixtape.com',
+                username="existinguser",
+                email="existinguser@mixtape.com",
                 defaults={
-                    'first_name': 'Existing',
-                    'last_name': 'User',
+                    "first_name": "Existing",
+                    "last_name": "User",
                 }
             )
-            if created or not existing_user.check_password('userpassword123'):
-                existing_user.set_password('userpassword123')
+            if created or not existing_user.check_password("userpassword123"):
+                existing_user.set_password("userpassword123")
                 existing_user.save()
                 self.stdout.write(self.style.SUCCESS(f"✓ Created/updated: {existing_user.username}"))
             else:
@@ -66,15 +68,15 @@ class Command(BaseCommand):
 
             # Group member (already in test group)
             group_member, created = User.objects.get_or_create(
-                username='groupmember',
-                email='groupmember@mixtape.com',
+                username="groupmember",
+                email="groupmember@mixtape.com",
                 defaults={
-                    'first_name': 'Group',
-                    'last_name': 'Member',
+                    "first_name": "Group",
+                    "last_name": "Member",
                 }
             )
-            if created or not group_member.check_password('memberpassword123'):
-                group_member.set_password('memberpassword123')
+            if created or not group_member.check_password("memberpassword123"):
+                group_member.set_password("memberpassword123")
                 group_member.save()
                 self.stdout.write(self.style.SUCCESS(f"✓ Created/updated: {group_member.username}"))
             else:

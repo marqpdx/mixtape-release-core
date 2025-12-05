@@ -4,8 +4,8 @@ Type-specific models for the four group types.
 Each extends the base Group model via OneToOne relationship.
 """
 
-from django.db import models
 from django.conf import settings
+from django.db import models
 
 from .dec_enums import AdmissionPolicy, GovernanceModel, MeetingFrequency, PrivacyLevel
 

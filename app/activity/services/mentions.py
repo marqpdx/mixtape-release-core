@@ -1,12 +1,11 @@
 # activity/services/mentions.py
 
-from typing import List
-from django.contrib.auth import get_user_model
-from django.contrib.contenttypes.models import ContentType
+
 
 from users.models import CustomUser
 
-def expand_mention_to_users(mention) -> List[CustomUser]:
+
+def expand_mention_to_users(mention) -> list[CustomUser]:
     """
     Returns concrete User instances for a single MessageMention row.
     Supports mentionee = User or Group (via your GroupMembership model).

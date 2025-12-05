@@ -1,0 +1,167 @@
+# # ai/tasks/task_listener.py
+
+
+
+
+# from celery import shared_task
+# import pika  # RabbitMQ client
+
+
+# @shared_task(bind=True)
+# def listen_for_task_result(self):
+#     print("❌ [task] Listening for task results on RabbitMQ...")
+
+#     # Connect to RabbitMQ
+#     connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
+#     channel = connection.channel()
+
+#     # Declare the task_results queue
+#     channel.queue_declare(queue='task_results')
+
+#     def callback(ch, method, properties, body):
+#         print(f"❌ [task] Received message: {body.decode('utf-8')}")
+#         task_data = body.decode('utf-8')
+#         task_id, result = task_data.split(":", 1)
+#         print(f"✅ [task] Received result for task {task_id}: {result}")
+#         ch.basic_ack(delivery_tag=method.delivery_tag)
+
+#     # Start consuming the messages
+#     channel.basic_consume(queue='task_results', on_message_callback=callback)
+
+#     print("❌ [task] Subscribed to task_results queue. Waiting for messages...")
+#     channel.start_consuming()
+
+
+
+
+
+# # import threading
+# # from celery import shared_task
+# # import redis
+
+# # # Initialize Redis client
+# # redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
+
+
+# # @shared_task(bind=True, max_retries=3, default_retry_delay=10)
+# # def listen_for_task_result(self):
+# #     print("❌ [task] Listening for task results on Redis...")
+
+# #     pubsub = redis_client.pubsub()
+# #     pubsub.subscribe("task_channel")
+
+# #     def listen_for_messages():
+# #         print("❌ [task] Subscribed to task_channel. Waiting for messages...")
+# #         for message in pubsub.listen():
+# #             # Ensure that the message type is 'message'
+# #             if message['type'] == 'message':
+# #                 task_data = message['data'].decode('utf-8')
+# #                 task_id, result = task_data.split(":", 1)
+# #                 print(f"✅ [task] Received result for task {task_id}: {result}")
+# #             else:
+# #                 print(f"❌ [task] Unrecognized message type: {message['type']}")
+
+# #     # Run the listener in a background thread
+# #     pubsub_thread = threading.Thread(target=listen_for_messages)
+# #     pubsub_thread.daemon = True  # Ensures the thread stops when the main program ends
+# #     pubsub_thread.start()
+
+
+
+# # @shared_task(bind=True, max_retries=3, default_retry_delay=10)
+# # def listen_for_task_result(self):
+# #     print("❌ [task] Listening for task results on Redis...")
+# #     pubsub = redis_client.pubsub()
+# #     pubsub.subscribe("task_channel")
+
+# #     def listen_for_messages():
+# #         print("❌ [task] Subscribed to task_channel. Waiting for messages...")
+# #         for message in pubsub.listen():
+# #             if message['type'] == 'message':
+# #                 task_data = message['data'].decode('utf-8')
+# #                 task_id, result = task_data.split(":", 1)
+# #                 print(f"✅ [task] Received result for task {task_id}: {result}")
+# #             else:
+# #                 print(f"❌ [task] Unrecognized message type: {message['type']}")
+
+# #     # Running the listener in a separate thread to prevent blocking
+# #     pubsub_thread = threading.Thread(target=listen_for_messages)
+# #     pubsub_thread.daemon = True
+# #     pubsub_thread.start()
+
+
+
+
+# # def listen_for_task_result(self):
+# #     print("❌ [task] Listening for task results on Redis...")
+# #     pubsub = redis_client.pubsub()
+# #     pubsub.subscribe("task_channel")
+
+# #     print("❌ [task] Subscribed to task_channel. Waiting for messages...")
+
+# #     # Log any messages Celery gets from Redis
+# #     for message in pubsub.listen():
+# #         if message['type'] == 'message':
+# #             task_data = message['data'].decode('utf-8')
+# #             task_id, result = task_data.split(":", 1)
+# #             print(f"✅ [task] Received result for task {task_id}: {result}")
+# #         else:
+# #             print(f"❌ [task] Ignoring message type: {message['type']}")
+
+
+# # @shared_task(bind=True, max_retries=3, default_retry_delay=10)
+# # def listen_for_task_result(self):
+# #     print("❌ [task] Listening for task results on Redis...")
+# #     pubsub = redis_client.pubsub()
+# #     pubsub.subscribe("task_channel")
+
+# #     print("❌ [task] Subscribed to task_channel. Waiting for messages...")
+
+# #     # Log any messages Celery gets from Redis
+# #     for message in pubsub.listen():
+# #         print(f"❌ [task] Received message: {message}")
+
+# #         if message['type'] == 'message':
+# #             task_data = message['data'].decode('utf-8')
+# #             task_id, result = task_data.split(":", 1)
+# #             print(f"✅ [task] Received result for task {task_id}: {result}")
+# #         else:
+# #             print(f"❌ [task] Unrecognized message type: {message['type']}")
+
+
+
+
+# # @shared_task(bind=True)
+# # def listen_for_task_result(self):
+# #     print("❌ [task] Listening for task results on Redis...")
+# #     try:
+# #         pubsub = redis_client.pubsub()
+# #         pubsub.subscribe("task_channel")
+
+# #         print("❌ [task] Subscribed to task_channel...")
+
+# #         for message in pubsub.listen():
+# #             if message['type'] == 'message':
+# #                 task_data = message['data'].decode('utf-8')
+# #                 task_id, result = task_data.split(":", 1)
+# #                 print(f"✅ [task] Received result for task {task_id}: {result}")
+
+# #     except Exception as e:
+# #         print(f"❌ [task] Error occurred while listening: {e}")
+
+
+
+
+# # @shared_task(bind=True)
+# # def listen_for_task_result(self):
+# #     print("❌ [task] Listening for task results on Redis...")
+# #     pubsub = redis_client.pubsub()
+# #     pubsub.subscribe("task_channel")
+
+# #     for message in pubsub.listen():
+# #         if message['type'] == 'message':
+# #             task_data = message['data'].decode('utf-8')
+# #             task_id, result = task_data.split(":", 1)
+# #             print(f"✅ [task] Received result for task {task_id}: {result}")
+
+

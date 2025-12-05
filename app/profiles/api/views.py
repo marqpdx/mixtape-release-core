@@ -2,7 +2,9 @@
 
 from rest_framework import generics
 from rest_framework.permissions import AllowAny
+
 from profiles.models import UserProfile
+
 from .serializers import MemberSerializer
 
 
@@ -15,10 +17,10 @@ class MemberListView(generics.ListAPIView):
     """
     permission_classes = [AllowAny]
     serializer_class = MemberSerializer
-    queryset = UserProfile.objects.select_related('user').filter(
+    queryset = UserProfile.objects.select_related("user").filter(
         deleted_at__isnull=True,  # Exclude soft-deleted profiles
         user__is_active=True       # Only active users
-    ).order_by('-created_at')
+    ).order_by("-created_at")
 
 
 class MemberDetailView(generics.RetrieveAPIView):
@@ -30,11 +32,11 @@ class MemberDetailView(generics.RetrieveAPIView):
     """
     permission_classes = [AllowAny]
     serializer_class = MemberSerializer
-    queryset = UserProfile.objects.select_related('user').filter(
+    queryset = UserProfile.objects.select_related("user").filter(
         deleted_at__isnull=True,
         user__is_active=True
     )
-    lookup_field = 'slug'  # Use slug instead of pk
+    lookup_field = "slug"  # Use slug instead of pk
 
 
 # Phase 2: Add update/delete views with proper permissions

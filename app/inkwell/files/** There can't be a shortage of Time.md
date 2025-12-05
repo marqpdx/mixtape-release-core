@@ -1,0 +1,21 @@
+In only the rarest of circumstance should any of us be feeling the sharp regret of a shortage of time. 
+This perception leads us to anxious states, to which both the body and mind contribute. 
+Rather than deeply living this moment, or this one and this, each in themselves of prime import, and precious, instead of that present tense fullness, we take this moment and overstuff it together w/past and future, with mourning and worry, regret or anxiety. We make our wobbly take on right now into this massive thing, this unwieldy monstrosity which further exacerbates our imbalanced journey through the current moment.
+I’m not the first, nor the only person to experience goodly percentages of life over the years in these states of dis-equilibrium, but we’re ok. The path is easier. than we’ve led ourselves to believe.
+
+It’s a back and forth… on the one path, the mind starts fretting about a thought of what might happen in the future, or what might not. That mere thought kicks off mild cascades of certain chemicals and hormonal messengers which cue our bodies to invoke certain processes, such as tense shoulders in anticipation of sudden motion or action, or breathe in small increments faster so where never caught w/o oxygen after a long exhale. In turn, each of those physical transitions is experienced by the brain as signals to be aware of, b/c they are the threat may be near signals.
+We’re still in the yellow zone, not toppling into panic but not centered and grounded and calm either.
+From this nexus there are two common pathways that a majority of people find themselves living. One, the person has the capacity to spaciously see the situation and its parts, and has time to assess each part for the true risk of harm. Most of us much of the time, or many of us most of the time, do this autonomically, subconsciously, as part of our own being’s remarkable capacity to survive.
+At other times, though, there’s a tipping point, beyond which the ability and raw capacity to stay within calmer parameters (in terms of quality of thoughts, heart-rate, respiration rate and depth…) is topped over. The dam not only gets too filled up that it starts to spill over the top, it gets filled up too fast and it bursts, and all inner hell literally breaks loose and spills like hot grease into the world. If you’re next to the person he or she may punch or cut you, or may tear you down a thousand other ways the second your back is turned.
+
+That’s why this marker of despairing that there’s a shortage of time is so important. Because we have power to interrupt the cycles that cause our inner worlds to flood over our banks, we can slow thoughts, change chemical flows, rewire our neurons and learn new stories to guide our lives by.
+We can do all that, readily, from now on.
+
+Which brings me back to one of the core caveats in all this writing, don’t take this as some 24/7 gospel advice. Do your best, always lean into towards Love, and if you are in active crisis and these stories seem like far off futures, do what you need to survive. I want only to have your back in that struggle, and in the surprisingly beautiful meadows that are to come.
+The path is through the breath. Each breath you ever take is literally a portal into everything your heart has ever desired. For real, like science. All you gotta do is breathe, and I don’t be to be flip about that. “Just breathing” is a huge step. Breathing can feel super scary in a lot of different situations, so even getting to that first breath is huge.
+Seek out your allies, be kind and generous and around you will grow a community of mutual support, people who will volunteer to have your back, a few even who would even take a bullet for you. 
+It starts w/ each breath, and with giving Love. 
+That’s it. Just do that over and over and over again from now as best you can, and keep us posted, b/c you’re going to see miracles and heavens yet undreamed of, and we want to hear tell about it.
+Love, m
+
+PS, to circle back and bring closure, when might it make sense to believe in a shortage of time. Probably when something really not good is going on, right then! If you are in danger, by all means, survive as best you can. When you sidestep whatever landmines befall you, remember the breath you can come back to. We'll help you find it. That's why we're here. -the folks at Rebel Breath

@@ -1,14 +1,15 @@
 import uuid
+
 from django.conf import settings
-from django.core.exceptions import ValidationError
-from django.db import models
-from django.utils.text import slugify
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
+from django.db import models
 
 from contexts.models import Context
 from fundamentals.bases import BaseModel
 from fundamentals.models import BaseData
+
 
 class Conversation(BaseData):
 
@@ -115,14 +116,14 @@ class ChatMessage(BaseModel):
 
     class Meta:
         indexes = [
-            models.Index(fields=['conversation', '-created_at']),
-            models.Index(fields=['sender', '-created_at']),
+            models.Index(fields=["conversation", "-created_at"]),
+            models.Index(fields=["sender", "-created_at"]),
         ]
 
     def get_reaction_summary(self):
         """Return reaction_name counts for this message"""
         from django.db.models import Count
-        return self.reactions.values('reaction_name').annotate(count=Count('reaction_name')).order_by('-count')
+        return self.reactions.values("reaction_name").annotate(count=Count("reaction_name")).order_by("-count")
 
     def __str__(self):
         return f"[{self.created_at}] {self.sender.username}: {self.text[:50]}"

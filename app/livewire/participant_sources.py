@@ -1,6 +1,6 @@
 # apps/livewire/participant_sources.py
-from typing import Iterable, Set
 from django.contrib.auth import get_user_model
+
 
 User = get_user_model()
 
@@ -15,7 +15,7 @@ def register(model_cls):
     return _wrap
 
 
-def users_for_anchor(anchor_obj) -> Set[int]:
+def users_for_anchor(anchor_obj) -> set[int]:
     """
     Return a set of user IDs who should be participants for this anchor.
     """

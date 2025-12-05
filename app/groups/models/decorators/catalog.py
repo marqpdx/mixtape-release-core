@@ -5,10 +5,10 @@ Decorator catalog models.
 Define available decorators that can be assigned to groups and memberships.
 """
 
-from django.db import models
 from django.contrib.postgres.fields import ArrayField
+from django.db import models
 
-from ..dec_enums import DecoratorCategory, GroupType
+from ..dec_enums import DecoratorCategory
 
 
 class GroupDecorator(models.Model):
@@ -92,11 +92,11 @@ class GroupDecorator(models.Model):
 
     class Meta:
         db_table = "groups_groupdecorator"
-        ordering = ['sort_order', 'code']
+        ordering = ["sort_order", "code"]
         verbose_name = "Group Decorator"
         verbose_name_plural = "Group Decorators"
         indexes = [
-            models.Index(fields=['category', 'is_deprecated']),
+            models.Index(fields=["category", "is_deprecated"]),
         ]
 
     def __str__(self):
@@ -193,11 +193,11 @@ class MembershipDecorator(models.Model):
 
     class Meta:
         db_table = "groups_membershipdecorator"
-        ordering = ['sort_order', 'code']
+        ordering = ["sort_order", "code"]
         verbose_name = "Membership Decorator"
         verbose_name_plural = "Membership Decorators"
         indexes = [
-            models.Index(fields=['category', 'is_deprecated']),
+            models.Index(fields=["category", "is_deprecated"]),
         ]
 
     def __str__(self):

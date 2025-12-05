@@ -1,5 +1,6 @@
 from rest_framework.permissions import BasePermission
 
+
 class HasChatWriteScope(BasePermission):
     def has_permission(self, request, view):
         payload = getattr(request, "auth_payload", {}) or {}

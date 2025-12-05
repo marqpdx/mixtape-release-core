@@ -1,5 +1,6 @@
 # api/writing/permissions.py
-from rest_framework.permissions import BasePermission, SAFE_METHODS
+from rest_framework.permissions import BasePermission
+
 from groups.services.permissions import PermissionService
 
 
@@ -24,7 +25,7 @@ class CanEditWritingPiece(BasePermission):
             return True
 
         # Check group permissions if sponsored by a group
-        if obj.sponsor_content_type and obj.sponsor_content_type.model == 'group':
+        if obj.sponsor_content_type and obj.sponsor_content_type.model == "group":
             sponsor = obj.sponsor_object
             if sponsor:
                 # Use PermissionService to check if user can edit writing in this group
@@ -32,7 +33,7 @@ class CanEditWritingPiece(BasePermission):
                 # TODO Phase 2: Add 'edit_writing' and 'publish_writing' to groups/services/permissions.py
                 return PermissionService.can_user_perform_action(
                     user,
-                    'edit_course',  # Temporary: admin/steward can edit
+                    "edit_course",  # Temporary: admin/steward can edit
                     group_slug=sponsor.slug
                 )
 
@@ -54,7 +55,7 @@ class CanPublishWritingPiece(BasePermission):
             return True
 
         # Check group permissions if sponsored by a group
-        if obj.sponsor_content_type and obj.sponsor_content_type.model == 'group':
+        if obj.sponsor_content_type and obj.sponsor_content_type.model == "group":
             sponsor = obj.sponsor_object
             if sponsor:
                 # Use PermissionService to check if user can publish in this group
@@ -62,7 +63,7 @@ class CanPublishWritingPiece(BasePermission):
                 # TODO Phase 2: Add 'publish_writing' to groups/services/permissions.py
                 return PermissionService.can_user_perform_action(
                     user,
-                    'publish_course',  # Temporary: admin/steward can publish
+                    "publish_course",  # Temporary: admin/steward can publish
                     group_slug=sponsor.slug
                 )
 

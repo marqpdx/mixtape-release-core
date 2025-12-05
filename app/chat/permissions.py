@@ -1,7 +1,9 @@
 # chat/permissions.py
 
-from rest_framework.permissions import BasePermission, SAFE_METHODS
+from rest_framework.permissions import BasePermission
+
 from .models import Conversation
+
 
 class IsConversationParticipant(BasePermission):
     """

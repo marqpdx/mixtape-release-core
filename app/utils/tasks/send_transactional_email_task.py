@@ -1,8 +1,10 @@
 # utils/tasks/send_transactional_email_task.py
 
 import traceback
+
 from celery import shared_task
 from django.utils import timezone as dj_timezone
+
 
 print("[celery] 📬 send_transactional_email_task.py has been loaded")
 
@@ -36,8 +38,8 @@ def send_transactional_email_task(
         - templates/email/invite_to_group.txt
         - templates/email/invite_to_group.html
     """
-    from django.core.mail import EmailMultiAlternatives
     from django.conf import settings
+    from django.core.mail import EmailMultiAlternatives
     from django.template.loader import render_to_string
 
     from groups.models import EmailStatus

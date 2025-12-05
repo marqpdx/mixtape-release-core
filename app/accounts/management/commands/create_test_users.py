@@ -9,10 +9,12 @@ Usage:
     python manage.py create_test_users
 """
 
-from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
+from django.core.management.base import BaseCommand
 from django.db import transaction
+
 from profiles.services.profiles import ensure_user_profile
+
 
 User = get_user_model()
 
@@ -26,31 +28,31 @@ class Command(BaseCommand):
         with transaction.atomic():
             # Test admin user (for most tests)
             admin_user = self._ensure_user(
-                username='admin',
-                email='admin@mixtape.com',
-                password='testpassword123',
-                first_name='Admin',
-                last_name='User',
+                username="admin",
+                email="admin@mixtape.com",
+                password="testpassword123",
+                first_name="Admin",
+                last_name="User",
                 is_staff=True,
                 is_superuser=True,
             )
 
             # Existing site member (for @username invite tests)
             existing_user = self._ensure_user(
-                username='existinguser',
-                email='existinguser@mixtape.com',
-                password='userpassword123',
-                first_name='Existing',
-                last_name='User',
+                username="existinguser",
+                email="existinguser@mixtape.com",
+                password="userpassword123",
+                first_name="Existing",
+                last_name="User",
             )
 
             # Group member (already in test group)
             group_member = self._ensure_user(
-                username='groupmember',
-                email='groupmember@mixtape.com',
-                password='memberpassword123',
-                first_name='Group',
-                last_name='Member',
+                username="groupmember",
+                email="groupmember@mixtape.com",
+                password="memberpassword123",
+                first_name="Group",
+                last_name="Member",
             )
 
         self.stdout.write(self.style.SUCCESS("\n✅ Test users ready for E2E testing!"))
@@ -67,11 +69,11 @@ class Command(BaseCommand):
         user, created = User.objects.get_or_create(
             username=username,
             defaults={
-                'email': email,
-                'first_name': first_name,
-                'last_name': last_name,
-                'is_staff': is_staff,
-                'is_superuser': is_superuser,
+                "email": email,
+                "first_name": first_name,
+                "last_name": last_name,
+                "is_staff": is_staff,
+                "is_superuser": is_superuser,
             }
         )
 

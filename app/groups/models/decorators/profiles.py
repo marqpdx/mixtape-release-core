@@ -4,8 +4,8 @@ Decorator profile models.
 Profiles bundle decorators together for easy application to groups/memberships.
 """
 
-from django.db import models
 from django.contrib.postgres.fields import ArrayField
+from django.db import models
 
 from .catalog import GroupDecorator, MembershipDecorator
 
@@ -45,8 +45,8 @@ class GroupDecoratorProfile(models.Model):
 
     decorators = models.ManyToManyField(
         GroupDecorator,
-        through='GroupProfileItem',
-        related_name='profiles',
+        through="GroupProfileItem",
+        related_name="profiles",
         help_text="Decorators included in this profile"
     )
 
@@ -66,7 +66,7 @@ class GroupDecoratorProfile(models.Model):
 
     class Meta:
         db_table = "groups_groupdecoratorprofile"
-        ordering = ['sort_order', 'code']
+        ordering = ["sort_order", "code"]
         verbose_name = "Group Decorator Profile"
         verbose_name_plural = "Group Decorator Profiles"
 
@@ -89,13 +89,13 @@ class GroupProfileItem(models.Model):
     profile = models.ForeignKey(
         GroupDecoratorProfile,
         on_delete=models.CASCADE,
-        related_name='items'
+        related_name="items"
     )
 
     decorator = models.ForeignKey(
         GroupDecorator,
         on_delete=models.CASCADE,
-        related_name='profile_items'
+        related_name="profile_items"
     )
 
     sort_order = models.IntegerField(
@@ -110,8 +110,8 @@ class GroupProfileItem(models.Model):
 
     class Meta:
         db_table = "groups_groupprofileitem"
-        ordering = ['sort_order']
-        unique_together = [('profile', 'decorator')]
+        ordering = ["sort_order"]
+        unique_together = [("profile", "decorator")]
 
     def __str__(self):
         return f"{self.profile.code} → {self.decorator.code}"
@@ -145,8 +145,8 @@ class MembershipDecoratorProfile(models.Model):
 
     decorators = models.ManyToManyField(
         MembershipDecorator,
-        through='MembershipProfileItem',
-        related_name='profiles',
+        through="MembershipProfileItem",
+        related_name="profiles",
         help_text="Decorators included in this profile"
     )
 
@@ -166,7 +166,7 @@ class MembershipDecoratorProfile(models.Model):
 
     class Meta:
         db_table = "groups_membershipdecoratorprofile"
-        ordering = ['sort_order', 'code']
+        ordering = ["sort_order", "code"]
         verbose_name = "Membership Decorator Profile"
         verbose_name_plural = "Membership Decorator Profiles"
 
@@ -183,13 +183,13 @@ class MembershipProfileItem(models.Model):
     profile = models.ForeignKey(
         MembershipDecoratorProfile,
         on_delete=models.CASCADE,
-        related_name='items'
+        related_name="items"
     )
 
     decorator = models.ForeignKey(
         MembershipDecorator,
         on_delete=models.CASCADE,
-        related_name='profile_items'
+        related_name="profile_items"
     )
 
     sort_order = models.IntegerField(
@@ -204,8 +204,8 @@ class MembershipProfileItem(models.Model):
 
     class Meta:
         db_table = "groups_membershipprofileitem"
-        ordering = ['sort_order']
-        unique_together = [('profile', 'decorator')]
+        ordering = ["sort_order"]
+        unique_together = [("profile", "decorator")]
 
     def __str__(self):
         return f"{self.profile.code} → {self.decorator.code}"

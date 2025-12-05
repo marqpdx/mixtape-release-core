@@ -1,7 +1,8 @@
 # utils/email/shortcode.py
 
-from uuid import uuid4
 import base64
+from uuid import uuid4
+
 
 def generate_shortcode():
     # Generate short, URL-safe unique ID (e.g., 6–10 chars)

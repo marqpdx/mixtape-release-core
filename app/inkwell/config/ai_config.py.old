@@ -1,0 +1,190 @@
+# ai/config/ai_config.py
+
+import os, re
+
+from collections import defaultdict
+from llama_index.core import Settings
+from llama_index.core import VectorStoreIndex
+from llama_index.core.retrievers import BaseRetriever, VectorIndexRetriever
+from llama_index.core.schema import NodeWithScore
+from llama_index.core import VectorStoreIndex
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.llms.llama_cpp import LlamaCPP
+from typing import List
+
+from llama_index.core.retrievers import EnsembleRetriever
+
+
+from ai.scripts.documents_pg import SimpleBM25Retriever
+
+# # Get the absolute path to the current script (llama_qdrant_setup.py)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# # Build the path to the model
+MODEL_PATH = os.path.join(SCRIPT_DIR, "..", "models", "phi-2.Q4_K_M.gguf")
+MODEL_PATH = os.path.normpath(MODEL_PATH)
+
+retriever = None  # ✅ Declare this globally at the module level
+
+collection_name = "gutenberg33"
+
+def configure_embedding():
+    print('in config emb, trying')
+    try:
+        Settings.embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-base-en")
+        print("✅ Embedding model 'BAAI/bge-base-en' loaded successfully.")
+    except Exception as e:
+        print(f"❌ Failed to load embedding model 'BAAI/bge-base-en': {e}")
+    print('end of config emb')
+
+
+def strip_embedded_qa(text: str) -> str:
+        """Remove embedded Q&A patterns like 'Query: ... Answer: ...'."""
+        return re.sub(r"(Query:.*?Answer:.*?)(?=(\nQuery:|\Z))", "", text, flags=re.DOTALL)
+
+
+# ✅ What This Gives You:
+
+#     ✅ BM25 + vector retrieval (hybrid)
+
+#     ✅ Fallback to vector-only if BM25 file not present
+
+#     ✅ Cleans all node text with strip_embedded_qa
+
+#     ✅ Prints preview of cleaned node text
+
+#     ✅ Sorts by metadata priority
+
+#     ✅ Logs sorted results clearly
+
+
+def build_retriever(index: VectorStoreIndex, collection_name: str):
+
+    vector_retriever = VectorIndexRetriever(index=index, similarity_top_k=5)
+
+    bm25_path = f"./ai/bm25/bm25_indexes/{collection_name}.json"
+    bm25_retriever = None
+    if os.path.exists(bm25_path):
+        bm25_retriever = SimpleBM25Retriever.load_from_path(bm25_path, k=5)
+    else:
+        print(f"⚠️ BM25 file not found at {bm25_path} — using vector retriever only")
+
+    class ManualEnsembleRetriever(BaseRetriever):
+        def _retrieve(self, query: str) -> List[NodeWithScore]:
+            vector_results = vector_retriever.retrieve(query)
+            if not bm25_retriever:
+                return vector_results
+
+            bm25_results = bm25_retriever.retrieve(query)
+
+            score_map = defaultdict(float)
+            node_map = {}
+
+            for result in bm25_results:
+                node_id = result.node.node_id
+                score_map[node_id] += 0.3 * result.score
+                node_map[node_id] = result.node
+
+            for result in vector_results:
+                node_id = result.node.node_id
+                score_map[node_id] += 0.7 * result.score
+                node_map[node_id] = result.node
+
+            combined = [
+                NodeWithScore(node=node_map[node_id], score=score)
+                for node_id, score in score_map.items()
+            ]
+            return sorted(combined, key=lambda nws: nws.score, reverse=True)
+
+    base_retriever = ManualEnsembleRetriever()
+
+
+    # ✅ Wrap with your original cleaning/sorting/logging logic
+    class CleanedRetriever(BaseRetriever):
+        def retrieve(self, query: str):
+            nodes_with_scores = base_retriever.retrieve(query)
+
+            # Clean embedded Q&A
+            for nws in nodes_with_scores:
+                nws.node.text = strip_embedded_qa(nws.node.text)
+
+            # Debug preview
+            for i, nws in enumerate(nodes_with_scores):
+                print(f"\n🧼 Cleaned Node {i}:\n{nws.node.text[:300]}")
+                print()
+
+            # Sort by metadata priority (descending)
+            sorted_nodes = sorted(
+                nodes_with_scores,
+                key=lambda nws: nws.node.metadata.get("priority", 0),
+                reverse=True
+            )
+
+            for i, nws in enumerate(sorted_nodes):
+                print(f"[Node {i}] priority={nws.node.metadata.get('priority')} title={nws.node.metadata.get('title')}")
+                print()
+
+            return sorted_nodes
+
+    return CleanedRetriever()
+
+
+
+# ai/config/ai_config.py
+
+def configure_llm():
+    print(">>>> in configure_llm")
+    try:
+        Settings.llm = LlamaCPP(
+            model_path=MODEL_PATH,
+            temperature=0.1,
+            max_new_tokens=256,
+            context_window=2048,
+            model_kwargs={
+                "n_gpu_layers": 20,
+                "n_batch": 128,
+                "f16_kv": True,
+                "use_mlock": False,
+                "n_threads": 4,
+                "verbose": True,
+            },
+        )
+        print("✅ Local LLM configured successfully.")
+    except Exception as e:
+        print(f"❌ Failed to configure local LLM: {e}")
+
+
+def configure_rag(index, collection_name):
+
+    print('just in conrag')
+
+    import inspect
+    # print("Settings class is from:", inspect.getfile(Settings))
+    inspect.getfile(Settings.__class__)
+    print("Settings class is from:", inspect.getfile(type(Settings)))
+
+
+    # print('just in conrag 1a')
+
+
+    # print("CHECK — Settings.llm is:", repr(Settings.llm))
+    # print("CHECK — Is None?", Settings.llm is None)
+    # print("CHECK — hasattr(Settings, 'llm'):", hasattr(Settings, "llm"))
+
+
+
+
+    # print('Settings', Settings)
+    # print()
+    # print('Settings.embed_model', Settings.embed_model)
+    # print()
+    # print('Settings.llm', Settings.llm)
+
+    if not Settings.embed_model:
+        configure_embedding()
+    if getattr(Settings, "llm", None) is None:
+        configure_llm()
+    global retriever
+    if retriever is None:
+        retriever = build_retriever(index, collection_name)
+    print('donzo')

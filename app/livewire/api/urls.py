@@ -4,6 +4,7 @@ from django.urls import path
 
 from livewire.api.views import exchange_ws_for_service_token, livewire_token
 
+
 # base path: api/livewire/
 
 urlpatterns = [

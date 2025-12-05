@@ -1,0 +1,1 @@
+Like how he thought of personal well-being as being most closely aligned with the core desire of the Creator for our refulgent abundance.

@@ -1,9 +1,11 @@
 # activity/producers.py
 from __future__ import annotations
+
 from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
 
 from activity.models import Action, ActionOutbox, ActivityType
+
 
 def _id(obj) -> str:
     return str(getattr(obj, "pk", obj))

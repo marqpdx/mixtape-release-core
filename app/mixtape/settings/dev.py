@@ -1,12 +1,14 @@
 # mixtape/settings/dev.py
 # Development settings for Phase 1
 
-import sys
 import os
+import sys
 from pathlib import Path
-from dotenv import load_dotenv
+
 from django.db.backends.signals import connection_created
 from django.dispatch import receiver
+from dotenv import load_dotenv
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -17,14 +19,15 @@ load_dotenv(BASE_DIR / ".env.local", override=True)
 # Import base settings
 from .base import *
 
+
 # Development overrides
 DEBUG = True
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-unsafe-secret-key")
 
-DJANGO_ENV = 'dev'
+DJANGO_ENV = "dev"
 
 # Allow all hosts in development
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ["*"]
 
 # CORS - Allow frontend
 # IMPORTANT: Cannot use CORS_ORIGIN_ALLOW_ALL with CORS_ALLOW_CREDENTIALS
@@ -44,6 +47,8 @@ JWT_COOKIE_SAMESITE = "Lax"  # Can't use "None" without Secure=True (HTTPS)
 
 # Extend access token lifetime for development convenience
 from datetime import timedelta
+
+
 SIMPLE_JWT = {
     **SIMPLE_JWT,  # Inherit from base.py
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=8),  # Dev: 8 hours instead of 10 minutes
@@ -51,13 +56,13 @@ SIMPLE_JWT = {
 
 # Database - PostgreSQL (Phase 2: Required for Groups app with ArrayField)
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DB_NAME', 'crossroads_stage'),
-        'USER': os.getenv('DB_USER', 'crossroads_user'),
-        'PASSWORD': os.getenv('DB_PASSWORD', 'mixtape_dev_password'),
-        'HOST': os.getenv('DB_HOST', 'localhost'),
-        'PORT': os.getenv('DB_PORT', '5433'),  # Docker exposes 5433->5432
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.getenv("DB_NAME", "crossroads_stage"),
+        "USER": os.getenv("DB_USER", "crossroads_user"),
+        "PASSWORD": os.getenv("DB_PASSWORD", "mixtape_dev_password"),
+        "HOST": os.getenv("DB_HOST", "localhost"),
+        "PORT": os.getenv("DB_PORT", "5433"),  # Docker exposes 5433->5432
     }
 }
 
@@ -80,7 +85,7 @@ DATABASES = {
 # EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 # for emailing
-FRONTEND_URL = 'http://localhost:3010'
+FRONTEND_URL = "http://localhost:3010"
 
 
 # ============================================================================

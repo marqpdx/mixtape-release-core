@@ -31,14 +31,13 @@ python manage.py seed_context_definitions --from-file ./context_defs.json --prun
 
 
 import json
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, Dict
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from contexts.models import ContextDefinition
-
 
 
 DEFAULT_DEFS = [
@@ -51,7 +50,7 @@ DEFAULT_DEFS = [
 ]
 
 
-def load_defs_from_file(path: Path) -> Iterable[Dict]:
+def load_defs_from_file(path: Path) -> Iterable[dict]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception as e:

@@ -1,17 +1,18 @@
 # activity/api/views.py
 import logging
-from typing import Dict
-from django.db.models import Count, Max, Q
+
+from django.db.models import Count
 from rest_framework import generics, permissions
-from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from activity.api.permissions import LoggingIsAuthenticated
-from activity.models import Notification
 from activity.api.serializers import NotificationSerializer
+from activity.models import Notification
 
 # If your chat models live elsewhere, adjust imports:
-from chat.models import ConversationParticipant, ChatMessage
+from chat.models import ChatMessage, ConversationParticipant
+
 
 logger = logging.getLogger(__name__)
 
@@ -100,10 +101,10 @@ class NotificationSummaryView(APIView):
                  .filter(user=user)
                  .values("conversation_id", "last_read_at"))
 
-        conv_last_read: Dict[str, object] = {str(p["conversation_id"]): p["last_read_at"] for p in parts}
+        conv_last_read: dict[str, object] = {str(p["conversation_id"]): p["last_read_at"] for p in parts}
         conv_ids = list(conv_last_read.keys())
 
-        unread_by_conversation: Dict[str, int] = {}
+        unread_by_conversation: dict[str, int] = {}
         for cid in conv_ids:
             lra = conv_last_read[cid]
             qs = ChatMessage.objects.filter(conversation_id=cid)

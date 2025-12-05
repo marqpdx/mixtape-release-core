@@ -3,12 +3,14 @@
 from django.contrib import admin
 from django.urls import include, path
 from rest_framework import routers
-from . import views
 
 from accounts.api.views import UserViewSet
 
+from . import views
+
+
 router = routers.DefaultRouter()
-router.register(r'users', UserViewSet, basename='user')
+router.register(r"users", UserViewSet, basename="user")
 
 # ============================================================================
 # PHASE 1: MINIMAL URL CONFIGURATION
@@ -19,25 +21,25 @@ router.register(r'users', UserViewSet, basename='user')
 
 urlpatterns = [
     # Django admin
-    path('admin/', admin.site.urls),
+    path("admin/", admin.site.urls),
 
     # DRF browsable API login
-    path('api-auth/', include('rest_framework.urls', namespace='rest_framework')),
+    path("api-auth/", include("rest_framework.urls", namespace="rest_framework")),
 
     # Health check (for monitoring, tests, and deployment)
-    path('health/', views.health_check, name='health_check'),
+    path("health/", views.health_check, name="health_check"),
 
     # CSRF token endpoint (for frontend auth initialization)
-    path('api/csrf/', views.csrf_token_view, name='csrf_token'),
+    path("api/csrf/", views.csrf_token_view, name="csrf_token"),
 
     # === PHASE 1 ENDPOINTS ===
 
     # Authentication
-    path('api/auth/', include('accounts.api.auth_urls')),
+    path("api/auth/", include("accounts.api.auth_urls")),
     # Endpoints: /api/auth/token, /api/auth/token/refresh, /api/auth/logout, /api/auth/me
 
     # Members (User + Profile combined)
-    path('api/members/', include('profiles.api.urls')),
+    path("api/members/", include("profiles.api.urls")),
 
     # Endpoints: /api/members/, /api/members/<slug>
 
@@ -46,17 +48,17 @@ urlpatterns = [
     # === PHASE 2 ENDPOINTS ===
 
     # Groups
-    path('api/groups', include('groups.api.urls')),
+    path("api/groups", include("groups.api.urls")),
     # Endpoints: /api/groups, /api/groups/<slug>, /api/groups/<slug>/members, etc.
 
     # === END PHASE 2 ENDPOINTS ===
-    path('api/assets/', include('assets.api.urls')),
-    path('api/chat/', include('chat.api.urls')),
-    path('api/livewire/', include('livewire.api.urls')),
-    path('api/writing/', include('writing.api.urls')),
+    path("api/assets/", include("assets.api.urls")),
+    path("api/chat/", include("chat.api.urls")),
+    path("api/livewire/", include("livewire.api.urls")),
+    path("api/writing/", include("writing.api.urls")),
 
     # DRF Router endpoints
-    path('api/', include(router.urls)),
+    path("api/", include(router.urls)),
 ]
 
 # ============================================================================

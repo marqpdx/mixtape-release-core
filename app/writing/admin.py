@@ -1,6 +1,7 @@
 from django.contrib import admin
 
-from writing.models import WritingWorkingCopy, WritingPiece
+from writing.models import WritingPiece, WritingWorkingCopy
+
 
 # Register your models here.
 

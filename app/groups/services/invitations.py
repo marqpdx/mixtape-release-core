@@ -7,15 +7,16 @@ Phase 2: Core invitation functionality without Activity system.
 Activity notifications will be added in a future phase.
 """
 
-from django.utils import timezone as dj_timezone
 import re
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
+from django.utils import timezone as dj_timezone
 
-from groups.models import Group, GroupMembership, GroupInvitation
+from groups.models import GroupInvitation, GroupMembership
 from groups.models.group import InviteLink
 from profiles.models import UserProfile
 from users.models import Role
@@ -68,7 +69,7 @@ class InvitationService:
         pending_invitation = GroupInvitation.objects.filter(
             group=group,
             invited_email=email,
-            invitation_status='pending'
+            invitation_status="pending"
         ).first()
 
         if pending_invitation:
@@ -120,19 +121,19 @@ class InvitationService:
         """
         from groups.services.memberships import ensure_user_membership
 
-        if invitation.invitation_status != 'pending':
+        if invitation.invitation_status != "pending":
             raise ValidationError("This invitation has already been used or cancelled")
 
         # Create membership with member role
         membership = ensure_user_membership(
             group=invitation.group,
             user=user,
-            role='member',
+            role="member",
             is_active=True
         )
 
         # Mark invitation as accepted
-        invitation.invitation_status = 'accepted'
+        invitation.invitation_status = "accepted"
         invitation.save()
 
         return membership
@@ -297,7 +298,7 @@ class InvitationService:
             member_object_id=user.id,
             group=group,
             defaults={
-                "roles": ['member'],  # New: use roles array
+                "roles": ["member"],  # New: use roles array
                 "is_active": True,
                 "is_pending": False,
                 "invited_by": invitation.invited_by,
@@ -308,8 +309,8 @@ class InvitationService:
             # Reactivate if previously existed
             membership.is_active = True
             membership.is_pending = False
-            if 'member' not in membership.roles:
-                membership.roles.append('member')
+            if "member" not in membership.roles:
+                membership.roles.append("member")
             membership.save()
 
         # Update invitation status
@@ -321,11 +322,11 @@ class InvitationService:
         invite.save()
 
         return {
-            'success': True,
-            'user': user,
-            'group': group,
-            'membership': membership,
-            'user_was_new': user_was_new
+            "success": True,
+            "user": user,
+            "group": group,
+            "membership": membership,
+            "user_was_new": user_was_new
         }
 
 

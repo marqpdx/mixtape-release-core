@@ -1,10 +1,12 @@
 # profiles/api/urls.py
 
 from django.urls import path
-from .views import MemberListView, MemberDetailView
+
+from .views import MemberDetailView, MemberListView
+
 
 # /api/members
 urlpatterns = [
-    path('', MemberListView.as_view(), name='member-list'),
-    path('<slug:slug>', MemberDetailView.as_view(), name='member-detail'),
+    path("", MemberListView.as_view(), name="member-list"),
+    path("<slug:slug>", MemberDetailView.as_view(), name="member-detail"),
 ]

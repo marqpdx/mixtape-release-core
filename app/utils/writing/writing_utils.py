@@ -2,8 +2,10 @@
 
 import re
 import uuid
+from typing import Any
+
 from django.utils.text import slugify
-from typing import Dict, Any, Optional
+
 
 # Maximum attempts to find a unique slug
 MAX_SLUG_ATTEMPTS = 1000
@@ -41,7 +43,7 @@ def generate_unique_slug(title: str, model_class, max_length: int = 50) -> str:
     return slug
 
 
-def extract_text_from_prosemirror(doc: Dict[Any, Any]) -> str:
+def extract_text_from_prosemirror(doc: dict[Any, Any]) -> str:
     """
     Extract plain text from ProseMirror document structure.
 
@@ -51,26 +53,26 @@ def extract_text_from_prosemirror(doc: Dict[Any, Any]) -> str:
     Returns:
         Plain text string
     """
-    if not doc or not isinstance(doc, dict) or 'content' not in doc:
+    if not doc or not isinstance(doc, dict) or "content" not in doc:
         return ""
 
-    def extract_from_node(node: Dict[Any, Any]) -> str:
+    def extract_from_node(node: dict[Any, Any]) -> str:
         if not isinstance(node, dict):
             return ""
 
         # Text nodes contain the actual text
-        if node.get('type') == 'text':
-            return node.get('text', '')
+        if node.get("type") == "text":
+            return node.get("text", "")
 
         # Nodes with content have child nodes
-        if 'content' in node and isinstance(node['content'], list):
-            return ' '.join(extract_from_node(child) for child in node['content'])
+        if "content" in node and isinstance(node["content"], list):
+            return " ".join(extract_from_node(child) for child in node["content"])
 
         return ""
 
     try:
-        text_parts = [extract_from_node(node) for node in doc['content']]
-        return ' '.join(filter(None, text_parts))
+        text_parts = [extract_from_node(node) for node in doc["content"]]
+        return " ".join(filter(None, text_parts))
     except (KeyError, TypeError):
         return ""
 
@@ -94,7 +96,7 @@ def estimate_reading_time(text: str, words_per_minute: int = 200) -> int:
     return minutes
 
 
-def count_words_in_prosemirror(doc: Dict[Any, Any]) -> int:
+def count_words_in_prosemirror(doc: dict[Any, Any]) -> int:
     """
     Count words in a ProseMirror document.
 
@@ -128,19 +130,19 @@ def generate_excerpt(text: str, max_length: int = 200) -> str:
         return text
 
     # Try to break at sentence boundary
-    sentences = re.split(r'[.!?]+', text[:max_length + 50])
+    sentences = re.split(r"[.!?]+", text[:max_length + 50])
     if len(sentences) > 1:
-        excerpt = sentences[0] + '.'
+        excerpt = sentences[0] + "."
         if len(excerpt) <= max_length:
             return excerpt
 
     # Fall back to word boundary
     words = text[:max_length].split()
     if words:
-        excerpt = ' '.join(words[:-1]) + '...'
+        excerpt = " ".join(words[:-1]) + "..."
         return excerpt
 
-    return text[:max_length] + '...'
+    return text[:max_length] + "..."
 
 
 def validate_writing_kind(writing_kind: str) -> bool:
@@ -154,8 +156,8 @@ def validate_writing_kind(writing_kind: str) -> bool:
         True if valid, False otherwise
     """
     allowed_kinds = [
-        'post', 'article', 'dispatch', 'forum',
-        'announcement', 'almanac', 'page', 'other'
+        "post", "article", "dispatch", "forum",
+        "announcement", "almanac", "page", "other"
     ]
     return writing_kind in allowed_kinds
 
@@ -171,6 +173,6 @@ def sanitize_filename(filename: str) -> str:
         Sanitized filename
     """
     # Remove or replace unsafe characters
-    filename = re.sub(r'[^\w\s.-]', '', filename)
-    filename = re.sub(r'[-\s]+', '-', filename)
-    return filename.strip('-')
+    filename = re.sub(r"[^\w\s.-]", "", filename)
+    filename = re.sub(r"[-\s]+", "-", filename)
+    return filename.strip("-")

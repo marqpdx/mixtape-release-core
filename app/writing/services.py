@@ -1,7 +1,9 @@
 # apps/writing/services.py
 from django.db import transaction
+
 from .models import Seed
 from .utils import first_line_as_title, plaintext_to_tiptap_json
+
 
 class PromotionError(Exception):
     pass

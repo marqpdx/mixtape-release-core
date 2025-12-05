@@ -1,13 +1,15 @@
 # utils/shared/contenttypes.py
 
 from __future__ import annotations
+
+from collections.abc import Mapping
 from functools import lru_cache
-from typing import Mapping, Optional
 
 from django.apps import apps
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
-from django.core.exceptions import ObjectDoesNotExist, MultipleObjectsReturned
+from django.core.exceptions import ObjectDoesNotExist
+
 
 @lru_cache(maxsize=128)
 def _ct_by_natural_key(app_label: str, model: str) -> ContentType:
@@ -23,7 +25,7 @@ def _ct_for_model_label(model_label: str) -> ContentType:
 
 def resolve_content_type(
     raw: str | int,
-    mapping: Optional[Mapping[str, str]] = None,
+    mapping: Mapping[str, str] | None = None,
 ) -> ContentType:
     """
     Resolve a client string/int into a ContentType.

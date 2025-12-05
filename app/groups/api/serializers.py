@@ -1,16 +1,26 @@
 # groups/api/serializers.py
 
-from rest_framework import serializers
 from django.contrib.contenttypes.models import ContentType
-from groups.models import Group, GroupMembership
-from groups.services.groups import GroupService
-# from identity.models import EmblemAvatar  # PHASE 3: Deferred
-from users.models import CustomUser
+from rest_framework import serializers
 
 from accounts.api.serializers import UserSerializer
+from groups.models import Group, GroupMembership
+from groups.services.groups import GroupService
+
+# from identity.models import EmblemAvatar  # PHASE 3: Deferred
 # from groups.utils import prefetch_members
 # from utils.storage.storage_utils import key_to_url
-from ..models import AnnouncementDismissal, EmailStatus, Group, GroupAnnouncement, GroupInvitation, GroupMembership, InvitationStatus, InviteLink
+from ..models import (
+    AnnouncementDismissal,
+    EmailStatus,
+    Group,
+    GroupAnnouncement,
+    GroupInvitation,
+    GroupMembership,
+    InvitationStatus,
+    InviteLink,
+)
+
 
 # ============================================================================
 # PHASE 3: Identity Integration (Deferred)
@@ -70,7 +80,7 @@ class GroupListSerializer(serializers.ModelSerializer):
         ).count()
 
     def get_user_roles(self, obj):
-        request = self.context.get('request')
+        request = self.context.get("request")
         if not request or not request.user.is_authenticated:
             return None
         membership = GroupService.get_user_membership(obj, request.user)
@@ -79,11 +89,11 @@ class GroupListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Group
         fields = [
-            'id', 'title', 'slug', 'description', 'group_type', 'visibility',
+            "id", "title", "slug", "description", "group_type", "visibility",
             "profile_image_path",
             "background_image_path",
-            'profile_image_url', 'background_image_url',         # resolved URLs (use these in UI)
-            'is_active', 'created_at', 'member_count', 'user_roles',
+            "profile_image_url", "background_image_url",         # resolved URLs (use these in UI)
+            "is_active", "created_at", "member_count", "user_roles",
         ]
 
         read_only_fields = [
@@ -150,11 +160,11 @@ class GroupCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Group
         fields = [
-            'title', 'description', 'group_type', 'visibility',
+            "title", "description", "group_type", "visibility",
             # Only the path fields (URLs are computed properties)
-            'profile_image_path',
-            'background_image_path',
-            'summary', 'body', 'author_name',
+            "profile_image_path",
+            "background_image_path",
+            "summary", "body", "author_name",
         ]
 
     def validate_title(self, value):
@@ -186,8 +196,8 @@ class GroupMembershipListSerializer(serializers.ModelSerializer):
     roles = serializers.SerializerMethodField()
 
     # Group context
-    group_title = serializers.CharField(source='group.title', read_only=True)
-    group_slug = serializers.CharField(source='group.slug', read_only=True)
+    group_title = serializers.CharField(source="group.title", read_only=True)
+    group_slug = serializers.CharField(source="group.slug", read_only=True)
 
     # Invitation context
     invited_by_username = serializers.SerializerMethodField()
@@ -201,45 +211,45 @@ class GroupMembershipListSerializer(serializers.ModelSerializer):
 
     def get_username(self, obj):
         member = obj.member_object
-        return getattr(member, 'username', None)
+        return getattr(member, "username", None)
 
     def get_email(self, obj):
         member = obj.member_object
-        return getattr(member, 'email', None)
+        return getattr(member, "email", None)
 
     def get_first_name(self, obj):
         member = obj.member_object
-        return getattr(member, 'first_name', '')
+        return getattr(member, "first_name", "")
 
     def get_last_name(self, obj):
         member = obj.member_object
-        return getattr(member, 'last_name', '')
+        return getattr(member, "last_name", "")
 
     def get_display_name(self, obj):
         """Compute display name with fallback logic"""
         member = obj.member_object
 
         # Try various display name sources
-        if hasattr(member, 'get_full_name'):
+        if hasattr(member, "get_full_name"):
             full_name = member.get_full_name()
             if full_name:
                 return full_name
 
-        if hasattr(member, 'display_name') and member.display_name:
+        if hasattr(member, "display_name") and member.display_name:
             return member.display_name
 
-        if hasattr(member, 'username'):
+        if hasattr(member, "username"):
             return member.username
 
         return str(obj.member_object_id)
 
     def get_is_active_user(self, obj):
         member = obj.member_object
-        return getattr(member, 'is_active', False)
+        return getattr(member, "is_active", False)
 
     def get_profile_image(self, obj):
         member = obj.member_object
-        return getattr(member, 'profile_image', None)
+        return getattr(member, "profile_image", None)
 
     def get_roles(self, obj):
         """
@@ -253,9 +263,9 @@ class GroupMembershipListSerializer(serializers.ModelSerializer):
 
         # Map each backend role to frontend expectation
         role_mapping = {
-            'admin': 'admin',
-            'steward': 'moderator',
-            'member': 'member',
+            "admin": "admin",
+            "steward": "moderator",
+            "member": "member",
         }
 
         return [role_mapping.get(role, role) for role in backend_roles]
@@ -269,16 +279,16 @@ class GroupMembershipListSerializer(serializers.ModelSerializer):
         model = GroupMembership
         fields = [
             # Member identity
-            'member_id', 'member_type', 'username', 'email',
-            'first_name', 'last_name', 'display_name',
-            'is_active_user', 'profile_image',
+            "member_id", "member_type", "username", "email",
+            "first_name", "last_name", "display_name",
+            "is_active_user", "profile_image",
 
             # Membership data
-            'roles', 'date_joined', 'is_active', 'is_pending',
-            'invited_by_username',
+            "roles", "date_joined", "is_active", "is_pending",
+            "invited_by_username",
 
             # Group context
-            'group_title', 'group_slug',
+            "group_title", "group_slug",
         ]
 
 
@@ -301,37 +311,37 @@ class GroupMembershipSearchSerializer(serializers.ModelSerializer):
 
     def get_username(self, obj):
         member = obj.member_object
-        if hasattr(member, 'username'):
+        if hasattr(member, "username"):
             return member.username
-        elif hasattr(member, 'slug'):  # Group member
+        if hasattr(member, "slug"):  # Group member
             return member.slug
         return None
 
     def get_display_name(self, obj):
         member = obj.member_object
-        if hasattr(member, 'profile') and member.profile:
+        if hasattr(member, "profile") and member.profile:
             return member.profile.display_name
-        elif hasattr(member, 'title'):  # Group member
+        if hasattr(member, "title"):  # Group member
             return member.title
-        return getattr(member, 'username', str(member))
+        return getattr(member, "username", str(member))
 
     def get_email(self, obj):
         member = obj.member_object
-        return getattr(member, 'email', None)
+        return getattr(member, "email", None)
 
     def get_roles(self, obj):
         """Return all roles as array, mapped to frontend expectations"""
         backend_roles = obj.roles or []
         role_mapping = {
-            'admin': 'admin',
-            'steward': 'moderator',
-            'member': 'member',
+            "admin": "admin",
+            "steward": "moderator",
+            "member": "member",
         }
         return [role_mapping.get(role, role) for role in backend_roles]
 
     class Meta:
         model = GroupMembership
-        fields = ['member_id', 'member_type', 'username', 'display_name', 'email', 'roles']
+        fields = ["member_id", "member_type", "username", "display_name", "email", "roles"]
 
 
 # ============================================================================
@@ -407,7 +417,7 @@ class GroupInvitationSerializer(serializers.ModelSerializer):
             invited_by=invited_by,
             invited_user=invited_user,
             token=token,
-            status='invited',
+            status="invited",
             **validated_data
         )
 
@@ -489,7 +499,7 @@ class GroupInvitationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         # Remove invited_username from validated_data since it's not a model field
-        validated_data.pop('invited_username', None)
+        validated_data.pop("invited_username", None)
 
         group = self.context["group"]
         invited_by = self.context["request"].user
@@ -542,10 +552,9 @@ class GroupMembershipSerializer(serializers.ModelSerializer):
     def get_member_data(self, obj):
         if obj.member_content_type.model == "customuser":
             return UserSerializer(obj.member_object).data
-        elif obj.member_content_type.model == "group":
+        if obj.member_content_type.model == "group":
             return GroupMinimalSerializer(obj.member_object).data
-        else:
-            return None
+        return None
 
 
 
@@ -553,7 +562,7 @@ class GroupMembershipSerializer(serializers.ModelSerializer):
 
 
 class GroupAnnouncementSerializer(serializers.ModelSerializer):
-    author_name = serializers.CharField(source='author.username', read_only=True)
+    author_name = serializers.CharField(source="author.username", read_only=True)
     author_avatar = serializers.SerializerMethodField()
     is_expired = serializers.BooleanField(read_only=True)
     source_type = serializers.SerializerMethodField()
@@ -561,16 +570,16 @@ class GroupAnnouncementSerializer(serializers.ModelSerializer):
     class Meta:
         model = GroupAnnouncement
         fields = [
-            'id', 'title', 'content', 'priority', 'position',
-            'is_active', 'created_at', 'updated_at', 'expires_at',
-            'author_name', 'author_avatar', 'is_expired',
-            'cta_text', 'cta_url', 'source_type',
-            'also_send_notification', 'notification_sent_at'
+            "id", "title", "content", "priority", "position",
+            "is_active", "created_at", "updated_at", "expires_at",
+            "author_name", "author_avatar", "is_expired",
+            "cta_text", "cta_url", "source_type",
+            "also_send_notification", "notification_sent_at"
         ]
-        read_only_fields = ['created_at', 'updated_at', 'notification_sent_at']
+        read_only_fields = ["created_at", "updated_at", "notification_sent_at"]
 
     def get_author_avatar(self, obj):
-        if obj.author and hasattr(obj.author, 'avatar'):
+        if obj.author and hasattr(obj.author, "avatar"):
             return obj.author.avatar.url if obj.author.avatar else None
         return None
 
@@ -590,8 +599,8 @@ class CreateAnnouncementFromContentSerializer(serializers.Serializer):
     title = serializers.CharField(max_length=200)
     content = serializers.CharField()
     priority = serializers.ChoiceField(
-        choices=['critical', 'high', 'normal'],
-        default='normal'
+        choices=["critical", "high", "normal"],
+        default="normal"
     )
     cta_text = serializers.CharField(max_length=100, required=False, allow_blank=True)
     cta_url = serializers.CharField(max_length=500, required=False, allow_blank=True)
@@ -610,7 +619,7 @@ class CreateAnnouncementFromContentSerializer(serializers.Serializer):
 class AnnouncementDismissalSerializer(serializers.ModelSerializer):
     class Meta:
         model = AnnouncementDismissal
-        fields = ['id', 'dismissal_type', 'dismissed_at', 'snoozed_until']
-        read_only_fields = ['id', 'dismissed_at', 'snoozed_until']
+        fields = ["id", "dismissal_type", "dismissed_at", "snoozed_until"]
+        read_only_fields = ["id", "dismissed_at", "snoozed_until"]
 
 

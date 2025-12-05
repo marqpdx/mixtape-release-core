@@ -1,14 +1,17 @@
 # app/activity/models.py
 
 import uuid
-from django.db import models
+
 from django.conf import settings
-from django.utils import timezone
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
+from django.db import models
+from django.utils import timezone
 
 from fundamentals.bases import BaseModel
 from fundamentals.models import BaseData  # you provided
+
+
 # from fundamentals.bases import BaseData  # optional, see notes below
 
 

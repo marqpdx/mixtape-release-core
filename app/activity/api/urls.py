@@ -1,12 +1,14 @@
 # activity/api/urls.py
 
 from django.urls import path
+
 from activity.api.views import (
     NotificationListView,
-    NotificationSummaryView,
-    NotificationMarkReadView,
     NotificationMarkAllReadView,
+    NotificationMarkReadView,
+    NotificationSummaryView,
 )
+
 
 # parent path: api/activity
 

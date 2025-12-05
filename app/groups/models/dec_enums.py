@@ -70,7 +70,7 @@ class PrivacyLevel(models.TextChoices):
 
 
 # Core roles that can be in the roles ArrayField
-CORE_ROLES = ['member', 'steward', 'admin']
+CORE_ROLES = ["member", "steward", "admin"]
 
 
 def is_admin(roles: list[str]) -> bool:
@@ -83,7 +83,7 @@ def is_admin(roles: list[str]) -> bool:
     Returns:
         True if 'admin' is in the roles list
     """
-    return 'admin' in roles
+    return "admin" in roles
 
 
 def is_steward(roles: list[str]) -> bool:
@@ -96,7 +96,7 @@ def is_steward(roles: list[str]) -> bool:
     Returns:
         True if 'steward' is in the roles list
     """
-    return 'steward' in roles
+    return "steward" in roles
 
 
 def highest_role(roles: list[str]) -> str:
@@ -109,8 +109,8 @@ def highest_role(roles: list[str]) -> str:
     Returns:
         'admin', 'steward', or 'member' based on hierarchy
     """
-    if 'admin' in roles:
-        return 'admin'
-    if 'steward' in roles:
-        return 'steward'
-    return 'member'
+    if "admin" in roles:
+        return "admin"
+    if "steward" in roles:
+        return "steward"
+    return "member"

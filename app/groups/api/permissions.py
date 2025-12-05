@@ -7,6 +7,7 @@ to provide declarative API endpoint protection.
 """
 
 from rest_framework import permissions
+
 from groups.services.permissions import PermissionService
 
 
@@ -23,7 +24,7 @@ class HasPermission(permissions.BasePermission):
     """
 
     required_permission = None  # Override in subclass
-    required_group_slug_param = 'slug'  # URL parameter name for group slug
+    required_group_slug_param = "slug"  # URL parameter name for group slug
 
     def has_permission(self, request, view):
         """Check if user has the required permission."""
@@ -31,7 +32,7 @@ class HasPermission(permissions.BasePermission):
             return False
 
         # Get permission from view or subclass
-        permission = getattr(view, 'required_permission', None) or self.required_permission
+        permission = getattr(view, "required_permission", None) or self.required_permission
 
         if not permission:
             raise ValueError(
@@ -40,7 +41,7 @@ class HasPermission(permissions.BasePermission):
             )
 
         # Get group slug from URL kwargs if present
-        slug_param = getattr(view, 'required_group_slug_param', None) or self.required_group_slug_param
+        slug_param = getattr(view, "required_group_slug_param", None) or self.required_group_slug_param
         group_slug = view.kwargs.get(slug_param)
 
         # Check permission
@@ -62,7 +63,7 @@ class HasAnyPermission(permissions.BasePermission):
     """
 
     required_permissions = None  # Override in subclass (list)
-    required_group_slug_param = 'slug'
+    required_group_slug_param = "slug"
 
     def has_permission(self, request, view):
         """Check if user has any of the required permissions."""
@@ -70,7 +71,7 @@ class HasAnyPermission(permissions.BasePermission):
             return False
 
         # Get permissions from view or subclass
-        permissions_list = getattr(view, 'required_permissions', None) or self.required_permissions
+        permissions_list = getattr(view, "required_permissions", None) or self.required_permissions
 
         if not permissions_list:
             raise ValueError(
@@ -79,7 +80,7 @@ class HasAnyPermission(permissions.BasePermission):
             )
 
         # Get group slug from URL kwargs if present
-        slug_param = getattr(view, 'required_group_slug_param', None) or self.required_group_slug_param
+        slug_param = getattr(view, "required_group_slug_param", None) or self.required_group_slug_param
         group_slug = view.kwargs.get(slug_param)
 
         # Check if user has any of the permissions
@@ -105,7 +106,7 @@ class HasAllPermissions(permissions.BasePermission):
     """
 
     required_permissions = None  # Override in subclass (list)
-    required_group_slug_param = 'slug'
+    required_group_slug_param = "slug"
 
     def has_permission(self, request, view):
         """Check if user has all of the required permissions."""
@@ -113,7 +114,7 @@ class HasAllPermissions(permissions.BasePermission):
             return False
 
         # Get permissions from view or subclass
-        permissions_list = getattr(view, 'required_permissions', None) or self.required_permissions
+        permissions_list = getattr(view, "required_permissions", None) or self.required_permissions
 
         if not permissions_list:
             raise ValueError(
@@ -122,7 +123,7 @@ class HasAllPermissions(permissions.BasePermission):
             )
 
         # Get group slug from URL kwargs if present
-        slug_param = getattr(view, 'required_group_slug_param', None) or self.required_group_slug_param
+        slug_param = getattr(view, "required_group_slug_param", None) or self.required_group_slug_param
         group_slug = view.kwargs.get(slug_param)
 
         # Check if user has all of the permissions
@@ -143,52 +144,52 @@ class HasAllPermissions(permissions.BasePermission):
 
 class CanCreateCourseInGroup(HasPermission):
     """Check if user can create courses in the group specified by URL slug."""
-    required_permission = 'create_course'
+    required_permission = "create_course"
 
 
 class CanManageMembersInGroup(HasPermission):
     """Check if user can manage members in the group specified by URL slug."""
-    required_permission = 'manage_members'
+    required_permission = "manage_members"
 
 
 class CanEditGroup(HasPermission):
     """Check if user can edit group settings."""
-    required_permission = 'edit_group'
+    required_permission = "edit_group"
 
 
 class CanManageCourses(HasPermission):
     """Check if user can manage courses (higher level permission)."""
-    required_permission = 'manage_courses'
+    required_permission = "manage_courses"
 
 
 class CanPublishCourse(HasPermission):
     """Check if user can publish courses."""
-    required_permission = 'publish_course'
+    required_permission = "publish_course"
 
 
 class CanDeleteCourse(HasPermission):
     """Check if user can delete courses."""
-    required_permission = 'delete_course'
+    required_permission = "delete_course"
 
 
 class CanViewDrafts(HasPermission):
     """Check if user can view draft content."""
-    required_permission = 'view_drafts'
+    required_permission = "view_drafts"
 
 
 class CanInviteMembers(HasPermission):
     """Check if user can invite members to the group."""
-    required_permission = 'invite_members'
+    required_permission = "invite_members"
 
 
 class CanRemoveMembers(HasPermission):
     """Check if user can remove members from the group."""
-    required_permission = 'remove_members'
+    required_permission = "remove_members"
 
 
 class CanAssignRoles(HasPermission):
     """Check if user can assign roles to group members."""
-    required_permission = 'assign_roles'
+    required_permission = "assign_roles"
 
 
 # ============================================================================
@@ -197,9 +198,9 @@ class CanAssignRoles(HasPermission):
 
 class CanCreateOrEditCourse(HasAnyPermission):
     """Check if user can create OR edit courses."""
-    required_permissions = ['create_course', 'edit_course']
+    required_permissions = ["create_course", "edit_course"]
 
 
 class CanManageGroupAndMembers(HasAllPermissions):
     """Check if user can manage both group settings AND members."""
-    required_permissions = ['edit_group', 'manage_members']
+    required_permissions = ["edit_group", "manage_members"]

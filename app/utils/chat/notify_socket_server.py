@@ -5,10 +5,11 @@ Send chat notifications to the Socket.IO server via RabbitMQ.
 Uses Celery for async delivery with retry logic.
 """
 
-from celery import shared_task
-import json
-import os
 import logging
+import os
+
+from celery import shared_task
+
 
 logger = logging.getLogger(__name__)
 

@@ -1,61 +1,11 @@
 # groups/api/views.py
 
 import json
-import re
-from django.utils import timezone as dj_timezone
 
-from django.conf import settings
-from django.contrib.auth.tokens import default_token_generator
-from django.contrib.contenttypes.models import ContentType
-from django.http import JsonResponse
-from django.shortcuts import get_object_or_404
-from rest_framework import generics, permissions, status
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.response import Response
-from django.db.models import Q
-from django.views.decorators.csrf import csrf_exempt
-from rest_framework.permissions import IsAuthenticated
 from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
 
-from django.shortcuts import get_object_or_404
-from rest_framework import generics, permissions
-from rest_framework.response import Response
-from rest_framework.views import APIView
-# from groups.api.serializers import GroupSerializer
-# from activity.models import Action, ActionOutbox
-# from activity.tasks import fanout_action_task
-from groups.models import AnnouncementDismissal, Group, GroupAnnouncement
-
-# from activity.models import ActivityType
-
-# from dispatch.api.serializers import PostSerializer
-# from dispatch.models import Post
-from groups.models import Group, InviteLink
-from groups.services.groups import GroupService
-
-from groups.services.invitations import InvitationService
-
-
-
-
-
-from groups.utils import get_sorting_params
-# from identity.models import EmblemAvatar  # PHASE 3: Deferred
-from profiles.models import UserProfile
-# from threadworks.api.views import StandardResultsSetPagination  # PHASE 3: Deferred
-from rest_framework.pagination import PageNumberPagination  # PHASE 2: Use DRF built-in pagination
-from users.models import CustomUser
-from groups.api.serializers import (
-    GroupCreateSerializer,
-    GroupDetailSerializer,
-    GroupListSerializer,
-    GroupInvitationSerializer,
-    GroupMembershipSerializer,
-)
-from groups.models import Group, GroupMembership, GroupInvitation
-from groups.permissions import IsGroupAdminOrSteward
-from groups.api.permissions import CanInviteMembers
-from utils.email.invitations import generate_username_from_email
 # from utils.email.shortcode import generate_shortcode
 # from utils.tasks import send_transactional_email_task
 # ============================================================================
@@ -63,26 +13,53 @@ from utils.email.invitations import generate_username_from_email
 # ============================================================================
 # from writing.api.serializers import WritingPieceSerializer, WritingPlacementSerializer, WritingWorkingCopySerializer
 # from writing.models import WritingPiece, WritingPlacement, WritingWorkingCopy
-
-
 from django.db import transaction
+from django.db.models import Q
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
-from django.contrib.contenttypes.models import ContentType
-from django.core.exceptions import ValidationError
+from django.utils import timezone as dj_timezone
 from rest_framework import generics, permissions, status
+from rest_framework.decorators import api_view, permission_classes
+
+# from threadworks.api.views import StandardResultsSetPagination  # PHASE 3: Deferred
 from rest_framework.response import Response
 
-from groups.models import Group, GroupMembership
-from .serializers import (
-    CreateAnnouncementFromContentSerializer,
-    GroupAnnouncementSerializer,
-    GroupListSerializer,
-    GroupDetailSerializer,
+from groups.api.permissions import CanInviteMembers
+from groups.api.serializers import (
     GroupCreateSerializer,
-    GroupMembershipListSerializer,
-    GroupMembershipSearchSerializer
+    GroupDetailSerializer,
+    GroupInvitationSerializer,
+    GroupListSerializer,
+    GroupMembershipSerializer,
 )
+
+# from groups.api.serializers import GroupSerializer
+# from activity.models import Action, ActionOutbox
+# from activity.tasks import fanout_action_task
+# from activity.models import ActivityType
+# from dispatch.api.serializers import PostSerializer
+# from dispatch.models import Post
+from groups.models import (
+    Group,
+    GroupInvitation,
+    GroupMembership,
+)
+from groups.permissions import IsGroupAdminOrSteward
+from groups.services.groups import GroupService
+from groups.services.invitations import InvitationService
+
+# from identity.models import EmblemAvatar  # PHASE 3: Deferred
+from users.models import CustomUser
+from utils.email.invitations import generate_username_from_email
+
 from ..permissions import IsGroupAdminOrSteward
+from .serializers import (
+    GroupCreateSerializer,
+    GroupDetailSerializer,
+    GroupListSerializer,
+    GroupMembershipListSerializer,
+    GroupMembershipSearchSerializer,
+)
 
 
 User = get_user_model()
@@ -110,8 +87,8 @@ class GroupListCreateView(generics.ListCreateAPIView):
         if not user.is_authenticated:
             return Group.objects.filter(
                 is_active=True,
-                visibility='public'
-            ).order_by('-created_at')
+                visibility="public"
+            ).order_by("-created_at")
 
         # Staff/superuser see all groups
         if user.is_superuser or user.is_staff:
@@ -123,21 +100,21 @@ class GroupListCreateView(generics.ListCreateAPIView):
                 member_content_type=user_content_type,
                 member_object_id=user.id,
                 is_active=True
-            ).values_list('group_id', flat=True)
+            ).values_list("group_id", flat=True)
 
             queryset = Group.objects.filter(
                 is_active=True
             ).filter(
-                Q(visibility='public') |
+                Q(visibility="public") |
                 Q(id__in=member_group_ids)
             ).distinct()
 
         # Optional filtering
-        group_type = self.request.query_params.get('type')
+        group_type = self.request.query_params.get("type")
         if group_type:
             queryset = queryset.filter(group_type=group_type)
 
-        return queryset.order_by('-created_at')
+        return queryset.order_by("-created_at")
 
     def perform_create(self, serializer):
         """Create group using service layer"""
@@ -145,13 +122,13 @@ class GroupListCreateView(generics.ListCreateAPIView):
 
         # Use service layer to create group
         group = GroupService.create_group(
-            title=serializer.validated_data['title'],
-            group_type=serializer.validated_data['group_type'],
+            title=serializer.validated_data["title"],
+            group_type=serializer.validated_data["group_type"],
             created_by=user,
-            description=serializer.validated_data.get('description', ''),
-            visibility=serializer.validated_data.get('visibility', 'public'),
-            profile_image=serializer.validated_data.get('profile_image'),
-            background_image=serializer.validated_data.get('background_image'),
+            description=serializer.validated_data.get("description", ""),
+            visibility=serializer.validated_data.get("visibility", "public"),
+            profile_image=serializer.validated_data.get("profile_image"),
+            background_image=serializer.validated_data.get("background_image"),
         )
 
         return group
@@ -188,7 +165,7 @@ class GroupDetailView(generics.RetrieveUpdateAPIView):
         obj = super().get_object()
 
         # For read operations, check if user can view
-        if self.request.method == 'GET':
+        if self.request.method == "GET":
             if not GroupService.can_user_view_group(obj, self.request.user):
                 self.permission_denied(
                     self.request,
@@ -261,7 +238,7 @@ class GroupMembersView(generics.ListAPIView):
             is_active=True,
             is_banned=False,
             is_evicted=False
-        ).select_related('group').prefetch_related('member_object')
+        ).select_related("group").prefetch_related("member_object")
 
         # Optional filtering
         role = self.request.query_params.get("role")
@@ -272,19 +249,19 @@ class GroupMembersView(generics.ListAPIView):
             queryset = queryset.filter(roles__contains=[backend_role])
 
         pending = self.request.query_params.get("pending")
-        if pending and pending.lower() == 'true':
+        if pending and pending.lower() == "true":
             queryset = queryset.filter(is_pending=True)
         else:
             queryset = queryset.filter(is_pending=False)
 
-        return queryset.order_by('date_joined')
+        return queryset.order_by("date_joined")
 
     def _map_frontend_role_to_backend(self, frontend_role):
         """Map frontend role names to backend role names"""
         mapping = {
-            'admin': 'admin',
-            'moderator': 'steward',
-            'member': 'member',
+            "admin": "admin",
+            "moderator": "steward",
+            "member": "member",
         }
         return mapping.get(frontend_role, frontend_role)
 
@@ -305,7 +282,7 @@ class GroupMemberSearchView(generics.ListAPIView):
         group_slug = self.kwargs["slug"]
         group = get_object_or_404(Group, slug=group_slug, is_active=True)
 
-        search_term = self.request.query_params.get('q', '').strip()
+        search_term = self.request.query_params.get("q", "").strip()
         if not search_term:
             return GroupMembership.objects.none()
 
@@ -316,11 +293,11 @@ class GroupMemberSearchView(generics.ListAPIView):
             is_banned=False,
             is_evicted=False,
             is_pending=False
-        ).select_related('group').prefetch_related('member_object')
+        ).select_related("group").prefetch_related("member_object")
 
         # Filter by search term - this will need customization based on your member types
         # For now, assuming User members with standard fields
-        if search_term.startswith('@'):
+        if search_term.startswith("@"):
             username_search = search_term[1:]
             # You'll need to implement search across different member types
             # This is a simplified example for User members
@@ -348,12 +325,12 @@ class UserGroupsView(generics.ListAPIView):
             is_active=True,
             is_banned=False,
             is_evicted=False
-        ).values_list('group_id', flat=True)
+        ).values_list("group_id", flat=True)
 
         return Group.objects.filter(
             id__in=member_group_ids,
             is_active=True
-        ).order_by('title')
+        ).order_by("title")
 
 
 class GroupMembersListView(generics.ListAPIView):
@@ -376,13 +353,13 @@ class GroupMembersListView(generics.ListAPIView):
             qs = qs.filter(roles__contains=[role])
         if status:
             # Map status to actual boolean fields
-            if status == 'active':
+            if status == "active":
                 qs = qs.filter(is_active=True, is_pending=False, is_banned=False, is_evicted=False)
-            elif status == 'pending':
+            elif status == "pending":
                 qs = qs.filter(is_pending=True)
-            elif status == 'banned':
+            elif status == "banned":
                 qs = qs.filter(is_banned=True)
-            elif status == 'evicted':
+            elif status == "evicted":
                 qs = qs.filter(is_evicted=True)
 
         return qs
@@ -493,14 +470,14 @@ def invite_to_group(request, slug):
             errors.append({"email": email, "error": str(e)})
 
     debug_ts(f"[DEBUG] Invitations created: {len(invitations_created)}, Errors: {len(errors)}")
-    debug_ts(f"[DEBUG] About to call send_batch_invitations")
+    debug_ts("[DEBUG] About to call send_batch_invitations")
 
     # Batch send emails via Celery
     if invitations_created:
         try:
             debug_ts(f"[DEBUG] Calling InvitationService.send_batch_invitations with {len(invitations_created)} invitations")
             InvitationService.send_batch_invitations(invitations_created, group, request.user, message)
-            debug_ts(f"[DEBUG] send_batch_invitations completed successfully")
+            debug_ts("[DEBUG] send_batch_invitations completed successfully")
         except Exception as e:
             debug_ts(f"[ERROR] send_batch_invitations failed: {type(e).__name__}: {e}")
             traceback.print_exc()
@@ -565,11 +542,11 @@ def accept_invite(request):
         # Return success response
         return JsonResponse({
             "detail": "Successfully joined group.",
-            "user_was_new": result['user_was_new'],
+            "user_was_new": result["user_was_new"],
             "group": {
-                "id": str(result['group'].id),
-                "title": result['group'].title,
-                "slug": result['group'].slug,
+                "id": str(result["group"].id),
+                "title": result["group"].title,
+                "slug": result["group"].slug,
             }
         }, status=200)
 
@@ -577,7 +554,7 @@ def accept_invite(request):
         # Service layer raises ValidationError with specific messages
         return JsonResponse({"error": str(e)}, status=400)
 
-    except Exception as e:
+    except Exception:
         # Catch any unexpected errors
         return JsonResponse(
             {"error": "An unexpected error occurred."},

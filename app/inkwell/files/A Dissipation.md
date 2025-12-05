@@ -1,0 +1,1 @@
+Once one realizes that everything is alive, the delusions dissipate away very quickly.

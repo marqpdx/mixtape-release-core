@@ -1,8 +1,10 @@
 import uuid
+
 from django.contrib.auth import get_user_model
 from django.db import models
-from fundamentals.bases import BaseModel
 from django.template.defaultfilters import slugify
+
+from fundamentals.bases import BaseModel
 
 
 class UserProfile(BaseModel):
@@ -16,15 +18,15 @@ class UserProfile(BaseModel):
     user = models.OneToOneField(
         get_user_model(),
         on_delete=models.CASCADE,
-        related_name='profile'
+        related_name="profile"
     )
 
     slug = models.SlugField(unique=True, max_length=99)
     display_name = models.CharField(max_length=48, help_text="Your public facing screen name.")
-    quick_intro = models.TextField(max_length=300, default='', blank=True, help_text="A quick bit about yourself.")
+    quick_intro = models.TextField(max_length=300, default="", blank=True, help_text="A quick bit about yourself.")
 
     # Placeholder for avatar/images (next phase - will use actual file storage)
-    avatar_url = models.CharField(max_length=512, default='', blank=True, help_text="Avatar image URL")
+    avatar_url = models.CharField(max_length=512, default="", blank=True, help_text="Avatar image URL")
 
     def save(self, *args, **kwargs):
         # Auto-generate slug from display_name or username

@@ -3,15 +3,16 @@
 GroupMembership model - links members to groups with roles and decorators.
 """
 
-from django.db import models
-from django.contrib.contenttypes.models import ContentType
-from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 from django.contrib.postgres.fields import ArrayField
+from django.db import models
 
 from fundamentals.bases import BaseModel
 
-from .dec_enums import is_admin, is_steward, highest_role, CORE_ROLES
+from .dec_enums import highest_role, is_admin, is_steward
+
 
 User = get_user_model()
 
@@ -97,8 +98,8 @@ class GroupMembership(BaseModel):
             ("group", "member_content_type", "member_object_id"),
         ]
         indexes = [
-            models.Index(fields=['group', 'is_active']),
-            models.Index(fields=['member_content_type', 'member_object_id']),
+            models.Index(fields=["group", "is_active"]),
+            models.Index(fields=["member_content_type", "member_object_id"]),
         ]
 
     def __str__(self):
@@ -123,7 +124,7 @@ class GroupMembership(BaseModel):
 
     def is_member(self) -> bool:
         """Check if this member has basic member role (everyone should)."""
-        return 'member' in self.roles
+        return "member" in self.roles
 
     def highest_role(self) -> str:
         """Get the highest role for display purposes."""
@@ -145,7 +146,7 @@ class GroupMembership(BaseModel):
         """
         if role not in self.roles:
             self.roles.append(role)
-            self.save(update_fields=['roles'])
+            self.save(update_fields=["roles"])
             return True
         return False
 
@@ -161,7 +162,7 @@ class GroupMembership(BaseModel):
         """
         if role in self.roles:
             self.roles.remove(role)
-            self.save(update_fields=['roles'])
+            self.save(update_fields=["roles"])
             return True
         return False
 
@@ -174,11 +175,11 @@ class GroupMembership(BaseModel):
             roles: List of role strings
         """
         # Ensure 'member' is always present
-        if 'member' not in roles:
-            roles = ['member'] + roles
+        if "member" not in roles:
+            roles = ["member"] + roles
 
         self.roles = roles
-        self.save(update_fields=['roles'])
+        self.save(update_fields=["roles"])
 
     # ===================
     # Decorator Helpers
@@ -222,10 +223,10 @@ class GroupMembership(BaseModel):
         """
         return list(
             self.decorator_links.filter(enabled=True)
-            .values_list('decorator__code', flat=True)
+            .values_list("decorator__code", flat=True)
         )
 
-    def add_decorator(self, decorator_code: str, assigned_by=None, source='manual', reason=''):
+    def add_decorator(self, decorator_code: str, assigned_by=None, source="manual", reason=""):
         """
         Add a decorator to this membership.
 
@@ -249,10 +250,10 @@ class GroupMembership(BaseModel):
             membership=self,
             decorator=decorator,
             defaults={
-                'enabled': True,
-                'source': source,
-                'assigned_by': assigned_by,
-                'reason': reason,
+                "enabled": True,
+                "source": source,
+                "assigned_by": assigned_by,
+                "reason": reason,
             }
         )
 
@@ -261,7 +262,7 @@ class GroupMembership(BaseModel):
             link.enabled = True
             link.assigned_by = assigned_by
             link.reason = reason
-            link.save(update_fields=['enabled', 'assigned_by', 'reason', 'modified_at'])
+            link.save(update_fields=["enabled", "assigned_by", "reason", "modified_at"])
 
         return link
 
@@ -338,7 +339,7 @@ class GroupMembership(BaseModel):
             is_banned=False,
             is_evicted=False,
             group__is_active=True
-        ).select_related('group')
+        ).select_related("group")
 
     @classmethod
     def get_user_admin_memberships(cls, user):
@@ -356,9 +357,9 @@ class GroupMembership(BaseModel):
             member_content_type=user_content_type,
             member_object_id=user.id,
             is_active=True,
-            roles__contains=['admin'],  # PostgreSQL array contains
+            roles__contains=["admin"],  # PostgreSQL array contains
             group__is_active=True
-        ).select_related('group')
+        ).select_related("group")
 
     # ===================
     # Validation
@@ -367,22 +368,21 @@ class GroupMembership(BaseModel):
     def clean(self):
         """Ensure 'member' role is always present."""
         super().clean()
-        if self.roles and 'member' not in self.roles:
-            self.roles.insert(0, 'member')
+        if self.roles and "member" not in self.roles:
+            self.roles.insert(0, "member")
 
     def save(self, *args, **kwargs):
         """Ensure 'member' role is always present before saving."""
-        import traceback
 
         # print(f"💾 SAVING MEMBERSHIP: {self.id}")
         # print(f"   Current roles: {self.roles}")
         # print(f"   Stack trace:")
         # traceback.print_stack()
 
-        if self.roles and 'member' not in self.roles:
-            self.roles.insert(0, 'member')
+        if self.roles and "member" not in self.roles:
+            self.roles.insert(0, "member")
         elif not self.roles:
-            print(f"   ⚠️ ROLES EMPTY! Resetting to ['member']")
-            self.roles = ['member']
+            print("   ⚠️ ROLES EMPTY! Resetting to ['member']")
+            self.roles = ["member"]
 
         super().save(*args, **kwargs)
