@@ -1,11 +1,13 @@
 # apps/core/services/defaults.py
 import uuid
+
 from django.conf import settings
 from django.template.defaultfilters import slugify
-from django.contrib.contenttypes.models import ContentType
+
 from groups.models import Group
 from groups.models.group import GroupType
 from groups.models.types import CommunityGroup
+
 
 def _det_uuid(namespace: str, key: str) -> uuid.UUID:
     return uuid.uuid5(uuid.NAMESPACE_URL, f"{namespace}#{key}")

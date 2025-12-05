@@ -17,8 +17,8 @@ def send_transactional_email(
       - <template_base>.html
     """
 
-    from django.core.mail import EmailMultiAlternatives
     from django.conf import settings
+    from django.core.mail import EmailMultiAlternatives
     from django.template.loader import render_to_string
 
     text_body = render_to_string(f"{template_base}.txt", context)

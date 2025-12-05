@@ -1,21 +1,19 @@
 # groups/models.py
 
-from django.conf import settings
 import uuid
-from django.contrib.auth import get_user_model
-from django.db import models
-from django.utils.crypto import get_random_string
-from django.utils.text import slugify
-from django.utils import timezone
-from django.contrib.postgres.fields import ArrayField
 
+from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
+from django.utils import timezone
+from django.utils.crypto import get_random_string
 
 from fundamentals.bases import BaseModel
 from fundamentals.models import BaseContent, LayoutParent
 from groups.models.dec_enums import GroupType, GroupVisibility
+
 
 def generate_token():
     return get_random_string(64)
@@ -134,7 +132,7 @@ class Group(LayoutParent, BaseContent):
             return True
 
         # If it's a public group, allow any authenticated user
-        if getattr(self, 'visibility', None) == 'public':
+        if getattr(self, "visibility", None) == "public":
             return True
 
         return False
@@ -160,7 +158,7 @@ class Group(LayoutParent, BaseContent):
             return True
 
         # If it's a public group, allow any authenticated user
-        if getattr(self, 'visibility', None) == 'public':
+        if getattr(self, "visibility", None) == "public":
             return True
 
         return False
@@ -247,7 +245,7 @@ class GroupAnnouncement(models.Model):
     Supports auto-creation from content (courses, events, posts).
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    group = models.ForeignKey('groups.Group', on_delete=models.CASCADE, related_name='announcements')
+    group = models.ForeignKey("groups.Group", on_delete=models.CASCADE, related_name="announcements")
 
     # ---- CONTENT ----
     title = models.CharField(max_length=200)
@@ -256,11 +254,11 @@ class GroupAnnouncement(models.Model):
     # ---- PRIORITY & ORDERING ----
     priority = models.CharField(
         max_length=16,
-        default='normal',
+        default="normal",
         choices=[
-            ('critical', 'Critical'),
-            ('high', 'High'),
-            ('normal', 'Normal'),
+            ("critical", "Critical"),
+            ("high", "High"),
+            ("normal", "Normal"),
         ],
         help_text="Determines display order in the queue"
     )
@@ -284,7 +282,7 @@ class GroupAnnouncement(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
-        related_name='created_announcements'
+        related_name="created_announcements"
     )
 
     # ---- SOURCE CONTENT (Polymorphic) ----
@@ -294,7 +292,7 @@ class GroupAnnouncement(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='announcements'
+        related_name="announcements"
     )
     source_object_id = models.UUIDField(null=True, blank=True)
     source = GenericForeignKey("source_content_type", "source_object_id")
@@ -319,11 +317,11 @@ class GroupAnnouncement(models.Model):
     notification_sent_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        ordering = ['priority', 'position', '-created_at']
+        ordering = ["priority", "position", "-created_at"]
         indexes = [
-            models.Index(fields=['group', 'is_active', 'expires_at']),
-            models.Index(fields=['group', 'priority', 'position']),
-            models.Index(fields=['source_content_type', 'source_object_id']),
+            models.Index(fields=["group", "is_active", "expires_at"]),
+            models.Index(fields=["group", "priority", "position"]),
+            models.Index(fields=["source_content_type", "source_object_id"]),
         ]
 
     def __str__(self):
@@ -339,7 +337,7 @@ class GroupAnnouncement(models.Model):
     @property
     def priority_value(self):
         """Numeric value for priority sorting"""
-        return {'critical': 0, 'high': 1, 'normal': 2}.get(self.priority, 2)
+        return {"critical": 0, "high": 1, "normal": 2}.get(self.priority, 2)
 
     def get_visible_for_user(self, user):
         """
@@ -352,9 +350,9 @@ class GroupAnnouncement(models.Model):
         # Check dismissals
         dismissal = self.dismissals.filter(user=user).first()
         if dismissal:
-            if dismissal.dismissal_type == 'permanent':
+            if dismissal.dismissal_type == "permanent":
                 return False
-            if dismissal.dismissal_type == 'snooze' and dismissal.snoozed_until:
+            if dismissal.dismissal_type == "snooze" and dismissal.snoozed_until:
                 if timezone.now() < dismissal.snoozed_until:
                     return False
 
@@ -369,7 +367,7 @@ class GroupAnnouncement(models.Model):
         announcements = cls.objects.filter(
             group=group,
             is_active=True
-        ).select_related('author')
+        ).select_related("author")
 
         # Filter out expired and dismissed
         visible = [a for a in announcements if a.get_visible_for_user(user)]
@@ -390,20 +388,20 @@ class AnnouncementDismissal(models.Model):
     announcement = models.ForeignKey(
         GroupAnnouncement,
         on_delete=models.CASCADE,
-        related_name='dismissals'
+        related_name="dismissals"
     )
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name='announcement_dismissals'
+        related_name="announcement_dismissals"
     )
 
     # ---- DISMISSAL TYPE ----
     dismissal_type = models.CharField(
         max_length=16,
         choices=[
-            ('snooze', 'Snoozed for 48 hours'),
-            ('permanent', 'Permanently dismissed'),
+            ("snooze", "Snoozed for 48 hours"),
+            ("permanent", "Permanently dismissed"),
         ]
     )
 
@@ -415,10 +413,10 @@ class AnnouncementDismissal(models.Model):
     )
 
     class Meta:
-        unique_together = ('announcement', 'user')
+        unique_together = ("announcement", "user")
         indexes = [
-            models.Index(fields=['user', 'dismissal_type']),
-            models.Index(fields=['snoozed_until']),
+            models.Index(fields=["user", "dismissal_type"]),
+            models.Index(fields=["snoozed_until"]),
         ]
 
     def __str__(self):
@@ -442,18 +440,18 @@ class AnnouncementDismissal(models.Model):
             dismissal = cls.objects.create(
                 announcement=announcement,
                 user=user,
-                dismissal_type='snooze',
+                dismissal_type="snooze",
                 snoozed_until=snooze_until
             )
-            return 'snooze', snooze_until
+            return "snooze", snooze_until
 
-        elif existing.dismissal_type == 'snooze':
+        if existing.dismissal_type == "snooze":
             # Second dismiss = permanent
-            existing.dismissal_type = 'permanent'
+            existing.dismissal_type = "permanent"
             existing.snoozed_until = None
             existing.dismissed_at = timezone.now()
             existing.save()
-            return 'permanent', None
+            return "permanent", None
 
         # Already permanently dismissed
-        return 'permanent', None
+        return "permanent", None

@@ -2,6 +2,11 @@
 
 
 from django.urls import path
+
+from .sponsor_views import (
+    SponsorDraftsListView,
+    SponsorPlacementsListView,
+)
 from .views import (
     SeedDetailView,
     SeedIngestView,
@@ -9,20 +14,17 @@ from .views import (
     SeedPromoteView,
     WritingCommentListCreateView,
     WritingPieceListCreateView,
+    WritingPiecePinView,
     WritingPiecePublicView,
     WritingPiecePublishAndPlaceView,
     WritingPieceRetrieveUpdateDestroyView,
-    WritingWorkingCopyUpsertView,
-    WritingWorkingCopyApplyView,
     WritingPieceScheduleView,
-    WritingPiecePinView,
     WritingPieceUnpinView,
+    WritingWorkingCopyApplyView,
+    WritingWorkingCopyUpsertView,
     clear_empty_flag,
 )
-from .sponsor_views import (
-    SponsorPlacementsListView,
-    SponsorDraftsListView,
-)
+
 
 app_name = "writing"
 
@@ -44,7 +46,7 @@ urlpatterns = [
     path("pieces/<uuid:pk>/apply-working-copy", WritingWorkingCopyApplyView.as_view(), name="writingpiece-apply-workingcopy"),
 
     # Clear empty flag
-    path("pieces/<uuid:piece_id>/clear-empty", clear_empty_flag, name='clear-empty-flag'),
+    path("pieces/<uuid:piece_id>/clear-empty", clear_empty_flag, name="clear-empty-flag"),
 
     # Publish & schedule
     path("pieces/<uuid:pk>/publish", WritingPiecePublishAndPlaceView.as_view(), name="writingpiece-publish"),

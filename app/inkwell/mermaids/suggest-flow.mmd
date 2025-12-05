@@ -1,0 +1,10 @@
+flowchart TD
+    A[Curator clicks "Blacklist" button] --> B{Confirm Dialog?}
+    B -- Yes --> C[Set removingIds to fade asset]
+    C --> D[Call blacklistTitle() via customMutation]
+    D --> E{Success?}
+    E -- Yes --> F[Show Toast: "Blacklisted ✅"]
+    F --> G[Asset hidden from list]
+    E -- No --> H[Show Error Toast ❌]
+    H --> I[Remove from removingIds to un-fade]
+    B -- No --> J[Do nothing]

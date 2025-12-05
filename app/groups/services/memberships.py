@@ -4,6 +4,7 @@ Service functions for managing group memberships.
 """
 
 from django.contrib.contenttypes.models import ContentType
+
 from groups.models import GroupMembership
 
 
@@ -85,17 +86,17 @@ def _role_to_roles_array(role: str) -> list[str]:
 
     # Founder is treated as admin structurally
     # (will get 'isGroupFounder' decorator in Phase 2)
-    if role == 'founder':
-        return ['member', 'admin']
+    if role == "founder":
+        return ["member", "admin"]
 
-    if role == 'admin':
-        return ['member', 'admin']
+    if role == "admin":
+        return ["member", "admin"]
 
-    if role == 'steward':
-        return ['member', 'steward']
+    if role == "steward":
+        return ["member", "steward"]
 
     # Default: just member
-    return ['member']
+    return ["member"]
 
 
 def grant_role_to_member(membership, role: str) -> bool:
@@ -124,7 +125,7 @@ def revoke_role_from_member(membership, role: str) -> bool:
     Returns:
         True if role was revoked, False if didn't have it or is 'member'
     """
-    if role == 'member':
+    if role == "member":
         return False  # Cannot revoke base member role
 
     return membership.revoke_role(role)
@@ -140,7 +141,7 @@ def promote_to_admin(membership) -> bool:
     Returns:
         True if promoted, False if already admin
     """
-    return membership.grant_role('admin')
+    return membership.grant_role("admin")
 
 
 def demote_from_admin(membership) -> bool:
@@ -154,4 +155,4 @@ def demote_from_admin(membership) -> bool:
     Returns:
         True if demoted, False if wasn't admin
     """
-    return membership.revoke_role('admin')
+    return membership.revoke_role("admin")

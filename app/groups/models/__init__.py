@@ -3,6 +3,9 @@
 # 1. Enums first (no dependencies)
 from .dec_enums import *
 
+# 5. Decorators subpackage (depends on Group and Membership)
+from .decorators import *
+
 # 2. Base Group model (depends on enums)
 from .group import *
 
@@ -11,6 +14,3 @@ from .membership import *
 
 # 4. Types (depends on Group)
 from .types import *
-
-# 5. Decorators subpackage (depends on Group and Membership)
-from .decorators import *

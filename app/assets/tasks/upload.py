@@ -1,19 +1,13 @@
-# assets/tasks.py
+# assets/tasks/upload.py
 
 # from mixtape.storage_backends import SeaweedStorage
-from django.core.files.base import ContentFile
-from .models import Asset, GroupAsset
-
 from celery import shared_task
-
-
 from django.core.files.base import ContentFile
+
 # from django.core.files.storage import default_storage
-from celery import shared_task
-
-
 from storages.backends.s3boto3 import S3Boto3Storage
-from django.core.files.base import ContentFile
+
+from assets.models import Asset, GroupAsset
 
 
 @shared_task

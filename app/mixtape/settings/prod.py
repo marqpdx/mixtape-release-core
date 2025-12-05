@@ -4,9 +4,10 @@
 import os
 import sys
 from pathlib import Path
-from dotenv import load_dotenv
 
 import environ
+from dotenv import load_dotenv
+
 
 env = environ.Env()
 
@@ -19,9 +20,10 @@ load_dotenv(BASE_DIR / ".env.prod", override=True)
 # Import base settings
 from .base import *
 
+
 # Production settings
 DEBUG = False
-DJANGO_ENV = 'prod'
+DJANGO_ENV = "prod"
 
 # Database - PostgreSQL for production
 # DATABASES = {
@@ -37,19 +39,19 @@ DJANGO_ENV = 'prod'
 
 # Parse DATABASE_URL
 DATABASES = {
-    'default': env.db('DATABASE_URL')
+    "default": env.db("DATABASE_URL")
 }
 
 # for emailing
-FRONTEND_URL = 'http://www.crossroads.place'
+FRONTEND_URL = "http://www.crossroads.place"
 
 
 # Static files
-STATIC_ROOT = os.path.join(BASE_DIR, 'static')
-STATIC_URL = '/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, "static")
+STATIC_URL = "/static/"
 
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
-MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, "media")
+MEDIA_URL = "/media/"
 
 # JWT Cookie settings for production
 
@@ -79,27 +81,27 @@ CSRF_TRUSTED_ORIGINS = [
 
 # Allowed hosts
 ALLOWED_HOSTS = [
-    'api.crossroads.place',      # API subdomain (MUST have this!)
-    'www.crossroads.place',      # Frontend domain
-    'crossroads.place',          # Main domain
-    '70.34.212.85',              # Server IP address
-    'localhost',                 # For local testing
-    '127.0.0.1',                 # For local testing
+    "api.crossroads.place",      # API subdomain (MUST have this!)
+    "www.crossroads.place",      # Frontend domain
+    "crossroads.place",          # Main domain
+    "70.34.212.85",              # Server IP address
+    "localhost",                 # For local testing
+    "127.0.0.1",                 # For local testing
 ]
 
 # Logging
 LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
-            'stream': sys.stdout,
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "stream": sys.stdout,
         },
     },
-    'root': {
-        'handlers': ['console'],
-        'level': 'INFO',
+    "root": {
+        "handlers": ["console"],
+        "level": "INFO",
     },
 }
 

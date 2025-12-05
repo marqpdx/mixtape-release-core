@@ -1,6 +1,7 @@
 # writing/choices.py
 from django.db import models
 
+
 class ContentStatus(models.TextChoices):
     DRAFT     = "draft",     "Draft"
     PUBLISHED = "published", "Published"

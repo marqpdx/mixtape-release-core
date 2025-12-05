@@ -2,29 +2,29 @@
 
 # from django.shortcuts import get_object_or_404
 
+import logging
+
 from django.conf import settings
-from django.contrib.auth import authenticate
-from django.contrib.auth import get_user_model
+from django.contrib.auth import authenticate, get_user_model
+
 # from django.contrib.auth.models import Group  # Deferred to Phase 3
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
+from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.validators import UniqueValidator
+
 # from storages.backends.s3boto3 import S3Boto3Storage  # Deferred to Phase 2
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.settings import api_settings as jwt_settings
 from rest_framework_simplejwt.tokens import RefreshToken, TokenError
-from rest_framework.exceptions import AuthenticationFailed
-from rest_framework.validators import UniqueValidator
-from users.models import CustomUser
-from uuid import UUID
-import importlib
-import logging
 
 from profiles.models import UserProfile
 from users.models import CustomUser, Role
+
 # from utils.misc import randomword  # Deferred - utils app
 # from utils.storage.storage_utils import key_to_url  # Deferred to Phase 2
-
 from .mixins import RoleMixin
+
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +95,7 @@ class UserSerializer(BaseUserSerializer):
     Phase 2 user serializer for Groups integration.
     Excludes profile image fields until storage is implemented.
     """
-    display_name = serializers.CharField(source='profile.display_name', read_only=True)
+    display_name = serializers.CharField(source="profile.display_name", read_only=True)
 
     class Meta(BaseUserSerializer.Meta):
         model = get_user_model()
@@ -200,11 +200,11 @@ class UserCreateSerializer(serializers.ModelSerializer):
         min_length=3,
         max_length=32,
         help_text=_(
-            'Required. 4-32 characters. Letters, numbers, underscores or hyphens only.'
+            "Required. 4-32 characters. Letters, numbers, underscores or hyphens only."
         ),
         validators=[UniqueValidator(
             queryset=get_user_model().users.all(),
-            message='has already been taken by other user'
+            message="has already been taken by other user"
         )],
         required=True
     )
@@ -213,7 +213,7 @@ class UserCreateSerializer(serializers.ModelSerializer):
         max_length=32,
         write_only=True,
         help_text=_(
-            'Required. 4-32 characters.'
+            "Required. 4-32 characters."
         ),
         required=True
     )
@@ -221,7 +221,7 @@ class UserCreateSerializer(serializers.ModelSerializer):
         required=True,
         validators=[UniqueValidator(
             queryset=get_user_model().users.all(),
-            message='has already been taken by other user'
+            message="has already been taken by other user"
         )]
     )
 
@@ -231,22 +231,22 @@ class UserCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = get_user_model()
         fields = (
-            'username', 'first_name', 'last_name', 'email', 'password'
+            "username", "first_name", "last_name", "email", "password"
         )
 
     def create(self, validated_data):
 
-        username = validated_data['username']
-        email = validated_data['email']
+        username = validated_data["username"]
+        email = validated_data["email"]
         user = get_user_model()(
                 username = username, email = email,
-                first_name = validated_data['first_name'],
-                last_name = validated_data['last_name']
+                first_name = validated_data["first_name"],
+                last_name = validated_data["last_name"]
         )
-        user.set_password(validated_data['password'])
+        user.set_password(validated_data["password"])
 
         # ✅ Assign Default Role: "member"
-        member_role, _ = Role.objects.get_or_create(name='member')
+        member_role, _ = Role.objects.get_or_create(name="member")
         print(f"[Serializer] Role 'member' assigned to {user.username}")
         user.save()
         user.roles.add(member_role)

@@ -1,0 +1,185 @@
+# pyproject.toml - Mixtape Release Core Configuration
+
+[tool.ruff]
+# Exclude common directories
+exclude = [
+    ".git",
+    "__pycache__",
+    "*/migrations/*",      # Django migrations - auto-generated
+    "env",
+    "../env",
+    "venv",
+    ".venv",
+    "build",
+    "dist",
+    "*.egg-info",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+]
+
+# Same as Black's default
+line-length = 88
+
+# Assume Python 3.13
+target-version = "py313"
+
+# Allow fix for all enabled rules (when `--fix` is provided)
+fix = true
+
+# Show fixes that were applied
+show-fixes = true
+
+[tool.ruff.lint]
+# =============================================================================
+# PHILOSOPHY: Focus on REAL BUGS, not style
+# =============================================================================
+# We prioritize catching actual errors over enforcing style preferences.
+# This config is optimized for Django projects with pragmatic defaults.
+
+# Enable critical bug detection
+select = [
+    # === CRITICAL: Will break at runtime ===
+    "F821",   # Undefined names (typos, missing imports)
+    "E999",   # Syntax errors
+    "B006",   # Mutable default arguments (shared state bugs)
+    "B007",   # Unused loop control variable
+
+    # === HIGH PRIORITY: Django-specific bugs ===
+    "DJ",     # Django anti-patterns and bugs
+
+    # === MEDIUM PRIORITY: Code quality (auto-fixable) ===
+    "I",      # Import sorting
+    "C4",     # Unnecessary comprehensions
+    "SIM102", # Collapsible if statements
+    "B904",   # Exception handling (raise from)
+
+    # === LOW PRIORITY: Print statements (we use logging) ===
+    "T201",   # Print statements (should use logging)
+]
+
+# Ignore rules that cause false positives or are too strict
+ignore = [
+    # === Style (not bugs) ===
+    "E501",   # Line too long - let formatter handle it
+    "E741",   # Ambiguous variable name (l, O, I)
+    "W",      # All warnings (we care about errors, not warnings)
+
+    # === Django patterns (intentional) ===
+    "DJ001",  # null=True on string fields - sometimes needed
+    "DJ008",  # Missing __str__ - not always needed
+    "B008",   # Function call in defaults - Django uses this (e.g., timezone.now)
+
+    # === False positives ===
+    "F401",   # Unused imports - many false positives (re-exports, __init__.py)
+    "F403",   # Star imports - used in settings files
+    "F405",   # Undefined from star import
+
+    # === Too strict / not worth fixing ===
+    "SIM108", # Ternary operator - sometimes less readable
+    "RET504", # Unnecessary variable before return
+    "PLR",    # All Pylint refactor rules - too opinionated
+    "C901",   # Too complex - we know when code is complex
+]
+
+[tool.ruff.lint.per-file-ignores]
+# === __init__.py files ===
+# These often re-export for convenience
+"__init__.py" = ["F401", "F403", "F405"]
+
+# === Management commands ===
+# Print is the correct output mechanism here
+"*/management/commands/*.py" = ["T201"]
+
+# === Scripts and utilities ===
+# More flexible rules for one-off scripts
+"*/scripts/*.py" = ["T201", "F401"]
+
+# === Settings files ===
+# Star imports and unused imports are common and intentional
+"*/settings/*.py" = ["F401", "F403", "F405", "E501"]
+"**/settings.py" = ["F401", "F403", "F405"]
+
+# === Test files ===
+# Tests can be more flexible
+"**/test_*.py" = ["F401"]
+"**/tests/*.py" = ["F401"]
+"tests.py" = ["F401"]
+
+# === Django-specific ===
+# Models often have intentional patterns
+"*/models.py" = ["DJ008"]  # Missing __str__ is ok
+
+# Celery tasks use function calls in defaults
+"*/tasks/*.py" = ["B008"]
+"*/tasks.py" = ["B008"]
+
+# Views and APIs handle complexity
+"*/views.py" = ["C901"]
+"*/viewsets.py" = ["C901"]
+"*/api/*.py" = ["C901"]
+
+# Migrations are auto-generated
+"*/migrations/*.py" = ["F401", "F821", "F841"]
+
+[tool.ruff.lint.isort]
+# Organize imports - define your local apps
+known-first-party = [
+    "mixtape",
+    "inkwell",
+    "accounts",
+    "activity",
+    "assets",
+    "chat",
+    "contexts",
+    "fundamentals",
+    "groups",
+    "profiles",
+    "users",
+    "utils",
+    "writing",
+]
+
+# Django should come after third-party but before local
+known-third-party = ["django", "celery", "rest_framework"]
+
+# Use two lines after imports
+lines-after-imports = 2
+
+[tool.ruff.lint.pep8-naming]
+# Allow Django model names with acronyms
+classmethod-decorators = [
+    "classmethod",
+    "pydantic.validator",
+    "pydantic.root_validator",
+]
+
+[tool.ruff.lint.flake8-quotes]
+# Prefer double quotes (Python default)
+inline-quotes = "double"
+multiline-quotes = "double"
+docstring-quotes = "double"
+
+[tool.ruff.lint.flake8-bugbear]
+# Extend immutable calls (Django patterns)
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+]
+
+[tool.ruff.format]
+# Use double quotes
+quote-style = "double"
+
+# Indent with spaces
+indent-style = "space"
+
+# Respect magic trailing comma
+skip-magic-trailing-comma = false
+
+# Auto-detect line endings
+line-ending = "auto"
+
+# Format docstrings
+docstring-code-format = true

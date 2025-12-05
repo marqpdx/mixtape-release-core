@@ -1,5 +1,5 @@
 from django.db import models
-from django.utils import timezone
+
 
 class BaseModel(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
@@ -8,7 +8,7 @@ class BaseModel(models.Model):
 
     class Meta:
         abstract = True
-        ordering = ['-created_at']
+        ordering = ["-created_at"]
 
 
     @classmethod

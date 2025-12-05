@@ -1,7 +1,9 @@
 # activity/api/permissions.py
 
-from rest_framework.permissions import IsAuthenticated
 import logging
+
+from rest_framework.permissions import IsAuthenticated
+
 
 logger = logging.getLogger(__name__)
 

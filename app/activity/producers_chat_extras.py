@@ -1,15 +1,15 @@
 # activity/producers_chat_extras.py
 
 from __future__ import annotations
-from typing import Iterable, List
-from django.contrib.contenttypes.models import ContentType
-from django.db import transaction
-from django.utils import timezone
+
 from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.models import ContentType
+from django.utils import timezone
 
 from activity.models import Action, ActionOutbox, ActivityType
-from activity.tasks import fanout_action_task
 from activity.services.mentions import expand_mention_to_users
+from activity.tasks import fanout_action_task
+
 
 User = get_user_model()
 
@@ -49,7 +49,7 @@ def produce_mentions_for_message(*, message, conversation, actor_user, mentions_
     at = _ensure_activity_type("chat.mention", "Chat Mention", "messages", "critical", False)
 
     # Deduplicate recipients across multiple MessageMention rows
-    user_ids: List[str] = []
+    user_ids: list[str] = []
     seen = set()
 
     for mention in mentions_queryset:

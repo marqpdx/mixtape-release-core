@@ -1,15 +1,16 @@
 # livewire/api/views.py
 
+import time
+
+import jwt
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from typing import List, Optional
-import time, jwt
 
-from django.contrib.auth import get_user_model
+
 User = get_user_model()
 
 
@@ -49,8 +50,8 @@ def _verify_ws_token(token: str) -> dict:
 
 def _mint_service_token(
     user_id: str,
-    scopes: List[str],
-    conv: Optional[str] = None,
+    scopes: list[str],
+    conv: str | None = None,
 ) -> dict:
     """Mint a short-lived, scoped service token for Node->Django calls."""
     now = int(time.time())

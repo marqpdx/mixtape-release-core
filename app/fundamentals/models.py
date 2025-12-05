@@ -4,12 +4,13 @@
 # ============================================================================
 
 import uuid
-from django.db import models
+
 from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
-from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
-from django.utils.text import slugify
+from django.db import models
 from django.utils.crypto import get_random_string
+from django.utils.text import slugify
 
 from .bases import BaseModel
 
@@ -44,8 +45,8 @@ class BaseData(BaseModel):
     - If/when you allow manual slug editing, flip slug_is_custom=True to freeze it.
     """
 
-    summary = models.TextField(blank=True, default='')
-    title = models.CharField(max_length=100, blank=True, default='')
+    summary = models.TextField(blank=True, default="")
+    title = models.CharField(max_length=100, blank=True, default="")
 
     # Slug lifecycle
     slug = models.SlugField(
@@ -150,9 +151,9 @@ class BaseContent(BaseData):
         null=True,
         blank=True
     )
-    author_name = models.CharField(max_length=255, blank=True, default='')
+    author_name = models.CharField(max_length=255, blank=True, default="")
 
-    body = models.TextField(blank=True, default='')
+    body = models.TextField(blank=True, default="")
 
     # Generic relations to classification and asset systems
     # TODO: Uncomment when classifications and assets apps are ready

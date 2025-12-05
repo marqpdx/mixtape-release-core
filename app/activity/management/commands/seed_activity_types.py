@@ -1,5 +1,7 @@
 from django.core.management.base import BaseCommand
+
 from activity.models import ActivityType
+
 
 CANONICAL = [
     dict(code="chat.mention", title="Chat Mention",

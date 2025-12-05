@@ -7,13 +7,14 @@ Supports various audience types: direct users, group members, post participants,
 """
 
 from __future__ import annotations
-from typing import List
+
 from django.contrib.auth import get_user_model
+
 
 User = get_user_model()
 
 
-def resolve_audience(audience_spec: dict, action) -> List[User]:
+def resolve_audience(audience_spec: dict, action) -> list[User]:
     """
     Resolve audience specification to list of User objects.
 
@@ -103,7 +104,7 @@ def resolve_audience(audience_spec: dict, action) -> List[User]:
     return unique_users
 
 
-def _resolve_group_members(group_id: str) -> List[User]:
+def _resolve_group_members(group_id: str) -> list[User]:
     """Get all active members of a group."""
     try:
         from groups.models import GroupMembership
@@ -117,7 +118,7 @@ def _resolve_group_members(group_id: str) -> List[User]:
         return []
 
 
-def _resolve_multi_group_members(group_ids: List[str]) -> List[User]:
+def _resolve_multi_group_members(group_ids: list[str]) -> list[User]:
     """Get all active members from multiple groups (deduplicated)."""
     try:
         from groups.models import GroupMembership
@@ -130,7 +131,7 @@ def _resolve_multi_group_members(group_ids: List[str]) -> List[User]:
         return []
 
 
-def _resolve_post_participants(post_id: str) -> List[User]:
+def _resolve_post_participants(post_id: str) -> list[User]:
     """
     Get users who have interacted with a post (author, commenters, reactors).
 

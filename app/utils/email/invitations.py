@@ -1,14 +1,8 @@
 # utils/email/invitations.py
 
-from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
-from django.template.loader import render_to_string
-from django.utils.crypto import get_random_string
 from django.utils.text import slugify
 
-from groups.models import GroupInvitation
 from users.models import CustomUser
-from utils.email import send_transactional_email
 
 
 # TODO Add this to the view that calls it, we don't need this function here.

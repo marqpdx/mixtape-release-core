@@ -1,8 +1,10 @@
 # apps/groups/participant_sources.py
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
-from livewire.participant_sources import register
+
 from groups.models import Group, GroupMembership  # adjust to your schema
+from livewire.participant_sources import register
+
 
 User = get_user_model()
 

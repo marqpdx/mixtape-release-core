@@ -1,8 +1,10 @@
 # groups/permissions.py
 
-from rest_framework import permissions
 from django.contrib.contenttypes.models import ContentType
+from rest_framework import permissions
+
 from groups.models import Group, GroupMembership
+
 
 class IsGroupAdminOrSteward(permissions.BasePermission):
     def has_permission(self, request, view):
@@ -94,7 +96,7 @@ def canUserModerateGroup(group):
     """
     if not group.user_roles:
         return False
-    return 'admin' in group.user_roles or 'steward' in group.user_roles
+    return "admin" in group.user_roles or "steward" in group.user_roles
 
 
 def canUserModerateGroupUser(user, group):
@@ -121,7 +123,7 @@ def canUserModerateGroupUser(user, group):
         group=group,
         member_content_type=user_ct,
         member_object_id=user.id,
-        roles__overlap=['admin', 'steward'],
+        roles__overlap=["admin", "steward"],
         is_active=True,
         is_pending=False
     ).exists()
@@ -220,7 +222,7 @@ def getGroupsForUser(user, include_pending=False):
     if not include_pending:
         query = query.filter(is_pending=False)
 
-    group_ids = query.values_list('group_id', flat=True)
+    group_ids = query.values_list("group_id", flat=True)
     return Group.objects.filter(id__in=group_ids)
 
 
@@ -249,10 +251,10 @@ def getGroupsUserCanModerate(user):
         member_object_id=user.id,
         is_active=True,
         is_pending=False,
-        roles__overlap=['admin', 'steward']
+        roles__overlap=["admin", "steward"]
     )
 
-    group_ids = memberships.values_list('group_id', flat=True)
+    group_ids = memberships.values_list("group_id", flat=True)
     return Group.objects.filter(id__in=group_ids)
 
 
@@ -271,7 +273,7 @@ def canUserAccessGroup(user, group):
     Returns:
         bool: True if user can access the group
     """
-    if group.visibility == 'public':
+    if group.visibility == "public":
         return True
 
     if not user or not user.is_authenticated:
@@ -322,11 +324,11 @@ def check_group_model_permissions(user, group, model_type, action):
 
     # For MVP Phase 1, only admins and stewards can create/edit/delete content
     # Can be expanded in Phase 2 for more granular permissions (e.g., 'author' role)
-    if action in ['create', 'update', 'delete', 'publish', 'unpublish', 'archive']:
+    if action in ["create", "update", "delete", "publish", "unpublish", "archive"]:
         return canUserModerateGroupUser(user, group)
 
     # Read-only actions (view, list) are allowed for members
-    if action in ['view', 'list']:
+    if action in ["view", "list"]:
         return True
 
     # Default deny for unknown actions

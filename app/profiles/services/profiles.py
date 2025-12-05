@@ -1,7 +1,9 @@
 # apps/profiles/services/profiles.py
 
 from django.template.defaultfilters import slugify
+
 from profiles.models import UserProfile
+
 
 def ensure_user_profile(user) -> UserProfile:
     """

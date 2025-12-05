@@ -1,16 +1,18 @@
 # mixtape/management/commands/bootstrap_mixtape.py
 
+import getpass
 import os
 import sys
-import getpass
-from django.core.management.base import BaseCommand
-from django.db import transaction, IntegrityError
-from django.contrib.auth import get_user_model
+
 from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.core.management.base import BaseCommand
+from django.db import IntegrityError, transaction
 
 from groups.services.memberships import ensure_user_membership
 from mixtape.services.defaults import ensure_default_group
 from profiles.services.profiles import ensure_user_profile
+
 
 User = get_user_model()
 

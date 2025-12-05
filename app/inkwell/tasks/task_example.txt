@@ -1,0 +1,16 @@
+# # ai/tasks/task_example.py
+
+# from celery import shared_task
+# import requests
+
+# @shared_task(bind=True)
+# def send_task_to_fastapi(self, task_id):
+#     print(f"📘 [task] Sending request to FastAPI for task {task_id}")
+
+#     fastapi_url = "http://localhost:8001/generate_task"  # FastAPI endpoint
+#     response = requests.post(fastapi_url, json={"task_id": task_id})
+
+#     if response.status_code == 200:
+#         print(f"🧠 [task] Task {task_id} started successfully!")
+#     else:
+#         print(f"❌ [task] Failed to start task {task_id} on FastAPI: {response.text}")

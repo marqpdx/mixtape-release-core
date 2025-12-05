@@ -1,8 +1,9 @@
 # mixtape/celery.py
 import os
+
 from celery import Celery
 from kombu import Queue
-from celery.schedules import crontab
+
 
 # If you load .env in dev via python-dotenv (optional but handy):
 try:
@@ -27,12 +28,16 @@ default_q = os.getenv("SHARED_RABBIT_CHAT_QUEUE", "mixtape_shared_rabbit_chat_qu
 app.conf.task_default_queue = default_q
 app.conf.task_queues = (
     Queue(default_q, routing_key=default_q),
+    Queue("synopsis_results", routing_key="synopsis_results"),  # For FastAPI → Django synopsis communication
 )
 
 # Optional explicit routing (keep or remove if not needed)
 app.conf.task_routes = {
     "utils.tasks.send_transactional_email_task": {
         "queue": default_q, "routing_key": default_q
+    },
+    "inkwell.tasks.synopsis.process_synopsis_result": {
+        "queue": "synopsis_results", "routing_key": "synopsis_results"
     },
 }
 

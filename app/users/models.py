@@ -1,11 +1,12 @@
 # users/models.py
 
 import uuid
-from django.contrib.auth.models import AbstractUser, UserManager
-from django.db import models
-from fundamentals.bases import BaseModel
-from django.contrib.contenttypes.models import ContentType
 
+from django.contrib.auth.models import AbstractUser, UserManager
+from django.contrib.contenttypes.models import ContentType
+from django.db import models
+
+from fundamentals.bases import BaseModel
 
 
 # Note, the default fields from django core user model are:
@@ -16,9 +17,9 @@ class CustomUserManager(UserManager):
 
 class Role(BaseModel):
     ROLE_CHOICES = [
-        ('admin', 'Admin'),
-        ('steward', 'Steward'),
-        ('member', 'Member'),
+        ("admin", "Admin"),
+        ("steward", "Steward"),
+        ("member", "Member"),
     ]
 
     name = models.CharField(max_length=50, choices=ROLE_CHOICES, unique=True)
@@ -37,9 +38,9 @@ class CustomUser(AbstractUser, BaseModel):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
-    roles = models.ManyToManyField(Role, related_name='users')
+    roles = models.ManyToManyField(Role, related_name="users")
 
-    autocomplete_search_field = 'first_name'
+    autocomplete_search_field = "first_name"
 
     def autocomplete_label(self):
         return self.first_name
@@ -49,7 +50,7 @@ class CustomUser(AbstractUser, BaseModel):
         Helper method to check for one or more roles.
         Example: user.has_role('admin', 'steward')
         """
-        user_roles = self.roles.values_list('name', flat=True)
+        user_roles = self.roles.values_list("name", flat=True)
         print(f"[DEBUG] Checking roles: {role_names} against user roles: {list(user_roles)}")
         return any(role in user_roles for role in role_names)
 

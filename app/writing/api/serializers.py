@@ -1,12 +1,20 @@
 # api/writing/serializers.py
 
-from rest_framework import serializers
 from django.contrib.auth import get_user_model
+from rest_framework import serializers
 
 from utils.shared.contenttypes import resolve_content_type
 from writing.choices import ContentStatus
 
-from ..models import WritingComment, WritingPiece, WritingVersion, WritingPlacement, WritingWorkingCopy, Seed
+from ..models import (
+    Seed,
+    WritingComment,
+    WritingPiece,
+    WritingPlacement,
+    WritingVersion,
+    WritingWorkingCopy,
+)
+
 
 User = get_user_model()
 
@@ -54,14 +62,14 @@ class WritingPieceSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         # Remove the create_working_copy flag before creating the piece
-        validated_data.pop('create_working_copy', None)
+        validated_data.pop("create_working_copy", None)
         validated_data["author"] = self.context["request"].user
         return super().create(validated_data)
 
 
 class WritingPieceDetailSerializer(serializers.ModelSerializer):
     """Detailed serializer for viewing a single piece"""
-    author_name = serializers.CharField(source='author.get_full_name', read_only=True)
+    author_name = serializers.CharField(source="author.get_full_name", read_only=True)
     author_avatar = serializers.SerializerMethodField()
     sponsor_name = serializers.SerializerMethodField()
     reading_time = serializers.IntegerField(read_only=True)
@@ -69,20 +77,20 @@ class WritingPieceDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = WritingPiece
         fields = [
-            'id',
-            'title',
-            'slug',
-            'body_json',
-            'excerpt',
-            'writing_kind',
-            'author_name',
-            'author_avatar',
-            'sponsor_name',
-            'published_at',
-            'reading_time',
-            'view_count',
-            'allow_comments',
-            'canonical_url',
+            "id",
+            "title",
+            "slug",
+            "body_json",
+            "excerpt",
+            "writing_kind",
+            "author_name",
+            "author_avatar",
+            "sponsor_name",
+            "published_at",
+            "reading_time",
+            "view_count",
+            "allow_comments",
+            "canonical_url",
         ]
         read_only_fields = fields
 
@@ -105,8 +113,8 @@ class WritingPieceDetailSerializer(serializers.ModelSerializer):
 class WritingPieceMinimalSerializer(serializers.ModelSerializer):
     class Meta:
         model = WritingPiece
-        fields = ['id', 'slug', 'status', 'writing_kind', 'is_empty']
-        read_only_fields = ['id', 'slug', 'status']
+        fields = ["id", "slug", "status", "writing_kind", "is_empty"]
+        read_only_fields = ["id", "slug", "status"]
 
 class WritingWorkingCopyLightSerializer(serializers.ModelSerializer):
     """Lightweight serializer for autosave operations (no nested data)"""
@@ -114,9 +122,9 @@ class WritingWorkingCopyLightSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = WritingWorkingCopy
-        fields = ['id', 'piece', 'body_json', 'title', 'excerpt',
-                'last_saved_at', 'auto_save_count', 'client_session_id']
-        read_only_fields = ['last_saved_at', 'auto_save_count']
+        fields = ["id", "piece", "body_json", "title", "excerpt",
+                "last_saved_at", "auto_save_count", "client_session_id"]
+        read_only_fields = ["last_saved_at", "auto_save_count"]
 
 
 
@@ -138,7 +146,7 @@ class AuthorSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'display_name']
+        fields = ["id", "username", "display_name"]
 
     def get_display_name(self, obj):
         return obj.get_full_name() or obj.username
@@ -150,8 +158,8 @@ class WritingVersionSerializer(serializers.ModelSerializer):
     class Meta:
         model = WritingVersion
         fields = [
-            'id', 'version_no', 'title', 'excerpt',
-            'created_at', 'changelog'
+            "id", "version_no", "title", "excerpt",
+            "created_at", "changelog"
         ]
         read_only_fields = fields
 
@@ -159,47 +167,47 @@ class WritingVersionSerializer(serializers.ModelSerializer):
 
 class WritingPlacementSerializer(serializers.ModelSerializer):
     # Flatten piece data into placement
-    piece_id = serializers.CharField(source='piece.id', read_only=True)
-    piece_slug = serializers.CharField(source='piece.slug', read_only=True)
-    piece_title = serializers.CharField(source='piece.title', read_only=True)
-    piece_body_json = serializers.JSONField(source='piece.body_json', read_only=True)
-    piece_status = serializers.CharField(source='piece.status', read_only=True)
-    published_at = serializers.DateTimeField(source='piece.published_at', read_only=True)
-    pinned_at = serializers.DateTimeField(source='piece.pinned_at', read_only=True)
-    author_name = serializers.CharField(source='piece.author_name', read_only=True)
+    piece_id = serializers.CharField(source="piece.id", read_only=True)
+    piece_slug = serializers.CharField(source="piece.slug", read_only=True)
+    piece_title = serializers.CharField(source="piece.title", read_only=True)
+    piece_body_json = serializers.JSONField(source="piece.body_json", read_only=True)
+    piece_status = serializers.CharField(source="piece.status", read_only=True)
+    published_at = serializers.DateTimeField(source="piece.published_at", read_only=True)
+    pinned_at = serializers.DateTimeField(source="piece.pinned_at", read_only=True)
+    author_name = serializers.CharField(source="piece.author_name", read_only=True)
     is_announcement = serializers.SerializerMethodField()
     display = serializers.SerializerMethodField()
 
     class Meta:
         model = WritingPlacement
         fields = [
-            'id',
-            'piece_id',
-            'piece_slug',
-            'piece_title',
-            'piece_body_json',
-            'piece_status',
-            'published_at',
-            'visibility',
-            'is_pinned',
-            'pinned_at',
-            'order',
-            'created_at',
-            'is_announcement',
-            'author_name',
-            'display',
+            "id",
+            "piece_id",
+            "piece_slug",
+            "piece_title",
+            "piece_body_json",
+            "piece_status",
+            "published_at",
+            "visibility",
+            "is_pinned",
+            "pinned_at",
+            "order",
+            "created_at",
+            "is_announcement",
+            "author_name",
+            "display",
         ]
 
     def get_is_announcement(self, obj):
-        return obj.piece.writing_kind == 'announcement'
+        return obj.piece.writing_kind == "announcement"
 
     def get_display(self, obj):  # ← ADD THIS METHOD
         d = obj.get_content_for_display()
         return {
-            'title': d.get('title'),
-            'excerpt': d.get('excerpt', ''),
-            'is_excerpt': d.get('is_excerpt', False),
-            'body_json': d.get('body_json'),
+            "title": d.get("title"),
+            "excerpt": d.get("excerpt", ""),
+            "is_excerpt": d.get("is_excerpt", False),
+            "body_json": d.get("body_json"),
         }
 
 class WritingPieceListSerializer(serializers.ModelSerializer):
@@ -211,10 +219,10 @@ class WritingPieceListSerializer(serializers.ModelSerializer):
     class Meta:
         model = WritingPiece
         fields = [
-            'id', 'title', 'slug', 'excerpt', 'writing_kind',
-            'status', 'author', 'current_version_no',
-            'published_at', 'updated_at', 'placement_count',
-            'reading_time', 'tags_list'
+            "id", "title", "slug", "excerpt", "writing_kind",
+            "status", "author", "current_version_no",
+            "published_at", "updated_at", "placement_count",
+            "reading_time", "tags_list"
         ]
         read_only_fields = fields
 
@@ -223,7 +231,7 @@ class WritingPieceListSerializer(serializers.ModelSerializer):
 
     def get_tags_list(self, obj):
         try:
-            if hasattr(obj, 'tags'):
+            if hasattr(obj, "tags"):
                 return [tag.name for tag in obj.tags.all()]
             return []
         except:
@@ -256,17 +264,17 @@ class SeedUpdateSerializer(serializers.ModelSerializer):
 
 
 class WritingCommentSerializer(serializers.ModelSerializer):
-    author_name = serializers.CharField(source='author.get_full_name', read_only=True)
-    author_avatar = serializers.URLField(source='author.profile.avatar.url', read_only=True)
+    author_name = serializers.CharField(source="author.get_full_name", read_only=True)
+    author_avatar = serializers.URLField(source="author.profile.avatar.url", read_only=True)
     replies = serializers.SerializerMethodField()
     like_count = serializers.SerializerMethodField()
     user_has_liked = serializers.SerializerMethodField()
 
     class Meta:
         model = WritingComment
-        fields = ['id', 'content', 'created_at', 'author_name', 'author_avatar',
-                 'replies', 'like_count', 'user_has_liked']
-        read_only_fields = ['created_at']
+        fields = ["id", "content", "created_at", "author_name", "author_avatar",
+                 "replies", "like_count", "user_has_liked"]
+        read_only_fields = ["created_at"]
 
     def get_replies(self, obj):
         if obj.replies.exists():
@@ -277,7 +285,7 @@ class WritingCommentSerializer(serializers.ModelSerializer):
         return obj.likes.count()
 
     def get_user_has_liked(self, obj):
-        user = self.context['request'].user
+        user = self.context["request"].user
         return obj.likes.filter(user=user).exists()
 
 
@@ -285,7 +293,7 @@ class UserMinimalSerializer(serializers.ModelSerializer):
     """Minimal user info for working copy context."""
     class Meta:
         model = User
-        fields = ['id', 'username']
+        fields = ["id", "username"]
 
 
 class WritingPieceMinimalSerializer(serializers.ModelSerializer):
@@ -293,8 +301,8 @@ class WritingPieceMinimalSerializer(serializers.ModelSerializer):
     class Meta:
         model = WritingPiece
         fields = [
-            'id', 'slug', 'title', 'writing_kind',
-            'status', 'created_at', 'updated_at', 'excerpt'
+            "id", "slug", "title", "writing_kind",
+            "status", "created_at", "updated_at", "excerpt"
         ]
 
 
@@ -308,13 +316,13 @@ class WritingWorkingCopySerializer(serializers.ModelSerializer):
     class Meta:
         model = WritingWorkingCopy
         fields = [
-            'id',
-            'piece',
-            'user',
-            'title',
-            'excerpt',
-            'body_json',
-            'last_saved_at',
-            'auto_save_count',
-            'client_session_id'
+            "id",
+            "piece",
+            "user",
+            "title",
+            "excerpt",
+            "body_json",
+            "last_saved_at",
+            "auto_save_count",
+            "client_session_id"
         ]

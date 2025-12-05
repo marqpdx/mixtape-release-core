@@ -1,37 +1,57 @@
 # chat/api/views.py
 
-from .serializers import ChatMessageSerializer
-from django.db.models import Count
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from livewire.auth import ServiceJWTAuthentication  # your class that verifies SERVICE_JWT_SECRET
-from livewire.permissions import HasChatWriteScope  # checks "chat:write" in request.auth_payload
-from rest_framework import generics, permissions
-from rest_framework import status
-from rest_framework import viewsets
+from rest_framework import generics, permissions, status, viewsets
+from rest_framework.decorators import (
+    api_view,
+    authentication_classes,
+    permission_classes,
+)
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.pagination import PageNumberPagination
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from rest_framework.decorators import api_view, authentication_classes, permission_classes
-from rest_framework.exceptions import PermissionDenied, NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from chat.api.serializers import BaseConversationSerializer, ConversationSerializer, ConversationReadSerializer, ChatMessageSerializer, ConversationStatusTrackerSerializer, MessageReactionSerializer
-from chat.models import Conversation, ConversationParticipant, ChatMessage, ConversationStatusTracker, MessageReaction, MessageMention
+from chat.api.serializers import (
+    BaseConversationSerializer,
+    ChatMessageSerializer,
+    ConversationReadSerializer,
+    ConversationSerializer,
+    ConversationStatusTrackerSerializer,
+    MessageReactionSerializer,
+)
+from chat.models import (
+    ChatMessage,
+    Conversation,
+    ConversationParticipant,
+    ConversationStatusTracker,
+    MessageReaction,
+)
 from chat.permissions import IsConversationParticipant
 from chat.utils import generate_conversation_title
+from livewire.auth import (
+    ServiceJWTAuthentication,  # your class that verifies SERVICE_JWT_SECRET
+)
+from livewire.permissions import (
+    HasChatWriteScope,  # checks "chat:write" in request.auth_payload
+)
 from users.models import CustomUser
+
 # from utils.activity import format_chat_message_log, log_activity
 from utils.chat.notify_socket_server import notify_socket_server
+
+from .serializers import ChatMessageSerializer
 
 
 class MessagePagination(PageNumberPagination):
     """Pagination for chat messages"""
     page_size = 50
-    page_size_query_param = 'page_size'
+    page_size_query_param = "page_size"
     max_page_size = 100
 
 
@@ -126,7 +146,7 @@ def conversation_messages(request, slug):
     if request.method == "GET":
         messages = ChatMessage.objects.filter(
             conversation=conversation
-        ).select_related('sender').prefetch_related('reactions__user', 'mentions').order_by("created_at")
+        ).select_related("sender").prefetch_related("reactions__user", "mentions").order_by("created_at")
 
         # Apply pagination
         paginator = MessagePagination()
@@ -271,23 +291,23 @@ class UnreadsListView(APIView):
 @permission_classes([IsAuthenticated])
 def mention_autocomplete(request):
     """API endpoint for mention autocomplete"""
-    query = request.GET.get('q', '').strip()
-    conversation_slug = request.GET.get('conversation_id')  # This is actually a slug
+    query = request.GET.get("q", "").strip()
+    conversation_slug = request.GET.get("conversation_id")  # This is actually a slug
 
     if not query or len(query) < 2:
-        return JsonResponse({'suggestions': []})
+        return JsonResponse({"suggestions": []})
 
     try:
         conversation = Conversation.objects.get(slug=conversation_slug)  # Use slug
 
         # Verify user is a participant
         if not ConversationParticipant.objects.filter(user=request.user, conversation=conversation).exists():
-            return JsonResponse({'error': 'Not a participant'}, status=403)
+            return JsonResponse({"error": "Not a participant"}, status=403)
 
         suggestions = get_mentionable_objects_for_conversation(conversation, query)
-        return JsonResponse({'suggestions': suggestions})
+        return JsonResponse({"suggestions": suggestions})
     except Conversation.DoesNotExist:
-        return JsonResponse({'suggestions': []})
+        return JsonResponse({"suggestions": []})
 
 
 def get_mentionable_objects_for_conversation(conversation, query=""):
@@ -295,17 +315,17 @@ def get_mentionable_objects_for_conversation(conversation, query=""):
     mentionables = []
 
     # Users in conversation
-    participants = conversation.participants.select_related('user').filter(
+    participants = conversation.participants.select_related("user").filter(
         user__username__icontains=query
     )[:10]  # Limit results
 
     for participant in participants:
         mentionables.append({
-            'type': 'user',
-            'id': str(participant.user.id),
-            'username': participant.user.username,
-            'display_name': participant.user.get_full_name() or participant.user.username,
-            'mention_text': f"@{participant.user.username}"
+            "type": "user",
+            "id": str(participant.user.id),
+            "username": participant.user.username,
+            "display_name": participant.user.get_full_name() or participant.user.username,
+            "mention_text": f"@{participant.user.username}"
         })
 
     # Add groups if applicable
@@ -318,8 +338,6 @@ def get_mentionable_objects_for_conversation(conversation, query=""):
 
 
 from rest_framework.decorators import action
-from rest_framework.response import Response
-
 
 
 class ChatMessageViewSet(viewsets.ModelViewSet):
@@ -331,9 +349,9 @@ class ChatMessageViewSet(viewsets.ModelViewSet):
         """Only return messages from conversations the user participates in"""
         return ChatMessage.objects.filter(
             conversation__participants__user=self.request.user
-        ).select_related('sender', 'conversation').prefetch_related('reactions', 'mentions')
+        ).select_related("sender", "conversation").prefetch_related("reactions", "mentions")
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=["post"])
     def react(self, request, pk=None):
         """Add or remove a reaction to a message"""
         message = self.get_object()
@@ -343,12 +361,12 @@ class ChatMessageViewSet(viewsets.ModelViewSet):
             user=request.user,
             conversation=message.conversation
         ).exists():
-            return Response({'error': 'Not authorized'}, status=403)
+            return Response({"error": "Not authorized"}, status=403)
 
-        reaction_name = request.data.get('reaction_name')
+        reaction_name = request.data.get("reaction_name")
 
         if not reaction_name:
-            return Response({'error': 'Reaction name is required'}, status=400)
+            return Response({"error": "Reaction name is required"}, status=400)
 
         # Toggle reaction - remove if exists, add if doesn't
         reaction, created = MessageReaction.objects.get_or_create(
@@ -360,15 +378,15 @@ class ChatMessageViewSet(viewsets.ModelViewSet):
         if not created:
             # Reaction already exists, remove it
             reaction.delete()
-            return Response({'action': 'removed', 'reaction_name': reaction_name})
+            return Response({"action": "removed", "reaction_name": reaction_name})
 
         return Response({
-            'action': 'added',
-            'reaction_name': reaction_name,
-            'reaction': MessageReactionSerializer(reaction).data
+            "action": "added",
+            "reaction_name": reaction_name,
+            "reaction": MessageReactionSerializer(reaction).data
         })
 
-    @action(detail=True, methods=['get'])
+    @action(detail=True, methods=["get"])
     def reactions(self, request, pk=None):
         """Get all reactions for a message"""
         message = self.get_object()

@@ -1,9 +1,19 @@
 # chat/api/serializers.py
 
 import logging
-from rest_framework import serializers
+
 from django.contrib.auth import get_user_model
-from chat.models import Conversation, ConversationParticipant, ChatMessage, ConversationStatusTracker, MessageMention, MessageReaction
+from rest_framework import serializers
+
+from chat.models import (
+    ChatMessage,
+    Conversation,
+    ConversationParticipant,
+    ConversationStatusTracker,
+    MessageMention,
+    MessageReaction,
+)
+
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -114,32 +124,32 @@ class ChatMessageSerializer(serializers.ModelSerializer):
     class Meta:
         model = ChatMessage
         fields = ["id", "text", "created_at", "sender", "reactions", "mentions", "reaction_summary"]
-        read_only_fields = ['sender', 'created_at', 'reactions', 'mentions']
+        read_only_fields = ["sender", "created_at", "reactions", "mentions"]
 
     def get_reaction_summary(self, obj):
         """Return reaction_name counts grouped by reaction_name type"""
         from django.db.models import Count
-        summary = obj.reactions.values('reaction_name').annotate(
-            count=Count('reaction_name')
-        ).order_by('-count')
+        summary = obj.reactions.values("reaction_name").annotate(
+            count=Count("reaction_name")
+        ).order_by("-count")
 
         return [
             {
-                'reaction_name': item['reaction_name'],
-                'count': item['count'],
-                'users': list(obj.reactions.filter(reaction_name=item['reaction_name']).values_list('user__username', flat=True))
+                "reaction_name": item["reaction_name"],
+                "count": item["count"],
+                "users": list(obj.reactions.filter(reaction_name=item["reaction_name"]).values_list("user__username", flat=True))
             }
             for item in summary
         ]
 
     def create(self, validated_data):
         # Your existing create method with mentions...
-        conversation = self.context.get('conversation')
+        conversation = self.context.get("conversation")
 
         message = ChatMessage.objects.create(
             conversation=conversation,
-            sender=validated_data['sender'],
-            text=validated_data['text']
+            sender=validated_data["sender"],
+            text=validated_data["text"]
         )
 
         self._create_mentions(message)
@@ -148,13 +158,15 @@ class ChatMessageSerializer(serializers.ModelSerializer):
     def _create_mentions(self, message):
         """Parse mentions from message text and create notifications"""
         import re
-        from django.contrib.contenttypes.models import ContentType
+
         from django.contrib.auth import get_user_model
+        from django.contrib.contenttypes.models import ContentType
+
         from ..models import MessageMention
         # from activity.models import Action
 
         # Find @mentions in text
-        mention_pattern = r'@(\w+(?:-\w+)*)'
+        mention_pattern = r"@(\w+(?:-\w+)*)"
         mention_matches = re.finditer(mention_pattern, message.text)
 
         User = get_user_model()
@@ -188,6 +200,7 @@ class ChatMessageSerializer(serializers.ModelSerializer):
     def _create_mention_notification(self, message, mention):
         """Create Activity notification for mention using proper producer"""
         from django.contrib.auth import get_user_model
+
         from activity.producers_chat import on_chat_mention
 
         User = get_user_model()

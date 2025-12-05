@@ -1,0 +1,10 @@
+# /myapp/management/commands/run_listen_task.py
+from django.core.management.base import BaseCommand
+from ai.tasks.task_listener import listen_for_task_result
+
+class Command(BaseCommand):
+    help = 'Manually trigger the listen_for_task_result task'
+
+    def handle(self, *args, **kwargs):
+        listen_for_task_result.apply_async()
+        self.stdout.write(self.style.SUCCESS('Task listen_for_task_result triggered.'))

@@ -1,9 +1,13 @@
 # chat/services.py
 
 import re
+
 from django.contrib.contenttypes.models import ContentType
-from .models import ChatMessage, MessageMention
+
 from activity.models import Action
+
+from .models import ChatMessage, MessageMention
+
 
 class ChatMessageService:
     @staticmethod
@@ -30,7 +34,7 @@ class ChatMessageService:
         mentions = []
 
         # Regex to find @mentions (simple version)
-        mention_pattern = r'@(\w+(?:-\w+)*)'  # Handles @username or @group-name
+        mention_pattern = r"@(\w+(?:-\w+)*)"  # Handles @username or @group-name
         mention_matches = re.finditer(mention_pattern, text)
 
         for match in mention_matches:

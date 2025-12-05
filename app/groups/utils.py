@@ -1,8 +1,10 @@
 # groups/utils.py
 
 from django.contrib.contenttypes.models import ContentType
+
 from groups.models import Group
 from users.models import CustomUser
+
 
 def prefetch_members(memberships_qs):
     """

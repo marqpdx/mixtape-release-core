@@ -1,8 +1,18 @@
 # assets/api/serializers
 
-from rest_framework import serializers
-from ..models import Asset, GroupAsset, ImageFields, ProfileAsset, VideoFields, DocumentFields, AudioFields
 from django.contrib.auth import get_user_model
+from rest_framework import serializers
+
+from ..models import (
+    Asset,
+    AudioFields,
+    DocumentFields,
+    GroupAsset,
+    ImageFields,
+    ProfileAsset,
+    VideoFields,
+)
+
 
 User = get_user_model()
 

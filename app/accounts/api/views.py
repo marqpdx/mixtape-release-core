@@ -1,35 +1,33 @@
 # accounts/api/views.py
 
+from http import HTTPStatus
+
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
+
 # from django.contrib.auth.models import Group  # Deferred to Phase 3
 from django.db.models import Prefetch
-from http import HTTPStatus
-from rest_framework import status
-from rest_framework import generics
-from rest_framework import permissions, viewsets
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework.views import APIView
-
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
-
 from django.http import JsonResponse
 from django.middleware.csrf import get_token
-from django.core.cache import cache
+from rest_framework import status, viewsets
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from profiles.models import UserProfile
 from users.models import Role
 
-from .serializers import UserCreateSerializer
-from .serializers import UserSerializer
+from .serializers import UserCreateSerializer, UserSerializer
+
+
 # from .serializers import GroupSerializer  # Deferred to Phase 3
 
 User = get_user_model()
 
 
 def csrf(request):
-    return JsonResponse({'csrfToken': get_token(request)})
+    return JsonResponse({"csrfToken": get_token(request)})
 
 
 # ============================================================================
@@ -52,8 +50,8 @@ class UserViewSet(viewsets.ReadOnlyModelViewSet):
         qs = get_user_model().objects.filter(
             is_active=True
         ).prefetch_related(
-            Prefetch('roles', queryset=Role.objects.only('name'))
-        ).select_related('profile').order_by('-date_joined')
+            Prefetch("roles", queryset=Role.objects.only("name"))
+        ).select_related("profile").order_by("-date_joined")
 
         return qs
 
@@ -109,7 +107,7 @@ class CurrentUserIdentity(APIView):
             profile = UserProfile.objects.filter(user=user).first()
 
             # Get user's groups (assuming CustomUser has a groups field)
-            groups = user.groups.all() if hasattr(user, 'groups') else []
+            groups = user.groups.all() if hasattr(user, "groups") else []
 
             # Build roles list
             roles = []
@@ -119,8 +117,8 @@ class CurrentUserIdentity(APIView):
                 roles.append("staff")
 
             # Add custom roles if they exist
-            if hasattr(user, 'roles'):
-                roles.extend(list(user.roles.values_list('name', flat=True)))
+            if hasattr(user, "roles"):
+                roles.extend(list(user.roles.values_list("name", flat=True)))
 
             # Default to member if has groups
             if not roles and groups.exists():
@@ -221,17 +219,17 @@ def refresh_permissions(request):
 
 
 
-@api_view(['POST'])
+@api_view(["POST"])
 @permission_classes([AllowAny])
 def user_create_view(request):
     print("🔥 Reached the view!")  # ✅ Check if this prints
-    serializer = UserCreateSerializer(data=request.data, context={'request': request})
+    serializer = UserCreateSerializer(data=request.data, context={"request": request})
     if not serializer.is_valid():
         error_messages = {field: str(error) for field, error in serializer.errors.items()}
-        print('serializer.errors', error_messages)
+        print("serializer.errors", error_messages)
         return Response(data={
             **error_messages,
-            'success': False
+            "success": False
         }, status=HTTPStatus.BAD_REQUEST)
 
     try:
@@ -239,11 +237,11 @@ def user_create_view(request):
     except Exception as e:
         print(f"Error creating user: {e}")
         return Response(data={
-            'error': 'An error occurred while creating the user.',
-            'success': False
+            "error": "An error occurred while creating the user.",
+            "success": False
         }, status=HTTPStatus.INTERNAL_SERVER_ERROR)
 
     return Response(data={
-        'message': 'Record Created.',
-        'success': True
+        "message": "Record Created.",
+        "success": True
     }, status=HTTPStatus.OK)

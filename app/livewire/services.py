@@ -1,10 +1,10 @@
 # apps/livewire/services.py
-from typing import Iterable, Set
-from django.db import transaction
 from django.contrib.auth import get_user_model
+from django.db import transaction
 
 from chat.models import Conversation, ConversationContext, ConversationParticipant
 from livewire.participant_sources import users_for_anchor
+
 
 User = get_user_model()
 
@@ -22,10 +22,10 @@ def sync_participants_for_context_link(cc: ConversationContext, keep_admin_creat
         return {"added": 0, "removed": 0, "kept": 0}
 
     anchor = cc.context.anchor
-    desired_ids: Set[int] = users_for_anchor(anchor)
+    desired_ids: set[int] = users_for_anchor(anchor)
 
     # Optionally ensure the creator stays admin (if present)
-    admin_keep: Set[int] = set()
+    admin_keep: set[int] = set()
     if keep_admin_creator and convo.created_by_id:
         admin_keep.add(convo.created_by_id)
 

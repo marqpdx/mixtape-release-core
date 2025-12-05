@@ -1,0 +1,129 @@
+# # rag_resources.py
+
+# import os, re
+
+# from ai.config.ai_config import configure_embedding, configure_llm, configure_rag
+
+# retriever = None
+# llm = None
+# index = None
+
+# # # Get the absolute path to the current script (llama_qdrant_setup.py)
+# SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# # # Build the path to the model
+# MODEL_PATH = os.path.join(SCRIPT_DIR, "..", "models", "phi-2.Q4_K_M.gguf")
+# MODEL_PATH = os.path.normpath(MODEL_PATH)
+
+
+
+
+# def init_rag_resources(collection_name):
+#     global retriever, llm, index
+
+#     # Prevent re-initialization if already set
+#     if retriever and llm and index:
+#         return
+
+#     from qdrant_client import QdrantClient
+#     from llama_index.vector_stores.qdrant import QdrantVectorStore
+#     from llama_index.core import VectorStoreIndex, StorageContext
+
+#     # from llama_index.llms.llama_cpp import LlamaCPP
+
+#     configure_embedding()
+
+#     qdrant_client = QdrantClient("http://localhost:6333")
+#     vector_store = QdrantVectorStore(client=qdrant_client, collection_name=collection_name)
+#     storage_context = StorageContext.from_defaults(vector_store=vector_store)
+#     index = VectorStoreIndex.from_vector_store(vector_store, storage_context=storage_context)
+
+#     configure_rag(index)
+
+#     print("RAG components initialized.")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# # import os
+
+# # from llama_index.core import StorageContext, VectorStoreIndex
+# # from llama_index.core.retrievers import VectorIndexRetriever
+# # from llama_index.llms.llama_cpp import LlamaCPP
+# # from llama_index.vector_stores.qdrant import QdrantVectorStore
+# # from qdrant_client import QdrantClient
+
+# # from ai.config.embed_model import configure_embedding
+
+# # # Get the absolute path to the current script (llama_qdrant_setup.py)
+# # SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# # # Build the path to the model
+# # MODEL_PATH = os.path.join(SCRIPT_DIR, "..", "models", "phi-2.Q4_K_M.gguf")
+# # MODEL_PATH = os.path.normpath(MODEL_PATH)
+
+# # def get_rag_components():
+
+# #     configure_embedding()
+
+# #     print('ragging')
+
+# #     # Load Qdrant client and vector store
+# #     qdrant_client = QdrantClient("http://localhost:6333")
+# #     vector_store = QdrantVectorStore(client=qdrant_client, collection_name="drocuments")
+# #     storage_context = StorageContext.from_defaults(vector_store=vector_store)
+
+# #     # Load index from vector store (does NOT require re-ingesting documents)
+# #     index = VectorStoreIndex.from_vector_store(vector_store, storage_context=storage_context)
+
+# #     # Set up retriever
+# #     retriever = VectorIndexRetriever(
+# #         index=index,
+# #         similarity_top_k=5,
+# #         filters=None  # You can insert MetadataFilters here
+# #     )
+
+# #     # Set up local LLM (Phi-2, tuned)
+# #     llm = LlamaCPP(
+# #         model_path=MODEL_PATH,
+# #         temperature=0.1,
+# #         max_new_tokens=128,
+# #         context_window=2048,
+# #         model_kwargs={
+# #             "n_gpu_layers": 20,
+# #             "n_batch": 128,          # Controls how many tokens are processed at once
+# #             "f16_kv": True,         # Use 16-bit KV cache if supported
+# #             "use_mlock": False,     # Disable to save RAM if you're tight
+# #             "n_threads": 4,         # Tune this to your CPU (often 4-8 for M1/M2)
+# #             "verbose": True
+# #         },
+# #     )

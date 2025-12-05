@@ -1,14 +1,16 @@
 # activity/tasks.py celery fanout
 
 from __future__ import annotations
-from django.db import transaction, models
-from django.utils import timezone
-from celery import shared_task
 
-from activity.models import Action, Notification, ActionOutbox
+from celery import shared_task
+from django.db import models, transaction
+from django.utils import timezone
+
+from activity.models import Action, ActionOutbox, Notification
 from activity.services.audience import resolve_audience
 from activity.services.preferences import apply_preferences
 from activity.services.utils import max_priority
+
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, retry_kwargs={"max_retries": 5})
 def fanout_action_task(self, action_id: str):

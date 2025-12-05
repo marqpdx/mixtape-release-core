@@ -4,11 +4,10 @@ Service layer for Group operations.
 Handles all business logic for creating, updating, and managing groups.
 """
 
-from django.db import transaction
 from django.contrib.contenttypes.models import ContentType
-from django.core.exceptions import ValidationError
+from django.db import transaction
 
-from groups.models import Group, GroupMembership, CommunityGroup
+from groups.models import CommunityGroup, Group, GroupMembership
 from groups.models.dec_enums import GroupType
 
 
@@ -68,7 +67,7 @@ class GroupService:
             group=group,
             member_content_type=user_content_type,
             member_object_id=created_by.id,
-            roles=['member', 'admin'],  # New: ArrayField with both roles
+            roles=["member", "admin"],  # New: ArrayField with both roles
             is_active=True,
             is_pending=False
         )
@@ -113,8 +112,8 @@ class GroupService:
             Updated Group instance
         """
         allowed_fields = [
-            'title', 'description', 'visibility',
-            'profile_image', 'background_image'
+            "title", "description", "visibility",
+            "profile_image", "background_image"
         ]
 
         for field, value in fields.items():
@@ -183,11 +182,10 @@ class GroupService:
         # Frontend: 'admin' | 'moderator' | 'member'
 
         if membership.is_admin():
-            return 'admin'
-        elif membership.is_steward():
-            return 'moderator'  # Map steward -> moderator for frontend
-        else:
-            return 'member'
+            return "admin"
+        if membership.is_steward():
+            return "moderator"  # Map steward -> moderator for frontend
+        return "member"
 
     @staticmethod
     def can_user_view_group(group, user):
@@ -202,7 +200,7 @@ class GroupService:
             bool
         """
         # Public groups visible to all
-        if group.visibility == 'public':
+        if group.visibility == "public":
             return True
 
         # Authenticated users can see if they're members

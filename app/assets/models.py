@@ -1,12 +1,15 @@
 # assets/models.py
 
+import uuid
+
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
-import uuid
 
 from fundamentals.bases import BaseModel
+
+
 class AssetType(models.TextChoices):
     IMAGE = "image", "Image"
     VIDEO = "video", "Video"

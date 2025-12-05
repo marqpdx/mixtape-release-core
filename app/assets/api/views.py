@@ -1,26 +1,35 @@
 # mixtape/assets/api/views.py
 
+import io
+import logging
 import time
-import uuid, io
+import uuid
 
-from storages.backends.s3boto3 import S3Boto3Storage
 from django.contrib.contenttypes.models import ContentType
+from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
-from rest_framework.parsers import MultiPartParser, FormParser
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
-from django.core.files.base import ContentFile
-from groups.models import Group
-from rest_framework import generics, permissions, status
-from rest_framework.response import Response
 from django.utils.text import get_valid_filename
 from PIL import Image, UnidentifiedImageError
+from rest_framework import generics, permissions, status
+from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.response import Response
 from rest_framework.views import APIView
+from storages.backends.s3boto3 import S3Boto3Storage
 
-from assets.api.serializers import AssetSerializer, GroupAssetSerializer, GroupAssetUploadSerializer
+from assets.api.serializers import (
+    AssetSerializer,
+    GroupAssetSerializer,
+    GroupAssetUploadSerializer,
+)
 from assets.models import Asset, GroupAsset, ProfileAsset
 from assets.tasks import upload_group_asset_task
 from groups.models import Group
+
+
+logger = logging.getLogger(__name__)
+
 
 class AssetListCreateView(generics.ListCreateAPIView):
     """
@@ -86,11 +95,7 @@ class GroupAssetPresignView(APIView):
         elif asset.privacy == "members":
             if not user.is_authenticated:
                 return Response(status=status.HTTP_403_FORBIDDEN)
-            if user.is_superuser:
-                pass
-            elif group_asset.group in user.groups.all():
-                pass
-            elif hasattr(user, "is_admin_of") and user.is_admin_of(group_asset.group):
+            if user.is_superuser or group_asset.group in user.groups.all() or hasattr(user, "is_admin_of") and user.is_admin_of(group_asset.group):
                 pass
             else:
                 return Response(status=status.HTTP_403_FORBIDDEN)
@@ -223,51 +228,80 @@ class SponsorImageUploadView(APIView):
 
     POST /api/assets/upload?sponsor_type=group&sponsor_id={uuid}&role=profile_image
 
+    This endpoint ONLY uploads the image to S3. It does NOT update the database.
+    The frontend should call /api/assets/commit to finalize the change (on Save)
+    or /api/assets/rollback to discard the upload (on Cancel).
+
     Returns: {path, url, bytes, elapsed}
-    Store 'path' in DB, derive 'url' at read-time for signed URLs.
     """
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
         # 1) Get query params
-        sponsor_type = request.query_params.get('sponsor_type')
-        sponsor_id = request.query_params.get('sponsor_id')
-        role = request.query_params.get('role')  # e.g., 'profile_image', 'background_image'
+        sponsor_type = request.query_params.get("sponsor_type")
+        sponsor_id = request.query_params.get("sponsor_id")
+        role = request.query_params.get("role")  # e.g., 'profile_image', 'background_image'
 
         # 2) Validate params
-        if not sponsor_type or sponsor_type not in ['group', 'member']:
-            return Response({"error": "Invalid or missing sponsor_type (must be 'group' or 'member')"}, status=400)
+        if not sponsor_type or sponsor_type not in ["group", "member"]:
+            return Response(
+                {"error": "Invalid or missing sponsor_type (must be 'group' or 'member')"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if not sponsor_id:
-            return Response({"error": "Missing sponsor_id"}, status=400)
+            return Response({"error": "Missing sponsor_id"}, status=status.HTTP_400_BAD_REQUEST)
         if not role:
-            return Response({"error": "Missing role parameter"}, status=400)
+            return Response({"error": "Missing role parameter"}, status=status.HTTP_400_BAD_REQUEST)
 
         # 3) Verify sponsor exists and user has permission
         try:
-            if sponsor_type == 'group':
+            if sponsor_type == "group":
                 from groups.models import Group
                 sponsor = Group.objects.get(id=sponsor_id)
-                # TODO: Add permission check - user must be admin/member
+                # TODO: Implement permission check
                 # if not sponsor.user_can_edit(request.user):
-                #     return Response({"error": "Permission denied"}, status=403)
-            elif sponsor_type == 'member':
-                from users.models import User
-                sponsor = User.objects.get(id=sponsor_id)
-                # User can only upload to their own profile
-                if str(sponsor.id) != str(request.user.id) and not request.user.is_staff:
-                    return Response({"error": "Permission denied"}, status=403)
+                #     return Response({"error": "Permission denied"},
+                #                   status=status.HTTP_403_FORBIDDEN)
+
+            elif sponsor_type == "member":
+                from users.models import CustomUser
+                sponsor = CustomUser.objects.get(id=sponsor_id)
+                # User can only upload to their own profile (unless staff)
+                if sponsor.id != request.user.id and not request.user.is_staff:
+                    return Response(
+                        {"error": "Permission denied"},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+
+        except (Group.DoesNotExist, CustomUser.DoesNotExist) as e:
+            logger.warning("[upload] Sponsor not found: %s (type=%s, id=%s)",
+                         e, sponsor_type, sponsor_id)
+            return Response(
+                {"error": "Sponsor not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         except Exception as e:
-            return Response({"error": f"Sponsor not found: {str(e)}"}, status=404)
+            logger.error("[upload] Unexpected error getting sponsor: %s", e, exc_info=True)
+            return Response(
+                {"error": "Internal server error"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
+        logger.info("[upload] Image upload: sponsor_type=%s, sponsor_id=%s, role=%s",
+                   sponsor_type, sponsor_id, role)
 
-        print("*** SponsorImageUploadView: sponsor_type=",sponsor_type,"sponsor_id=",sponsor_id)
         # 4) Get and validate file
         f = request.FILES.get("file")
         if not f:
-            return Response({"error": "No file provided"}, status=400)
+            return Response({"error": "No file provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # MAX_UPLOAD_BYTES defined at module level
         if f.size > MAX_UPLOAD_BYTES:
-            return Response({"error": f"File too large (max {MAX_UPLOAD_BYTES/1024/1024}MB)"}, status=413)
+            return Response(
+                {"error": f"File too large (max {MAX_UPLOAD_BYTES/1024/1024}MB)"},
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
 
         # 5) Normalize filename and build S3 key
         base = get_valid_filename(f.name or "")
@@ -275,43 +309,222 @@ class SponsorImageUploadView(APIView):
         unique = f"{uuid.uuid4()}.{ext}" if ext else str(uuid.uuid4())
 
         # Use sponsor type plural for path consistency
-        sponsor_path = 'groups' if sponsor_type == 'group' else 'members'
+        sponsor_path = "groups" if sponsor_type == "group" else "members"
         s3_key = f"{sponsor_path}/{sponsor_id}/{role}/{unique}"
 
-
-        print("*** SponsorImageUploadView: generated s3_key:", s3_key)
-
+        logger.debug("[upload] Generated S3 key: %s", s3_key)
 
         # 6) Verify it's an image
         try:
             buf = f.read()
             img = Image.open(io.BytesIO(buf))
+
+            # Validate format
+            if img.format not in ['JPEG', 'PNG', 'GIF', 'WEBP']:
+                return Response(
+                    {"error": f"Unsupported image format: {img.format}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             img.verify()
             payload = buf
-        except (UnidentifiedImageError, OSError):
-            return Response({"error": "Unsupported or corrupt image"}, status=400)
 
+        except (UnidentifiedImageError, OSError) as e:
+            logger.warning("[upload] Invalid image file: %s", e)
+            return Response(
+                {"error": "Invalid or corrupt image file"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        print("*** SponsorImageUploadView: image verified, size:", len(payload))
-        print("*** SponsorImageUploadView: scheduling upload to S3 key:", s3_key)
-        print("*** SponsorImageUploadView: file size bytes:", len(payload))
-        print("*** SponsorImageUploadView: default_storage:", default_storage)
+        logger.debug("[upload] Image verified: size=%d bytes, format=%s",
+                    len(payload), img.format)
 
-
-        # 7) Save to storage
+        # 7) Save to storage (this is the ONLY side effect - no DB changes)
         start = time.time()
-        saved_key = default_storage.save(s3_key, ContentFile(payload))
-        public_url = default_storage.url(saved_key)
-        took = time.time() - start
+        try:
+            saved_key = default_storage.save(s3_key, ContentFile(payload))
+            public_url = default_storage.url(saved_key)
+            took = time.time() - start
+
+            logger.info("[upload] Image uploaded: key=%s, bytes=%d, elapsed=%.3fs",
+                       saved_key, len(payload), took)
+
+            return Response(
+                {
+                    "path": saved_key,   # For frontend to track as pending
+                    "url": public_url,   # For immediate preview
+                    "bytes": len(payload),
+                    "elapsed": round(took, 3),
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
+        except Exception as e:
+            logger.error("[upload] Failed to save to storage: %s", e, exc_info=True)
+            return Response(
+                {"error": "Failed to upload image"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class CommitImageView(APIView):
+    """
+    Commits a pending image upload by updating the sponsor's DB field
+    and scheduling deletion of the old image.
+
+    Called when user clicks "Save" in the edit form.
+
+    POST /api/assets/commit
+    Body: {
+        "sponsor_type": "group",
+        "sponsor_id": "uuid",
+        "role": "profile_image",
+        "new_key": "groups/123/profile_image/abc.jpg",
+        "old_key": "groups/123/profile_image/old.jpg"  # optional
+    }
+
+    Returns: {status: "committed", url: "..."}
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        # Get params from request body
+        new_key = request.data.get("new_key")
+        old_key = request.data.get("old_key")
+        sponsor_type = request.data.get("sponsor_type")
+        sponsor_id = request.data.get("sponsor_id")
+        role = request.data.get("role")
+
+        # Validate params
+        if not all([new_key, sponsor_type, sponsor_id, role]):
+            return Response(
+                {"error": "Missing required fields: new_key, sponsor_type, sponsor_id, role"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if sponsor_type not in ["group", "member"]:
+            return Response(
+                {"error": "Invalid sponsor_type (must be 'group' or 'member')"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Get sponsor and verify permissions
+        try:
+            if sponsor_type == "group":
+                from groups.models import Group
+                sponsor = Group.objects.get(id=sponsor_id)
+                # TODO: Implement permission check
+                # if not sponsor.user_can_edit(request.user):
+                #     return Response({"error": "Permission denied"},
+                #                   status=status.HTTP_403_FORBIDDEN)
+
+            elif sponsor_type == "member":
+                from users.models import CustomUser
+                sponsor = CustomUser.objects.get(id=sponsor_id)
+                # User can only commit to their own profile
+                if sponsor.id != request.user.id and not request.user.is_staff:
+                    return Response(
+                        {"error": "Permission denied"},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+
+        except (Group.DoesNotExist, CustomUser.DoesNotExist):
+            logger.warning("[commit] Sponsor not found: type=%s, id=%s",
+                         sponsor_type, sponsor_id)
+            return Response(
+                {"error": "Sponsor not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as e:
+            logger.error("[commit] Unexpected error: %s", e, exc_info=True)
+            return Response(
+                {"error": "Internal server error"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # Update DB field to point to new image
+        slot_field_name = f"{role}_path"
+
+        if not hasattr(sponsor, slot_field_name):
+            logger.error("[commit] Invalid role '%s' for %s (field %s does not exist)",
+                        role, sponsor_type, slot_field_name)
+            return Response(
+                {"error": f"Invalid role: {role}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Store the new image path
+        setattr(sponsor, slot_field_name, new_key)
+        sponsor.save(update_fields=[slot_field_name])
+
+        logger.info("[commit] Committed image: sponsor_type=%s, sponsor_id=%s, role=%s, new_key=%s",
+                   sponsor_type, sponsor_id, role, new_key)
+
+        # Schedule async deletion of old image (if it exists and is different)
+        if old_key and old_key != new_key:
+            from assets.tasks.cleanup import delete_image_async
+            delete_image_async.delay(old_key)
+            logger.info("[commit] Scheduled deletion of old image: %s", old_key)
+
+        # Return new URL for confirmation
+        try:
+            public_url = default_storage.url(new_key)
+        except Exception as e:
+            logger.warning("[commit] Could not generate URL for %s: %s", new_key, e)
+            public_url = None
 
         return Response(
             {
-                "path": saved_key,  # Store this in DB
-                "url": public_url,  # For immediate display
-                "bytes": len(payload),
-                "elapsed": round(took, 3),
+                "status": "committed",
+                "url": public_url,
+                "path": new_key,
             },
-            status=status.HTTP_201_CREATED,
+            status=status.HTTP_200_OK,
+        )
+
+
+class RollbackImageView(APIView):
+    """
+    Rolls back a pending image upload by scheduling deletion of the new image.
+
+    Called when user clicks "Cancel" in the edit form.
+
+    POST /api/assets/rollback
+    Body: {
+        "new_key": "groups/123/profile_image/abc.jpg",
+        "sponsor_type": "group",      # optional, for logging
+        "sponsor_id": "uuid",          # optional, for logging
+        "role": "profile_image"        # optional, for logging
+    }
+
+    Returns: {status: "rolled_back"}
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        new_key = request.data.get("new_key")
+
+        if not new_key:
+            return Response(
+                {"error": "Missing required field: new_key"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Optional fields for logging
+        sponsor_type = request.data.get("sponsor_type")
+        sponsor_id = request.data.get("sponsor_id")
+        role = request.data.get("role")
+
+        logger.info("[rollback] Rolling back image: sponsor_type=%s, sponsor_id=%s, role=%s, new_key=%s",
+                   sponsor_type or "unknown", sponsor_id or "unknown", role or "unknown", new_key)
+
+        # Schedule async deletion of the pending (new) image
+        from assets.tasks.cleanup import delete_image_async
+        delete_image_async.delay(new_key)
+
+        return Response(
+            {"status": "rolled_back"},
+            status=status.HTTP_200_OK,
         )
 
 
@@ -332,13 +545,13 @@ class SponsorAssetUploadView(APIView):
         from assets.api.serializers import GroupAssetUploadSerializer
 
         # Get sponsor info from query params
-        sponsor_type = request.query_params.get('sponsor_type')
-        sponsor_id = request.query_params.get('sponsor_id')
+        sponsor_type = request.query_params.get("sponsor_type")
+        sponsor_id = request.query_params.get("sponsor_id")
 
         print("*** SponsorAssetUploadView: sponsor_type=",sponsor_type,"sponsor_id=",sponsor_id)
 
         # Validate params
-        if not sponsor_type or sponsor_type not in ['group', 'profile']:
+        if not sponsor_type or sponsor_type not in ["group", "profile"]:
             return Response({
                 "error": "Invalid or missing sponsor_type (must be 'group' or 'profile')"
             }, status=400)
@@ -347,10 +560,10 @@ class SponsorAssetUploadView(APIView):
 
         # Get and validate sponsor
         try:
-            if sponsor_type == 'group':
+            if sponsor_type == "group":
                 sponsor = Group.objects.get(id=sponsor_id)
                 # TODO: Add permission check
-            elif sponsor_type == 'profile':
+            elif sponsor_type == "profile":
                 from profiles.models import UserProfile
                 sponsor = UserProfile.objects.get(id=sponsor_id)
                 # User can only upload to their own profile
@@ -404,7 +617,7 @@ class SponsorAssetUploadView(APIView):
         )
 
         # Create sponsor-specific join table record
-        if sponsor_type == 'group':
+        if sponsor_type == "group":
             join_record = GroupAsset.objects.create(
                 asset=asset,
                 group=sponsor,
@@ -414,7 +627,7 @@ class SponsorAssetUploadView(APIView):
             )
             from assets.api.serializers import GroupAssetSerializer
             response_serializer = GroupAssetSerializer(join_record)
-        elif sponsor_type == 'profile':
+        elif sponsor_type == "profile":
             join_record = ProfileAsset.objects.create(
                 asset=asset,
                 profile=sponsor,
@@ -460,12 +673,12 @@ class SponsorAssetPresignView(APIView):
         join_record = None
         try:
             join_record = GroupAsset.objects.get(asset=asset)
-            sponsor_type = 'group'
+            sponsor_type = "group"
             sponsor = join_record.group
         except GroupAsset.DoesNotExist:
             try:
                 join_record = ProfileAsset.objects.get(asset=asset)
-                sponsor_type = 'profile'
+                sponsor_type = "profile"
                 sponsor = join_record.profile
             except ProfileAsset.DoesNotExist:
                 return Response({"error": "Asset join record not found"}, status=404)
@@ -481,23 +694,21 @@ class SponsorAssetPresignView(APIView):
                 return Response(status=status.HTTP_403_FORBIDDEN)
             if user.is_superuser:
                 pass
-            elif sponsor_type == 'group':
-                if sponsor in user.groups.all():
-                    pass
-                elif hasattr(user, "is_admin_of") and user.is_admin_of(sponsor):
+            elif sponsor_type == "group":
+                if sponsor in user.groups.all() or hasattr(user, "is_admin_of") and user.is_admin_of(sponsor):
                     pass
                 else:
                     return Response(status=status.HTTP_403_FORBIDDEN)
-            elif sponsor_type == 'profile':
+            elif sponsor_type == "profile":
                 if str(sponsor.user_id) != str(user.id):
                     return Response(status=status.HTTP_403_FORBIDDEN)
         elif asset.privacy == "admins":
             if not user.is_authenticated:
                 return Response(status=status.HTTP_403_FORBIDDEN)
-            if sponsor_type == 'group':
+            if sponsor_type == "group":
                 if not user.is_admin_of(sponsor):
                     return Response(status=status.HTTP_403_FORBIDDEN)
-            elif sponsor_type == 'profile':
+            elif sponsor_type == "profile":
                 if str(sponsor.user_id) != str(user.id):
                     return Response(status=status.HTTP_403_FORBIDDEN)
 
@@ -519,10 +730,10 @@ class SponsorAssetListView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
-        sponsor_type = request.query_params.get('sponsor_type')
-        sponsor_id = request.query_params.get('sponsor_id')
+        sponsor_type = request.query_params.get("sponsor_type")
+        sponsor_id = request.query_params.get("sponsor_id")
 
-        if not sponsor_type or sponsor_type not in ['group', 'profile']:
+        if not sponsor_type or sponsor_type not in ["group", "profile"]:
             return Response({
                 "error": "Invalid or missing sponsor_type (must be 'group' or 'profile')"
             }, status=400)
@@ -530,18 +741,18 @@ class SponsorAssetListView(APIView):
             return Response({"error": "Missing sponsor_id"}, status=400)
 
         # Get assets based on sponsor type
-        if sponsor_type == 'group':
+        if sponsor_type == "group":
             from assets.api.serializers import GroupAssetSerializer
             assets = GroupAsset.objects.filter(
                 group_id=sponsor_id,
                 is_deleted=False
-            ).select_related('asset', 'group')
+            ).select_related("asset", "group")
             serializer = GroupAssetSerializer(assets, many=True)
-        elif sponsor_type == 'profile':
+        elif sponsor_type == "profile":
             from assets.api.serializers import ProfileAssetSerializer
             assets = ProfileAsset.objects.filter(
                 profile_id=sponsor_id
-            ).select_related('asset', 'profile')
+            ).select_related("asset", "profile")
             serializer = ProfileAssetSerializer(assets, many=True)
 
         return Response(serializer.data)
@@ -558,10 +769,10 @@ class SponsorAssetFolderListView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
-        sponsor_type = request.query_params.get('sponsor_type')
-        sponsor_id = request.query_params.get('sponsor_id')
+        sponsor_type = request.query_params.get("sponsor_type")
+        sponsor_id = request.query_params.get("sponsor_id")
 
-        if not sponsor_type or sponsor_type not in ['group', 'profile']:
+        if not sponsor_type or sponsor_type not in ["group", "profile"]:
             return Response({
                 "error": "Invalid or missing sponsor_type (must be 'group' or 'profile')"
             }, status=400)
@@ -569,14 +780,14 @@ class SponsorAssetFolderListView(APIView):
             return Response({"error": "Missing sponsor_id"}, status=400)
 
         # Get folder paths based on sponsor type
-        if sponsor_type == 'group':
+        if sponsor_type == "group":
             folders_qs = (
                 GroupAsset.objects
                 .filter(group_id=sponsor_id, is_deleted=False)
                 .values_list("asset__folder_path", flat=True)
                 .distinct()
             )
-        elif sponsor_type == 'profile':
+        elif sponsor_type == "profile":
             folders_qs = (
                 ProfileAsset.objects
                 .filter(profile_id=sponsor_id)

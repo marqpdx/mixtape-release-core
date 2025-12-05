@@ -2,8 +2,11 @@
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+
 from profiles.models import UserProfile
+
 from .models import Role
+
 
 # ✅ Custom Action for Promotion
 def promote_to_steward(modeladmin, request, queryset):
@@ -18,23 +21,23 @@ promote_to_steward.short_description = "Promote selected users to Steward"
 # ✅ Custom User Admin
 @admin.register(get_user_model())
 class CustomUserAdmin(BaseUserAdmin):
-    ordering = ('username',)
-    list_display = ('username', 'email', 'is_staff', 'is_active')
-    list_filter = ('is_staff', 'is_active', 'roles')
+    ordering = ("username",)
+    list_display = ("username", "email", "is_staff", "is_active")
+    list_filter = ("is_staff", "is_active", "roles")
     fieldsets = (
-        (None, {'fields': ('username', 'password')}),
-        ('Personal Info', {'fields': ('first_name', 'last_name', 'email')}),
-        ('Permissions', {'fields': ('is_staff', 'is_active', 'roles')}),
-        ('Important dates', {'fields': ('last_login', 'date_joined')}),
+        (None, {"fields": ("username", "password")}),
+        ("Personal Info", {"fields": ("first_name", "last_name", "email")}),
+        ("Permissions", {"fields": ("is_staff", "is_active", "roles")}),
+        ("Important dates", {"fields": ("last_login", "date_joined")}),
     )
     add_fieldsets = (
         (None, {
-            'classes': ('wide',),
-            'fields': ('username', 'password1', 'password2', 'is_staff', 'is_active')}
+            "classes": ("wide",),
+            "fields": ("username", "password1", "password2", "is_staff", "is_active")}
          ),
     )
-    search_fields = ('username', 'email')
-    ordering = ('username',)
+    search_fields = ("username", "email")
+    ordering = ("username",)
 
     class Meta:
         verbose_name = "Custom User"
@@ -45,8 +48,8 @@ class CustomUserAdmin(BaseUserAdmin):
 # ✅ UserProfile Admin
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ['user', 'slug', 'display_name', 'quick_intro']
-    search_fields = ['user__username', 'slug', 'display_name']
+    list_display = ["user", "slug", "display_name", "quick_intro"]
+    search_fields = ["user__username", "slug", "display_name"]
 
     class Meta:
         verbose_name = "User Profile"
@@ -57,8 +60,8 @@ class UserProfileAdmin(admin.ModelAdmin):
 # ✅ Role Admin
 @admin.register(Role)
 class RoleAdmin(admin.ModelAdmin):
-    list_display = ['name']
-    search_fields = ['name']
+    list_display = ["name"]
+    search_fields = ["name"]
 
     class Meta:
         verbose_name = "Role"

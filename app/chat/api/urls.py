@@ -1,7 +1,9 @@
 # chat/api/urls.py
 
 from django.urls import path
+
 from . import views
+
 
 # parent path /api/chat/
 
@@ -17,6 +19,6 @@ urlpatterns = [
     path("conversations/<slug:slug>/status", views.ConversationStatusTrackerDetail.as_view(), name="conversation-status"),
     path("conversations/<slug:slug>/read", views.ConversationReadView.as_view()),
 
-    path("messages/<uuid:pk>/react", views.ChatMessageViewSet.as_view({'post': 'react'}), name="message-react"),
-    path('mention-autocomplete', views.mention_autocomplete, name='mention-autocomplete'),
+    path("messages/<uuid:pk>/react", views.ChatMessageViewSet.as_view({"post": "react"}), name="message-react"),
+    path("mention-autocomplete", views.mention_autocomplete, name="mention-autocomplete"),
 ]

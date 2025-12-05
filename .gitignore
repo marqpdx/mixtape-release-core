@@ -41,7 +41,10 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+fix_ruff_issues.sh
+check.sh
 
 # Migrations (optional - some teams commit these)
 # */migrations/*.py
 # !*/migrations/__init__.py
+llm_models/

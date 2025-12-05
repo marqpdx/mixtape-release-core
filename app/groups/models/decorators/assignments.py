@@ -4,8 +4,8 @@ Decorator assignment models.
 Link decorators to specific groups and memberships.
 """
 
-from django.db import models
 from django.conf import settings
+from django.db import models
 
 from ..dec_enums import AssignmentSource
 from .catalog import GroupDecorator, MembershipDecorator
@@ -76,14 +76,14 @@ class GroupHasDecorator(models.Model):
 
     class Meta:
         db_table = "groups_grouphasdecorator"
-        unique_together = [('group', 'decorator')]
-        ordering = ['group', 'decorator']
+        unique_together = [("group", "decorator")]
+        ordering = ["group", "decorator"]
         verbose_name = "Group Has Decorator"
         verbose_name_plural = "Groups Have Decorators"
         indexes = [
-            models.Index(fields=['group', 'enabled']),
-            models.Index(fields=['decorator', 'enabled']),
-            models.Index(fields=['expires_at']),
+            models.Index(fields=["group", "enabled"]),
+            models.Index(fields=["decorator", "enabled"]),
+            models.Index(fields=["expires_at"]),
         ]
 
     def __str__(self):
@@ -168,14 +168,14 @@ class MembershipHasDecorator(models.Model):
 
     class Meta:
         db_table = "groups_membershiphasdecorator"
-        unique_together = [('membership', 'decorator')]
-        ordering = ['membership', 'decorator']
+        unique_together = [("membership", "decorator")]
+        ordering = ["membership", "decorator"]
         verbose_name = "Membership Has Decorator"
         verbose_name_plural = "Memberships Have Decorators"
         indexes = [
-            models.Index(fields=['membership', 'enabled']),
-            models.Index(fields=['decorator', 'enabled']),
-            models.Index(fields=['expires_at']),
+            models.Index(fields=["membership", "enabled"]),
+            models.Index(fields=["decorator", "enabled"]),
+            models.Index(fields=["expires_at"]),
         ]
 
     def __str__(self):

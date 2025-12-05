@@ -1,14 +1,15 @@
-import environ
 import os
 from datetime import timedelta
 from pathlib import Path
 
+import environ
 from dotenv import load_dotenv
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 # BASE_DIR = Path(__file__).resolve().parent.parent
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
-load_dotenv(os.path.join(BASE_DIR, '.env'))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 # TODO - sort this: https://django-environ.readthedocs.io/en/latest/quickstart.html
 env = environ.Env(
@@ -17,10 +18,10 @@ env = environ.Env(
     DEBUG=(bool, False)
 )
 
-SITE_ADMIN_EMAIL = 'marqpdx@gmail.com'
-CONTACT_NOTIFICATION_EMAIL = 'marqpdx@gmail.com'
+SITE_ADMIN_EMAIL = "marqpdx@gmail.com"
+CONTACT_NOTIFICATION_EMAIL = "marqpdx@gmail.com"
 
-DEFAULT_FROM_EMAIL = 'The Mixtape Team <info@mindfulbrilliance.com>'
+DEFAULT_FROM_EMAIL = "The Mixtape Team <info@mindfulbrilliance.com>"
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-unsafe-secret-key")
 
@@ -34,12 +35,13 @@ SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-unsafe-secret-key")
 # SECURITY WARNING: don't run with debug turned on in production!
 # DEBUG = True
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ["*"]
 
 # ============================================================================
-# QDRANT (Vector Database - Deferred to Phase 4+)
+# QDRANT & INKWELL AI SERVICES
 # ============================================================================
-# QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+FASTAPI_LLM_URL = os.getenv("FASTAPI_LLM_URL", "http://localhost:8001")
 
 
 # Application definition
@@ -53,33 +55,34 @@ ALLOWED_HOSTS = ['*']
 
 INSTALLED_APPS = [
     # Django core
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-    'django_filters',
-    'django_extensions',
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "django_filters",
+    "django_extensions",
 
     # Third-party
-    'corsheaders',          # CORS handling for frontend
-    'rest_framework',       # Django REST Framework
-    'rest_framework_simplejwt',  # JWT authentication
-    'storages',            # S3 and cloud storage support
+    "corsheaders",          # CORS handling for frontend
+    "rest_framework",       # Django REST Framework
+    "rest_framework_simplejwt",  # JWT authentication
+    "storages",            # S3 and cloud storage support
 
     # Local - MINIMAL for Phase 1
-    'accounts',      # Authentication (JWT, login, /auth/me)
-    'activity',      # User activity tracking and notifications
-    'assets',        # Asset management (deferred to Phase 2)
-    'chat',          # Chat app, socket.io
-    'contexts',      # Context management
-    'fundamentals',  # BaseModel (timestamps, soft delete)
-    'groups',        # Group model, GroupMembership, Invitations (Phase 2)
-    'profiles',      # UserProfile, Member API
-    'users',         # CustomUser, Role models
-    'utils',         # Utility functions and helpers
-    'writing',       # Writing app
+    "accounts",      # Authentication (JWT, login, /auth/me)
+    "activity",      # User activity tracking and notifications
+    "assets",        # Asset management (deferred to Phase 2)
+    "chat",          # Chat app, socket.io
+    "contexts",      # Context management
+    "fundamentals",  # BaseModel (timestamps, soft delete)
+    "groups",        # Group model, GroupMembership, Invitations (Phase 2)
+    "inkwell",       # AI services, RAG, synopsis generation
+    "profiles",      # UserProfile, Member API
+    "users",         # CustomUser, Role models
+    "utils",         # Utility functions and helpers
+    "writing",       # Writing app
 ]
 
 INSTALLED_APPS += ["rest_framework_simplejwt.token_blacklist"]
@@ -123,47 +126,47 @@ MIXTAPE_DEFAULT_GROUP_UUID_NAMESPACE = os.getenv("MIXTAPE_DEFAULT_GROUP_UUID_NAM
 
 
 # User info
-AUTH_USER_MODEL = 'users.CustomUser'
+AUTH_USER_MODEL = "users.CustomUser"
 
 AUTHENTICATION_BACKENDS = [
-    'django.contrib.auth.backends.ModelBackend',
+    "django.contrib.auth.backends.ModelBackend",
 ]
 
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware',                  # 🔍 Handles CORS first to avoid preflight issues
-    'django.middleware.security.SecurityMiddleware',          # 🛡️ Security headers like HSTS
-    'django.contrib.sessions.middleware.SessionMiddleware',   # 🗂️ Session management for user sessions
-    'django.middleware.common.CommonMiddleware',              # 🔄 Basic middleware like GZip, Conditional GET
-    'django.middleware.csrf.CsrfViewMiddleware',              # 🔒 CSRF protection middleware
-    'django.contrib.auth.middleware.AuthenticationMiddleware',# 🔑 Populates `request.user` ✅
+    "corsheaders.middleware.CorsMiddleware",                  # 🔍 Handles CORS first to avoid preflight issues
+    "django.middleware.security.SecurityMiddleware",          # 🛡️ Security headers like HSTS
+    "django.contrib.sessions.middleware.SessionMiddleware",   # 🗂️ Session management for user sessions
+    "django.middleware.common.CommonMiddleware",              # 🔄 Basic middleware like GZip, Conditional GET
+    "django.middleware.csrf.CsrfViewMiddleware",              # 🔒 CSRF protection middleware
+    "django.contrib.auth.middleware.AuthenticationMiddleware",# 🔑 Populates `request.user` ✅
     # 'users.middleware.AuthorizationMiddleware',               # 🚀 Our custom Authorization Middleware 🔥
-    'django.contrib.messages.middleware.MessageMiddleware',   # ✉️ Flash messages for users
-    'django.middleware.clickjacking.XFrameOptionsMiddleware', # ❌ Prevents clickjacking
+    "django.contrib.messages.middleware.MessageMiddleware",   # ✉️ Flash messages for users
+    "django.middleware.clickjacking.XFrameOptionsMiddleware", # ❌ Prevents clickjacking
 ]
 
 # RolePermissionMiddleware goes after AuthenticationMiddleware because it needs the request.user.
 # It goes before any view logic, so unauthorized access is blocked early.
 # It allows us to fail fast and reduce load on DRF.
 
-ROOT_URLCONF = 'mixtape.urls'
+ROOT_URLCONF = "mixtape.urls"
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [os.path.join(BASE_DIR, 'templates')],
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.debug',
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [os.path.join(BASE_DIR, "templates")],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.debug",
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
             ],
         },
     },
 ]
 
-WSGI_APPLICATION = 'mixtape.wsgi.application'
+WSGI_APPLICATION = "mixtape.wsgi.application"
 
 
 
@@ -218,34 +221,34 @@ STORAGES = {
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
 
 
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'in-v3.mailjet.com'
-EMAIL_PORT = '587'
-EMAIL_HOST_USER = 'REDACTED-MAILJET-API-KEY'
-EMAIL_HOST_PASSWORD = 'REDACTED-MAILJET-SECRET-KEY'
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = "in-v3.mailjet.com"
+EMAIL_PORT = "587"
+EMAIL_HOST_USER = "REDACTED-MAILJET-API-KEY"
+EMAIL_HOST_PASSWORD = "REDACTED-MAILJET-SECRET-KEY"
 EMAIL_USE_TLS = True
 
 
 # Internationalization
 # https://docs.djangoproject.com/en/4.2/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = "en-us"
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = "UTC"
 
 USE_I18N = True
 
@@ -255,7 +258,7 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
 
-STATIC_URL = '/static/'
+STATIC_URL = "/static/"
 APPEND_SLASH=False
 
 # ============================================================================
@@ -273,7 +276,7 @@ SPONSOR_MODELS = {
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",  # Primary auth for Phase 1
-        'rest_framework.authentication.SessionAuthentication',        # For Django admin
+        "rest_framework.authentication.SessionAuthentication",        # For Django admin
     ),
 
     "DEFAULT_PERMISSION_CLASSES": [
@@ -310,7 +313,7 @@ ACCESS_TOKEN_SIGNING_KEY = os.getenv("ACCESS_TOKEN_SIGNING_KEY", "dev-secret-cha
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=10),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
-    'SIGNING_KEY': ACCESS_TOKEN_SIGNING_KEY,
+    "SIGNING_KEY": ACCESS_TOKEN_SIGNING_KEY,
      "ALGORITHM": "HS256",
 }
 
@@ -342,15 +345,15 @@ LIVEWIRE_JWT_AUD = os.getenv("LIVEWIRE_JWT_AUD", "livewire")
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
 #Email Configuration
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'in-v3.mailjet.com'
-EMAIL_PORT = '587'
-EMAIL_HOST_USER = 'REDACTED-MAILJET-API-KEY'
-EMAIL_HOST_PASSWORD = 'REDACTED-MAILJET-SECRET-KEY'
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = "in-v3.mailjet.com"
+EMAIL_PORT = "587"
+EMAIL_HOST_USER = "REDACTED-MAILJET-API-KEY"
+EMAIL_HOST_PASSWORD = "REDACTED-MAILJET-SECRET-KEY"
 EMAIL_USE_TLS = True
 
 
@@ -369,6 +372,9 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3010",    # ← Mixtape Release Frontend (Phase 1)
     "http://127.0.0.1:4200",
     "http://127.0.0.1:8081",
+    "http://localhost:8011",
+    "http://127.0.0.1:8011",
+
 ]
 
 
@@ -410,44 +416,44 @@ CSRF_TRUSTED_ORIGINS = [
 
 
 LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'formatters': {
-        'verbose': {
-            'format': '{levelname} {asctime} {module} {message}',
-            'style': '{',
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "{levelname} {asctime} {module} {message}",
+            "style": "{",
         },
-        'simple': {
-            'format': '{levelname} {message}',
-            'style': '{',
-        },
-    },
-    'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
-            'formatter': 'verbose',
+        "simple": {
+            "format": "{levelname} {message}",
+            "style": "{",
         },
     },
-    'root': {
-        'handlers': ['console'],
-        'level': 'INFO',
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "verbose",
+        },
     },
-    'loggers': {
-        'django': {
-            'handlers': ['console'],
-            'level': 'INFO',
-            'propagate': False,
+    "root": {
+        "handlers": ["console"],
+        "level": "INFO",
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
         },
         # Your app loggers
-        'activity': {
-            'handlers': ['console'],
-            'level': 'WARNING',  # Will show WARNING and above
-            'propagate': False,
+        "activity": {
+            "handlers": ["console"],
+            "level": "WARNING",  # Will show WARNING and above
+            "propagate": False,
         },
-        'accounts': {
-            'handlers': ['console'],
-            'level': 'WARNING',
-            'propagate': False,
+        "accounts": {
+            "handlers": ["console"],
+            "level": "WARNING",
+            "propagate": False,
         },
     },
 }

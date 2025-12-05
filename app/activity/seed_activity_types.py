@@ -1,6 +1,7 @@
 # activity/seed_activity_types.py
 from activity.models import ActivityType
 
+
 CANONICAL = [
     dict(code="group.post.created", title="New Post in Group", default_channel="activity", default_priority="normal", suppressible_by_user=True),
     dict(code="post.comment.created", title="New Comment on Post", default_channel="activity", default_priority="normal", suppressible_by_user=True),
