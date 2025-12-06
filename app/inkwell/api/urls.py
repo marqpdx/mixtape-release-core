@@ -23,8 +23,13 @@ from inkwell.api.views.views_health_check import health_check, live_check, ready
 
 from .views.views import SimpleRAGView
 
+from inkwell.api.views.llm_proxy import (
+    edit_stream_proxy,
+    normalize_tiptap_proxy,
+    summarize_quick_proxy,
+)
 
-# /api/ai
+# /api/inkwell
 
 router = DefaultRouter()
 router.register("blacklist", BlacklistedTitleViewSet, basename="blacklist")
@@ -54,6 +59,11 @@ urlpatterns = [
     path("ask", SimpleRAGView.as_view(), name="ask"),
     path("status/synopsis", SynopsisStatusView.as_view(), name="synopsis-status"),
     path("proto-agent/", include(proto_agent_patterns)),
+
+    path("v1/edit", edit_stream_proxy, name="inkwell-edit"),
+    path("v1/normalize-tiptap", normalize_tiptap_proxy, name="inkwell-normalize-tiptap"),
+    path("v1/summarize/quick", summarize_quick_proxy, name="inkwell-summarize-quick"),
+
 ]
 
 

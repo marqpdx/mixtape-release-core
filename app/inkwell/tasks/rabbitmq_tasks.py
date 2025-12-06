@@ -22,7 +22,7 @@ def send_task_to_fastapi(self, task_id):
     """
     logger.info(" [task] Sending request to FastAPI for task %s", task_id)
 
-    fastapi_url = f"{settings.FASTAPI_LLM_URL}/generate_task"
+    fastapi_url = f"{settings.INKWELL_BASE_URL}/generate_task"
     response = requests.post(fastapi_url, json={"task_id": task_id}, timeout=30)
 
     if response.status_code == 200:

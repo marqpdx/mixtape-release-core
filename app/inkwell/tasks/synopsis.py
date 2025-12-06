@@ -62,7 +62,7 @@ def generate_synopsis_task(self, asset_id):
 
         # Make the HTTP call to FastAPI (LLM service)
         # Include RabbitMQ connection info so FastAPI can publish results back
-        fastapi_url = f"{settings.FASTAPI_LLM_URL}/generate_synopsis"
+        fastapi_url = f"{settings.INKWELL_BASE_URL}/generate_synopsis"
 
         rabbitmq_broker = os.getenv("CELERY_BROKER_URL", "amqp://guest:guest@127.0.0.1:5672//")
 
