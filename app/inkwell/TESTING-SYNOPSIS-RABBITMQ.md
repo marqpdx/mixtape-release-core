@@ -48,7 +48,7 @@ celery -A mixtape worker -l info
 python manage.py runserver
 
 # FastAPI LLM Service (if available)
-# Should be running on FASTAPI_LLM_URL (default: http://localhost:8001)
+# Should be running on INKWELL_BASE_URL (default: http://localhost:8001)
 ```
 
 ## Manual Testing Steps
@@ -62,7 +62,7 @@ Check that your environment has the correct settings:
 echo $CELERY_BROKER_URL
 # Should output: amqp://guest:guest@127.0.0.1:5672//
 
-echo $FASTAPI_LLM_URL
+echo $INKWELL_BASE_URL
 # Should output: http://localhost:8001 (or your FastAPI URL)
 ```
 
@@ -73,7 +73,7 @@ Verify Django settings:
 from django.conf import settings
 
 print(settings.CELERY_BROKER_URL)
-print(settings.FASTAPI_LLM_URL)
+print(settings.INKWELL_BASE_URL)
 ```
 
 ### Step 2: Create Test Asset
@@ -407,10 +407,10 @@ print(generate_synopsis_task.name)
    curl http://localhost:8001/health  # or your FastAPI URL
    ```
 
-2. Check FASTAPI_LLM_URL setting:
+2. Check INKWELL_BASE_URL setting:
    ```python
    from django.conf import settings
-   print(settings.FASTAPI_LLM_URL)
+   print(settings.INKWELL_BASE_URL)
    ```
 
 3. Review FastAPI logs for errors

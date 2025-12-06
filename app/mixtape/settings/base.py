@@ -41,8 +41,11 @@ ALLOWED_HOSTS = ["*"]
 # QDRANT & INKWELL AI SERVICES
 # ============================================================================
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
-FASTAPI_LLM_URL = os.getenv("FASTAPI_LLM_URL", "http://localhost:8001")
 
+INKWELL_BASE_URL = os.getenv(
+    "INKWELL_BASE_URL",
+    "https://inkwell.crossroads.place",  # default if not set
+).rstrip("/")
 
 # Application definition
 
@@ -76,6 +79,7 @@ INSTALLED_APPS = [
     "assets",        # Asset management (deferred to Phase 2)
     "chat",          # Chat app, socket.io
     "contexts",      # Context management
+    "dispatch",      # Collaborative writing (yjs-based real-time editing)
     "fundamentals",  # BaseModel (timestamps, soft delete)
     "groups",        # Group model, GroupMembership, Invitations (Phase 2)
     "inkwell",       # AI services, RAG, synopsis generation

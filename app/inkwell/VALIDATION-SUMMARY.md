@@ -23,7 +23,7 @@ The RabbitMQ-based synopsis results system has been successfully implemented and
 
 #### `mixtape/settings/base.py`
 - ✅ Added `inkwell` to INSTALLED_APPS (line 80)
-- ✅ Added FASTAPI_LLM_URL configuration (line 42)
+- ✅ Added INKWELL_BASE_URL configuration (line 42)
 - ✅ Django check: PASSED
 
 #### `inkwell/apps.py`
@@ -108,7 +108,7 @@ Task registration cannot be fully validated without:
 ### Environment Variables
 ```bash
 CELERY_BROKER_URL=amqp://guest:guest@127.0.0.1:5672//
-FASTAPI_LLM_URL=http://localhost:8001
+INKWELL_BASE_URL=http://localhost:8001
 ```
 
 ## Integration Points
