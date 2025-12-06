@@ -62,10 +62,15 @@ joblib==1.5.2
 jsonpatch==1.33
 jsonpointer==3.0.0
 kombu==5.5.4
+langchain==1.1.2
 langchain-classic==1.0.0
 langchain-community==0.4.1
 langchain-core==1.1.0
 langchain-text-splitters==1.0.0
+langgraph==1.0.4
+langgraph-checkpoint==3.0.1
+langgraph-prebuilt==1.0.5
+langgraph-sdk==0.2.14
 langsmith==0.4.53
 librt==0.6.3
 llama-cloud==0.1.35
@@ -97,6 +102,7 @@ nltk==3.9.2
 numpy==2.3.5
 openai==2.8.1
 orjson==3.11.4
+ormsgpack==1.12.0
 packaging==25.0
 pandas==2.2.3
 pathspec==0.12.1
@@ -119,6 +125,7 @@ pytz==2025.2
 PyYAML==6.0.3
 qdrant-client==1.16.1
 rank-bm25==0.2.2
+RapidFuzz==3.14.3
 regex==2025.11.3
 requests==2.32.5
 requests-toolbelt==1.0.0
@@ -153,5 +160,6 @@ uuid_utils==0.12.0
 vine==5.1.0
 wcwidth==0.2.14
 wrapt==1.17.3
+xxhash==3.6.0
 yarl==1.22.0
 zstandard==0.25.0
