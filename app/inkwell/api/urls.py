@@ -3,25 +3,25 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from inkwell.api.views.blacklist import BlacklistedTitleViewSet
-from inkwell.api.views.proto_agent import (
-    ApproveAssetView,
-    DeclineAssetView,
-    DeleteAssetView,
-    IngestedCatalogView,
-    LaunchAgentsView,
-    ListApprovedAssetsView,
-    PreApproveAssetView,
-    RetrieveAllAssetsView,
-    RetrieveAssetsView,
-    SuggestAssetFromUrlView,
-    SuggestAssetsView,
-    SynopsisStatusView,
-    UpdateSuggestedAssetView,
-)
-from inkwell.api.views.views_health_check import health_check, live_check, ready_check
+# from inkwell.api.views.blacklist import BlacklistedTitleViewSet
+# from inkwell.api.views.proto_agent import (
+#     ApproveAssetView,
+#     DeclineAssetView,
+#     DeleteAssetView,
+#     IngestedCatalogView,
+#     LaunchAgentsView,
+#     ListApprovedAssetsView,
+#     PreApproveAssetView,
+#     RetrieveAllAssetsView,
+#     RetrieveAssetsView,
+#     SuggestAssetFromUrlView,
+#     SuggestAssetsView,
+#     SynopsisStatusView,
+#     UpdateSuggestedAssetView,
+# )
+# from inkwell.api.views.views_health_check import health_check, live_check, ready_check
 
-from .views.views import SimpleRAGView
+# from .views.views import SimpleRAGView
 
 from inkwell.api.views.llm_proxy import (
     edit_stream_proxy,
@@ -32,33 +32,33 @@ from inkwell.api.views.llm_proxy import (
 # /api/inkwell
 
 router = DefaultRouter()
-router.register("blacklist", BlacklistedTitleViewSet, basename="blacklist")
+# router.register("blacklist", BlacklistedTitleViewSet, basename="blacklist")
 
 proto_agent_patterns = [
-    path("pre-approve", PreApproveAssetView.as_view(), name="proto-agent-pre-approve"),
-    path("approve", ApproveAssetView.as_view(), name="proto-agent-approve"),
-    path("approved", ListApprovedAssetsView.as_view(), name="proto-agent-approved"),
-    path("decline", DeclineAssetView.as_view(), name="proto-agent-decline"),
-    path("delete", DeleteAssetView.as_view(), name="proto-agent-delete"),
-    path("suggest-assets", SuggestAssetsView.as_view(), name="proto-agent-suggest-assets"),
-    path("suggestions", SuggestAssetsView.as_view(), name="proto-agent-suggestions"),
-    path("retrieve", RetrieveAssetsView.as_view(), name="proto-agent-retrieve"),
-    path("launch-task", LaunchAgentsView.as_view(), name="proto-agent-launch"),
-    path("retrieve-all", RetrieveAllAssetsView.as_view(), name="proto-agent-retrieve-all"),
-    path("suggestion/<int:pk>", UpdateSuggestedAssetView.as_view(), name="proto-agent-update"),
-    path("suggest-from-url", SuggestAssetFromUrlView.as_view(), name="proto-agent-suggest-from-url"),
-    path("catalog-ingested", IngestedCatalogView.as_view(), name="proto-agent-catalotg-ingested"),
+    # path("pre-approve", PreApproveAssetView.as_view(), name="proto-agent-pre-approve"),
+    # path("approve", ApproveAssetView.as_view(), name="proto-agent-approve"),
+    # path("approved", ListApprovedAssetsView.as_view(), name="proto-agent-approved"),
+    # path("decline", DeclineAssetView.as_view(), name="proto-agent-decline"),
+    # path("delete", DeleteAssetView.as_view(), name="proto-agent-delete"),
+    # path("suggest-assets", SuggestAssetsView.as_view(), name="proto-agent-suggest-assets"),
+    # path("suggestions", SuggestAssetsView.as_view(), name="proto-agent-suggestions"),
+    # path("retrieve", RetrieveAssetsView.as_view(), name="proto-agent-retrieve"),
+    # path("launch-task", LaunchAgentsView.as_view(), name="proto-agent-launch"),
+    # path("retrieve-all", RetrieveAllAssetsView.as_view(), name="proto-agent-retrieve-all"),
+    # path("suggestion/<int:pk>", UpdateSuggestedAssetView.as_view(), name="proto-agent-update"),
+    # path("suggest-from-url", SuggestAssetFromUrlView.as_view(), name="proto-agent-suggest-from-url"),
+    # path("catalog-ingested", IngestedCatalogView.as_view(), name="proto-agent-catalotg-ingested"),
 
-    path("", include(router.urls)),  # ⬅️ Include all ViewSets (e.g., blacklist) here
+    # path("", include(router.urls)),  # ⬅️ Include all ViewSets (e.g., blacklist) here
 ]
 
 urlpatterns = [
-    path("health", health_check),
-    path("health/live", live_check),
-    path("health/ready", ready_check),
-    path("ask", SimpleRAGView.as_view(), name="ask"),
-    path("status/synopsis", SynopsisStatusView.as_view(), name="synopsis-status"),
-    path("proto-agent/", include(proto_agent_patterns)),
+    # path("health", health_check),
+    # path("health/live", live_check),
+    # path("health/ready", ready_check),
+    # path("ask", SimpleRAGView.as_view(), name="ask"),
+    # path("status/synopsis", SynopsisStatusView.as_view(), name="synopsis-status"),
+    # path("proto-agent/", include(proto_agent_patterns)),
 
     path("v1/edit", edit_stream_proxy, name="inkwell-edit"),
     path("v1/normalize-tiptap", normalize_tiptap_proxy, name="inkwell-normalize-tiptap"),

@@ -180,21 +180,35 @@ class DispatchDocumentCollaboratorsView(generics.GenericAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        return DispatchDocument.objects.filter(collaborators=user)
+        return DispatchDocument.objects.select_related(
+            'sponsor_content_type'
+        ).filter(collaborators=user)
 
     def get(self, request, *args, **kwargs):
         """List current collaborators"""
         document = self.get_object()
+
+        print(f"[DEBUG] Document: {document.title}")
+        print(f"[DEBUG] Sponsor content type: {document.sponsor_content_type}")
+        print(f"[DEBUG] Sponsor object id: {document.sponsor_object_id}")
+        print(f"[DEBUG] Sponsor object: {document.sponsor}")
+        print(f"[DEBUG] Has sponsor: {bool(document.sponsor)}")
+        if document.sponsor:
+            print(f"[DEBUG] Sponsor type: {type(document.sponsor)}")
+            print(f"[DEBUG] Has members attr: {hasattr(document.sponsor, 'members')}")
 
         # Get group members if document has group sponsor
         available_users = []
         if document.sponsor and hasattr(document.sponsor, 'members'):
             # Document is sponsored by a group - only show group members
             from accounts.api.serializers import UserSerializer
+            members = document.sponsor.members.all()
+            print(f"[DEBUG] Group members count: {members.count()}")
             available_users = UserSerializer(
-                document.sponsor.members.all(),
+                members,
                 many=True
             ).data
+            print(f"[DEBUG] Available users count: {len(available_users)}")
 
         from accounts.api.serializers import UserSerializer
         collaborators = UserSerializer(document.collaborators.all(), many=True).data

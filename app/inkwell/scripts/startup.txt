@@ -11,7 +11,7 @@ import time
 from django.utils import timezone
 
 # from inkwell.config import collection_name
-from inkwell.config.ai_config import collection_name
+# from inkwell.config.ai_config import collection_name
 from inkwell.config.custom_settings import Settings
 from inkwell.config.llm_config import configure_llm
 from inkwell.utils.startup_locks import run_once_globally_filelock
@@ -24,7 +24,7 @@ startup_finished = False
 def run_startup_tasks(force=False):
     from llama_index.core import Settings as LlamaIndexSettings
 
-    from inkwell.config.ai_config import configure_embedding, configure_rag
+    # from inkwell.config.ai_config import configure_embedding, configure_rag
     from inkwell.config.custom_settings import Settings
     from inkwell.models import StartupLog
     from inkwell.scripts.documents_pg import ingest_documents
@@ -36,7 +36,7 @@ def run_startup_tasks(force=False):
 
         logger.info("Running startup...")
 
-        doc_path = "./ai/ebooks" if collection_name == "gutenberg25" else "./ai/files"
+        # doc_path = "./ai/ebooks" if collection_name == "gutenberg25" else "./ai/files"
 
         configure_llm()
 
@@ -49,13 +49,13 @@ def run_startup_tasks(force=False):
 
         logger.info("✅ STARTUP LLM CONFIG DONE")
 
-        configure_embedding()
+        # configure_embedding()
         logger.info("after configure_embedding")
 
-        index = load_or_create_index(collection_name)
+        # index = load_or_create_index(collection_name)
         logger.info("index in hand")
 
-        configure_rag(index, collection_name)
+        # configure_rag(index, collection_name)
 
         ingest_documents(index, doc_path, collection_name)
 
