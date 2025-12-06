@@ -9,7 +9,7 @@ from .rabbitmq_tasks import (
     send_task_to_fastapi,
     start_rabbitmq_polling,
 )
-from .startup import run_startup_task_async
+# from .startup import run_startup_task_async
 from .synopsis import (  # synopsis generation and results
     generate_synopsis_task,
     process_synopsis_result,
