@@ -1,7 +1,8 @@
 import time
 
 from django.http import JsonResponse
-from langchain.memory import ConversationSummaryBufferMemory
+# from langchain.memory import ConversationSummaryBufferMemory
+from langchain_classic.memory import ConversationSummaryBufferMemory
 
 # from llama_index.core import Settings
 from rest_framework.views import APIView
