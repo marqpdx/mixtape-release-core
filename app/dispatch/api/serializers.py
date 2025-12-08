@@ -5,7 +5,7 @@ from django.urls import reverse
 from rest_framework import serializers
 from django.template.defaultfilters import slugify
 from accounts.api.serializers import UserSerializer
-from dispatch.models import DispatchDocument, DispatchDocumentVersion, DispatchEditSession, Post
+from dispatch.models import DispatchContent, DispatchContentVersion, DispatchEditSession, DispatchCollaborator, Post
 # from utils.handle_collected_items import handleTagCreate
 
 
@@ -78,57 +78,126 @@ from dispatch.models import DispatchDocument, DispatchDocumentVersion, DispatchE
 #     #     return None
 
 
-class DispatchDocumentSerializer(serializers.ModelSerializer):
-    collaborators = UserSerializer(many=True, read_only=True)
-    submitted_by = UserSerializer(read_only=True)
-    author = UserSerializer(read_only=True)
-    sponsor_display = serializers.CharField(read_only=True)
-    sponsor_type = serializers.CharField(read_only=True)
+class DispatchCollaboratorSerializer(serializers.ModelSerializer):
+    """Serializer for collaborator assignments with role information"""
+    user = UserSerializer(read_only=True)
+    invited_by = UserSerializer(read_only=True)
+    user_id = serializers.IntegerField(write_only=True, required=False)
+    role_display = serializers.CharField(source='get_role_display', read_only=True)
 
     class Meta:
-        model = DispatchDocument
+        model = DispatchCollaborator
         fields = [
             "id",
+            "user",
+            "user_id",
+            "invited_by",
+            "role",
+            "role_display",
+            "created_at",
+        ]
+        read_only_fields = ["id", "created_at", "invited_by"]
+
+
+class DispatchContentSerializer(serializers.ModelSerializer):
+    """
+    Serializer for DispatchContent (collaborative editing decorator layer).
+
+    Note: DispatchContent is NOT publishable content - it's infrastructure
+    for collaborative editing. Content lives in WorkingDocument/WritingPiece/WorkingCourse/etc.
+    """
+    collaborators = UserSerializer(many=True, read_only=True)
+    collaborator_details = DispatchCollaboratorSerializer(
+        source='collaborator_assignments',
+        many=True,
+        read_only=True
+    )
+    collaborator_count = serializers.IntegerField(
+        source='collaborators.count',
+        read_only=True
+    )
+
+    # Role-based counts
+    editor_count = serializers.SerializerMethodField()
+    commenter_count = serializers.SerializerMethodField()
+
+    # Rescind capability
+    can_be_rescinded = serializers.BooleanField(read_only=True)
+    has_collaborative_edits = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DispatchContent
+        fields = [
+            # Identity
+            "id",
+            "yjs_document_id",
+
+            # Collaboration
+            "collaborators",           # Simple list of users
+            "collaborator_details",    # Full collaborator info with roles
+            "collaborator_count",
+            "editor_count",            # Number of editors
+            "commenter_count",         # Number of commenters/reviewers
+
+            # Content snapshot (for offline viewing)
+            "content_snapshot",
+            "snapshot_updated_at",
+
+            # Yjs state
+            "yjs_state_updated_at",
+            "last_edited_by",
+            "last_edited_at",
+            # Note: yjs_state (binary) excluded from API
+
+            # Lifecycle
+            "is_archived",
+            "is_active",
+
+            # Rescind collaboration
+            "can_be_rescinded",
+            "has_collaborative_edits",
+            "created_by",
+
+            # Timestamps
             "created_at",
             "updated_at",
-            "title",
-            "slug",
-            "description",
-            "content",
-            "body",  # From BaseContent
-            "summary",  # From BaseData
-            "is_published",  # Property derived from published_at
-            "published_at",
-            "is_archived",
-            "submitted_by",
-            "author",
-            "author_name",
-            "sponsor_content_type",
-            "sponsor_object_id",
-            "sponsor_display",
-            "sponsor_type",
-            "collaborators",
-            "yjs_state_updated_at",
         ]
         read_only_fields = [
             "id",
-            "slug",
+            "yjs_document_id",
+            "collaborators",
+            "collaborator_details",
+            "collaborator_count",
+            "editor_count",
+            "commenter_count",
+            "yjs_state_updated_at",
+            "snapshot_updated_at",
+            "last_edited_by",
+            "last_edited_at",
+            "is_active",
+            "can_be_rescinded",
+            "has_collaborative_edits",
+            "created_by",
             "created_at",
             "updated_at",
-            "submitted_by",
-            "author",
-            "sponsor_content_type",
-            "sponsor_object_id",
-            "sponsor_display",
-            "sponsor_type",
-            "is_published",
-            "yjs_state_updated_at",
         ]
 
+    def get_editor_count(self, obj):
+        """Count of collaborators with editor role"""
+        return obj.collaborator_assignments.filter(role='editor').count()
 
-class DispatchDocumentVersionSerializer(serializers.ModelSerializer):
+    def get_commenter_count(self, obj):
+        """Count of collaborators with commenter role"""
+        return obj.collaborator_assignments.filter(role='commenter').count()
+
+    def get_has_collaborative_edits(self, obj):
+        """Whether anyone besides creator has edited"""
+        return obj.has_collaborative_edits()
+
+
+class DispatchContentVersionSerializer(serializers.ModelSerializer):
     class Meta:
-        model = DispatchDocumentVersion
+        model = DispatchContentVersion
         fields = '__all__'
 
 

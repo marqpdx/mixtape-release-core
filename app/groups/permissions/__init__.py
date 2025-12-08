@@ -1,4 +1,4 @@
-# groups/permissions.py
+# groups/permissions/__init__.py
 
 from django.contrib.contenttypes.models import ContentType
 from rest_framework import permissions
@@ -31,6 +31,77 @@ class IsGroupAdminOrSteward(permissions.BasePermission):
 
         # Fix: Check roles ArrayField using helper methods
         return membership and (membership.is_admin() or membership.is_steward())
+
+
+class IsGroupAdmin(permissions.BasePermission):
+    """Check if user is an admin of the group"""
+    def has_permission(self, request, view):
+        slug = view.kwargs.get("slug")
+        if not slug:
+            return False
+
+        try:
+            group = Group.objects.get(slug=slug)
+        except Group.DoesNotExist:
+            return False
+
+        if request.user.is_superuser:
+            return True
+
+        user_ct = ContentType.objects.get_for_model(request.user)
+        membership = GroupMembership.objects.filter(
+            group=group,
+            member_content_type=user_ct,
+            member_object_id=request.user.id,
+            is_active=True
+        ).first()
+
+        return membership and membership.is_admin()
+
+
+class HasGroupDecorator(permissions.BasePermission):
+    """
+    Check if user has a specific decorator for the group.
+
+    Set `required_decorator` on the view to specify which decorator is needed.
+    Example: required_decorator = 'can__ManageWriting'
+    """
+    def has_permission(self, request, view):
+        slug = view.kwargs.get("slug")
+        if not slug:
+            return False
+
+        try:
+            group = Group.objects.get(slug=slug)
+        except Group.DoesNotExist:
+            return False
+
+        if request.user.is_superuser:
+            return True
+
+        user_ct = ContentType.objects.get_for_model(request.user)
+        membership = GroupMembership.objects.filter(
+            group=group,
+            member_content_type=user_ct,
+            member_object_id=request.user.id,
+            is_active=True
+        ).first()
+
+        if not membership:
+            return False
+
+        # Admins have all permissions
+        if membership.is_admin():
+            return True
+
+        # Check for required decorator
+        required_decorator = getattr(view, 'required_decorator', None)
+        if not required_decorator:
+            # If no specific decorator required, just check if they're a steward
+            return membership.is_steward()
+
+        # Check if user has the required decorator
+        return required_decorator in membership.get_decorator_codes()
 
 
 # ============================================================================
@@ -334,3 +405,28 @@ def check_group_model_permissions(user, group, model_type, action):
     # Default deny for unknown actions
     return False
 
+
+# ============================================================================
+# DECORATOR EXPORTS
+# ============================================================================
+
+# Import and re-export decorator functions
+from .decorators import MEMBERSHIP_DECORATORS, get_available_decorators
+
+__all__ = [
+    'IsGroupAdminOrSteward',
+    'IsGroupAdmin',
+    'HasGroupDecorator',
+    'isGroupMember',
+    'isGroupMemberUser',
+    'canUserModerateGroup',
+    'canUserModerateGroupUser',
+    'hasGroupRole',
+    'getUserGroupRoles',
+    'getGroupsForUser',
+    'getGroupsUserCanModerate',
+    'canUserAccessGroup',
+    'check_group_model_permissions',
+    'MEMBERSHIP_DECORATORS',
+    'get_available_decorators',
+]

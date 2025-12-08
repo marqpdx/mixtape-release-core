@@ -12,13 +12,18 @@ from .views import (
     SeedIngestView,
     SeedListCreateView,
     SeedPromoteView,
+    WorkingDocumentCollaborationStatusView,
+    WorkingDocumentEnableCollaborationView,
+    WorkingDocumentRescindCollaborationView,
     WritingCommentListCreateView,
+    WritingPieceCategoriesView,
     WritingPieceListCreateView,
     WritingPiecePinView,
     WritingPiecePublicView,
     WritingPiecePublishAndPlaceView,
     WritingPieceRetrieveUpdateDestroyView,
     WritingPieceScheduleView,
+    WritingPieceTagsView,
     WritingPieceUnpinView,
     WritingWorkingCopyApplyView,
     WritingWorkingCopyUpsertView,
@@ -45,6 +50,14 @@ urlpatterns = [
     path("pieces/<uuid:pk>/working-copy", WritingWorkingCopyUpsertView.as_view(), name="writingpiece-workingcopy"),
     path("pieces/<uuid:pk>/apply-working-copy", WritingWorkingCopyApplyView.as_view(), name="writingpiece-apply-workingcopy"),
 
+    # Collaboration management (on working documents)
+    path("working-documents/<uuid:piece_id>/collaboration/status", WorkingDocumentCollaborationStatusView.as_view(),
+        name="workingdocument-collaboration-status"),
+    path("working-documents/<uuid:piece_id>/collaboration/enable", WorkingDocumentEnableCollaborationView.as_view(),
+        name="workingdocument-enable-collaboration"),
+    path("working-documents/<uuid:piece_id>/collaboration/rescind", WorkingDocumentRescindCollaborationView.as_view(),
+        name="workingdocument-rescind-collaboration"),
+
     # Clear empty flag
     path("pieces/<uuid:piece_id>/clear-empty", clear_empty_flag, name="clear-empty-flag"),
 
@@ -69,5 +82,9 @@ urlpatterns = [
     path("seeds/ingest", SeedIngestView.as_view(), name="seed-ingest"),
     path("seeds/<uuid:pk>", SeedDetailView.as_view(), name="seed-detail"),
     path("seeds/<uuid:pk>/promote", SeedPromoteView.as_view(), name="seed-promote"),
+
+    # Tags and Categories
+    path("pieces/<uuid:pk>/tags", WritingPieceTagsView.as_view(), name="writingpiece-tags"),
+    path("pieces/<uuid:pk>/categories", WritingPieceCategoriesView.as_view(), name="writingpiece-categories"),
 
 ]
