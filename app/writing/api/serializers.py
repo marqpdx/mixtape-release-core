@@ -49,9 +49,6 @@ class WritingPieceSerializer(serializers.ModelSerializer):
         if not raw_ct:
             raise serializers.ValidationError({"sponsor": "Sponsor is required (content_type + object_id)."})
 
-
-        print("Resolving sponsor_content_type:", raw_ct)
-
         data["sponsor_content_type"] = resolve_content_type(raw_ct)
 
         status_ = data.get("status") or "draft"

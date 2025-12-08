@@ -6,7 +6,7 @@
 import uuid
 
 from django.contrib.auth import get_user_model
-from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.utils.crypto import get_random_string
@@ -118,6 +118,48 @@ class BaseData(BaseModel):
         super().save(*args, **kwargs)
 
 
+class BaseClassification(BaseData):
+    """
+    Base class for classification systems (Tags, Categories, etc.)
+
+    Inherits from BaseData to get:
+    - title (the tag/category name)
+    - slug (for URLs)
+    - summary (optional description)
+    """
+
+    # Count of times this classification is used
+    usage_count = models.PositiveIntegerField(
+        default=0,
+        help_text="Cached count of how many items use this classification"
+    )
+
+    # Optional color/styling
+    color = models.CharField(
+        max_length=7,
+        blank=True,
+        default="",
+        help_text="Hex color code for display (e.g., #FF5733)"
+    )
+
+    class Meta(BaseData.Meta):
+        abstract = True
+        ordering = ['title']  # Alphabetical by default
+
+    def __str__(self):
+        return self.title or "Unnamed"
+
+    def increment_usage(self):
+        """Increment usage count (called when attached to content)"""
+        self.usage_count = models.F('usage_count') + 1
+        self.save(update_fields=['usage_count'])
+
+    def decrement_usage(self):
+        """Decrement usage count (called when detached from content)"""
+        self.usage_count = models.F('usage_count') - 1
+        self.save(update_fields=['usage_count'])
+
+
 class BaseContent(BaseData):
     """
     Extended content base with polymorphic sponsorship, authorship, and classifications.
@@ -156,24 +198,23 @@ class BaseContent(BaseData):
     body = models.TextField(blank=True, default="")
 
     # Generic relations to classification and asset systems
-    # TODO: Uncomment when classifications and assets apps are ready
-    # tags = GenericRelation(
-    #     'classifications.ClassificationUsage',
-    #     content_type_field="classification_client_content_type",
-    #     object_id_field="classification_client_object_id",
-    #     related_query_name="%(app_label)s_%(class)s_tags",
-    #     blank=True
-    # )
+    tags = GenericRelation(
+        'classifications.ClassificationUsage',
+        content_type_field="classification_client_content_type",
+        object_id_field="classification_client_object_id",
+        related_query_name="%(app_label)s_%(class)s_tags",
+        blank=True
+    )
 
-    # categories = GenericRelation(
-    #     'classifications.ClassificationUsage',
-    #     content_type_field="classification_client_content_type",
-    #     object_id_field="classification_client_object_id",
-    #     related_query_name="%(app_label)s_%(class)s_categories",
-    #     blank=True
-    # )
+    categories = GenericRelation(
+        'classifications.ClassificationUsage',
+        content_type_field="classification_client_content_type",
+        object_id_field="classification_client_object_id",
+        related_query_name="%(app_label)s_%(class)s_categories",
+        blank=True
+    )
 
-    # attachments = GenericRelation('assets.AssetUsage', blank=True)
+    # attachments = GenericRelation('assets.AssetUsage', blank=True)  # TODO: Uncomment when assets app is ready
 
     published_at = models.DateTimeField(null=True, blank=True)
 
@@ -225,25 +266,51 @@ class BaseContent(BaseData):
         """Set the user who submitted this content"""
         self.submitted_by = user
 
-    # TODO: Uncomment when classifications app is ready
-    # def add_classification(self, classification, **kwargs):
-    #     """
-    #     Add a tag or category to this content.
-    #     Returns the ClassificationUsage instance.
-    #     """
-    #     from classifications.models import ClassificationUsage
-    #
-    #     content_content_type = ContentType.objects.get_for_model(self)
-    #     classification_content_type = ContentType.objects.get_for_model(classification)
-    #
-    #     classification_inuse, created = ClassificationUsage.objects.update_or_create(
-    #         classification_client_object_id=self.pk,
-    #         classification_client_content_type=content_content_type,
-    #         classification_object_id=classification.pk,
-    #         classification_content_type=classification_content_type,
-    #         defaults=kwargs
-    #     )
-    #     return classification_inuse
+    def add_classification(self, classification, **kwargs):
+        """
+        Add a tag or category to this content.
+        Returns the ClassificationUsage instance.
+        """
+        from classifications.models import ClassificationUsage
+
+        content_content_type = ContentType.objects.get_for_model(self)
+        classification_content_type = ContentType.objects.get_for_model(classification)
+
+        classification_inuse, created = ClassificationUsage.objects.update_or_create(
+            classification_client_object_id=self.pk,
+            classification_client_content_type=content_content_type,
+            classification_object_id=classification.pk,
+            classification_content_type=classification_content_type,
+            defaults=kwargs
+        )
+
+        # Update usage count if newly created
+        if created:
+            classification.increment_usage()
+
+        return classification_inuse
+
+    def remove_classification(self, classification):
+        """
+        Remove a tag or category from this content.
+        """
+        from classifications.models import ClassificationUsage
+
+        content_content_type = ContentType.objects.get_for_model(self)
+        classification_content_type = ContentType.objects.get_for_model(classification)
+
+        deleted_count, _ = ClassificationUsage.objects.filter(
+            classification_client_object_id=self.pk,
+            classification_client_content_type=content_content_type,
+            classification_object_id=classification.pk,
+            classification_content_type=classification_content_type,
+        ).delete()
+
+        # Update usage count if something was deleted
+        if deleted_count > 0:
+            classification.decrement_usage()
+
+        return deleted_count > 0
 
 
 class LayoutParent(models.Model):

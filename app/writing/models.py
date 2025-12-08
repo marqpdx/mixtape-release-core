@@ -271,28 +271,107 @@ class WritingPiece(BaseContent, PublishableContentMixin):
         return f"{prefix}{self.get_writing_kind_display()}: {self.title or 'Untitled'}"
 
 
-class WritingWorkingCopy(models.Model):
+class WorkingDocument(BaseModel):
     """
-    Per-user autosave buffer for a WritingPiece.
-    Keeps keystroke-level writes off the canonical row.
-    """
-    piece = models.ForeignKey("WritingPiece", related_name="working_copies", on_delete=models.CASCADE)
-    user  = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    Mutable draft state for a WritingPiece.
+    Supports composable workflow layers (dispatch, review, approval).
 
+    This is the editing layer - all unpublished content lives here.
+    When published, content is copied to WritingPiece.body_json.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+
+    # Link to canonical piece
+    piece = models.ForeignKey(
+        "WritingPiece",
+        related_name="working_copies",
+        on_delete=models.CASCADE
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        help_text="The user editing this draft"
+    )
+
+    # Draft content (solo editing)
     body_json = models.JSONField(default=dict)
-    title     = models.CharField(max_length=255, blank=True)
-    excerpt   = models.TextField(blank=True)
+    title = models.CharField(max_length=255, blank=True)
+    excerpt = models.TextField(blank=True)
 
-    last_saved_at   = models.DateTimeField(auto_now=True)
+    # Autosave tracking
+    last_saved_at = models.DateTimeField(auto_now=True)
     auto_save_count = models.PositiveIntegerField(default=0)
     client_session_id = models.CharField(max_length=64, blank=True)
 
-    class Meta:
+    # === Composable Workflow Layers (Decorator Pattern) ===
+
+    # Collaborative Editing Layer
+    dispatch_content = models.ForeignKey(
+        'dispatch.DispatchContent',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="working_documents",
+        help_text="If set, this draft uses Yjs collaborative editing"
+    )
+
+    # Future: Review Layer
+    # review_doc = models.ForeignKey(
+    #     'review.ReviewDocument',
+    #     null=True,
+    #     blank=True,
+    #     on_delete=models.SET_NULL,
+    #     related_name="working_documents",
+    #     help_text="If set, this draft is under formal review"
+    # )
+
+    # Future: Approval Layer
+    # approval_doc = models.ForeignKey(
+    #     'approval.ApprovalDocument',
+    #     null=True,
+    #     blank=True,
+    #     on_delete=models.SET_NULL,
+    #     related_name="working_documents",
+    #     help_text="If set, this draft is awaiting approval"
+    # )
+
+    class Meta(BaseModel.Meta):
         unique_together = [("piece", "user")]
         indexes = [
             models.Index(fields=["piece", "user"]),
             models.Index(fields=["last_saved_at"]),
         ]
+        verbose_name = "Working Document"
+        verbose_name_plural = "Working Documents"
+
+    # === Helper Properties ===
+
+    @property
+    def is_collaborative(self):
+        """Check if this draft is in collaborative editing mode"""
+        return self.dispatch_content is not None
+
+    # Future workflow state helpers:
+    # @property
+    # def is_in_review(self):
+    #     return self.review_doc is not None
+    #
+    # @property
+    # def is_awaiting_approval(self):
+    #     return self.approval_doc is not None
+
+    @property
+    def workflow_states(self):
+        """Return list of active workflow states"""
+        states = []
+        if self.is_collaborative:
+            states.append('collaborative')
+        # if self.is_in_review:
+        #     states.append('review')
+        # if self.is_awaiting_approval:
+        #     states.append('approval')
+        return states
 
     def apply_to_piece(self, piece) -> bool:
         """
@@ -319,7 +398,7 @@ class WritingWorkingCopy(models.Model):
         return False
 
 
-class WritingVersion(models.Model):
+class WritingVersion(BaseModel):
     """
     Immutable snapshots of WritingPiece content.
     Created on publish + explicit versioning.
@@ -337,8 +416,6 @@ class WritingVersion(models.Model):
     body_json = models.JSONField()
     title = models.CharField(max_length=255)
     excerpt = models.TextField(blank=True)
-
-    created_at = models.DateTimeField(auto_now_add=True)
 
     # Optional: changelog/notes
     changelog = models.TextField(blank=True)
@@ -539,7 +616,7 @@ class Seed(BaseModel):
 
     # Future-facing, safe to keep nullable
     promoted_to = models.OneToOneField(
-        "writing.WritingWorkingCopy",  # your existing model
+        "writing.WorkingDocument",  # Updated to new model name
         null=True, blank=True, on_delete=models.SET_NULL, related_name="seed_origin"
     )
     context_url = models.URLField(blank=True, null=True)  # optional, set by share/ingest
@@ -698,3 +775,11 @@ class WritingPieceQuerySet(models.QuerySet):
 
 # Add the custom manager to WritingPiece
 WritingPiece.add_to_class("objects", WritingPieceQuerySet.as_manager())
+
+
+# ============================================================================
+# Backwards Compatibility Alias
+# ============================================================================
+
+# Alias for backwards compatibility with existing code
+WritingWorkingCopy = WorkingDocument

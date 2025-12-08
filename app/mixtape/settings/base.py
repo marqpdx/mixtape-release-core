@@ -74,19 +74,20 @@ INSTALLED_APPS = [
     "storages",            # S3 and cloud storage support
 
     # Local - MINIMAL for Phase 1
-    "accounts",      # Authentication (JWT, login, /auth/me)
-    "activity",      # User activity tracking and notifications
-    "assets",        # Asset management (deferred to Phase 2)
-    "chat",          # Chat app, socket.io
-    "contexts",      # Context management
-    "dispatch",      # Collaborative writing (yjs-based real-time editing)
-    "fundamentals",  # BaseModel (timestamps, soft delete)
-    "groups",        # Group model, GroupMembership, Invitations (Phase 2)
-    "inkwell",       # AI services, RAG, synopsis generation
-    "profiles",      # UserProfile, Member API
-    "users",         # CustomUser, Role models
-    "utils",         # Utility functions and helpers
-    "writing",       # Writing app
+    "accounts",        # Authentication (JWT, login, /auth/me)
+    "activity",        # User activity tracking and notifications
+    "assets",          # Asset management (deferred to Phase 2)
+    "chat",            # Chat app, socket.io
+    "classifications", # Tags and categories system
+    "contexts",        # Context management
+    "dispatch",        # Collaborative writing (yjs-based real-time editing)
+    "fundamentals",    # BaseModel (timestamps, soft delete)
+    "groups",          # Group model, GroupMembership, Invitations (Phase 2)
+    "inkwell",         # AI services, RAG, synopsis generation
+    "profiles",        # UserProfile, Member API
+    "users",           # CustomUser, Role models
+    "utils",           # Utility functions and helpers
+    "writing",         # Writing app
 ]
 
 INSTALLED_APPS += ["rest_framework_simplejwt.token_blacklist"]

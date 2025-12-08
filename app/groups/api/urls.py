@@ -16,6 +16,13 @@ from .views import (
     invite_to_group,
 )
 
+from .permissions_views import (
+    AvailablePermissionsView,
+    MemberPermissionsListView,
+    MemberPermissionManageView,
+    MyPermissionsView,
+)
+
 
 # ============================================================================
 # PHASE 3+: Deferred App Integrations
@@ -47,6 +54,13 @@ urlpatterns = [
     # Group membership - consolidated single endpoint
     path("/<slug:slug>/members", GroupMembersView.as_view(), name="group-members"),
     path("/<slug:slug>/members/search", GroupMemberSearchView.as_view(), name="group-member-search"),
+
+    # Permissions management
+    path("/<slug:slug>/permissions/available", AvailablePermissionsView.as_view(), name="group-permissions-available"),
+    path("/<slug:slug>/members/permissions", MemberPermissionsListView.as_view(), name="group-member-permissions-list"),
+    path("/<slug:slug>/members/<uuid:user_id>/permissions", MemberPermissionManageView.as_view(), name="group-member-permission-grant"),
+    path("/<slug:slug>/members/<uuid:user_id>/permissions/<str:decorator>", MemberPermissionManageView.as_view(), name="group-member-permission-revoke"),
+    path("/<slug:slug>/my-permissions", MyPermissionsView.as_view(), name="group-my-permissions"),
 
 #     # Invitations
     path("/<slug:slug>/invite", invite_to_group, name="group-invite"),

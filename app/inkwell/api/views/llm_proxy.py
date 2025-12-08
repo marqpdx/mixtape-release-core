@@ -24,9 +24,15 @@ def normalize_tiptap_proxy(request):
     Proxy to Inkwell /v1/normalize-tiptap.
     Expects { doc: ... } and returns { plaintext, normalized } unchanged.
     """
+
+
+    inkwell_normalize_tiptap_url = f"{INKWELL_BASE_URL}/v1/normalize-tiptap"
+    print("Inkwell normalize tiptap URL:", inkwell_normalize_tiptap_url)
+
+
     try:
         upstream = requests.post(
-            f"{INKWELL_BASE_URL}/v1/normalize-tiptap",
+            inkwell_normalize_tiptap_url,
             json=request.data,
             timeout=30,
         )

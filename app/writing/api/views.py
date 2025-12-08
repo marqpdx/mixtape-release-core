@@ -739,3 +739,367 @@ def clear_empty_flag(request, piece_id):
     logger.info(f"✅ After update, is_empty={piece.is_empty}")
 
     return Response({"status": "success", "is_empty": piece.is_empty})
+
+
+# === Collaboration Management ===
+
+class WorkingDocumentEnableCollaborationView(generics.GenericAPIView):
+    """
+    POST: Enable collaboration on a working document.
+    Creates DispatchContent and optionally adds initial collaborators.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, piece_id=None):
+        from dispatch.models import DispatchContent, DispatchCollaborator
+        from dispatch.api.serializers import DispatchContentSerializer
+        from writing.models import WorkingDocument
+
+        # Get working document
+        working_doc = get_object_or_404(
+            WorkingDocument.objects.select_related('dispatch_content'),
+            piece_id=piece_id,
+            user=request.user,   # important: unique_together(piece, user)
+        )
+
+        # Check if already collaborative
+        if working_doc.dispatch_content:
+            return Response(
+                {"error": "Collaboration already enabled"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Create DispatchContent
+        with transaction.atomic():
+            dispatch_content = DispatchContent.objects.create(
+                created_by=request.user,
+                content_snapshot=working_doc.body_json or {}
+            )
+
+            # Link to working document
+            working_doc.dispatch_content = dispatch_content
+            working_doc.save()
+
+            # Add creator as editor
+            DispatchCollaborator.objects.create(
+                content=dispatch_content,
+                user=request.user,
+                role='editor',
+                invited_by=request.user
+            )
+
+            # Add additional collaborators if provided
+            collaborator_data = request.data.get('collaborators', [])
+            for collab in collaborator_data:
+                user_id = collab.get('user_id')
+                role = collab.get('role', 'editor')
+
+                if user_id and user_id != request.user.id:
+                    DispatchCollaborator.objects.get_or_create(
+                        content=dispatch_content,
+                        user_id=user_id,
+                        defaults={
+                            'role': role,
+                            'invited_by': request.user
+                        }
+                    )
+
+        # Return the dispatch content
+        serializer = DispatchContentSerializer(dispatch_content)
+        return Response({
+            "dispatch_content": serializer.data,
+            "message": "Collaboration enabled successfully"
+        }, status=status.HTTP_201_CREATED)
+
+
+class WorkingDocumentRescindCollaborationView(generics.GenericAPIView):
+    """
+    POST: Rescind collaboration on a working document.
+    Only allowed if no collaborative edits have been made.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, piece_id=None):
+        from writing.models import WorkingDocument
+
+        # Get working document
+        working_doc = get_object_or_404(
+            WorkingDocument.objects.select_related('dispatch_content'),
+            piece_id=piece_id,
+            user=request.user,   # important: unique_together(piece, user)
+        )
+
+        # Check if collaborative
+        if not working_doc.dispatch_content:
+            return Response(
+                {"error": "No collaboration to rescind"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        dispatch_content = working_doc.dispatch_content
+
+        # Check if can be rescinded
+        if not dispatch_content.can_be_rescinded():
+            return Response(
+                {
+                    "error": "Cannot rescind collaboration - other users have made edits",
+                    "has_collaborative_edits": True
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Safe to rescind
+        with transaction.atomic():
+            # Unlink from working document
+            working_doc.dispatch_content = None
+            working_doc.save()
+
+            # Delete the dispatch content (cascades to collaborators)
+            dispatch_content.delete()
+
+        return Response({
+            "message": "Collaboration rescinded successfully"
+        }, status=status.HTTP_200_OK)
+
+
+class WorkingDocumentCollaborationStatusView(generics.RetrieveAPIView):
+    """
+    GET: Get collaboration status for a working document.
+    Returns dispatch_content details if collaborative, or null if solo.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, piece_id=None):
+        from writing.models import WorkingDocument
+        from dispatch.api.serializers import DispatchContentSerializer
+
+        print("Fetching collaboration status for Piece:", piece_id)
+
+        # Get working document
+        # working_doc = get_object_or_404(
+        #     WorkingDocument.objects.select_related('dispatch_content'),
+        #     pk=pk
+        # )
+
+        working_doc = get_object_or_404(
+            WorkingDocument.objects.select_related('dispatch_content'),
+            piece_id=piece_id,
+            user=request.user,   # important: unique_together(piece, user)
+        )
+
+        # Check user has access (owner or collaborator)
+        has_access = (
+            working_doc.user == request.user or
+            (working_doc.dispatch_content and
+             working_doc.dispatch_content.collaborators.filter(id=request.user.id).exists())
+        )
+
+        if not has_access:
+            return Response(
+                {"error": "Not authorized"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        if working_doc.dispatch_content:
+            serializer = DispatchContentSerializer(working_doc.dispatch_content)
+            return Response({
+                "is_collaborative": True,
+                "dispatch_content": serializer.data
+            })
+        else:
+            return Response({
+                "is_collaborative": False,
+                "dispatch_content": None
+            })
+
+
+# ============================================================================
+# Tag Management for WritingPiece
+# ============================================================================
+
+class WritingPieceTagsView(generics.GenericAPIView):
+    """
+    GET: Retrieve all tags for a writing piece
+    PUT: Replace all tags for a writing piece
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, pk=None):
+        """Get all tags for a writing piece"""
+        from classifications.models import Tag, ClassificationUsage
+        from classifications.api.serializers import TagSerializer
+
+        piece = get_object_or_404(
+            WritingPiece.objects.select_related('sponsor_content_type'),
+            pk=pk
+        )
+
+        # Get all tags for this piece
+        tag_ct = ContentType.objects.get_for_model(Tag)
+        piece_ct = ContentType.objects.get_for_model(WritingPiece)
+
+        tag_ids = ClassificationUsage.objects.filter(
+            classification_client_content_type=piece_ct,
+            classification_client_object_id=str(piece.pk),
+            classification_content_type=tag_ct
+        ).values_list('classification_object_id', flat=True)
+
+        tags = Tag.objects.filter(id__in=tag_ids).order_by('title')
+        serializer = TagSerializer(tags, many=True)
+        return Response(serializer.data)
+
+    def put(self, request, pk=None):
+        """Replace all tags for a writing piece"""
+        from classifications.models import Tag, ClassificationUsage
+
+        piece = get_object_or_404(
+            WritingPiece.objects.select_related('sponsor_content_type'),
+            pk=pk
+        )
+
+        # Check permissions (author or staff)
+        if not (request.user.is_staff or piece.author == request.user):
+            return Response(
+                {"error": "Not authorized to edit tags"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        tag_ids = request.data.get('tag_ids', [])
+
+        if not isinstance(tag_ids, list):
+            return Response(
+                {"error": "tag_ids must be a list"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validate tag IDs exist
+        tags = Tag.objects.filter(id__in=tag_ids)
+        if len(tags) != len(tag_ids):
+            return Response(
+                {"error": "One or more tag IDs are invalid"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        with transaction.atomic():
+            # Remove all existing tags
+            tag_ct = ContentType.objects.get_for_model(Tag)
+            piece_ct = ContentType.objects.get_for_model(WritingPiece)
+
+            old_usage = ClassificationUsage.objects.filter(
+                classification_client_content_type=piece_ct,
+                classification_client_object_id=str(piece.pk),
+                classification_content_type=tag_ct
+            )
+
+            # Decrement usage counts for removed tags
+            old_tag_ids = list(old_usage.values_list('classification_object_id', flat=True))
+            old_usage.delete()
+
+            for tag_id in old_tag_ids:
+                Tag.objects.filter(id=tag_id).update(
+                    usage_count=F('usage_count') - 1
+                )
+
+            # Add new tags
+            for tag in tags:
+                piece.add_classification(tag)
+
+        # Return updated tags
+        from classifications.api.serializers import TagSerializer
+        updated_tags = Tag.objects.filter(id__in=tag_ids).order_by('title')
+        serializer = TagSerializer(updated_tags, many=True)
+        return Response(serializer.data)
+
+
+class WritingPieceCategoriesView(generics.GenericAPIView):
+    """
+    GET: Retrieve all categories for a writing piece
+    PUT: Replace all categories for a writing piece
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, pk=None):
+        """Get all categories for a writing piece"""
+        from classifications.models import Category, ClassificationUsage
+        from classifications.api.serializers import CategorySerializer
+
+        piece = get_object_or_404(
+            WritingPiece.objects.select_related('sponsor_content_type'),
+            pk=pk
+        )
+
+        # Get all categories for this piece
+        cat_ct = ContentType.objects.get_for_model(Category)
+        piece_ct = ContentType.objects.get_for_model(WritingPiece)
+
+        cat_ids = ClassificationUsage.objects.filter(
+            classification_client_content_type=piece_ct,
+            classification_client_object_id=str(piece.pk),
+            classification_content_type=cat_ct
+        ).values_list('classification_object_id', flat=True)
+
+        categories = Category.objects.filter(id__in=cat_ids).order_by('title')
+        serializer = CategorySerializer(categories, many=True)
+        return Response(serializer.data)
+
+    def put(self, request, pk=None):
+        """Replace all categories for a writing piece"""
+        from classifications.models import Category, ClassificationUsage
+
+        piece = get_object_or_404(
+            WritingPiece.objects.select_related('sponsor_content_type'),
+            pk=pk
+        )
+
+        # Check permissions (author or staff)
+        if not (request.user.is_staff or piece.author == request.user):
+            return Response(
+                {"error": "Not authorized to edit categories"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        category_ids = request.data.get('category_ids', [])
+
+        if not isinstance(category_ids, list):
+            return Response(
+                {"error": "category_ids must be a list"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validate category IDs exist
+        categories = Category.objects.filter(id__in=category_ids)
+        if len(categories) != len(category_ids):
+            return Response(
+                {"error": "One or more category IDs are invalid"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        with transaction.atomic():
+            # Remove all existing categories
+            cat_ct = ContentType.objects.get_for_model(Category)
+            piece_ct = ContentType.objects.get_for_model(WritingPiece)
+
+            old_usage = ClassificationUsage.objects.filter(
+                classification_client_content_type=piece_ct,
+                classification_client_object_id=str(piece.pk),
+                classification_content_type=cat_ct
+            )
+
+            # Decrement usage counts for removed categories
+            old_cat_ids = list(old_usage.values_list('classification_object_id', flat=True))
+            old_usage.delete()
+
+            for cat_id in old_cat_ids:
+                Category.objects.filter(id=cat_id).update(
+                    usage_count=F('usage_count') - 1
+                )
+
+            # Add new categories
+            for category in categories:
+                piece.add_classification(category)
+
+        # Return updated categories
+        from classifications.api.serializers import CategorySerializer
+        updated_categories = Category.objects.filter(id__in=category_ids).order_by('title')
+        serializer = CategorySerializer(updated_categories, many=True)
+        return Response(serializer.data)
