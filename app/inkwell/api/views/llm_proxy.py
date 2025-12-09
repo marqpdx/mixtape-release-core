@@ -72,7 +72,13 @@ def summarize_quick_proxy(request):
         upstream = requests.post(
             f"{INKWELL_BASE_URL}/v1/summarize/quick",
             json=request.data,
-            timeout=180,  # a bit higher since summarization can be heavier
+            timeout=(5, 60),  # a bit higher since summarization can be heavier
+        )
+        upstream.raise_for_status()
+    except requests.exceptions.ReadTimeout:
+        return requests.Response(
+            {"detail": "Summary timed out on Inkwell; showing content without summary."},
+            status=status.HTTP_504_GATEWAY_TIMEOUT,
         )
     except requests.RequestException as e:
         logger.exception("Error calling Inkwell /v1/summarize/quick")
