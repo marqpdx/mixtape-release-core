@@ -1,5 +1,6 @@
 # app/inkwell/api/views/llm_proxy.py
 
+import json
 import logging
 import requests
 
@@ -22,19 +23,35 @@ INKWELL_BASE_URL = getattr(settings, "INKWELL_BASE_URL", "").rstrip("/") or "htt
 def normalize_tiptap_proxy(request):
     """
     Proxy to Inkwell /v1/normalize-tiptap.
-    Expects { doc: ... } and returns { plaintext, normalized } unchanged.
+    Expects { doc: ... } and returns { plaintext, normalized, ... } unchanged.
     """
-
-
     inkwell_normalize_tiptap_url = f"{INKWELL_BASE_URL}/v1/normalize-tiptap"
-    print("Inkwell normalize tiptap URL:", inkwell_normalize_tiptap_url)
 
+    try:
+        body_size = len(json.dumps(request.data))
+    except Exception:
+        body_size = -1
+
+    logger.info(
+        "Proxying normalize-tiptap to %s (body ~%s bytes)",
+        inkwell_normalize_tiptap_url,
+        body_size if body_size >= 0 else "unknown",
+    )
 
     try:
         upstream = requests.post(
             inkwell_normalize_tiptap_url,
             json=request.data,
-            timeout=30,
+            timeout=30,  # you can bump this if needed
+        )
+    except requests.exceptions.ReadTimeout as e:
+        logger.warning(
+            "Timeout calling Inkwell /v1/normalize-tiptap after 30s: %s",
+            e,
+        )
+        return JsonResponse(
+            {"detail": "Inkwell normalize_tiptap timed out."},
+            status=status.HTTP_504_GATEWAY_TIMEOUT,
         )
     except requests.RequestException as e:
         logger.exception("Error calling Inkwell /v1/normalize-tiptap")
@@ -45,7 +62,11 @@ def normalize_tiptap_proxy(request):
 
     if upstream.status_code != 200:
         body = upstream.text
-        logger.error("Inkwell /v1/normalize-tiptap error %s: %s", upstream.status_code, body[:500])
+        logger.error(
+            "Inkwell /v1/normalize-tiptap error %s: %s",
+            upstream.status_code,
+            body[:500],
+        )
         return JsonResponse(
             {
                 "detail": "Inkwell error",
@@ -68,16 +89,35 @@ def summarize_quick_proxy(request):
     Proxy to Inkwell /v1/summarize/quick.
     Expects { text, words, style } and returns { summary, ... } unchanged.
     """
+    inkwell_summarize_url = f"{INKWELL_BASE_URL}/v1/summarize/quick"
+
+    text = request.data.get("text", "")
+    words = request.data.get("words")
+    style = request.data.get("style")
+
+    logger.info(
+        "Proxying summarize/quick to %s (chars=%s, words=%s, style=%s)",
+        inkwell_summarize_url,
+        len(text),
+        words,
+        style,
+    )
+
     try:
         upstream = requests.post(
-            f"{INKWELL_BASE_URL}/v1/summarize/quick",
+            inkwell_summarize_url,
             json=request.data,
-            timeout=(5, 60),  # a bit higher since summarization can be heavier
+            timeout=60,  # plain 60s read timeout; we know the model is fast
         )
-        upstream.raise_for_status()
-    except requests.exceptions.ReadTimeout:
-        return requests.Response(
-            {"detail": "Summary timed out on Inkwell; showing content without summary."},
+    except requests.exceptions.ReadTimeout as e:
+        logger.warning(
+            "Timeout calling Inkwell /v1/summarize/quick after 60s: %s",
+            e,
+        )
+        return JsonResponse(
+            {
+                "detail": "Summary timed out on Inkwell; showing content without summary."
+            },
             status=status.HTTP_504_GATEWAY_TIMEOUT,
         )
     except requests.RequestException as e:
@@ -89,7 +129,11 @@ def summarize_quick_proxy(request):
 
     if upstream.status_code != 200:
         body = upstream.text
-        logger.error("Inkwell /v1/summarize/quick error %s: %s", upstream.status_code, body[:500])
+        logger.error(
+            "Inkwell /v1/summarize/quick error %s: %s",
+            upstream.status_code,
+            body[:500],
+        )
         return JsonResponse(
             {
                 "detail": "Inkwell error",
