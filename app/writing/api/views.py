@@ -1,13 +1,5 @@
-# api/writing/views.py
+# writing/api/views.py
 
-
-
-
-
-
-
-
-# apps/content/views.py
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -53,20 +45,40 @@ class WritingWorkingCopyUpsertView(generics.GenericAPIView):
     permission_classes = [permissions.IsAuthenticated, CanEditWritingPiece]
 
     def get_piece(self, pk):
-        piece = get_object_or_404(WritingPiece, pk=pk, author=self.request.user)
+        piece = get_object_or_404(WritingPiece, pk=pk)
         self.check_object_permissions(self.request, piece)
         return piece
 
     def get(self, request, pk=None):
         piece = self.get_piece(pk)
+
+        # First try to find user's own working copy
         wc = WritingWorkingCopy.objects.filter(piece=piece, user=request.user).first()
+
+        # If not found and piece is collaborative, find the author's working copy
+        # (collaborators work on the same shared document via Yjs)
+        if not wc and piece.author_id != request.user.id:
+            wc = WritingWorkingCopy.objects.filter(piece=piece, user=piece.author).first()
+
         if not wc:
             return Response(status=status.HTTP_204_NO_CONTENT)
         return Response(self.get_serializer(wc).data)
 
     def put(self, request, pk=None):
         piece = self.get_piece(pk)
-        wc, _ = WritingWorkingCopy.objects.get_or_create(piece=piece, user=request.user)
+
+        # Try to find existing working copy for this user
+        wc = WritingWorkingCopy.objects.filter(piece=piece, user=request.user).first()
+
+        # If not found and user is not the author, they're a collaborator
+        # Collaborators should update the author's working copy (shared document)
+        if not wc and piece.author_id != request.user.id:
+            wc = WritingWorkingCopy.objects.filter(piece=piece, user=piece.author).first()
+
+        # If still no working copy exists, create one
+        if not wc:
+            wc = WritingWorkingCopy.objects.create(piece=piece, user=request.user)
+
         ser = self.get_serializer(instance=wc, data=request.data, partial=True)
         ser.is_valid(raise_exception=True)
         wc = ser.save()
@@ -875,30 +887,40 @@ class WorkingDocumentCollaborationStatusView(generics.RetrieveAPIView):
 
         print("Fetching collaboration status for Piece:", piece_id)
 
-        # Get working document
-        # working_doc = get_object_or_404(
-        #     WorkingDocument.objects.select_related('dispatch_content'),
-        #     pk=pk
-        # )
-
-        working_doc = get_object_or_404(
-            WorkingDocument.objects.select_related('dispatch_content'),
+        # Get working document - first try user's own, then author's (for collaborators)
+        working_doc = WorkingDocument.objects.select_related('dispatch_content').filter(
             piece_id=piece_id,
-            user=request.user,   # important: unique_together(piece, user)
-        )
+            user=request.user
+        ).first()
 
-        # Check user has access (owner or collaborator)
-        has_access = (
-            working_doc.user == request.user or
-            (working_doc.dispatch_content and
-             working_doc.dispatch_content.collaborators.filter(id=request.user.id).exists())
-        )
+        # If not found and user is a collaborator, get the author's working document
+        if not working_doc:
+            # Get the piece to check if user is a collaborator
+            piece = get_object_or_404(WritingPiece, pk=piece_id)
 
-        if not has_access:
-            return Response(
-                {"error": "Not authorized"},
-                status=status.HTTP_403_FORBIDDEN
+            # User might be a collaborator - try to find the author's working document
+            working_doc = WorkingDocument.objects.select_related('dispatch_content').filter(
+                piece_id=piece_id,
+                user=piece.author
+            ).first()
+
+            if not working_doc:
+                return Response(
+                    {"error": "Working document not found"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            # Check if user is actually a collaborator
+            is_collaborator = (
+                working_doc.dispatch_content and
+                working_doc.dispatch_content.collaborators.filter(id=request.user.id).exists()
             )
+
+            if not is_collaborator:
+                return Response(
+                    {"error": "Not authorized"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
 
         if working_doc.dispatch_content:
             serializer = DispatchContentSerializer(working_doc.dispatch_content)
@@ -911,6 +933,94 @@ class WorkingDocumentCollaborationStatusView(generics.RetrieveAPIView):
                 "is_collaborative": False,
                 "dispatch_content": None
             })
+
+
+class WorkingDocumentEligibleCollaboratorsView(generics.GenericAPIView):
+    """
+    GET: Fetch eligible collaborators for a working document.
+    Returns group members who can collaborate (have manage_write or manage_dispatch permission).
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, piece_id=None):
+        from writing.models import WorkingDocument, WritingPiece
+        from groups.models import Group, GroupMembership
+        from groups.api.serializers import GroupMembershipListSerializer
+        from django.contrib.contenttypes.models import ContentType
+
+        # Get working document - first try user's own, then author's (for collaborators)
+        working_doc = WorkingDocument.objects.select_related('piece').filter(
+            piece_id=piece_id,
+            user=request.user
+        ).first()
+
+        # If not found, user might be a collaborator - try author's working document
+        if not working_doc:
+            piece = get_object_or_404(WritingPiece, pk=piece_id)
+            working_doc = WorkingDocument.objects.select_related('piece').filter(
+                piece_id=piece_id,
+                user=piece.author
+            ).first()
+
+            if not working_doc:
+                return Response(
+                    {"error": "Working document not found"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+        # Get the piece to determine the sponsor
+        piece = working_doc.piece
+
+        # Check if piece is sponsored by a group
+        group_content_type = ContentType.objects.get_for_model(Group)
+        if piece.sponsor_content_type != group_content_type:
+            # Not a group-sponsored piece, no eligible collaborators
+            return Response({
+                "eligible_collaborators": [],
+                "message": "Only group-sponsored documents support collaboration"
+            })
+
+        # Get the group
+        try:
+            group = Group.objects.get(id=piece.sponsor_object_id, is_active=True)
+        except Group.DoesNotExist:
+            return Response(
+                {"error": "Group not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Get all active group members with write permissions
+        # excluding the current user (already a collaborator)
+        # Members with 'admin' or 'steward' roles typically have write permissions
+        from django.db.models import Q
+
+        eligible_memberships = GroupMembership.objects.filter(
+            group=group,
+            is_active=True,
+            is_banned=False,
+            is_evicted=False,
+            is_pending=False
+        ).filter(
+            # Filter for members with admin or steward roles
+            # These roles typically have write/dispatch permissions
+            Q(roles__contains=['admin']) |
+            Q(roles__contains=['steward'])
+        ).exclude(
+            member_object_id=request.user.id
+        ).select_related(
+            'member_content_type'
+        ).prefetch_related(
+            'member_object'
+        ).distinct()
+
+        # Serialize the eligible members
+        serializer = GroupMembershipListSerializer(eligible_memberships, many=True)
+
+        return Response({
+            "eligible_collaborators": serializer.data,
+            "group_slug": group.slug,
+            "group_name": group.title
+        })
 
 
 # ============================================================================

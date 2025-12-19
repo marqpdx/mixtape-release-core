@@ -26,8 +26,10 @@ class CanEditWritingPiece(BasePermission):
 
         # Check group permissions if sponsored by a group
         if obj.sponsor_content_type and obj.sponsor_content_type.model == "group":
-            sponsor = obj.sponsor_object
-            if sponsor:
+            # Fetch sponsor object manually since GenericForeignKey isn't auto-fetched
+            from groups.models import Group
+            try:
+                sponsor = Group.objects.get(id=obj.sponsor_object_id, is_active=True)
                 # Use PermissionService to check if user can edit writing in this group
                 # Phase 1: Using 'edit_course' as proxy until 'edit_writing' is added to ROLE_PERMISSIONS
                 # TODO Phase 2: Add 'edit_writing' and 'publish_writing' to groups/services/permissions.py
@@ -36,6 +38,8 @@ class CanEditWritingPiece(BasePermission):
                     "edit_course",  # Temporary: admin/steward can edit
                     group_slug=sponsor.slug
                 )
+            except Group.DoesNotExist:
+                return False
 
         return False
 
@@ -56,8 +60,10 @@ class CanPublishWritingPiece(BasePermission):
 
         # Check group permissions if sponsored by a group
         if obj.sponsor_content_type and obj.sponsor_content_type.model == "group":
-            sponsor = obj.sponsor_object
-            if sponsor:
+            # Fetch sponsor object manually since GenericForeignKey isn't auto-fetched
+            from groups.models import Group
+            try:
+                sponsor = Group.objects.get(id=obj.sponsor_object_id, is_active=True)
                 # Use PermissionService to check if user can publish in this group
                 # Phase 1: Using 'publish_course' as proxy until 'publish_writing' is added
                 # TODO Phase 2: Add 'publish_writing' to groups/services/permissions.py
@@ -66,5 +72,7 @@ class CanPublishWritingPiece(BasePermission):
                     "publish_course",  # Temporary: admin/steward can publish
                     group_slug=sponsor.slug
                 )
+            except Group.DoesNotExist:
+                return False
 
         return False

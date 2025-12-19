@@ -5,6 +5,7 @@ from django.urls import reverse
 from rest_framework import serializers
 from django.template.defaultfilters import slugify
 from accounts.api.serializers import UserSerializer
+from writing.api.serializers import UserMinimalSerializer
 from dispatch.models import DispatchContent, DispatchContentVersion, DispatchEditSession, DispatchCollaborator, Post
 # from utils.handle_collected_items import handleTagCreate
 
@@ -76,6 +77,15 @@ from dispatch.models import DispatchContent, DispatchContentVersion, DispatchEdi
 #     #     if isinstance(sponsor, Group) and sponsor.slug:
 #     #         return f"/groups/{sponsor.slug}/posts/{obj.slug}"
 #     #     return None
+
+
+class DispatchCollaboratorMinimalSerializer(serializers.ModelSerializer):
+    """Minimal serializer for collaborator info (for avatars/lists)"""
+    user = UserMinimalSerializer(read_only=True)
+
+    class Meta:
+        model = DispatchCollaborator
+        fields = ["id", "user", "role"]
 
 
 class DispatchCollaboratorSerializer(serializers.ModelSerializer):
