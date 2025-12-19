@@ -83,6 +83,79 @@ class DispatchContentDetailView(generics.RetrieveUpdateAPIView):
         user = self.request.user
         return DispatchContent.objects.filter(collaborators=user)
 
+    def partial_update(self, request, *args, **kwargs):
+        """
+        Handle hybrid collaborative saves (yjs_state + content_snapshot).
+        Includes dedupe and throttle logic to prevent write storms.
+        """
+        content = self.get_object()
+
+        # Extract save payload
+        yjs_state_b64 = request.data.get('yjs_state')
+        content_snapshot = request.data.get('body_json') or request.data.get('content_snapshot')
+
+        # At least one must be provided
+        if not yjs_state_b64 and not content_snapshot:
+            # Fall back to default serializer behavior for other fields (title, etc.)
+            return super().partial_update(request, *args, **kwargs)
+
+        # Dedupe: Check if yjs_state is unchanged
+        if yjs_state_b64:
+            try:
+                new_state_bytes = base64.b64decode(yjs_state_b64)
+
+                # If state is identical to stored state, skip update
+                if content.yjs_state and content.yjs_state == new_state_bytes:
+                    return Response({
+                        "status": "unchanged",
+                        "message": "Yjs state unchanged, skipping write"
+                    })
+
+            except Exception as e:
+                return Response(
+                    {"error": f"Failed to decode yjs_state: {str(e)}"},
+                    status=400
+                )
+
+        # Throttle: Check if last save was too recent
+        if content.yjs_state_updated_at:
+            from datetime import timedelta
+            time_since_last_save = timezone.now() - content.yjs_state_updated_at
+
+            # Accept max 1 save per 3 seconds (configurable)
+            if time_since_last_save < timedelta(seconds=3):
+                return Response({
+                    "status": "throttled",
+                    "message": f"Last save was {time_since_last_save.total_seconds():.1f}s ago, throttling"
+                }, status=429)
+
+        # Perform the save
+        update_fields = []
+
+        if yjs_state_b64:
+            content.yjs_state = new_state_bytes
+            content.yjs_state_updated_at = timezone.now()
+            update_fields.extend(['yjs_state', 'yjs_state_updated_at'])
+
+        if content_snapshot:
+            content.content_snapshot = content_snapshot
+            content.snapshot_updated_at = timezone.now()
+            update_fields.extend(['content_snapshot', 'snapshot_updated_at'])
+
+        # Update edit tracking
+        content.last_edited_by = request.user
+        content.last_edited_at = timezone.now()
+        update_fields.extend(['last_edited_by', 'last_edited_at'])
+
+        content.save(update_fields=update_fields)
+
+        return Response({
+            "status": "saved",
+            "yjs_state_updated_at": content.yjs_state_updated_at,
+            "snapshot_updated_at": content.snapshot_updated_at,
+            "last_edited_at": content.last_edited_at,
+        })
+
 
 class DispatchContentYjsStateView(generics.RetrieveUpdateAPIView):
     """

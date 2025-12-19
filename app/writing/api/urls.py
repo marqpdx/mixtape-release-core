@@ -13,6 +13,7 @@ from .views import (
     SeedListCreateView,
     SeedPromoteView,
     WorkingDocumentCollaborationStatusView,
+    WorkingDocumentEligibleCollaboratorsView,
     WorkingDocumentEnableCollaborationView,
     WorkingDocumentRescindCollaborationView,
     WritingCommentListCreateView,
@@ -53,6 +54,8 @@ urlpatterns = [
     # Collaboration management (on working documents)
     path("working-documents/<uuid:piece_id>/collaboration/status", WorkingDocumentCollaborationStatusView.as_view(),
         name="workingdocument-collaboration-status"),
+    path("working-documents/<uuid:piece_id>/collaboration/eligible", WorkingDocumentEligibleCollaboratorsView.as_view(),
+        name="workingdocument-eligible-collaborators"),
     path("working-documents/<uuid:piece_id>/collaboration/enable", WorkingDocumentEnableCollaborationView.as_view(),
         name="workingdocument-enable-collaboration"),
     path("working-documents/<uuid:piece_id>/collaboration/rescind", WorkingDocumentRescindCollaborationView.as_view(),

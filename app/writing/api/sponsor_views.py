@@ -5,6 +5,7 @@ Works with both Group and Member sponsors.
 """
 
 from django.contrib.contenttypes.models import ContentType
+from django.db import models
 from rest_framework import generics, permissions
 
 from writing.models import WritingPlacement, WritingWorkingCopy
@@ -97,20 +98,44 @@ class SponsorDraftsListView(generics.ListAPIView):
         except Exception:
             return WritingWorkingCopy.objects.none()
 
-        # Filter drafts by sponsor and current user
-        # Only show drafts for pieces the user is working on
-        qs = WritingWorkingCopy.objects.filter(
+        # Get filter parameter: 'my', 'shared', 'all'
+        filter_type = self.request.query_params.get("filter", "my")
+
+        # Base queryset for drafts
+        base_qs = WritingWorkingCopy.objects.filter(
             piece__sponsor_content_type=content_type,
             piece__sponsor_object_id=sponsor.id,
             piece__status="draft",
-            user=user  # Only show user's own drafts
         ).exclude(
-            piece__is_empty=True  # ← Add this: Filter out empty pieces
+            piece__is_empty=True
         ).select_related(
             "piece",
             "piece__author",
             "user",
-            "user__profile"
-        ).order_by("-last_saved_at")
+            "user__profile",
+            "dispatch_content"
+        ).prefetch_related(
+            "dispatch_content__collaborator_assignments__user"
+        )
 
-        return qs
+        if filter_type == "my":
+            # Only show user's own solo drafts (exclude collaborative)
+            qs = base_qs.filter(user=user, dispatch_content__isnull=True)
+        elif filter_type == "shared":
+            # Only show collaborative drafts the user owns or collaborates on
+            from dispatch.models import DispatchContent
+            qs = base_qs.filter(
+                models.Q(user=user, dispatch_content__isnull=False) |  # User's collaborative drafts
+                models.Q(dispatch_content__collaborators=user)  # Drafts shared with user
+            ).distinct()
+        elif filter_type == "all":
+            # Show all drafts (owned or collaborative)
+            qs = base_qs.filter(
+                models.Q(user=user) |
+                models.Q(dispatch_content__collaborators=user)
+            ).distinct()
+        else:
+            # Default to 'my'
+            qs = base_qs.filter(user=user)
+
+        return qs.order_by("-last_saved_at")

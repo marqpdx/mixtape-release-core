@@ -306,9 +306,35 @@ class WritingPieceMinimalSerializer(serializers.ModelSerializer):
 class WritingWorkingCopySerializer(serializers.ModelSerializer):
     """
     Serializer for WritingWorkingCopy with nested piece and user info.
+    Includes collaboration status and collaborator details.
     """
     piece = WritingPieceMinimalSerializer(read_only=True)
     user = UserMinimalSerializer(read_only=True)
+
+    # Collaboration fields
+    is_collaborative = serializers.SerializerMethodField()
+    collaborator_count = serializers.SerializerMethodField()
+    collaborators = serializers.SerializerMethodField()
+
+    def get_is_collaborative(self, obj):
+        """Check if this working copy has collaboration enabled"""
+        return obj.dispatch_content is not None
+
+    def get_collaborator_count(self, obj):
+        """Return the number of collaborators (excluding the owner)"""
+        if not obj.dispatch_content:
+            return 0
+        # Count all collaborators
+        return obj.dispatch_content.collaborators.count()
+
+    def get_collaborators(self, obj):
+        """Return minimal collaborator info for avatars/display"""
+        if not obj.dispatch_content:
+            return []
+
+        from dispatch.api.serializers import DispatchCollaboratorMinimalSerializer
+        collaborators = obj.dispatch_content.collaborator_assignments.select_related('user')
+        return DispatchCollaboratorMinimalSerializer(collaborators, many=True).data
 
     class Meta:
         model = WritingWorkingCopy
@@ -321,5 +347,9 @@ class WritingWorkingCopySerializer(serializers.ModelSerializer):
             "body_json",
             "last_saved_at",
             "auto_save_count",
-            "client_session_id"
+            "client_session_id",
+            # Collaboration fields
+            "is_collaborative",
+            "collaborator_count",
+            "collaborators",
         ]
