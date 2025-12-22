@@ -108,7 +108,8 @@ def exchange_ws_for_service_token(request):
             return Response({"detail": "user not found for WS token"}, status=401)
 
         # TODO: Validate user has permission to access conversation `conv` before minting token
-        result = _mint_service_token(user_id=str(user_obj.pk), scopes=["chat:write"], conv=conv)
+        # Grant both chat and dispatch scopes for service tokens
+        result = _mint_service_token(user_id=str(user_obj.pk), scopes=["chat:write", "dispatch:write"], conv=conv)
 
         return Response(result, status=status.HTTP_200_OK)
 

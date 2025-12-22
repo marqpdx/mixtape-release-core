@@ -23,6 +23,12 @@ MEMBERSHIP_DECORATORS = {
         'description': 'Send invitations to new members',
         'category': 'capability',
     },
+    'can__CreateSponsoredCircle': {
+        'code': 'can__CreateSponsoredCircle',
+        'name': 'Create Sponsored Circle',
+        'description': 'Can create a Circle sponsored by this Community',
+        'category': 'capability',
+    },
 }
 
 

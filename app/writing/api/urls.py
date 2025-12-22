@@ -1,4 +1,4 @@
-# api/writing/urls.py
+# writing/api/urls.py
 
 
 from django.urls import path
