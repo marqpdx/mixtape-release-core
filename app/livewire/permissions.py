@@ -6,3 +6,10 @@ class HasChatWriteScope(BasePermission):
         payload = getattr(request, "auth_payload", {}) or {}
         scopes = set(payload.get("scopes", []))
         return "chat:write" in scopes
+
+
+class HasDispatchWriteScope(BasePermission):
+    def has_permission(self, request, view):
+        payload = getattr(request, "auth_payload", {}) or {}
+        scopes = set(payload.get("scopes", []))
+        return "dispatch:write" in scopes

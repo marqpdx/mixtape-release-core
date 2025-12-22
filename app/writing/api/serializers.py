@@ -103,15 +103,12 @@ class WritingPieceDetailSerializer(serializers.ModelSerializer):
         return None
 
 
-
-
-
-
 class WritingPieceMinimalSerializer(serializers.ModelSerializer):
     class Meta:
         model = WritingPiece
         fields = ["id", "slug", "status", "writing_kind", "is_empty"]
         read_only_fields = ["id", "slug", "status"]
+
 
 class WritingWorkingCopyLightSerializer(serializers.ModelSerializer):
     """Lightweight serializer for autosave operations (no nested data)"""

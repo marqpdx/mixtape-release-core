@@ -1,6 +1,6 @@
 # groups/api/urls.py
 
-from django.urls import path
+from django.urls import include, path
 
 # ============================================================================
 # PHASE 2: Active Views
@@ -31,7 +31,7 @@ from .permissions_views import (
 # from writing.api.views import WritingPieceDetailView
 # from .views import GroupAnnouncementCreateFromContentView, GroupAnnouncementDetailView, GroupAnnouncementDismissView, GroupAnnouncementListCreateView, GroupAnnouncementVisibleQueueView, GroupInvitationDetailView, GroupInvitationsListView, GroupMemberSearchView, GroupMembersListView, GroupMembersView, GroupMembershipListView, GroupNoticeBoardView, invite_to_group
 # from .views import GroupEmblemAttachView, GroupEmblemResetView, GroupWritingDetailView, GroupWritingDraftsListView, GroupWritingListCreateView  # PHASE 3+
-# from threadworks.api.urls import group_urlpatterns
+from threadworks.api.urls import group_urlpatterns
 # from almanac.api.urls import group_event_patterns
 # from earthlab.api.urls import group_course_patterns
 
@@ -43,29 +43,29 @@ urlpatterns = [
     # PHASE 3+: Deferred App URL Patterns
     # ============================================================================
     # TODO chnange these to group_slug as well for consistency.
-    # path('/<slug:slug>/threadworks', include(group_urlpatterns)),
+    path('<slug:slug>/threadworks/', include(group_urlpatterns)),
     # path('/<slug:slug>/events', include(group_event_patterns)),
     # path('/<slug:group_slug>/earthlab', include(group_course_patterns)),
 
     path("", GroupListCreateView.as_view(), name="group-list-create"),
-    path("/my", UserGroupsView.as_view(), name="user-groups"),  # /api/groups/my/
-    path("/<slug:slug>", GroupDetailView.as_view(), name="group-detail"),  # /api/groups/<slug>/
+    path("my", UserGroupsView.as_view(), name="user-groups"),  # /api/groups/my/
+    path("<slug:slug>", GroupDetailView.as_view(), name="group-detail"),  # /api/groups/<slug>/
 
     # Group membership - consolidated single endpoint
-    path("/<slug:slug>/members", GroupMembersView.as_view(), name="group-members"),
-    path("/<slug:slug>/members/search", GroupMemberSearchView.as_view(), name="group-member-search"),
+    path("<slug:slug>/members", GroupMembersView.as_view(), name="group-members"),
+    path("<slug:slug>/members/search", GroupMemberSearchView.as_view(), name="group-member-search"),
 
     # Permissions management
-    path("/<slug:slug>/permissions/available", AvailablePermissionsView.as_view(), name="group-permissions-available"),
-    path("/<slug:slug>/members/permissions", MemberPermissionsListView.as_view(), name="group-member-permissions-list"),
-    path("/<slug:slug>/members/<uuid:user_id>/permissions", MemberPermissionManageView.as_view(), name="group-member-permission-grant"),
-    path("/<slug:slug>/members/<uuid:user_id>/permissions/<str:decorator>", MemberPermissionManageView.as_view(), name="group-member-permission-revoke"),
-    path("/<slug:slug>/my-permissions", MyPermissionsView.as_view(), name="group-my-permissions"),
+    path("<slug:slug>/permissions/available", AvailablePermissionsView.as_view(), name="group-permissions-available"),
+    path("<slug:slug>/members/permissions", MemberPermissionsListView.as_view(), name="group-member-permissions-list"),
+    path("<slug:slug>/members/<uuid:user_id>/permissions", MemberPermissionManageView.as_view(), name="group-member-permission-grant"),
+    path("<slug:slug>/members/<uuid:user_id>/permissions/<str:decorator>", MemberPermissionManageView.as_view(), name="group-member-permission-revoke"),
+    path("<slug:slug>/my-permissions", MyPermissionsView.as_view(), name="group-my-permissions"),
 
 #     # Invitations
-    path("/<slug:slug>/invite", invite_to_group, name="group-invite"),
-    path("/<slug:slug>/invitations", GroupInvitationsListView.as_view(), name="group-invitations"),
-    path("/<slug:group_slug>/invitations/<int:pk>", GroupInvitationDetailView.as_view(), name="group-invitation-detail", ),
+    path("<slug:slug>/invite", invite_to_group, name="group-invite"),
+    path("<slug:slug>/invitations", GroupInvitationsListView.as_view(), name="group-invitations"),
+    path("<slug:group_slug>/invitations/<int:pk>", GroupInvitationDetailView.as_view(), name="group-invitation-detail", ),
 
     # ============================================================================
     # PHASE 3: Emblems (Deferred - requires identity app)
