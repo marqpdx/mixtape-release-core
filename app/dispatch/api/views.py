@@ -6,6 +6,7 @@ from rest_framework import permissions
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from django.db.models import Prefetch
 from django.utils import timezone
@@ -15,6 +16,8 @@ from django.utils import timezone
 from dispatch.api.serializers import DispatchContentSerializer, DispatchContentVersionSerializer, DispatchEditSessionSerializer
 from dispatch.models import DispatchContent, DispatchContentVersion, DispatchEditSession, Post
 from django.contrib.auth import get_user_model
+from livewire.auth import ServiceJWTAuthentication
+from livewire.permissions import HasDispatchWriteScope
 
 User = get_user_model()
 
@@ -161,8 +164,13 @@ class DispatchContentYjsStateView(generics.RetrieveUpdateAPIView):
     """
     GET: Retrieve yjs binary state (base64 encoded)
     PATCH: Update yjs binary state from Socket.IO service
+
+    Supports both:
+    - Regular JWT authentication (for frontend clients)
+    - Service JWT authentication (for livewire Socket.IO server)
     """
     lookup_field = "id"  # UUID lookup
+    authentication_classes = [ServiceJWTAuthentication, JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
