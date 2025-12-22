@@ -1,0 +1,149 @@
+erDiagram
+    BaseContent {
+        uuid id PK
+        string title
+        text body
+        string status
+        datetime published_at
+        uuid author_id FK
+        uuid submitted_by_id FK
+        uuid sponsor_content_type_id FK
+        string sponsor_object_id
+    }
+
+    User {
+        int id PK
+        string username
+        string email
+    }
+
+    Group {
+        uuid id PK
+        string name
+        string display_name
+    }
+
+    Decorator {
+        int id PK
+        string slug
+        string name
+        string icon
+        text description
+        bool has_context_data
+        bool is_active
+        int sort_order
+    }
+
+    EventSeries {
+        uuid id PK
+        string title
+        string timezone
+        int default_duration_minutes
+        text rrule
+        bool is_active
+        uuid sponsor_content_type_id FK
+        string sponsor_object_id
+        datetime created_at
+    }
+
+    EventAdHocSlot {
+        uuid id PK
+        uuid series_id FK
+        datetime start
+        datetime end
+        string title_override
+        string location_override
+    }
+
+    EventOccurrence {
+        uuid id PK
+        uuid series_id FK
+        datetime recurrence_id
+        datetime start
+        datetime end
+        bool is_cancelled
+        string title_override
+        string location_override
+        text notes
+        int actual_attendance
+    }
+
+    Event {
+        uuid id PK
+        uuid series_id FK
+        string location
+        int max_attendees
+        bool registration_required
+        int registration_deadline_hours
+        bool is_public
+        bool requires_membership
+        url hero_image
+        string event_format
+        uuid connected_gathering_id FK
+    }
+
+    EventDecorator {
+        uuid id PK
+        uuid event_id FK
+        int decorator_id FK
+        json context_data
+        datetime assigned_at
+    }
+
+    GatheringExtension {
+        uuid id PK
+        uuid event_id FK
+        bool accommodation_available
+        text accommodation_info
+        decimal accommodation_cost
+        bool meals_included
+        text meal_info
+        text dietary_accommodations
+        time check_in_time
+        time check_out_time
+        text packing_list
+        text transportation_info
+        bool has_structured_schedule
+        json schedule_data
+        bool sliding_scale_available
+        bool scholarship_available
+    }
+
+    OccurrenceAttendee {
+        uuid id PK
+        uuid occurrence_id FK
+        uuid user_id FK
+        string status
+        datetime registered_at
+        text registration_notes
+        datetime checked_in_at
+        text feedback
+        int rating
+    }
+
+    EventFollower {
+        uuid id PK
+        uuid event_id FK
+        uuid user_id FK
+        string follow_type
+        bool notify_new_occurrences
+        bool notify_changes
+        datetime created_at
+    }
+
+    BaseContent ||--|| Event : inherits
+    EventSeries }o--|| User : sponsor
+    EventSeries }o--|| Group : sponsor
+    EventSeries ||--|| Event : references
+    EventSeries ||--o{ EventOccurrence : has_many
+    EventSeries ||--o{ EventAdHocSlot : has_many
+    Event ||--o{ EventDecorator : has_many
+    Event ||--o| GatheringExtension : has_one
+    Event }o--o| Event : connected_gathering
+    Decorator ||--o{ EventDecorator : has_many
+    EventOccurrence ||--o{ OccurrenceAttendee : has_many
+    Event ||--o{ EventFollower : has_many
+    User ||--o{ OccurrenceAttendee : attends
+    User ||--o{ EventFollower : follows
+    User ||--o{ Event : author
+    User ||--o{ Event : submitted_by
