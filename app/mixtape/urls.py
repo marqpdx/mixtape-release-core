@@ -41,15 +41,15 @@ urlpatterns = [
     # Members (User + Profile combined)
     path("api/members/", include("profiles.api.urls")),
 
-    # Endpoints: /api/members/, /api/members/<slug>
+    # Endpoints: /api/members/, /api/members/<slug>/
 
     # === END PHASE 1 ENDPOINTS ===
 
     # === PHASE 2 ENDPOINTS ===
 
     # Groups
-    path("api/groups", include("groups.api.urls")),
-    # Endpoints: /api/groups, /api/groups/<slug>, /api/groups/<slug>/members, etc.
+    path("api/groups/", include("groups.api.urls")),
+    # Endpoints: /api/groups/, /api/groups/<slug>/, /api/groups/<slug>/members, etc.
 
     # === END PHASE 2 ENDPOINTS ===
     path("api/assets/", include("assets.api.urls")),
@@ -57,6 +57,7 @@ urlpatterns = [
     path("api/dispatch/", include("dispatch.api.urls")),
     path("api/inkwell/", include("inkwell.api.urls")),
     path("api/livewire/", include("livewire.api.urls")),
+    path('api/threadworks/', include('threadworks.api.urls')),
     path("api/writing/", include("writing.api.urls")),
 
     # DRF Router endpoints

@@ -85,6 +85,7 @@ INSTALLED_APPS = [
     "groups",          # Group model, GroupMembership, Invitations (Phase 2)
     "inkwell",         # AI services, RAG, synopsis generation
     "profiles",        # UserProfile, Member API
+    "threadworks",     # Threadworks forums and discussions
     "users",           # CustomUser, Role models
     "utils",           # Utility functions and helpers
     "writing",         # Writing app
@@ -419,45 +420,124 @@ CSRF_TRUSTED_ORIGINS = [
 
 
 
-
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+
     "formatters": {
         "verbose": {
-            "format": "{levelname} {asctime} {module} {message}",
+            "format": "{levelname} {asctime} {name} {module} {message}",
             "style": "{",
         },
         "simple": {
             "format": "{levelname} {message}",
             "style": "{",
         },
+        # Colors for status-coded server lines + (optionally) other console output
+        "colored_server": {
+            "()": "colorlog.ColoredFormatter",
+            "format": "%(log_color)s%(message)s",
+            "log_colors": {
+                # After your filter runs, it rewrites the effective "level" by status code
+                "DEBUG": "cyan",
+                "INFO": "green",          # 2xx
+                "WARNING": "yellow",      # you can map 3xx here if you want
+                "ERROR": "red",           # 4xx
+                "CRITICAL": "bold_red",   # 5xx
+            },
+        },
+        # Colored but still “structured” for your app logs
+        "colored_verbose": {
+            "()": "colorlog.ColoredFormatter",
+            "format": "%(log_color)s{levelname} {asctime} {name} {module} {message}",
+            "style": "{",
+            "log_colors": {
+                "DEBUG": "cyan",
+                "INFO": "white",
+                "WARNING": "yellow",
+                "ERROR": "red",
+                "CRITICAL": "bold_red",
+            },
+        },
     },
+
+    "filters": {
+        # You said you added mixtape/logging.py with this filter
+        "http_status_to_level": {
+            "()": "mixtape.logging.HTTPStatusToLevelFilter",
+        },
+    },
+
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
             "formatter": "verbose",
         },
+        "console_simple": {
+            "class": "logging.StreamHandler",
+            "formatter": "simple",
+        },
+        "console_colored": {
+            "class": "logging.StreamHandler",
+            "formatter": "colored_verbose",
+        },
+        # Only used for django runserver request lines (the “GET /... 404 ...” output)
+        "server_colored": {
+            "class": "logging.StreamHandler",
+            "formatter": "colored_server",
+            "filters": ["http_status_to_level"],
+        },
     },
+
+    # Root is “everything else”; keep it sane + structured.
+    # Leave propagate=True in most loggers unless you really want to silence them.
     "root": {
         "handlers": ["console"],
         "level": "INFO",
     },
+
     "loggers": {
+        # Django's internal logs (not request lines)
         "django": {
             "handlers": ["console"],
             "level": "INFO",
             "propagate": False,
         },
-        # Your app loggers
-        "activity": {
-            "handlers": ["console"],
-            "level": "WARNING",  # Will show WARNING and above
+
+        # This is THE runserver request logger
+        # It prints: "GET /path HTTP/1.1" 404 56
+        # and your filter will colorize by status.
+        "django.server": {
+            "handlers": ["server_colored"],
+            "level": "INFO",
             "propagate": False,
         },
+
+        # Optional: DB query logging (leave off unless debugging)
+        # "django.db.backends": {
+        #     "handlers": ["console_simple"],
+        #     "level": "DEBUG",
+        #     "propagate": False,
+        # },
+
+        # --- Your app loggers ---
+        # If you want them colored and readable:
+        "activity": {
+            "handlers": ["console_colored"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        # Your earlier choice: warn+ only (keep it, but still structured)
         "accounts": {
             "handlers": ["console"],
             "level": "WARNING",
+            "propagate": False,
+        },
+
+        # If you have a general project logger you use everywhere:
+        "mixtape": {
+            "handlers": ["console_colored"],
+            "level": "INFO",
             "propagate": False,
         },
     },
