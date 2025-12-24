@@ -6,6 +6,7 @@ from django.urls import include, path
 # PHASE 2: Active Views
 # ============================================================================
 from .views import (
+    GroupCirclesListCreateView,
     GroupDetailView,
     GroupInvitationDetailView,
     GroupInvitationsListView,
@@ -31,29 +32,30 @@ from .permissions_views import (
 # from writing.api.views import WritingPieceDetailView
 # from .views import GroupAnnouncementCreateFromContentView, GroupAnnouncementDetailView, GroupAnnouncementDismissView, GroupAnnouncementListCreateView, GroupAnnouncementVisibleQueueView, GroupInvitationDetailView, GroupInvitationsListView, GroupMemberSearchView, GroupMembersListView, GroupMembersView, GroupMembershipListView, GroupNoticeBoardView, invite_to_group
 # from .views import GroupEmblemAttachView, GroupEmblemResetView, GroupWritingDetailView, GroupWritingDraftsListView, GroupWritingListCreateView  # PHASE 3+
-from threadworks.api.urls import group_urlpatterns
-# from almanac.api.urls import group_event_patterns
+from threadworks.api.urls import group_threadworks_patterns
+from almanac.api.urls import group_almanac_patterns
 # from earthlab.api.urls import group_course_patterns
 
-# base path: api/groups
+# base path: api/groups/
 
 urlpatterns = [
 
     # ============================================================================
     # PHASE 3+: Deferred App URL Patterns
     # ============================================================================
-    # TODO chnange these to group_slug as well for consistency.
-    path('<slug:slug>/threadworks/', include(group_urlpatterns)),
-    # path('/<slug:slug>/events', include(group_event_patterns)),
+    path('<slug:slug>/threadworks/', include(group_threadworks_patterns)),
+    path('<slug:slug>/almanac/', include(group_almanac_patterns)),  # /api/groups/<slug>/almanac/...
     # path('/<slug:group_slug>/earthlab', include(group_course_patterns)),
 
     path("", GroupListCreateView.as_view(), name="group-list-create"),
-    path("my", UserGroupsView.as_view(), name="user-groups"),  # /api/groups/my/
+    path("my", UserGroupsView.as_view(), name="user-groups"),  # /api/groups/my
     path("<slug:slug>", GroupDetailView.as_view(), name="group-detail"),  # /api/groups/<slug>/
 
     # Group membership - consolidated single endpoint
     path("<slug:slug>/members", GroupMembersView.as_view(), name="group-members"),
     path("<slug:slug>/members/search", GroupMemberSearchView.as_view(), name="group-member-search"),
+
+    path("<slug:slug>/circles", GroupCirclesListCreateView.as_view(), name="group-circles-list-create"),
 
     # Permissions management
     path("<slug:slug>/permissions/available", AvailablePermissionsView.as_view(), name="group-permissions-available"),

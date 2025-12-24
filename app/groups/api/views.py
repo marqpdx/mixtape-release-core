@@ -52,7 +52,7 @@ from groups.services.invitations import InvitationService
 from users.models import CustomUser
 from utils.email.invitations import generate_username_from_email
 
-from ..permissions import IsGroupAdminOrSteward
+from ..permissions import HasGroupDecorator, IsGroupAdminOrSteward
 from .serializers import (
     GroupCreateSerializer,
     GroupDetailSerializer,
@@ -267,6 +267,122 @@ class GroupMembersView(generics.ListAPIView):
 
 
 
+# # groups/api/views/circles.py
+
+# from django.contrib.contenttypes.models import ContentType
+# from django.db.models import Q
+# from rest_framework import generics, permissions, status
+# from rest_framework.response import Response
+
+# from groups.models import Group
+# from groups.models.dec_enums import GroupType
+# from groups.api.serializers.groups import GroupCreateSerializer, GroupListSerializer, GroupDetailSerializer
+# from groups.permissions.decorators import HasGroupDecorator  # your existing permission
+# from groups.services.groups import GroupService
+
+
+class GroupCirclesListCreateView(generics.ListCreateAPIView):
+    """
+    GET  /api/groups/<group_slug>/circles
+      - List circles sponsored by this group.
+
+    POST /api/groups/<group_slug>/circles
+      - Create a new circle sponsored by this group.
+      - Requires the user to have can__CreateSponsoredCircle on their membership
+        within the sponsoring group.
+    """
+    permission_classes = [permissions.IsAuthenticated, HasGroupDecorator]
+    required_decorator = "can__CreateSponsoredCircle"
+
+    # If your HasGroupDecorator needs to know what group to scope to,
+    # it commonly looks for this kwarg name:
+    sponsor_slug_kwarg = "slug"
+
+    def get_sponsor_group(self) -> Group:
+        sponsor_slug = self.kwargs.get("slug")
+        return Group.objects.get(slug=sponsor_slug, is_active=True)
+
+    def get_serializer_class(self):
+        if self.request.method == "POST":
+            return GroupCreateSerializer
+        return GroupListSerializer
+
+    def get_queryset(self):
+        sponsor_group = self.get_sponsor_group()
+        sponsor_ct = ContentType.objects.get_for_model(Group)
+
+        qs = Group.objects.filter(
+            is_active=True,
+            group_type='circle',
+            sponsor_content_type=sponsor_ct,
+            sponsor_object_id=sponsor_group.id,
+        ).order_by("-created_at")
+
+        # Optional filters, if you want parity with /api/groups/
+        search = self.request.query_params.get("search")
+        if search:
+            qs = qs.filter(
+                Q(title__icontains=search) |
+                Q(description__icontains=search)
+            )
+
+        return qs
+
+    def create(self, request, *args, **kwargs):
+        """
+        Override to return GroupDetailSerializer after creation,
+        matching your main GroupListCreateView behavior.
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        circle = self.perform_create(serializer)
+
+        detail = GroupDetailSerializer(circle, context=self.get_serializer_context())
+        return Response(detail.data, status=status.HTTP_201_CREATED)
+
+    def perform_create(self, serializer):
+        sponsor_group = self.get_sponsor_group()
+
+        # IMPORTANT: Force these server-side so the client can’t spoof them
+        validated = dict(serializer.validated_data)
+        # validated["group_type"] = GroupType.CIRCLE
+
+        validated["group_type"] = 'circle'
+
+        # If you store circle fields on GroupCreateSerializer already, great.
+        # If not, you'll add start_date/end_date/join_mode/etc to serializer Meta.fields.
+
+        # Create the circle *sponsored by the group*
+        # You have two options:
+        #
+        # A) If you have or add a helper in GroupService:
+        #    circle = GroupService.create_group_sponsored_by_group(...)
+        #
+        # B) Or create then set sponsor manually (shown here):
+
+        circle = GroupService.create_group(
+            title=validated["title"],
+            group_type=validated["group_type"],
+            created_by=self.request.user,
+            description=validated.get("description", ""),
+            visibility=validated.get("visibility", "public"),
+            profile_image=validated.get("profile_image_path"),
+            background_image=validated.get("background_image_path"),
+            sponsor=sponsor_group,
+            add_creator_membership=True,
+        )
+
+        # If you have Circle-specific detail fields on CircleGroup, set them here
+        # (only if you’re not storing these on Group directly)
+        #
+        # Example:
+        # if hasattr(circle, "circle_detail"):
+        #     circle.circle_detail.start_date = validated.get("start_date")
+        #     circle.circle_detail.end_date = validated.get("end_date")
+        #     circle.circle_detail.save()
+
+        return circle
 
 
 

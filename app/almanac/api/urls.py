@@ -12,13 +12,13 @@ from . import views
 
 app_name = 'almanac'
 
-# parent: api/almanac
+# parent: api/almanac/
 
 # =============================================================================
 # SITE-WIDE EVENT ENDPOINTS
 # =============================================================================
 
-site_event_patterns = [
+site_almanac_patterns = [
 
     # Event CRUD
     path('', views.EventListCreateView.as_view(), name='event-list-create'),
@@ -41,26 +41,24 @@ site_event_patterns = [
 # GROUP-SCOPED EVENT ENDPOINTS
 # =============================================================================
 
-group_event_patterns = [
+group_almanac_patterns = [
 
     # Event CRUD - group-specific
     path('', views.GroupEventListCreateView.as_view(), name='group-event-list-create'),
-    path('/<uuid:event_id>', views.GroupEventDetailView.as_view(), name='group-event-detail'),
-    path('/<uuid:event_id>/publish', views.GroupEventPublishView.as_view(), name='group-event-publish'),
-    path('/<uuid:event_id>/unpublish', views.GroupEventUnpublishView.as_view(), name='group-event-unpublish'),
 
-    # Group-scoped Calendar Occurrences
+    # Group-scoped Calendar Occurrences (MUST come before <slug:event_slug>)
     path('calendar', views.GroupCalendarOccurrencesView.as_view(), name='group-calendar-occurrences'),
 
-    # Event Actions
-    path('/<uuid:event_id>/rsvp', views.GroupEventRSVPView.as_view(), name='group-event-rsvp'),
-    path('/<uuid:event_id>/follow', views.GroupEventFollowView.as_view(), name='group-event-follow'),
-    path('/<uuid:event_id>/attendees', views.GroupEventAttendeesView.as_view(), name='group-event-attendees'),
-    path('/<uuid:event_id>/rsvp-breakdown', views.GroupEventRSVPBreakdownView.as_view(), name='group-event-rsvp-breakdown'),  # ← ADD THIS
-
-    # Management
-    path('/<uuid:event_id>/sync-rsvps', views.GroupEventSyncRsvpsView.as_view(), name='group-event-sync-rsvps'),
-    path('/<uuid:event_id>/analytics', views.GroupEventAnalyticsView.as_view(), name='group-event-analytics'),
+    # Event detail and actions (dynamic slug patterns come after specific paths)
+    path('<slug:event_slug>', views.GroupEventDetailView.as_view(), name='group-event-detail'),
+    path('<slug:event_slug>/publish', views.GroupEventPublishView.as_view(), name='group-event-publish'),
+    path('<slug:event_slug>/unpublish', views.GroupEventUnpublishView.as_view(), name='group-event-unpublish'),
+    path('<slug:event_slug>/rsvp', views.GroupEventRSVPView.as_view(), name='group-event-rsvp'),
+    path('<slug:event_slug>/follow', views.GroupEventFollowView.as_view(), name='group-event-follow'),
+    path('<slug:event_slug>/attendees', views.GroupEventAttendeesView.as_view(), name='group-event-attendees'),
+    path('<slug:event_slug>/rsvp-breakdown', views.GroupEventRSVPBreakdownView.as_view(), name='group-event-rsvp-breakdown'),
+    path('<slug:event_slug>/sync-rsvps', views.GroupEventSyncRsvpsView.as_view(), name='group-event-sync-rsvps'),
+    path('<slug:event_slug>/analytics', views.GroupEventAnalyticsView.as_view(), name='group-event-analytics'),
 ]
 
 
@@ -82,7 +80,7 @@ occurrence_patterns = [
 
 urlpatterns = [
     # Site-wide events
-    path('events/', include(site_event_patterns)),
+    path('events/', include(site_almanac_patterns)),
 
     # Occurrences
     path('occurrences/', include(occurrence_patterns)),

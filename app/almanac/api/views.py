@@ -259,7 +259,7 @@ class EventPublishView(generics.CreateAPIView):
     serializer_class = EventDetailSerializer
 
     def create(self, request, *args, **kwargs):
-        event = get_object_or_404(Event, id=kwargs['event_id'])
+        event = get_object_or_404(Event, slug=kwargs['event_slug'])
 
         # Check permissions
         if event.author != request.user and not event.followers.filter(
@@ -286,7 +286,7 @@ class EventUnpublishView(generics.CreateAPIView):
     serializer_class = EventDetailSerializer
 
     def create(self, request, *args, **kwargs):
-        event = get_object_or_404(Event, id=kwargs['event_id'])
+        event = get_object_or_404(Event, slug=kwargs['event_slug'])
 
         if event.author != request.user and not event.followers.filter(
             user=request.user, follow_type='organizer'
@@ -305,7 +305,7 @@ class EventRSVPView(generics.CreateAPIView):
     serializer_class = EventRSVPSerializer
 
     def create(self, request, *args, **kwargs):
-        event = get_object_or_404(Event, id=kwargs['event_id'])
+        event = get_object_or_404(Event, slug=kwargs['event_slug'])
         serializer = self.get_serializer(
             data=request.data,
             context={'event': event, 'user': request.user}
@@ -320,7 +320,7 @@ class EventFollowView(generics.CreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
-        event = get_object_or_404(Event, id=kwargs['event_id'])
+        event = get_object_or_404(Event, slug=kwargs['event_slug'])
 
         follower, created = EventFollower.objects.get_or_create(
             event=event,
@@ -337,7 +337,7 @@ class EventFollowView(generics.CreateAPIView):
         return Response(serializer.data, status=response_status)
 
     def delete(self, request, *args, **kwargs):
-        event = get_object_or_404(Event, id=kwargs['event_id'])
+        event = get_object_or_404(Event, slug=kwargs['event_slug'])
 
         try:
             follower = EventFollower.objects.get(event=event, user=request.user)
@@ -356,7 +356,7 @@ class EventAttendeesView(generics.ListAPIView):
     serializer_class = OccurrenceAttendeeSerializer
 
     def get_queryset(self):
-        event = get_object_or_404(Event, id=self.kwargs['event_id'])
+        event = get_object_or_404(Event, slug=self.kwargs['event_slug'])
         return OccurrenceAttendee.objects.filter(
             occurrence__series=event.series,
             status__in=['going', 'maybe', 'attended']
@@ -368,7 +368,7 @@ class EventSyncRsvpsView(generics.CreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
-        event = get_object_or_404(Event, id=kwargs['event_id'])
+        event = get_object_or_404(Event, slug=kwargs['event_slug'])
 
         # Check permissions
         if event.author != request.user and not event.followers.filter(
@@ -391,7 +391,7 @@ class EventAnalyticsView(generics.RetrieveAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def retrieve(self, request, *args, **kwargs):
-        event = get_object_or_404(Event, id=kwargs['event_id'])
+        event = get_object_or_404(Event, slug=kwargs['event_slug'])
 
         # Check permissions
         if event.author != request.user and not event.followers.filter(
@@ -498,14 +498,14 @@ class GroupEventListCreateView(EventListCreateMixin, generics.ListCreateAPIView)
 class GroupEventDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     Get, update, or delete a group event.
-    GET    /api/groups/:slug/events/{id}
-    PUT    /api/groups/:slug/events/{id}
-    DELETE /api/groups/:slug/events/{id}
+    GET    /api/groups/:slug/almanac/{slug}
+    PUT    /api/groups/:slug/almanac/{slug}
+    DELETE /api/groups/:slug/almanac/{slug}
     """
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = EventDetailSerializer
-    lookup_url_kwarg = 'event_id'
-    lookup_field = 'id'
+    lookup_url_kwarg = 'event_slug'
+    lookup_field = 'slug'
 
     def get_queryset(self):
         group = get_object_or_404(Group, slug=self.kwargs['slug'])
@@ -525,7 +525,7 @@ class GroupEventPublishView(generics.CreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
-        event = get_object_or_404(Event, id=kwargs['event_id'])
+        event = get_object_or_404(Event, slug=kwargs['event_slug'])
 
         if event.author != request.user and not event.followers.filter(
             user=request.user, follow_type='organizer'
@@ -550,7 +550,7 @@ class GroupEventUnpublishView(generics.CreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
-        event = get_object_or_404(Event, id=kwargs['event_id'])
+        event = get_object_or_404(Event, slug=kwargs['event_slug'])
 
         if event.author != request.user and not event.followers.filter(
             user=request.user, follow_type='organizer'
@@ -569,7 +569,7 @@ class GroupEventRSVPView(generics.CreateAPIView):
     serializer_class = EventRSVPSerializer
 
     def create(self, request, *args, **kwargs):
-        event = get_object_or_404(Event, id=kwargs['event_id'])
+        event = get_object_or_404(Event, slug=kwargs['event_slug'])
         serializer = self.get_serializer(
             data=request.data,
             context={'event': event, 'user': request.user}
@@ -584,7 +584,7 @@ class GroupEventFollowView(generics.CreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
-        event = get_object_or_404(Event, id=kwargs['event_id'])
+        event = get_object_or_404(Event, slug=kwargs['event_slug'])
 
         follower, created = EventFollower.objects.get_or_create(
             event=event,
@@ -601,7 +601,7 @@ class GroupEventFollowView(generics.CreateAPIView):
         return Response(serializer.data, status=response_status)
 
     def delete(self, request, *args, **kwargs):
-        event = get_object_or_404(Event, id=kwargs['event_id'])
+        event = get_object_or_404(Event, slug=kwargs['event_slug'])
 
         try:
             follower = EventFollower.objects.get(event=event, user=request.user)
@@ -620,7 +620,7 @@ class GroupEventAttendeesView(generics.ListAPIView):
     serializer_class = OccurrenceAttendeeSerializer
 
     def get_queryset(self):
-        event = get_object_or_404(Event, id=self.kwargs['event_id'])
+        event = get_object_or_404(Event, slug=self.kwargs['event_slug'])
         return OccurrenceAttendee.objects.filter(
             occurrence__series=event.series,
             status__in=['going', 'maybe', 'attended']
@@ -632,7 +632,7 @@ class GroupEventSyncRsvpsView(generics.CreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
-        event = get_object_or_404(Event, id=kwargs['event_id'])
+        event = get_object_or_404(Event, slug=kwargs['event_slug'])
 
         if event.author != request.user and not event.followers.filter(
             user=request.user, follow_type='organizer'
@@ -654,7 +654,7 @@ class GroupEventAnalyticsView(generics.RetrieveAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def retrieve(self, request, *args, **kwargs):
-        event = get_object_or_404(Event, id=kwargs['event_id'])
+        event = get_object_or_404(Event, slug=kwargs['event_slug'])
 
         if event.author != request.user and not event.followers.filter(
             user=request.user, follow_type='organizer'
@@ -928,11 +928,11 @@ class GroupEventAttendeesView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        event_id = self.kwargs.get('event_id')
+        event_slug = self.kwargs.get('event_slug')
         group_slug = self.kwargs.get('slug')
 
         # Get the event
-        event = get_object_or_404(Event, id=event_id)
+        event = get_object_or_404(Event, slug=event_slug)
 
         # Verify the sponsor (Group) matches the requested slug
         if not event.sponsor or event.sponsor.slug != group_slug:
@@ -959,11 +959,11 @@ class GroupEventRSVPBreakdownView(generics.GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        event_id = self.kwargs.get('event_id')
+        event_slug = self.kwargs.get('event_slug')
         group_slug = self.kwargs.get('slug')
 
         # Get the event
-        event = get_object_or_404(Event, id=event_id)
+        event = get_object_or_404(Event, slug=event_slug)
 
         # Verify the sponsor (Group) matches the requested slug
         if not event.sponsor or event.sponsor.slug != group_slug:

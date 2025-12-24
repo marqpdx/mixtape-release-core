@@ -9,6 +9,7 @@ from django.contrib.auth import get_user_model
 
 from fundamentals.bases import BaseModel
 from fundamentals.models import BaseContent
+from publishing.models import BaseVersion
 
 User = get_user_model()
 
@@ -173,6 +174,27 @@ class DispatchContent(BaseModel):
         """
         return not self.has_collaborative_edits()
 
+    # === Artifact Resolution (for Publishing) ===
+
+    def get_current_artifact(self):
+        """
+        Get the latest release snapshot.
+        Used by ContentPlacement to resolve follow_updates=True.
+        """
+        return self.snapshots.filter(kind='release').order_by('-created_at').first()
+
+    def get_artifact(self, ref):
+        """
+        Get specific snapshot by ID.
+
+        Args:
+            ref: UUID (snapshot id)
+
+        Returns:
+            DispatchSnapshot instance or None
+        """
+        return self.snapshots.get(id=ref)
+
 
 class DispatchCollaborator(BaseModel):
     """
@@ -244,4 +266,38 @@ class DispatchEditSession(BaseModel):
 
     def __str__(self):
         return f"{self.user} editing {self.content}"
+
+
+class DispatchSnapshot(BaseVersion):
+    """
+    Immutable snapshot of collaborative DispatchContent.
+    Inherits from BaseVersion for universal publishing architecture.
+
+    BaseVersion provides: id, created_at, created_by, kind, label, note, content_hash
+
+    Stores both yjs_state (for exact restoration) and body_json (for rendering/search).
+    """
+    dispatch_content = models.ForeignKey(
+        DispatchContent,
+        related_name='snapshots',
+        on_delete=models.CASCADE
+    )
+
+    # Dual storage for durability and accessibility
+    yjs_state = models.BinaryField(
+        help_text="Exact collaborative CRDT state for restoration"
+    )
+    body_json = models.JSONField(
+        help_text="Publishable representation (TipTap/ProseMirror JSON)"
+    )
+
+    class Meta(BaseVersion.Meta):
+        ordering = ['-created_at']
+        verbose_name = "Dispatch Snapshot"
+        verbose_name_plural = "Dispatch Snapshots"
+
+    def __str__(self):
+        doc_str = str(self.dispatch_content) if self.dispatch_content else f"Content #{self.dispatch_content_id}"
+        kind_label = self.label or self.kind
+        return f"Snapshot ({kind_label}): {doc_str}"
 

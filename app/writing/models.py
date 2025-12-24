@@ -16,6 +16,7 @@ from fundamentals.models import BaseContent
 from mixtape.constants import PROVISIONAL_SLUG_PREFIX
 from utils.writing.writing_utils import count_words_in_prosemirror
 from writing.choices import ContentStatus
+from publishing.models import BaseVersion
 
 
 User = get_user_model()
@@ -155,6 +156,29 @@ class WritingPiece(BaseContent, PublishableContentMixin):
             return self.sponsor_object
         return None
 
+    # -------- Artifact Resolution (for Publishing) --------
+
+    def get_current_artifact(self):
+        """
+        Get the latest published version (artifact).
+        Used by ContentPlacement to resolve follow_updates=True.
+        """
+        return self.versions.filter(kind='release').order_by('-version_number').first()
+
+    def get_artifact(self, ref):
+        """
+        Get specific artifact by version number or ID.
+
+        Args:
+            ref: int (version_number) or UUID (artifact id)
+
+        Returns:
+            WritingVersion instance or None
+        """
+        if isinstance(ref, int):
+            return self.versions.get(version_number=ref)
+        return self.versions.get(id=ref)
+
     # -------- Lifecycle --------
 
     def publish(self, scheduled_for=None):
@@ -211,11 +235,13 @@ class WritingPiece(BaseContent, PublishableContentMixin):
                 self.current_version_no += 1
                 self.save(update_fields=["current_version_no", "updated_at"])
             return WritingVersion.objects.create(
-                piece=self,
-                version_no=self.current_version_no,
+                writing_piece=self,
+                version_number=self.current_version_no,
                 body_json=self.body_json,
                 title=self.title,
                 excerpt=self.excerpt,
+                kind='release',
+                created_by=self.author,
             )
 
     def increment_view_count(self):
@@ -398,183 +424,44 @@ class WorkingDocument(BaseModel):
         return False
 
 
-class WritingVersion(BaseModel):
+class WritingVersion(BaseVersion):
     """
-    Immutable snapshots of WritingPiece content.
-    Created on publish + explicit versioning.
+    Immutable snapshot of a WritingPiece at publication time.
+    Inherits from BaseVersion for universal publishing architecture.
+
+    BaseVersion provides: id, created_at, created_by, kind, label, note, content_hash
     """
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
-    piece = models.ForeignKey(
+    writing_piece = models.ForeignKey(
         WritingPiece,
         on_delete=models.CASCADE,
         related_name="versions"
     )
 
-    version_no = models.PositiveIntegerField()
+    version_number = models.PositiveIntegerField(default=1)
 
-    # Snapshot of content at this version
-    body_json = models.JSONField()
+    # Canonical published content
+    body_json = models.JSONField(help_text="Immutable snapshot of published content")
     title = models.CharField(max_length=255)
     excerpt = models.TextField(blank=True)
 
-    # Optional: changelog/notes
+    # Optional: changelog/notes (in addition to BaseVersion.note)
     changelog = models.TextField(blank=True)
 
-    class Meta:
-        ordering = ["-version_no"]
-        unique_together = ["piece", "version_no"]
+    class Meta(BaseVersion.Meta):
+        unique_together = ["writing_piece", "version_number"]
+        ordering = ["-version_number"]
         indexes = [
-            models.Index(fields=["piece", "version_no"]),
+            models.Index(fields=["writing_piece", "version_number"]),
         ]
+        verbose_name = "Writing Version"
+        verbose_name_plural = "Writing Versions"
 
     def __str__(self):
-        return f"{self.piece.title} v{self.version_no}"
+        return f"{self.writing_piece.title} v{self.version_number}"
 
 
-class WritingPlacement(BaseModel):
-    """
-    Distribution routing - where a piece gets published.
-    Links WritingPiece to destination with behavior settings.
-    """
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
-    piece = models.ForeignKey(
-        WritingPiece,
-        on_delete=models.CASCADE,
-        related_name="placements"
-    )
-
-    # Polymorphic destination (User, Group, LanternList, ForumThread, etc.)
-    target_content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
-    target_object_id = models.UUIDField()
-    target = GenericForeignKey("target_content_type", "target_object_id")
-
-    # Channel context
-    channel = models.CharField(
-        max_length=20,
-        choices=[
-            ("feed", "Feed"),
-            ("lantern", "Newsletter"),
-            ("forum", "Forum"),
-            ("dispatch", "Dispatch"),
-            ("almanac", "Almanac"),
-            ("page", "Page"),
-        ]
-    )
-
-    # Version behavior
-    follow_updates = models.BooleanField(
-        default=True,
-        help_text="If True, shows current version. If False, locked to specific version."
-    )
-    locked_version_no = models.PositiveIntegerField(
-        null=True, blank=True,
-        help_text="Version to display when follow_updates=False"
-    )
-
-    # Presentation options
-    visibility = models.CharField(
-        max_length=20,
-        choices=[
-            ("public", "Public"),
-            ("members", "Members Only"),
-            ("private", "Private"),
-            ("scheduled", "Scheduled"),
-        ],
-        default="public"
-    )
-
-    is_excerpt = models.BooleanField(
-        default=False,
-        help_text="Show excerpt vs full content"
-    )
-
-    # Advanced: partial publishing (future) - document expected schema
-    fragment_selector = models.JSONField(
-        null=True, blank=True,
-        help_text="""JSON selector for partial content. Expected schemas:
-        - {type: "blocks", ids: ["block-uuid-1", "block-uuid-2"]}
-        - {type: "headingRange", from: {level: 2, text: "Introduction"}, to: {level: 2, text: "Conclusion"}}
-        """
-    )
-
-    # Per-placement overrides - document expected keys
-    overrides = models.JSONField(
-        null=True, blank=True,
-        help_text="""JSON overrides for this placement. Expected keys:
-        - title_override: custom title
-        - excerpt_override: custom excerpt
-        - cover_override: custom cover image URL
-        - lantern_subject: newsletter subject line override
-        """
-    )
-
-    # Placement metadata
-    placed_at = models.DateTimeField(auto_now_add=True)
-    order = models.PositiveIntegerField(default=0)
-    is_pinned = models.BooleanField(default=False)
-
-    @property
-    def effective_version_no(self):
-        """Returns version number to display for this placement"""
-        if self.follow_updates:
-            return self.piece.current_version_no
-        return self.locked_version_no or 1
-
-    def get_content_for_display(self):
-        """Returns content to display for this placement"""
-        if self.follow_updates:
-            content = self.piece.body_json
-            title = self.piece.title
-            excerpt = self.piece.excerpt
-        else:
-            version = self.piece.versions.get(version_no=self.locked_version_no)
-            content = version.body_json
-            title = version.title
-            excerpt = version.excerpt
-
-        # Apply per-placement overrides
-        if self.overrides:
-            title = self.overrides.get("title_override", title)
-            excerpt = self.overrides.get("excerpt_override", excerpt)
-
-        return {
-            "title": title,
-            "excerpt": excerpt,
-            "body_json": content,
-            "is_excerpt": self.is_excerpt,
-        }
-
-    def clean(self):
-        """Model validation to catch errors early"""
-        from django.core.exceptions import ValidationError
-
-        # Ensure locked_version_no is present when follow_updates=False
-        if not self.follow_updates and not self.locked_version_no:
-            raise ValidationError("locked_version_no is required when follow_updates is False.")
-
-        # Ensure version exists when locking
-        if self.locked_version_no and hasattr(self, "piece") and self.piece:
-            if not self.piece.versions.filter(version_no=self.locked_version_no).exists():
-                raise ValidationError(f"Version {self.locked_version_no} does not exist for this piece.")
-
-    class Meta:
-        ordering = ["-placed_at"]
-        # Prevent duplicate placements to same target
-        unique_together = ["piece", "target_content_type", "target_object_id", "channel"]
-        indexes = [
-            models.Index(fields=["channel"]),
-            models.Index(fields=["target_content_type", "target_object_id"]),
-            models.Index(fields=["piece"]),
-        ]
-        constraints = [
-            models.CheckConstraint(
-                check=models.Q(follow_updates=True) | models.Q(locked_version_no__isnull=False),
-                name="placement_locked_when_not_following"
-            )
-        ]
-
-    def __str__(self):
-        return f"{self.piece.title} → {self.target} ({self.channel})"
+# WritingPlacement has been replaced by universal ContentPlacement
+# See app.publishing.models.ContentPlacement
 
 
 class WritingComment(BaseModel):

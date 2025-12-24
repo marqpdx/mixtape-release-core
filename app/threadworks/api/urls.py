@@ -56,7 +56,7 @@ site_urlpatterns = [
 # Group-scoped threadworks endpoints
 # These are included in groups/api/urls.py as:
 # path('<slug:slug>/threadworks', include('threadworks.api.urls', namespace='group-threadworks'), {'is_group': True})
-group_urlpatterns = [
+group_threadworks_patterns = [
     # Forums (group-scoped)
     path('', views.GroupForumListCreateView.as_view(), name='group-forum-list-create'),
     path('<slug:forum_slug>', views.GroupForumDetailView.as_view(), name='group-forum-detail'),

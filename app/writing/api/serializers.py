@@ -10,7 +10,7 @@ from ..models import (
     Seed,
     WritingComment,
     WritingPiece,
-    WritingPlacement,
+    # WritingPlacement,  # Replaced by ContentPlacement in app.publishing
     WritingVersion,
     WritingWorkingCopy,
 )
@@ -159,50 +159,12 @@ class WritingVersionSerializer(serializers.ModelSerializer):
 
 # apps/content/serializers.py
 
-class WritingPlacementSerializer(serializers.ModelSerializer):
-    # Flatten piece data into placement
-    piece_id = serializers.CharField(source="piece.id", read_only=True)
-    piece_slug = serializers.CharField(source="piece.slug", read_only=True)
-    piece_title = serializers.CharField(source="piece.title", read_only=True)
-    piece_body_json = serializers.JSONField(source="piece.body_json", read_only=True)
-    piece_status = serializers.CharField(source="piece.status", read_only=True)
-    published_at = serializers.DateTimeField(source="piece.published_at", read_only=True)
-    pinned_at = serializers.DateTimeField(source="piece.pinned_at", read_only=True)
-    author_name = serializers.CharField(source="piece.author_name", read_only=True)
-    is_announcement = serializers.SerializerMethodField()
-    display = serializers.SerializerMethodField()
-
-    class Meta:
-        model = WritingPlacement
-        fields = [
-            "id",
-            "piece_id",
-            "piece_slug",
-            "piece_title",
-            "piece_body_json",
-            "piece_status",
-            "published_at",
-            "visibility",
-            "is_pinned",
-            "pinned_at",
-            "order",
-            "created_at",
-            "is_announcement",
-            "author_name",
-            "display",
-        ]
-
-    def get_is_announcement(self, obj):
-        return obj.piece.writing_kind == "announcement"
-
-    def get_display(self, obj):  # ← ADD THIS METHOD
-        d = obj.get_content_for_display()
-        return {
-            "title": d.get("title"),
-            "excerpt": d.get("excerpt", ""),
-            "is_excerpt": d.get("is_excerpt", False),
-            "body_json": d.get("body_json"),
-        }
+# WritingPlacementSerializer - DEPRECATED
+# Replaced by ContentPlacement in app.publishing
+# Will be reimplemented in Phase 5 using the universal publishing system
+#
+# class WritingPlacementSerializer(serializers.ModelSerializer):
+#     ...
 
 class WritingPieceListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for listing writing pieces"""

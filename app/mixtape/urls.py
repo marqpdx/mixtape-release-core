@@ -49,12 +49,12 @@ urlpatterns = [
 
     # Groups
     path("api/groups/", include("groups.api.urls")),
-    # Endpoints: /api/groups/, /api/groups/<slug>/, /api/groups/<slug>/members, etc.
 
-    # === END PHASE 2 ENDPOINTS ===
+    path("api/almanac/", include("almanac.api.urls")),
     path("api/assets/", include("assets.api.urls")),
     path("api/chat/", include("chat.api.urls")),
     path("api/dispatch/", include("dispatch.api.urls")),
+    path('api/gristmill/', include('gristmill.api.urls')),
     path("api/inkwell/", include("inkwell.api.urls")),
     path("api/livewire/", include("livewire.api.urls")),
     path('api/threadworks/', include('threadworks.api.urls')),
