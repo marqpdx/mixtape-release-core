@@ -5,7 +5,7 @@ from django.urls import path
 
 from .sponsor_views import (
     SponsorDraftsListView,
-    SponsorPlacementsListView,
+    # SponsorPlacementsListView,  # Deprecated - will use ContentPlacement
 )
 from .views import (
     SeedDetailView,
@@ -39,7 +39,7 @@ app_name = "writing"
 urlpatterns = [
 
     # Sponsor-based queries (generic for groups and members)
-    path("placements", SponsorPlacementsListView.as_view(), name="sponsor-placements-list"),
+    # path("placements", SponsorPlacementsListView.as_view(), name="sponsor-placements-list"),  # Deprecated
     path("drafts", SponsorDraftsListView.as_view(), name="sponsor-drafts-list"),
 
     # Pieces

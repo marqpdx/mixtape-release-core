@@ -1,4 +1,5 @@
 # groups/services/groups.py
+
 """
 Service layer for Group operations.
 Handles all business logic for creating, updating, and managing groups.
@@ -25,7 +26,9 @@ class GroupService:
         profile_image: str = None,
         background_image: str = None,
         profile_code: str = None,
-        decorator_codes: list[str] = None
+        decorator_codes: list[str] = None,
+        sponsor=None,  # ✅ NEW: sponsor can be User or Group (or any sponsorable model)
+        add_creator_membership: bool = True,  # ✅ NEW: let sponsor-scoped flows opt out
     ):
         """
         Create a new group with the creator as admin.
@@ -34,10 +37,7 @@ class GroupService:
             title: Group title
             group_type: Type of group (persona/circle/community/coalition)
             created_by: User creating the group
-            description: Group description
-            visibility: Group visibility setting
-            profile_image: Optional profile image URL
-            background_image: Optional background image URL
+            ...
             profile_code: Optional decorator profile to apply
             decorator_codes: Optional list of decorator codes to apply
 
@@ -55,22 +55,24 @@ class GroupService:
             submitted_by=created_by,
             is_active=True
         )
-        group.set_sponsor(created_by)
+        sponsor_obj = sponsor or created_by
+        group.set_sponsor(sponsor_obj)
         group.save()
 
         # Create type-specific detail record if needed
         GroupService._create_type_detail(group)
 
         # Add creator as admin member with both member and admin roles
-        user_content_type = ContentType.objects.get_for_model(created_by)
-        GroupMembership.objects.create(
-            group=group,
-            member_content_type=user_content_type,
-            member_object_id=created_by.id,
-            roles=["member", "admin"],  # New: ArrayField with both roles
-            is_active=True,
-            is_pending=False
-        )
+        if add_creator_membership:
+            user_content_type = ContentType.objects.get_for_model(created_by)
+            GroupMembership.objects.create(
+                group=group,
+                member_content_type=user_content_type,
+                member_object_id=created_by.id,
+                roles=["member", "admin"],
+                is_active=True,
+                is_pending=False,
+            )
 
         # TODO Phase 3: Apply decorator profile if provided
         # if profile_code:

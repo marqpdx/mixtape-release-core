@@ -76,15 +76,18 @@ INSTALLED_APPS = [
     # Local - MINIMAL for Phase 1
     "accounts",        # Authentication (JWT, login, /auth/me)
     "activity",        # User activity tracking and notifications
+    "almanac",         # Events and calendar system
     "assets",          # Asset management (deferred to Phase 2)
     "chat",            # Chat app, socket.io
     "classifications", # Tags and categories system
     "contexts",        # Context management
     "dispatch",        # Collaborative writing (yjs-based real-time editing)
     "fundamentals",    # BaseModel (timestamps, soft delete)
+    "gristmill",       # Import and Promotion system
     "groups",          # Group model, GroupMembership, Invitations (Phase 2)
     "inkwell",         # AI services, RAG, synopsis generation
     "profiles",        # UserProfile, Member API
+    "publishing",      # Universal publishing system (BaseVersion, ContentPlacement)
     "threadworks",     # Threadworks forums and discussions
     "users",           # CustomUser, Role models
     "utils",           # Utility functions and helpers

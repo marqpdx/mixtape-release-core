@@ -111,13 +111,13 @@ class EventListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Event
         fields = [
-            'id', 'title', 'location', 'sponsor_display', 'author',
+            'id', 'slug', 'title', 'location', 'sponsor_display', 'author',
             'status', 'published_at',
             'event_format', 'max_attendees',
             'next_occurrence', 'is_recurring',
             'decorators', 'created_at'
         ]
-        read_only_fields = ['id', 'created_at', 'author']
+        read_only_fields = ['id', 'slug', 'created_at', 'author']
 
     def get_next_occurrence(self, obj):
         """Get next upcoming occurrence"""
@@ -158,14 +158,14 @@ class EventDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Event
         fields = [
-            'id', 'title', 'description', 'location', 'sponsor_display', 'author',
+            'id', 'slug', 'title', 'description', 'location', 'sponsor_display', 'author',
             'status', 'published_at',
             'event_format', 'max_attendees', 'registration_required', 'registration_deadline_hours',
             'is_recurring', 'registration_deadline', 'total_attendees',
             'series', 'decorators', 'gathering_extension', 'upcoming_occurrences',
             'decorator_assignments_data', 'gathering_data', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'author', 'published_at']
+        read_only_fields = ['id', 'slug', 'created_at', 'updated_at', 'author', 'published_at']
 
     def get_registration_deadline(self, obj):
         """Calculate registration deadline from first occurrence"""

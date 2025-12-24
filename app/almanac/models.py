@@ -1,4 +1,5 @@
 # almanac/models.py
+
 """
 Mixtape Almanac - Refined Event Management
 Event as base unit, normalized decorators, efficient calendar queries
@@ -329,8 +330,17 @@ class Event(PublishableContentMixin, BaseContent):
     @property
     def next_occurrence(self):
         """Get next upcoming occurrence"""
-        if hasattr(self, 'series') and self.series:
-            return self.series.next_occurrence
+        import logging
+        logger = logging.getLogger(__name__)
+
+        has_series = hasattr(self, 'series')
+        series_value = self.series if has_series else None
+        logger.info(f"[Event.next_occurrence] Event {self.id} ({self.title}): has_series={has_series}, series={series_value}")
+
+        if has_series and self.series:
+            next_occ = self.series.next_occurrence
+            logger.info(f"[Event.next_occurrence] Series next_occurrence: {next_occ}")
+            return next_occ
         return None
 
     @property
@@ -471,11 +481,30 @@ class EventSeries(BaseData):
 
     @property
     def next_occurrence(self):
-        """Get next upcoming occurrence"""
-        return self.occurrences.filter(
-            start__gte=timezone.now(),
-            is_cancelled=False
-        ).order_by("start").first()
+        """Get next upcoming occurrence, or first occurrence if none are upcoming"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        now = timezone.now()
+        all_occurrences = self.occurrences.filter(is_cancelled=False).order_by("start")
+        future_occurrences = all_occurrences.filter(start__gte=now)
+
+        logger.info(f"[EventSeries.next_occurrence] Series {self.id}: total_occurrences={all_occurrences.count()}, future_occurrences={future_occurrences.count()}, now={now}")
+
+        # Try to get next future occurrence first
+        result = future_occurrences.first()
+
+        # If no future occurrences, fall back to first occurrence (for drafts/past events)
+        if not result:
+            result = all_occurrences.first()
+            if result:
+                logger.info(f"[EventSeries.next_occurrence] No future occurrences, returning first: {result.id} at {result.start}")
+            else:
+                logger.info(f"[EventSeries.next_occurrence] No occurrences found at all")
+        else:
+            logger.info(f"[EventSeries.next_occurrence] Returning future occurrence: {result.id} at {result.start}")
+
+        return result
 
     @property
     def is_recurring(self):

@@ -8,58 +8,21 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from rest_framework import generics, permissions
 
-from writing.models import WritingPlacement, WritingWorkingCopy
+from writing.models import WritingWorkingCopy
+from .serializers import WritingWorkingCopySerializer
 
-from .serializers import WritingPlacementSerializer, WritingWorkingCopySerializer
 
-
-class SponsorPlacementsListView(generics.ListAPIView):
-    """
-    List all placements for a given sponsor (Group or Member).
-
-    URL pattern: /api/writing/placements?sponsor_type=group&sponsor_slug=my-group
-    Query params:
-      - sponsor_type: 'group' or 'member'
-      - sponsor_slug: slug of the sponsor
-    """
-    serializer_class = WritingPlacementSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        sponsor_type = self.request.query_params.get("sponsor_type")
-        sponsor_slug = self.request.query_params.get("sponsor_slug")
-
-        if not sponsor_type or not sponsor_slug:
-            return WritingPlacement.objects.none()
-
-        # Get the content type for the sponsor model
-        try:
-            if sponsor_type == "group":
-                from groups.models import Group
-                content_type = ContentType.objects.get_for_model(Group)
-                sponsor = Group.objects.get(slug=sponsor_slug)
-            elif sponsor_type == "member":
-                from users.models import User
-                content_type = ContentType.objects.get_for_model(User)
-                sponsor = User.objects.get(username=sponsor_slug)  # or however members are identified
-            else:
-                return WritingPlacement.objects.none()
-        except Exception:
-            return WritingPlacement.objects.none()
-
-        # Filter placements by sponsor
-        qs = WritingPlacement.objects.filter(
-            piece__sponsor_content_type=content_type,
-            piece__sponsor_object_id=sponsor.id
-        ).select_related(
-            "piece",
-            "piece__author",
-            "target_content_type"
-        ).prefetch_related(
-            "piece__versions"
-        ).order_by("-piece__pinned_at", "-piece__published_at", "-updated_at")
-
-        return qs
+# ==============================================================================
+# DEPRECATED: SponsorPlacementsListView
+# ==============================================================================
+# WritingPlacement has been replaced by ContentPlacement in app.publishing
+# This view will be reimplemented in Phase 5 using the universal publishing system
+#
+# Replacement will use:
+# - publishing.models.ContentPlacement
+# - publishing.serializers.ContentPlacementSerializer
+# - content_display service for resolution
+# ==============================================================================
 
 
 class SponsorDraftsListView(generics.ListAPIView):
