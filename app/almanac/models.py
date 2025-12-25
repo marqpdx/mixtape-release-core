@@ -305,6 +305,12 @@ class Event(PublishableContentMixin, BaseContent):
     registration_required = models.BooleanField(default=False)
     registration_deadline_hours = models.PositiveIntegerField(default=24)
 
+    # Circle-specific: make event visible on parent group's calendar
+    visible_to_parent = models.BooleanField(
+        default=False,
+        help_text="Make this event visible on parent group's calendar (circles only)"
+    )
+
     class Meta:
         ordering = ['-created_at']
         verbose_name = "Event"
