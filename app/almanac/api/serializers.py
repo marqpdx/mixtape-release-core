@@ -161,6 +161,7 @@ class EventDetailSerializer(serializers.ModelSerializer):
             'id', 'slug', 'title', 'description', 'location', 'sponsor_display', 'author',
             'status', 'published_at',
             'event_format', 'max_attendees', 'registration_required', 'registration_deadline_hours',
+            'visible_to_parent',
             'is_recurring', 'registration_deadline', 'total_attendees',
             'series', 'decorators', 'gathering_extension', 'upcoming_occurrences',
             'decorator_assignments_data', 'gathering_data', 'created_at', 'updated_at'

@@ -107,6 +107,9 @@ class GroupDetailSerializer(GroupListSerializer):
     profile_image_url = serializers.ReadOnlyField()
     background_image_url = serializers.ReadOnlyField()
 
+    # Parent group info for circles
+    sponsor_group = serializers.SerializerMethodField()
+
     # write-only inputs for updates
     # emblem_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
     # emblem_avatar_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
@@ -114,6 +117,29 @@ class GroupDetailSerializer(GroupListSerializer):
     # submitted_by_username = serializers.CharField(
     #     source="submitted_by.username", read_only=True
     # )
+
+    def get_sponsor_group(self, obj):
+        """Return parent group info for circles"""
+        from django.contrib.contenttypes.models import ContentType
+
+        # Only circles have parent groups
+        if obj.group_type != 'circle':
+            return None
+
+        # Check if sponsor is a Group
+        group_ct = ContentType.objects.get_for_model(Group)
+        if obj.sponsor_content_type == group_ct:
+            try:
+                parent = Group.objects.get(id=obj.sponsor_object_id)
+                return {
+                    'slug': parent.slug,
+                    'title': parent.title,
+                    'id': str(parent.id)
+                }
+            except Group.DoesNotExist:
+                return None
+
+        return None
 
     class Meta(GroupListSerializer.Meta):
         fields = (
@@ -132,6 +158,8 @@ class GroupDetailSerializer(GroupListSerializer):
                 "summary",
                 "body",
                 "author_name",
+                # Circle parent info
+                "sponsor_group",
                 # "status",
                 # "display_layout",
                 # write-only inputs (included so DRF accepts them on PATCH)
