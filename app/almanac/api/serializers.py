@@ -98,6 +98,92 @@ class EventOccurrenceSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
 
+class CalendarOccurrenceSerializer(serializers.ModelSerializer):
+    """
+    Serializer for calendar view occurrences.
+    Includes event metadata needed for calendar display.
+    """
+    # IDs for navigation
+    series_id = serializers.CharField(source='series.id', read_only=True)
+    event_id = serializers.CharField(source='series.event.id', read_only=True)
+    event_slug = serializers.CharField(source='series.event.slug', read_only=True)
+
+    # Display fields
+    title = serializers.CharField(source='effective_title', read_only=True)
+    location = serializers.CharField(source='effective_location', read_only=True)
+
+    # Event metadata
+    kind = serializers.SerializerMethodField()
+    event_format = serializers.CharField(source='series.event.event_format', read_only=True)
+    event_status = serializers.CharField(source='series.event.status', read_only=True)
+    sponsor_display = serializers.CharField(source='series.event.sponsor_display', read_only=True)
+
+    # Capacity info
+    capacity = serializers.IntegerField(source='series.event.max_attendees', read_only=True)
+    attendee_count = serializers.ReadOnlyField(source='get_attendee_count')
+    is_full = serializers.ReadOnlyField()
+
+    # Decorators
+    decorators = serializers.SerializerMethodField()
+
+    # Gathering info
+    accommodation_available = serializers.SerializerMethodField()
+    meals_included = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EventOccurrence
+        fields = [
+            'id', 'series_id', 'event_id', 'event_slug',
+            'title', 'kind', 'start', 'end', 'location',
+            'decorators', 'event_format', 'event_status',
+            'capacity', 'attendee_count', 'is_full',
+            'sponsor_display', 'accommodation_available', 'meals_included',
+            'is_cancelled'
+        ]
+        read_only_fields = ['id']
+
+    def get_kind(self, obj):
+        """Determine if this is an event or gathering"""
+        try:
+            has_gathering = hasattr(obj.series.event, 'gathering_extension') and obj.series.event.gathering_extension is not None
+            return 'gathering' if has_gathering else 'event'
+        except:
+            return 'event'
+
+    def get_decorators(self, obj):
+        """Get decorator info for the event"""
+        try:
+            return [
+                {
+                    'slug': da.decorator.slug,
+                    'icon': da.decorator.icon,
+                    'name': da.decorator.name,
+                    'context_data': da.context_data or {}
+                }
+                for da in obj.series.event.decorator_assignments.filter(decorator__is_active=True)
+            ]
+        except:
+            return []
+
+    def get_accommodation_available(self, obj):
+        """Check if accommodation is available"""
+        try:
+            if hasattr(obj.series.event, 'gathering_extension') and obj.series.event.gathering_extension:
+                return obj.series.event.gathering_extension.accommodation_available
+        except:
+            pass
+        return False
+
+    def get_meals_included(self, obj):
+        """Check if meals are included"""
+        try:
+            if hasattr(obj.series.event, 'gathering_extension') and obj.series.event.gathering_extension:
+                return obj.series.event.gathering_extension.meals_included
+        except:
+            pass
+        return False
+
+
 class EventListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for event lists"""
 
@@ -214,6 +300,7 @@ class EventCreateSerializer(serializers.Serializer):
         ('single', 'Single Event'),
         ('adhoc_series', 'Custom Date Series'),
         ('gathering', 'Gathering/Retreat'),
+        ('recurring', 'Recurring Event'),
     ]
     event_type = serializers.ChoiceField(choices=EVENT_TYPES, write_only=True)
 
@@ -228,6 +315,11 @@ class EventCreateSerializer(serializers.Serializer):
         write_only=True,
         help_text="List of time slots: [{'start': '2024-10-18T14:00:00Z', 'end': '2024-10-18T17:00:00Z'}]"
     )
+
+    # Recurring event fields (WRITE ONLY)
+    rrule = serializers.CharField(required=False, write_only=True, help_text="iCalendar RRULE string")
+    timezone = serializers.CharField(required=False, write_only=True, default='UTC')
+    default_duration_minutes = serializers.IntegerField(required=False, write_only=True, min_value=1)
 
     # Decorators (WRITE ONLY)
     decorators = serializers.ListField(
@@ -259,6 +351,16 @@ class EventCreateSerializer(serializers.Serializer):
         elif event_type == 'gathering':
             if not data.get('start_time') or not data.get('end_time'):
                 raise serializers.ValidationError("Gatherings require start_time and end_time")
+
+        elif event_type == 'recurring':
+            if not data.get('rrule'):
+                raise serializers.ValidationError("Recurring events require rrule")
+            if not data.get('start_time') or not data.get('end_time'):
+                raise serializers.ValidationError("Recurring events require start_time and end_time for first occurrence")
+            if data.get('start_time') >= data.get('end_time'):
+                raise serializers.ValidationError("End time must be after start time")
+            if not data.get('default_duration_minutes'):
+                raise serializers.ValidationError("Recurring events require default_duration_minutes")
 
         return data
 
