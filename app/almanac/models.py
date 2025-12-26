@@ -11,6 +11,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.auth import get_user_model
 from django.utils import timezone
+from datetime import datetime
 import uuid
 
 from fundamentals.bases import BaseModel
@@ -151,9 +152,17 @@ class EventManager(models.Manager):
         Returns:
             Event instance
         """
+        # Helper to parse datetime strings or pass through datetime objects
+        def parse_datetime(value):
+            if isinstance(value, str):
+                return datetime.fromisoformat(value.replace('Z', '+00:00'))
+            return value
+
         # Calculate duration from first slot
         first_slot = adhoc_slots[0]
-        duration_minutes = int((first_slot['end'] - first_slot['start']).total_seconds() / 60)
+        start = parse_datetime(first_slot['start'])
+        end = parse_datetime(first_slot['end'])
+        duration_minutes = int((end - start).total_seconds() / 60)
 
         # Create Event with sponsor
         event = self.create(
@@ -177,11 +186,13 @@ class EventManager(models.Manager):
 
         # Create EventOccurrences from ad-hoc slots
         for slot in adhoc_slots:
+            start = parse_datetime(slot['start'])
+            end = parse_datetime(slot['end'])
             EventOccurrence.objects.create(
                 series=series,
-                recurrence_id=slot['start'],
-                start=slot['start'],
-                end=slot['end'],
+                recurrence_id=start,
+                start=start,
+                end=end,
                 title_override=slot.get('title_override', ''),
                 location_override=slot.get('location_override', ''),
             )
@@ -259,6 +270,74 @@ class EventManager(models.Manager):
 
         return event
 
+    def create_recurring_event(self, title, rrule, start_time, end_time, sponsor, author,
+                              timezone='UTC', default_duration_minutes=None,
+                              location='', description='', event_format='workshop',
+                              max_attendees=None, registration_required=False,
+                              decorators=None, **kwargs):
+        """
+        Create a recurring event with an rrule pattern.
+
+        Args:
+            title: Event title
+            rrule: iCalendar RRULE string (e.g., "FREQ=WEEKLY;BYDAY=MO,WE")
+            start_time: DateTime for first occurrence
+            end_time: DateTime for first occurrence
+            sponsor: Group/User object
+            author: User who created it
+            timezone: Timezone string (e.g., "America/New_York")
+            default_duration_minutes: Duration for each occurrence
+            location: Event location
+            description: Event description
+            event_format: Type of event
+            max_attendees: Capacity
+            registration_required: RSVP required?
+            decorators: List of {slug, context_data}
+            **kwargs: Additional Event fields
+
+        Returns:
+            Event instance
+        """
+        # Calculate duration if not provided
+        if default_duration_minutes is None:
+            default_duration_minutes = int((end_time - start_time).total_seconds() / 60)
+
+        # Create Event with sponsor
+        event = self.create(
+            title=title,
+            location=location,
+            description=description,
+            event_format=event_format,
+            max_attendees=max_attendees,
+            registration_required=registration_required,
+            author=author,
+            **self._get_sponsor_fields(sponsor),
+            **kwargs
+        )
+
+        # Create EventSeries with rrule
+        series = EventSeries.objects.create(
+            event=event,
+            title=title,
+            rrule=rrule,
+            timezone=timezone,
+            default_duration_minutes=default_duration_minutes,
+        )
+
+        # Create first occurrence
+        EventOccurrence.objects.create(
+            series=series,
+            recurrence_id=start_time,
+            start=start_time,
+            end=end_time
+        )
+
+        # Add decorators
+        if decorators:
+            event.add_decorators(decorators)
+
+        return event
+
 
 class Event(PublishableContentMixin, BaseContent):
     """
@@ -281,8 +360,8 @@ class Event(PublishableContentMixin, BaseContent):
     objects = EventManager()
 
     # Event-specific data
-    location = models.CharField(max_length=300, blank=True, default='')
-    description = models.TextField(blank=True, default='')
+    location = models.CharField(max_length=300, blank=True, null=True, default=None)
+    description = models.TextField(blank=True, null=True, default=None)
     max_attendees = models.PositiveIntegerField(null=True, blank=True)
 
     # Event type
@@ -585,11 +664,11 @@ class EventOccurrence(BaseModel):
 
     # Occurrence state
     is_cancelled = models.BooleanField(default=False, db_index=True)
-    cancellation_reason = models.TextField(blank=True)
+    cancellation_reason = models.TextField(blank=True, null=True, default=None)
 
     # Per-occurrence overrides
-    title_override = models.CharField(max_length=200, blank=True)
-    location_override = models.CharField(max_length=300, blank=True)
+    title_override = models.CharField(max_length=200, blank=True, null=True, default=None)
+    location_override = models.CharField(max_length=300, blank=True, null=True, default=None)
 
     # Post-event tracking
     notes = models.TextField(blank=True)

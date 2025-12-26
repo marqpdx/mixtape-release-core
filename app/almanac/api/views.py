@@ -25,7 +25,8 @@ from ..models import (
 )
 from .serializers import (
     EventListSerializer, EventDetailSerializer, EventCreateSerializer,
-    EventOccurrenceSerializer, OccurrenceAttendeeSerializer,
+    EventOccurrenceSerializer, CalendarOccurrenceSerializer,
+    OccurrenceAttendeeSerializer,
     EventRSVPSerializer, EventFollowerSerializer, DecoratorSerializer
 )
 
@@ -55,13 +56,20 @@ class EventListCreateMixin:
         sponsor = self.get_sponsor()
         sponsor_ct = ContentType.objects.get_for_model(sponsor.__class__)
 
-        return Event.objects.filter(
+        queryset = Event.objects.filter(
             sponsor_content_type=sponsor_ct,
             sponsor_object_id=sponsor.id
         ).select_related('series').prefetch_related(
             'decorator_assignments__decorator',
             'gathering_extension'
         ).order_by('-created_at')
+
+        # Apply status filter from query params
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        return queryset
 
     def get_serializer_class(self):
         if self.action == 'list' or self.request.method == 'GET':
@@ -141,6 +149,25 @@ class EventListCreateMixin:
                     gathering_data=gathering_data,
                     location=data.get('location', ''),
                     description=data.get('description', ''),
+                    max_attendees=data.get('max_attendees'),
+                    registration_required=data.get('registration_required', False),
+                    registration_deadline_hours=data.get('registration_deadline_hours', 24),
+                    decorators=data.get('decorators', [])
+                )
+
+            elif event_type == 'recurring':
+                event = Event.objects.create_recurring_event(
+                    title=data['title'],
+                    rrule=data['rrule'],
+                    start_time=data['start_time'],
+                    end_time=data['end_time'],
+                    sponsor=sponsor,
+                    author=author,
+                    timezone=data.get('timezone', 'UTC'),
+                    default_duration_minutes=data['default_duration_minutes'],
+                    location=data.get('location', ''),
+                    description=data.get('description', ''),
+                    event_format=data.get('event_format', 'workshop'),
                     max_attendees=data.get('max_attendees'),
                     registration_required=data.get('registration_required', False),
                     registration_deadline_hours=data.get('registration_deadline_hours', 24),
@@ -627,6 +654,35 @@ class GroupEventAttendeesView(generics.ListAPIView):
         ).select_related('user', 'occurrence').order_by('created_at')
 
 
+class GroupEventAttendeeCheckInView(generics.UpdateAPIView):
+    """Check in an attendee for a group event"""
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = OccurrenceAttendeeSerializer
+
+    def patch(self, request, *args, **kwargs):
+        event = get_object_or_404(Event, slug=kwargs['event_slug'])
+        attendee = get_object_or_404(
+            OccurrenceAttendee,
+            id=kwargs['attendee_id'],
+            occurrence__series=event.series
+        )
+
+        # Check permissions - only event author or organizers can check in
+        if event.author != request.user and not event.followers.filter(
+            user=request.user, follow_type='organizer'
+        ).exists():
+            raise PermissionDenied("Only event organizers can check in attendees")
+
+        # Check in the attendee
+        if not attendee.checked_in_at:
+            attendee.checked_in_at = timezone.now()
+            attendee.status = 'attended'
+            attendee.save(update_fields=['checked_in_at', 'status'])
+
+        serializer = self.get_serializer(attendee)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
 class GroupEventSyncRsvpsView(generics.CreateAPIView):
     """Sync RSVPs for a group event"""
     permission_classes = [permissions.IsAuthenticated]
@@ -806,6 +862,154 @@ class OccurrenceCancelRSVPView(generics.CreateAPIView):
             )
 
 
+class GroupEventOccurrenceCancelView(generics.UpdateAPIView):
+    """Cancel a specific occurrence in an event series"""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, *args, **kwargs):
+        event = get_object_or_404(Event, slug=kwargs['event_slug'])
+        occurrence = get_object_or_404(
+            EventOccurrence,
+            id=kwargs['occurrence_id'],
+            series=event.series
+        )
+
+        # Check permissions - only event author or organizers can cancel
+        if event.author != request.user and not event.followers.filter(
+            user=request.user, follow_type='organizer'
+        ).exists():
+            raise PermissionDenied("Only event organizers can cancel occurrences")
+
+        # Cancel the occurrence
+        occurrence.is_cancelled = True
+        occurrence.cancellation_reason = request.data.get('cancellation_reason', 'Cancelled by organizer')
+        occurrence.save(update_fields=['is_cancelled', 'cancellation_reason'])
+
+        return Response({
+            'id': occurrence.id,
+            'is_cancelled': occurrence.is_cancelled,
+            'cancellation_reason': occurrence.cancellation_reason
+        }, status=status.HTTP_200_OK)
+
+
+class GroupEventOccurrencesView(generics.ListAPIView):
+    """Get all occurrences for an event series (for series management)"""
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = EventOccurrenceSerializer
+    pagination_class = None  # Disable pagination for series management
+
+    def get_queryset(self):
+        event = get_object_or_404(Event, slug=self.kwargs['event_slug'])
+
+        if not event.series:
+            return EventOccurrence.objects.none()
+
+        # Return all occurrences for this series, ordered by start date
+        # Include cancelled ones so organizers can see full history
+        return EventOccurrence.objects.filter(
+            series=event.series
+        ).select_related(
+            'series', 'series__event'
+        ).prefetch_related(
+            'attendees'
+        ).order_by('start')
+
+
+class GroupEventOccurrenceUpdateView(generics.UpdateAPIView):
+    """Update a specific occurrence in an event series"""
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = EventOccurrenceSerializer
+
+    def get_object(self):
+        event = get_object_or_404(Event, slug=self.kwargs['event_slug'])
+        occurrence = get_object_or_404(
+            EventOccurrence,
+            id=self.kwargs['occurrence_id'],
+            series=event.series
+        )
+        return occurrence
+
+    def patch(self, request, *args, **kwargs):
+        event = get_object_or_404(Event, slug=kwargs['event_slug'])
+        occurrence = get_object_or_404(
+            EventOccurrence,
+            id=kwargs['occurrence_id'],
+            series=event.series
+        )
+
+        # Check permissions - only event author or organizers can edit
+        if event.author != request.user and not event.followers.filter(
+            user=request.user, follow_type='organizer'
+        ).exists():
+            raise PermissionDenied("Only event organizers can edit occurrences")
+
+        # Prevent editing past occurrences
+        if occurrence.is_past:
+            return Response(
+                {'error': 'Cannot edit past occurrences'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Update allowed fields
+        title_override = request.data.get('title_override')
+        location_override = request.data.get('location_override')
+        start = request.data.get('start')
+        end = request.data.get('end')
+
+        update_fields = []
+
+        if title_override is not None:
+            occurrence.title_override = title_override
+            update_fields.append('title_override')
+
+        if location_override is not None:
+            occurrence.location_override = location_override
+            update_fields.append('location_override')
+
+        if start is not None:
+            from dateutil import parser
+            occurrence.start = parser.isoparse(start)
+            update_fields.append('start')
+
+        if end is not None:
+            from dateutil import parser
+            occurrence.end = parser.isoparse(end)
+            update_fields.append('end')
+
+        # Validate start < end
+        if occurrence.start >= occurrence.end:
+            return Response(
+                {'error': 'End time must be after start time'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if update_fields:
+            occurrence.save(update_fields=update_fields)
+
+        serializer = self.get_serializer(occurrence)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class GroupEventOccurrenceAttendeesView(generics.ListAPIView):
+    """Get attendees for a specific occurrence"""
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = OccurrenceAttendeeSerializer
+    pagination_class = None  # Disable pagination
+
+    def get_queryset(self):
+        event = get_object_or_404(Event, slug=self.kwargs['event_slug'])
+        occurrence = get_object_or_404(
+            EventOccurrence,
+            id=self.kwargs['occurrence_id'],
+            series=event.series
+        )
+
+        # Return all attendees for this occurrence, ordered by RSVP date
+        return OccurrenceAttendee.objects.filter(
+            occurrence=occurrence
+        ).select_related('user').order_by('-registered_at')
+
+
 # =============================================================================
 # CALENDAR VIEWS
 # =============================================================================
@@ -813,7 +1017,8 @@ class OccurrenceCancelRSVPView(generics.CreateAPIView):
 class CalendarOccurrencesView(generics.ListAPIView):
     """Get calendar occurrences for display (published events only)"""
     permission_classes = [permissions.IsAuthenticated]
-    serializer_class = EventOccurrenceSerializer
+    serializer_class = CalendarOccurrenceSerializer
+    pagination_class = None  # Disable pagination for calendar views
 
     def get_queryset(self):
         try:
@@ -853,7 +1058,8 @@ class CalendarOccurrencesView(generics.ListAPIView):
 class GroupCalendarOccurrencesView(generics.ListAPIView):
     """Get calendar occurrences for a specific group (published events only)"""
     permission_classes = [permissions.IsAuthenticated]
-    serializer_class = EventOccurrenceSerializer
+    serializer_class = CalendarOccurrenceSerializer
+    pagination_class = None  # Disable pagination for calendar views
 
     def get_queryset(self):
         try:
@@ -873,12 +1079,13 @@ class GroupCalendarOccurrencesView(generics.ListAPIView):
             sponsor_ct = ContentType.objects.get_for_model(Group)
 
             # Filter: group + published + in date range
+            # Use overlap logic: events that start before range ends AND end after range starts
             occurrences = EventOccurrence.objects.filter(
                 series__event__status=ContentStatus.PUBLISHED,
                 series__event__sponsor_content_type=sponsor_ct,
                 series__event__sponsor_object_id=group.id,
-                start__gte=start_date,
-                end__lte=end_date,
+                start__lt=end_date,  # Event starts before range ends
+                end__gt=start_date,  # Event ends after range starts
                 is_cancelled=False
             ).select_related(
                 'series', 'series__event'
@@ -1042,7 +1249,8 @@ class EventRSVPBreakdownView(generics.GenericAPIView):
 class MyCalendarOccurrencesView(generics.ListAPIView):
     """Get calendar occurrences for events user is attending/following"""
     permission_classes = [permissions.IsAuthenticated]
-    serializer_class = EventOccurrenceSerializer
+    serializer_class = CalendarOccurrenceSerializer
+    pagination_class = None  # Disable pagination for calendar views
 
     def get_queryset(self):
         try:
