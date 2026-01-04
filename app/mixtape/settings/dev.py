@@ -1,9 +1,62 @@
 # mixtape/settings/dev.py
-# Development settings for Phase 1
 
+# CRITICAL: Force CPU-only mode for PyTorch BEFORE any imports
+# This prevents MPS (Apple GPU) crashes with sentence-transformers
 import os
+os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '0'  # Disable MPS entirely
+os.environ['CUDA_VISIBLE_DEVICES'] = ''  # Disable CUDA
+os.environ['OMP_NUM_THREADS'] = '4'  # Limit CPU threads
+
+# CRITICAL: Disable tqdm completely to prevent threading crashes
+# tqdm monitor threads cause segfaults with PyTorch on Apple Silicon
+os.environ['TQDM_DISABLE'] = '1'
+
 import sys
 from pathlib import Path
+from types import ModuleType
+
+# CRITICAL: Inject fake tqdm module BEFORE anything imports it
+# This prevents monitor threads from being created at all
+class FakeTqdm(ModuleType):
+    """Fake tqdm module that does nothing."""
+    def __init__(self, *args, **kwargs):
+        super().__init__('tqdm')
+
+    def tqdm(self, iterable=None, *args, **kwargs):
+        """No-op tqdm function."""
+        return iterable if iterable is not None else []
+
+    def __getattr__(self, name):
+        """Return self for any attribute access (tqdm.auto, etc)."""
+        return self
+
+# Inject fake modules into sys.modules BEFORE any real imports
+fake_tqdm = FakeTqdm()
+sys.modules['tqdm'] = fake_tqdm
+sys.modules['tqdm.auto'] = fake_tqdm
+sys.modules['tqdm._monitor'] = fake_tqdm
+sys.modules['tqdm.std'] = fake_tqdm
+
+print("🔧 Injected fake tqdm module to prevent threading crashes")
+
+# Disable tqdm before any imports that might use it
+import warnings
+warnings.filterwarnings('ignore', module='tqdm')
+
+# Enable crash debugging - dumps full traceback on segfaults/crashes
+import faulthandler
+faulthandler.enable(file=sys.stderr, all_threads=True)
+
+# Register SIGUSR1 handler for manual crash dumps (kill -USR1 <pid>)
+import signal
+faulthandler.register(signal.SIGUSR1, all_threads=True)
+
+# Import and apply force_cpu patch immediately
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import force_cpu  # noqa: E402
+# Patch torch if already imported, or set up import hook
+if 'torch' in sys.modules:
+    force_cpu.patch_torch()
 
 from django.db.backends.signals import connection_created
 from django.dispatch import receiver
@@ -34,6 +87,9 @@ ALLOWED_HOSTS = ["*"]
 # Must specify exact origins when credentials are enabled
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3010",  # Next.js frontend
+    "http://localhost:3011",  # Next.js frontend (alternate port)
+    "http://127.0.0.1:3010",
+    "http://127.0.0.1:3011",
 ]
 CORS_ALLOW_CREDENTIALS = True
 

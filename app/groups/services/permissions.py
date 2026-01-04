@@ -39,6 +39,14 @@ ROLE_PERMISSIONS = {
 
         # Enrollment
         "enroll_in_courses",
+
+        # Projects
+        "can_view_project",
+        "can_edit_project",
+        "can_create_task",
+        "can_move_task",
+        "can_edit_task",
+        "can_archive_task",
     ],
 
     "steward": [
@@ -57,6 +65,14 @@ ROLE_PERMISSIONS = {
 
         # Enrollment
         "enroll_in_courses",
+
+        # Projects
+        "can_view_project",
+        "can_edit_project",
+        "can_create_task",
+        "can_move_task",
+        "can_edit_task",
+        "can_archive_task",
     ],
 
     "coordinator": [
@@ -70,6 +86,13 @@ ROLE_PERMISSIONS = {
 
         # Enrollment
         "enroll_in_courses",
+
+        # Projects
+        "can_view_project",
+        "can_edit_project",
+        "can_create_task",
+        "can_move_task",
+        "can_edit_task",
     ],
 
     "member": [
@@ -78,6 +101,12 @@ ROLE_PERMISSIONS = {
 
         # Enrollment
         "enroll_in_courses",
+
+        # Projects
+        "can_view_project",
+        "can_create_task",
+        "can_move_task",
+        "can_edit_task",
     ],
 }
 

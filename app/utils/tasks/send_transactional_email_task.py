@@ -6,12 +6,6 @@ from celery import shared_task
 from django.utils import timezone as dj_timezone
 
 
-print("[celery] 📬 send_transactional_email_task.py has been loaded")
-
-
-
-
-
 @shared_task(
     name="utils.tasks.send_transactional_email_task",
     bind=True,

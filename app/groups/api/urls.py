@@ -34,6 +34,7 @@ from .permissions_views import (
 # from .views import GroupEmblemAttachView, GroupEmblemResetView, GroupWritingDetailView, GroupWritingDraftsListView, GroupWritingListCreateView  # PHASE 3+
 from threadworks.api.urls import group_threadworks_patterns
 from almanac.api.urls import group_almanac_patterns
+from lanternmail.api.urls import group_lanternmail_patterns
 # from earthlab.api.urls import group_course_patterns
 
 # base path: api/groups/
@@ -45,6 +46,7 @@ urlpatterns = [
     # ============================================================================
     path('<slug:slug>/threadworks/', include(group_threadworks_patterns)),
     path('<slug:slug>/almanac/', include(group_almanac_patterns)),  # /api/groups/<slug>/almanac/...
+    path('<slug:slug>/lanternmail/', include(group_lanternmail_patterns)),  # /api/groups/<slug>/lanternmail/...
     # path('/<slug:group_slug>/earthlab', include(group_course_patterns)),
 
     path("", GroupListCreateView.as_view(), name="group-list-create"),

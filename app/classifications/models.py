@@ -11,12 +11,74 @@ from fundamentals.models import BaseClassification
 from fundamentals.validators import AllowedContentTypesMixin
 
 class Category(BaseClassification):
-    class Meta:
-        verbose_name_plural=_("Categories")
+    """
+    Sponsor-scoped categories for content organization.
+    Each group/user has their own category namespace.
+    """
+
+    # Polymorphic sponsor (Group or User)
+    sponsor_content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE
+    )
+    sponsor_object_id = models.UUIDField()
+    sponsor = GenericForeignKey("sponsor_content_type", "sponsor_object_id")
+
+    class Meta(BaseClassification.Meta):
+        verbose_name = "Category"
+        verbose_name_plural = "Categories"
+        constraints = [
+            # Unique slug per sponsor
+            models.UniqueConstraint(
+                fields=['sponsor_content_type', 'sponsor_object_id', 'slug'],
+                name='category_slug_sponsor_unique'
+            )
+        ]
+        indexes = [
+            models.Index(fields=['sponsor_content_type', 'sponsor_object_id']),
+            models.Index(fields=['sponsor_content_type', 'sponsor_object_id', 'slug']),
+        ]
+
+    def slug_exists(self, slug: str) -> bool:
+        """
+        Override: Check slug uniqueness within sponsor scope.
+        """
+        if not hasattr(self, 'sponsor_content_type') or not self.sponsor_object_id:
+            return False
+
+        return self.__class__.objects.filter(
+            sponsor_content_type=self.sponsor_content_type,
+            sponsor_object_id=self.sponsor_object_id,
+            slug=slug
+        ).exclude(pk=self.pk).exists()
+
+    def __str__(self):
+        sponsor_name = getattr(
+            self.sponsor,
+            'title',
+            getattr(self.sponsor, 'display_name', str(self.sponsor))
+        )
+        return f"{sponsor_name} — {self.title}"
 
 
 class Tag(BaseClassification):
-    pass
+    """
+    Platform-wide tags for content discovery.
+    Slugs are globally unique across all tags.
+    """
+
+    class Meta(BaseClassification.Meta):
+        verbose_name = "Tag"
+        verbose_name_plural = "Tags"
+        constraints = [
+            models.UniqueConstraint(
+                fields=['slug'],
+                name='tag_slug_unique'
+            )
+        ]
+
+    def __str__(self):
+        return self.title or "Unnamed Tag"
 
 
 class ClassificationUsage(BaseModel, AllowedContentTypesMixin):

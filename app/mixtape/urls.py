@@ -56,7 +56,10 @@ urlpatterns = [
     path("api/dispatch/", include("dispatch.api.urls")),
     path('api/gristmill/', include('gristmill.api.urls')),
     path("api/inkwell/", include("inkwell.api.urls")),
+    path("api/lanternmail/", include("lanternmail.api.urls")),  # Global lanternmail endpoints
     path("api/livewire/", include("livewire.api.urls")),
+    path("api/projects/", include("projects.api.urls")),
+    path("api/stackroom/", include("stackroom.api.urls")),
     path('api/threadworks/', include('threadworks.api.urls')),
     path("api/writing/", include("writing.api.urls")),
 

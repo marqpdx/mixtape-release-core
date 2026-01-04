@@ -41,6 +41,11 @@ cd "$APP_ROOT"
 export DJANGO_SETTINGS_MODULE="${DJANGO_SETTINGS_MODULE:-mixtape.settings.dev}"
 export PYTHONPATH="${APP_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
+# --- CRITICAL: Force PyTorch CPU-only mode (prevents MPS crashes) ---
+export PYTORCH_ENABLE_MPS_FALLBACK=0
+export CUDA_VISIBLE_DEVICES=""
+export OMP_NUM_THREADS=4
+
 # --- queue naming (your new shared env) ---
 export SHARED_RABBIT_CHAT_QUEUE="${SHARED_RABBIT_CHAT_QUEUE:-mixtape_shared_rabbit_chat_queue_stage}"
 
@@ -52,7 +57,7 @@ echo "📬 Queue (consume):        $SHARED_RABBIT_CHAT_QUEUE"
 echo "🐰 Broker:                 ${CELERY_BROKER_URL:-<not set>}"
 
 # --- run worker ---
-exec celery -A mixtape worker \
+exec celery -A mixtape.celery_app worker \
   --loglevel=info \
   --concurrency=5 \
   --prefetch-multiplier=5 \

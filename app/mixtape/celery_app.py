@@ -1,6 +1,9 @@
 # mixtape/celery.py
-import os
 
+# CRITICAL: Import force_cpu FIRST to disable MPS before any torch imports
+import force_cpu  # noqa: F401 - Must be first!
+
+import os
 from celery import Celery
 from kombu import Queue
 
@@ -68,13 +71,15 @@ app.conf.update(
 # Discover tasks.py in all INSTALLED_APPS
 app.autodiscover_tasks()
 
+# Import worker init hooks to register worker_process_init signal
+import mixtape.worker_init  # noqa: F401 - Registers signal handlers
+
 # (Optional) your import hook — leave it, but make it safe
 @app.on_after_finalize.connect
 def import_custom_tasks(sender, **kwargs):
     print("[celery] 🔁 Running import_custom_tasks hook")
     try:
         import utils.tasks.send_transactional_email_task as st  # noqa: F401
-        print("[celery] 📦 utils.tasks loaded and task imported")
         print("[celery] ✅ All custom tasks imported")
     except Exception as e:
         print(f"[celery] ⚠ custom task import skipped: {e}")

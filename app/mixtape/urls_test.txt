@@ -1,6 +1,6 @@
-# mixtape-back/mixtape/urls_test.py
+# mixtape/urls_test.py
 
-from api import test_views
+from stackroom.api.views import test_views
 from django.urls import path
 
 # Import your regular URLs
