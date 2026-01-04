@@ -68,6 +68,7 @@ class GroupListSerializer(serializers.ModelSerializer):
     """
     member_count = serializers.SerializerMethodField()
     user_roles = serializers.SerializerMethodField()
+    sponsor_group = serializers.SerializerMethodField()
 
     profile_image_url = serializers.ReadOnlyField()
     background_image_url = serializers.ReadOnlyField()
@@ -86,6 +87,44 @@ class GroupListSerializer(serializers.ModelSerializer):
         membership = GroupService.get_user_membership(obj, request.user)
         return membership.roles if membership else None
 
+    def get_sponsor_group(self, obj):
+        """Return parent group info for circles"""
+        from django.contrib.contenttypes.models import ContentType
+
+        # Only circles have parent groups
+        if obj.group_type != 'circle':
+            return None
+
+        # Check if sponsor is a Group
+        group_ct = ContentType.objects.get_for_model(Group)
+        if obj.sponsor_content_type == group_ct:
+            try:
+                parent = Group.objects.get(id=obj.sponsor_object_id)
+                return {
+                    'id': str(parent.id),
+                    'slug': parent.slug,
+                    'title': parent.title,
+                    'group_type': parent.group_type
+                }
+            except Group.DoesNotExist:
+                return None
+
+        # Check if sponsor is a User (member-sponsored circle)
+        user_ct = ContentType.objects.get_for_model(User)
+        if obj.sponsor_content_type == user_ct:
+            try:
+                sponsor_user = User.objects.get(id=obj.sponsor_object_id)
+                return {
+                    'id': str(sponsor_user.id),
+                    'username': sponsor_user.username,
+                    'display_name': sponsor_user.get_full_name() or sponsor_user.username,
+                    'type': 'member'
+                }
+            except User.DoesNotExist:
+                return None
+
+        return None
+
     class Meta:
         model = Group
         fields = [
@@ -93,7 +132,7 @@ class GroupListSerializer(serializers.ModelSerializer):
             "profile_image_path",
             "background_image_path",
             "profile_image_url", "background_image_url",         # resolved URLs (use these in UI)
-            "is_active", "created_at", "member_count", "user_roles",
+            "is_active", "created_at", "member_count", "user_roles", "sponsor_group",
         ]
 
         read_only_fields = [

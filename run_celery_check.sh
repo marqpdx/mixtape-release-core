@@ -38,7 +38,7 @@ echo "🧩 PYTHONPATH: $PYTHONPATH"
 echo "📬 Queue: $CELERY_TASK_DEFAULT_QUEUE"
 
 # Start worker
-celery -A mixtape worker \
+celery -A mixtape.celery_app worker \
   --loglevel=info \
   --concurrency=5 \
   --prefetch-multiplier=5 \

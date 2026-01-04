@@ -21,7 +21,7 @@ env = environ.Env(
 SITE_ADMIN_EMAIL = "marqpdx@gmail.com"
 CONTACT_NOTIFICATION_EMAIL = "marqpdx@gmail.com"
 
-DEFAULT_FROM_EMAIL = "The Mixtape Team <info@mindfulbrilliance.com>"
+DEFAULT_FROM_EMAIL = "The Mixtape Team <ml@marklilly.com>"
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-unsafe-secret-key")
 
@@ -86,8 +86,11 @@ INSTALLED_APPS = [
     "gristmill",       # Import and Promotion system
     "groups",          # Group model, GroupMembership, Invitations (Phase 2)
     "inkwell",         # AI services, RAG, synopsis generation
+    "lanternmail",     # Newsletter and email campaigns
     "profiles",        # UserProfile, Member API
     "publishing",      # Universal publishing system (BaseVersion, ContentPlacement)
+    "projects",        # Project boards and tasks
+    "stackroom.apps.StackroomConfig",  # Stackroom integration
     "threadworks",     # Threadworks forums and discussions
     "users",           # CustomUser, Role models
     "utils",           # Utility functions and helpers
@@ -252,6 +255,21 @@ EMAIL_HOST_PASSWORD = "REDACTED-MAILJET-SECRET-KEY"
 EMAIL_USE_TLS = True
 
 
+LISTMONK_BASE_URL = os.environ["LISTMONK_BASE_URL"]
+LISTMONK_API_USER = os.environ["LISTMONK_API_USER"]
+LISTMONK_API_TOKEN = os.environ["LISTMONK_API_TOKEN"]
+LISTMONK_TIMEOUT = int(os.environ.get("LISTMONK_TIMEOUT", "10"))
+
+
+# Service JWT auth, for Stackroom, ...
+SERVICE_JWT_SECRET = os.getenv("SERVICE_JWT_SECRET", "")
+SERVICE_JWT_ALG = os.getenv("SERVICE_JWT_ALG", "HS256")
+SERVICE_JWT_ISS = os.getenv("SERVICE_JWT_ISS", "mixtape")
+SERVICE_JWT_AUD_IR = os.getenv("SERVICE_JWT_AUD_IR", "django-ir")  # <-- Phase 1.2 audience
+
+STACKROOM_BASE_URL = os.getenv("STACKROOM_BASE_URL", "http://127.0.0.1:8012")
+
+
 # Internationalization
 # https://docs.djangoproject.com/en/4.2/topics/i18n/
 
@@ -370,15 +388,29 @@ EMAIL_USE_TLS = True
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOW_CREDENTIALS = True
 
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
+
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:3001",
     "http://localhost:3010",    # ← Mixtape Release Frontend (Phase 1)
+    "http://localhost:3011",
     "http://localhost:4200",
     "http://localhost:8081",
     "http://127.0.0.1:3000",
     "http://127.0.0.1:3001",
     "http://127.0.0.1:3010",    # ← Mixtape Release Frontend (Phase 1)
+    "http://127.0.0.1:3011",
     "http://127.0.0.1:4200",
     "http://127.0.0.1:8081",
     "http://localhost:8011",
@@ -406,6 +438,10 @@ CORS_ALLOWED_ORIGINS = [
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://localhost:3010",
+    "http://127.0.0.1:3010",
+    "http://localhost:3011",
+    "http://127.0.0.1:3011",
 ]
 
 # CSRF_TRUSTED_ORIGINS = [
@@ -560,7 +596,6 @@ https://docs.djangoproject.com/en/4.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
-
 
 
 

@@ -51,7 +51,7 @@ class BaseData(BaseModel):
     # Slug lifecycle
     slug = models.SlugField(
         max_length=64,
-        unique=True,
+        unique=False,  # Uniqueness enforced by subclasses (global for Tag, sponsor-scoped for BaseContent/Category)
         default=default_slug,   # ✅ prevents migration prompt, always non-null
         editable=False,
     )
@@ -220,8 +220,16 @@ class BaseContent(BaseData):
 
     class Meta:
         abstract = True
+        constraints = [
+            # Sponsor-scoped slug uniqueness
+            models.UniqueConstraint(
+                fields=['sponsor_content_type', 'sponsor_object_id', 'slug'],
+                name='%(app_label)s_%(class)s_slug_sponsor_unique'
+            )
+        ]
         indexes = [
             models.Index(fields=["sponsor_content_type", "sponsor_object_id"]),
+            models.Index(fields=["sponsor_content_type", "sponsor_object_id", "slug"]),
             models.Index(fields=["author", "-created_at"]),
             models.Index(fields=["submitted_by", "-created_at"]),
         ]
@@ -256,6 +264,24 @@ class BaseContent(BaseData):
         return self.author == self.sponsor if isinstance(self.sponsor, User) else False
 
     # ---- Methods ----
+
+    def slug_exists(self, slug: str) -> bool:
+        """
+        Override BaseData.slug_exists() to check sponsor-scoped uniqueness.
+
+        Checks if a slug already exists for content with the same sponsor.
+        This allows different sponsors to use the same slug.
+        """
+        # Safety check: sponsor must be set before we can check uniqueness
+        if not hasattr(self, 'sponsor_content_type') or not self.sponsor_object_id:
+            # During initialization, before sponsor is set
+            return False
+
+        return self.__class__.objects.filter(
+            sponsor_content_type=self.sponsor_content_type,
+            sponsor_object_id=self.sponsor_object_id,
+            slug=slug
+        ).exclude(pk=self.pk).exists()
 
     def set_sponsor(self, sponsor):
         """Set the polymorphic sponsor for this content"""
