@@ -357,3 +357,15 @@ class LayoutParent(models.Model):
 # - The sponsor pattern allows any model to sponsor content (User, Group, Organization, etc.)
 # - Tags/categories/attachments are commented out until those apps are ready
 # ============================================================================
+
+# ============================================================================
+# Phase 4 Workbench Authoring Models
+# ============================================================================
+from .models_milldraft import (
+    MillDraft,
+    MillDraftStatus,
+    ContentProfileConfig,
+    PublishSafetyClass,
+    FieldRiskClass,
+    ValidationSeverity,
+)

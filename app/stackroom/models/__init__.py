@@ -3,6 +3,7 @@
 from .ir import (
     TimeStamped,
     Library,
+    LibraryItem,
     SourceFile,
     IngestionRun,
     Artifact,
@@ -24,6 +25,7 @@ from .retrieval import (
 __all__ = [
     "TimeStamped",
     "Library",
+    "LibraryItem",
     "SourceFile",
     "IngestionRun",
     "Artifact",

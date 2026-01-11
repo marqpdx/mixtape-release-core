@@ -37,16 +37,14 @@ class TestStackroomServiceAuth(APITestCase):
         token = mint_service_jwt(sub=self.service_user.pk, scope="stackroom.ir.write")
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
-        # Pick a cheap endpoint you’ll have (health/ping). If you don’t have it yet,
-        # add GET /api/stackroom/ping -> 200.
-        resp = self.client.get("/api/stackroom/ping")
+        resp = self.client.get("/api/stackroom/health")
         self.assertIn(resp.status_code, (200, 204))
 
     def test_service_jwt_rejected_if_scope_wrong(self):
         token = mint_service_jwt(sub=self.service_user.pk, scope="something.else")
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
-        resp = self.client.get("/api/stackroom/ping")
+        resp = self.client.get("/api/stackroom/health")
         # Expect 403 if you add HasStackroomIRScope, otherwise it may pass.
         # Make it 403 once the permission is installed.
         self.assertIn(resp.status_code, (401, 403))
@@ -55,5 +53,5 @@ class TestStackroomServiceAuth(APITestCase):
         token = mint_service_jwt(sub=self.service_user.pk, aud="wrong-aud")
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
-        resp = self.client.get("/api/stackroom/ping")
+        resp = self.client.get("/api/stackroom/health")
         self.assertIn(resp.status_code, (401, 403))

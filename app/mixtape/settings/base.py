@@ -1,3 +1,5 @@
+# mixtape/settings/base.py
+
 import os
 from datetime import timedelta
 from pathlib import Path
@@ -77,6 +79,7 @@ INSTALLED_APPS = [
     "accounts",        # Authentication (JWT, login, /auth/me)
     "activity",        # User activity tracking and notifications
     "almanac",         # Events and calendar system
+    "appearance",      # Themes and such
     "assets",          # Asset management (deferred to Phase 2)
     "chat",            # Chat app, socket.io
     "classifications", # Tags and categories system

@@ -7,7 +7,8 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from rest_framework.test import APITestCase
 
-from stackroom.models import SourceFile, Chunk, Artifact  # adjust imports to your actual models
+from mixtape.services.defaults import ensure_default_group
+from stackroom.models import Library, SourceFile, Chunk, Artifact  # adjust imports to your actual models
 
 
 User = get_user_model()
@@ -37,10 +38,15 @@ class TestIRPersistenceIdempotency(APITestCase):
     def setUpTestData(cls):
         cls.service_user = User.objects.create_user(username="stackroom_service", password=None)
 
-        # You likely already have Library model; if so create it here.
-        # from stackroom.models import Library
-        # cls.library = Library.objects.create(tenant_type="group", tenant_id=uuid.uuid4(), name="Test Library")
-        cls.library_id = uuid.uuid4()  # replace with real Library create if required
+        default_group = ensure_default_group(sponsor_user=cls.service_user)
+        library = Library(title="Default Library")
+        library.set_sponsor(default_group)
+        library.set_submitted_by(cls.service_user)
+        library.author = cls.service_user
+        library.author_name = cls.service_user.get_full_name() or cls.service_user.username
+        library.save()
+
+        cls.library_id = library.id
 
     def setUp(self):
         token = mint_service_jwt(self.service_user.pk)

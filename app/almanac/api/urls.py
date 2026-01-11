@@ -73,9 +73,9 @@ group_almanac_patterns = [
 
 occurrence_patterns = [
     path('', views.OccurrenceListView.as_view(), name='occurrence-list'),
-    path('<uuid:occurrence_id>', views.OccurrenceDetailView.as_view(), name='occurrence-detail'),
-    path('<uuid:occurrence_id>/rsvp', views.OccurrenceRSVPView.as_view(), name='occurrence-rsvp'),
-    path('<uuid:occurrence_id>/cancel-rsvp', views.OccurrenceCancelRSVPView.as_view(), name='occurrence-cancel-rsvp'),
+    path('<int:occurrence_id>', views.OccurrenceDetailView.as_view(), name='occurrence-detail'),
+    path('<int:occurrence_id>/rsvp', views.OccurrenceRSVPView.as_view(), name='occurrence-rsvp'),
+    path('<int:occurrence_id>/cancel-rsvp', views.OccurrenceCancelRSVPView.as_view(), name='occurrence-cancel-rsvp'),
 ]
 
 

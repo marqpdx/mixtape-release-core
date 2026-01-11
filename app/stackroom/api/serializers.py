@@ -92,11 +92,27 @@ class FileUploadResponseSerializer(serializers.Serializer):
 class LibrarySerializer(serializers.Serializer):
     """Library metadata for frontend"""
     id = serializers.UUIDField()
-    tenant_type = serializers.CharField()
-    tenant_id = serializers.UUIDField()
-    name = serializers.CharField()
+    tenant_type = serializers.SerializerMethodField()
+    tenant_id = serializers.SerializerMethodField()
+    name = serializers.SerializerMethodField()
     created_at = serializers.DateTimeField()
     updated_at = serializers.DateTimeField()
+
+    def get_tenant_type(self, obj):
+        """Map sponsor_content_type to tenant_type"""
+        if obj.sponsor_content_type.model == 'group':
+            return 'group'
+        elif obj.sponsor_content_type.model == 'user':
+            return 'user'
+        return 'unknown'
+
+    def get_tenant_id(self, obj):
+        """Map sponsor_object_id to tenant_id"""
+        return str(obj.sponsor_object_id)
+
+    def get_name(self, obj):
+        """Map title to name for API compatibility"""
+        return obj.title
 
 
 class LibraryCreateSerializer(serializers.Serializer):

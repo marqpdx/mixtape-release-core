@@ -57,16 +57,20 @@ app.conf.update(
 )
 
 # ---- Beat schedule (code-defined; move to django-celery-beat later if desired) ----
-# app.conf.beat_schedule = {
-#     "cleanup-empty-drafts": {
-#         "task": "your_app.tasks.cleanup.cleanup_empty_drafts",
-#         "schedule": crontab(hour=2, minute=0),
-#     },
-#     "cleanup-old-working-copies": {
-#         "task": "your_app.tasks.cleanup.cleanup_old_working_copies",
-#         "schedule": crontab(hour=3, minute=0, day_of_week=0),
-#     },
-# }
+app.conf.beat_schedule = {
+    "process-pending-uploads": {
+        "task": "stackroom.tasks.processing.process_pending_uploads",
+        "schedule": 15.0,  # Run every 15 seconds
+    },
+    # "cleanup-empty-drafts": {
+    #     "task": "your_app.tasks.cleanup.cleanup_empty_drafts",
+    #     "schedule": crontab(hour=2, minute=0),
+    # },
+    # "cleanup-old-working-copies": {
+    #     "task": "your_app.tasks.cleanup.cleanup_old_working_copies",
+    #     "schedule": crontab(hour=3, minute=0, day_of_week=0),
+    # },
+}
 
 # Discover tasks.py in all INSTALLED_APPS
 app.autodiscover_tasks()
