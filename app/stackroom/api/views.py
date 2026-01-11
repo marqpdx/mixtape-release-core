@@ -1128,11 +1128,24 @@ class LibraryListCreateView(APIView):
 
         data = serializer.validated_data
 
+        # Map sponsor fields (serializer uses tenant_*, model uses sponsor_*)
+        from django.contrib.contenttypes.models import ContentType
+
+        # Get sponsor content type
+        if data['tenant_type'] == 'group':
+            from groups.models import Group
+            sponsor_ct = ContentType.objects.get_for_model(Group)
+        else:
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            sponsor_ct = ContentType.objects.get_for_model(User)
+
         # Check for existing library with same unique constraint
+        # Model uses 'title' field, not 'name'
         existing = Library.objects.filter(
-            tenant_type=data['tenant_type'],
-            tenant_id=data['tenant_id'],
-            name=data['name'],
+            sponsor_content_type=sponsor_ct,
+            sponsor_object_id=data['tenant_id'],
+            title=data['name'],
         ).first()
 
         if existing:
@@ -1145,10 +1158,12 @@ class LibraryListCreateView(APIView):
             )
 
         # Create library
+        # Map serializer fields to model fields
         library = Library.objects.create(
-            tenant_type=data['tenant_type'],
-            tenant_id=data['tenant_id'],
-            name=data['name'],
+            sponsor_content_type=sponsor_ct,
+            sponsor_object_id=data['tenant_id'],
+            title=data['name'],  # Serializer uses 'name', model uses 'title'
+            submitted_by=request.user,
         )
 
         # Return created library
@@ -1211,11 +1226,12 @@ class LibraryDetailView(APIView):
 
         # TODO: Check user has write access to this library
 
-        # Check for naming conflict with same tenant
+        # Check for naming conflict with same sponsor
+        # Model uses sponsor_content_type/sponsor_object_id and title, not tenant_*/name
         existing = Library.objects.filter(
-            tenant_type=library.tenant_type,
-            tenant_id=library.tenant_id,
-            name=data['name'],
+            sponsor_content_type=library.sponsor_content_type,
+            sponsor_object_id=library.sponsor_object_id,
+            title=data['name'],
         ).exclude(id=library_id).first()
 
         if existing:
@@ -1227,9 +1243,9 @@ class LibraryDetailView(APIView):
                 status=drf_status.HTTP_409_CONFLICT
             )
 
-        # Update library name
-        library.name = data['name']
-        library.save(update_fields=['name', 'updated_at'])
+        # Update library title (serializer uses 'name', model uses 'title')
+        library.title = data['name']
+        library.save(update_fields=['title', 'updated_at'])
 
         # Return updated library
         response_serializer = LibrarySerializer(library)

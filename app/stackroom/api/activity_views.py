@@ -55,7 +55,7 @@ class LibraryActivityView(APIView):
 
         library_stats = {
             "library_id": str(library.id),
-            "library_name": library.name,
+            "library_name": library.title,  # Model uses 'title', not 'name'
             "files_count": files.count(),
             "artifacts_count": artifacts.count(),
             "chunks_count": chunks.count(),

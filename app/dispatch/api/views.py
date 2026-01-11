@@ -326,35 +326,3 @@ class DispatchEditSessionListCreateView(generics.ListCreateAPIView):
 
 
 
-
-
-
-# old style
-# class DispatchDocumentViewSet(viewsets.ModelViewSet):
-#     queryset = DispatchDocument.objects.all()
-#     serializer_class = DispatchDocumentSerializer
-#     lookup_field = "slug"
-#     pagination_class = None
-
-#     def get_queryset(self):
-#         user = self.request.user
-#         return (
-#             DispatchDocument.objects.prefetch_related(
-#                 Prefetch("collaborators", queryset=User.objects.select_related("profile"))
-#             )
-#             .filter(collaborators=user)
-#         )
-
-#     def perform_create(self, serializer):
-#         document = serializer.save(created_by=self.request.user)
-#         document.collaborators.add(self.request.user)
-
-
-# class DispatchDocumentVersionViewSet(viewsets.ModelViewSet):
-#     queryset = DispatchDocumentVersion.objects.all()
-#     serializer_class = DispatchDocumentVersionSerializer
-
-
-# class DispatchEditSessionViewSet(viewsets.ModelViewSet):
-#     queryset = DispatchEditSession.objects.all()
-#     serializer_class = DispatchEditSessionSerializer

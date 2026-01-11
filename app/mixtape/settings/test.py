@@ -14,11 +14,14 @@ from .dev import *
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("DB_NAME", "crossroads_test"),
-        "USER": os.getenv("DB_USER", "crossroads_user"),
-        "PASSWORD": os.getenv("DB_PASSWORD", "mixtape_dev_password"),
-        "HOST": os.getenv("DB_HOST", "localhost"),
-        "PORT": os.getenv("DB_PORT", "5433"),  # Docker exposes 5433->5432
+        "NAME": os.getenv("TEST_DB_NAME", "crossroads_test"),
+        "USER": os.getenv("TEST_DB_USER", "test_user"),
+        "PASSWORD": os.getenv("TEST_DB_PASSWORD", ""),
+        "HOST": os.getenv("TEST_DB_HOST", "localhost"),
+        "PORT": os.getenv("TEST_DB_PORT", "5433"),  # Docker exposes 5433->5432
+        "TEST": {
+            "NAME": os.getenv("TEST_DB_NAME", "crossroads_test"),
+        },
     }
 }
 
