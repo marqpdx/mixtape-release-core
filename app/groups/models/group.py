@@ -1,4 +1,4 @@
-# groups/models.py
+# groups/models/group.py
 
 import uuid
 

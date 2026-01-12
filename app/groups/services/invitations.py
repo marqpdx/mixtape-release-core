@@ -95,9 +95,9 @@ class InvitationService:
 
         # Different URLs for different flows
         if is_existing_user:
-            invitation.invite_url = f"{settings.FRONTEND_URL}/invitations/accept/{invite_link.shortcode}"
+            invitation.invite_url = f"{settings.FRONTEND_URL}/app/invitations/accept/{invite_link.shortcode}"
         else:
-            invitation.invite_url = f"{settings.FRONTEND_URL}/invitations/accept/{invite_link.shortcode}/new"
+            invitation.invite_url = f"{settings.FRONTEND_URL}/app/invitations/accept/{invite_link.shortcode}/new"
 
         invitation.save()
 
