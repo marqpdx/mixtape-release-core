@@ -29,6 +29,7 @@ ${PYTHON} manage.py migrate >"${LOG_DIR}/migrate.log" 2>&1
 tests=(
   "stackroom.tests.test_collection_views"
   "stackroom.tests.test_collection_serializers stackroom.tests.test_library_item_model"
+  "stackroom.tests.test_puddlejump_api"
 )
 
 passed=0

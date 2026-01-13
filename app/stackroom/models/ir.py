@@ -34,7 +34,35 @@ class Library(BaseContent):
     - sponsor (GenericFK to Group or User)
     - author, submitted_by
     - created_at, updated_at
+
+    Puddlejump fields (for bundle import/export):
+    - puddlejump_bundle_id (UUID from imported bundle)
+    - puddlejump_origin (imported vs created in Mixtape)
+    - puddlejump_exported_at (timestamp of last export)
     """
+
+    # Puddlejump bundle tracking
+    puddlejump_bundle_id = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text='UUID from puddlejump.json manifest (if imported from bundle)'
+    )
+    puddlejump_origin = models.CharField(
+        max_length=20,
+        choices=[
+            ('imported', 'Imported from Puddlejump'),
+            ('created', 'Created in Mixtape')
+        ],
+        default='created',
+        help_text='Whether this collection was imported from a Puddlejump bundle or created in Mixtape'
+    )
+    puddlejump_exported_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='Timestamp of last Puddlejump bundle export'
+    )
 
     class Meta(BaseContent.Meta):
         constraints = BaseContent.Meta.constraints + [
@@ -124,6 +152,13 @@ class LibraryItem(TimeStamped):
     tags = models.JSONField(default=list, blank=True)
     notes = models.TextField(blank=True, default="")
 
+    # Puddlejump canonical metadata (cached from file front matter)
+    puddlejump_canonical_metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Canonical metadata from file front matter (cached): canonical_date, canonical_authority, supersedes, review_date'
+    )
+
     # Display flags
     is_featured = models.BooleanField(default=False)
     is_hidden = models.BooleanField(default=False)
@@ -143,11 +178,15 @@ class LibraryItem(TimeStamped):
             # NOTE: This constraint only applies to non-folders
             # Folders are uniquely identified by library + parent + title + order_index
             models.UniqueConstraint(
+                fields=['library', 'content_type', 'content_object_id', 'order_index'],
+                name='unique_library_item_position_root',
+                condition=models.Q(is_folder=False, parent__isnull=True),
+            ),
+            models.UniqueConstraint(
                 fields=['library', 'parent', 'content_type', 'content_object_id', 'order_index'],
-                name='unique_library_item_position',
-                # Only enforce for non-folders (folders have null content_type)
-                condition=models.Q(is_folder=False)
-            )
+                name='unique_library_item_position_child',
+                condition=models.Q(is_folder=False, parent__isnull=False),
+            ),
         ]
 
     def clean(self):
@@ -171,12 +210,20 @@ class LibraryItem(TimeStamped):
                 "Remove the content reference or set is_folder=False."
             )
 
-        # Rule 2: Non-folders must have content
-        if not self.is_folder and (self.content_type is None or self.content_object_id is None):
-            raise ValidationError(
-                "Non-folder items must have both content_type and content_object_id. "
-                "Either provide content or set is_folder=True."
-            )
+        # Rule 2: Non-folders must have content (except Puddlejump placeholders)
+        # Puddlejump Phase 2 creates placeholder items without content refs
+        # Phase 3 will create SourceFiles and link them
+        is_puddlejump_placeholder = (
+            self.library and
+            self.library.puddlejump_origin == 'imported'
+        )
+
+        if not self.is_folder and not is_puddlejump_placeholder:
+            if self.content_type is None or self.content_object_id is None:
+                raise ValidationError(
+                    "Non-folder items must have both content_type and content_object_id. "
+                    "Either provide content or set is_folder=True."
+                )
 
         # Rule 3: Check nesting depth (max 3 levels: root, section, subsection)
         if self.parent:
