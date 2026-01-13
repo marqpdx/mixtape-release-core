@@ -1,6 +1,7 @@
 # stackroom/tests/test_library_item_model.py
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 
@@ -71,7 +72,7 @@ class LibraryItemModelTests(TestCase):
             order_index=1,
         )
         with transaction.atomic():
-            with self.assertRaises(IntegrityError):
+            with self.assertRaises(ValidationError):
                 LibraryItem.objects.create(
                     library=self.library,
                     content_object=self.source_file,

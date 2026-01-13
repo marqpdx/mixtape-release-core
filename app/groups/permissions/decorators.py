@@ -29,6 +29,18 @@ MEMBERSHIP_DECORATORS = {
         'description': 'Can create a Circle sponsored by this Community',
         'category': 'capability',
     },
+    'can__ManageThreadworks': {
+        'code': 'can__ManageThreadworks',
+        'name': 'Manage Threadworks',
+        'description': 'Create, edit, and manage forums and discussions',
+        'category': 'capability',
+    },
+    'can__ManageLanternmail': {
+        'code': 'can__ManageLanternmail',
+        'name': 'Manage Lanternmail',
+        'description': 'Create, edit, and manage mailing lists',
+        'category': 'capability',
+    },
 }
 
 

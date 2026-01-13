@@ -16,6 +16,10 @@ from stackroom.api.views import (
     LibraryDetailView,
 )
 from stackroom.api.activity_views import LibraryActivityView
+from stackroom.api.puddlejump_views import (
+    PuddlejumpImportView,
+    PuddlejumpHealthView,
+)
 
 urlpatterns = [
     path("health", HealthCheckView.as_view(), name="stackroom-health"),
@@ -31,4 +35,7 @@ urlpatterns = [
     path("chunks/bulk", ChunkBulkUpsertView.as_view()),
     path("ingestion/complete", IngestionCompleteView.as_view()),
     path("retrieve", RetrieveView.as_view()),
+    # Puddlejump endpoints
+    path("puddlejump/health", PuddlejumpHealthView.as_view(), name="puddlejump-health"),
+    path("puddlejump/import/", PuddlejumpImportView.as_view(), name="puddlejump-import"),
 ]

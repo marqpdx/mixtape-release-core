@@ -141,7 +141,7 @@ DATABASES = {
 # EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 # for emailing
-FRONTEND_URL = "http://localhost:3010"
+FRONTEND_URL = "http://127.0.0.1:3011"
 
 
 # ============================================================================

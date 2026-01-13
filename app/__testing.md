@@ -88,3 +88,50 @@ Scope: LibraryItem model, collection APIs, and reorder endpoint.
 - App-level tests are expected to pass with local services running.
 - Integration tests can be split into a separate run target later.
 - Permissions tests will be expanded once authorization is finalized.
+
+## Puddlejump API (Phase 1: Validation Only)
+
+Scope: stackroom puddlejump import validation endpoint (no processing).
+
+### Endpoints
+
+- `GET /api/stackroom/puddlejump/health` (public)
+- `POST /api/stackroom/puddlejump/import/` (auth required)
+
+### Test Categories
+
+1) Health Check
+- Health endpoint returns `status=ok` and endpoint paths.
+
+2) Authentication
+- Unauthenticated import requests return 401.
+- Valid auth allows request to proceed (even if bundle invalid).
+
+3) Input Validation
+- Missing file rejected.
+- Non-zip files rejected.
+- 50MB size limit enforced.
+
+4) Bundle Structure Validation
+- Invalid zip rejected.
+- Missing `puddlejump.json` rejected.
+- Missing `PUDDLEJUMP.md` rejected.
+- Missing `Documents/` rejected.
+- Invalid manifest JSON rejected.
+- Manifest missing required fields rejected.
+- >300 files rejected.
+- Non-markdown files rejected.
+
+5) Success Cases
+- Minimal valid bundle passes with `valid=true` and metadata.
+- Multi-file bundle passes with correct counts.
+
+6) Optional Parameters
+- Accept `conflict_strategy`.
+- Accept `auto_ingest`.
+
+### Success Criteria
+
+- All validation rules enforced with clear errors.
+- Valid bundles return 200 with `valid=true`.
+- Response time <2s for bundles up to 10MB.
