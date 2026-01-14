@@ -445,9 +445,19 @@ class CollectionItemListView(APIView):
                 status=drf_status.HTTP_409_CONFLICT
             )
 
+        # Determine title from content object if not provided
+        title = data.get('title', '')
+        if not title and hasattr(content_obj, 'filename'):
+            # For SourceFiles, use filename as title
+            title = content_obj.filename
+        elif not title and hasattr(content_obj, 'title'):
+            # For WritingPieces and Libraries, use their title
+            title = content_obj.title
+
         # Create LibraryItem
         item = LibraryItem.objects.create(
             library=library,
+            title=title,
             content_type=content_type,
             content_object_id=data['content_id'],
             order_index=data['order_index'],

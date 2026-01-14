@@ -30,6 +30,7 @@ tests=(
   "stackroom.tests.test_collection_views"
   "stackroom.tests.test_collection_serializers stackroom.tests.test_library_item_model"
   "stackroom.tests.test_puddlejump_api"
+  "stackroom.tests.test_puddlejump_phase2_api"
 )
 
 passed=0

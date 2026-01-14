@@ -21,6 +21,7 @@ from stackroom.api.collection_views import (
     CollectionItemCopyFromView,
     CollectionFileUploadView,
 )
+from stackroom.api.collection_search import CollectionTextSearchView
 
 urlpatterns = [
     # Collection list
@@ -28,6 +29,9 @@ urlpatterns = [
 
     # Collection detail
     path('<uuid:collection_id>/', CollectionDetailView.as_view(), name='collection-detail'),
+
+    # Text search (keyword search through content)
+    path('<uuid:collection_id>/search/', CollectionTextSearchView.as_view(), name='collection-search'),
 
     # File upload (lightweight, no immediate ingestion)
     path('<uuid:collection_id>/upload/', CollectionFileUploadView.as_view(), name='collection-file-upload'),

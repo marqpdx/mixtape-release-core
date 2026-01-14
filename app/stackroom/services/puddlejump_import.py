@@ -25,6 +25,7 @@ import yaml
 import zipfile
 import tempfile
 import logging
+import hashlib
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime
@@ -33,7 +34,8 @@ from django.db import transaction
 from django.utils.text import slugify
 from django.contrib.contenttypes.models import ContentType
 
-from stackroom.models import Library, LibraryItem
+from stackroom.models import Library, LibraryItem, SourceFile, Artifact, IngestionRun
+from stackroom.tasks.processing import process_artifact
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +63,8 @@ class PuddlejumpImportService:
         self,
         zip_file,
         manifest: Dict[str, Any],
-        conflict_strategy: str = 'replace'
+        conflict_strategy: str = 'replace',
+        auto_ingest: bool = True
     ) -> Dict[str, Any]:
         """
         Import a validated Puddlejump bundle.
@@ -70,6 +73,7 @@ class PuddlejumpImportService:
             zip_file: Uploaded file object (already validated)
             manifest: Parsed manifest dict (from validation)
             conflict_strategy: How to handle conflicts ('replace' | 'version' | 'skip')
+            auto_ingest: Whether to trigger Stackroom ingestion (default: True)
 
         Returns:
             {
@@ -78,6 +82,7 @@ class PuddlejumpImportService:
                 "bundle_id": str,
                 "status": str,
                 "counts": {...},
+                "ingestion_status": str,
                 "created_at": str
             }
         """
@@ -96,11 +101,12 @@ class PuddlejumpImportService:
         temp_dir = self._extract_bundle(zip_file)
 
         try:
-            # Step 3: Create folder structure and items
-            created_items = self._create_library_items(
+            # Step 3: Create folder structure, items, SourceFiles, and Artifacts
+            created_items, artifact_ids = self._create_library_items(
                 library=library,
                 file_entries=file_entries,
-                temp_dir=temp_dir
+                temp_dir=temp_dir,
+                auto_ingest=auto_ingest
             )
 
             # Step 4: Update Library metadata
@@ -115,10 +121,12 @@ class PuddlejumpImportService:
                 "counts": {
                     "total_files": len(file_entries),
                     "new_files": len(created_items),
-                    "updated_files": 0,  # Phase 3 will handle updates
+                    "updated_files": 0,
                     "skipped_files": 0,
                     "conflicts": 0
                 },
+                "ingestion_status": "queued" if auto_ingest and artifact_ids else "skipped",
+                "artifacts_queued": len(artifact_ids) if auto_ingest else 0,
                 "created_at": datetime.utcnow().isoformat() + "Z"
             }
 
@@ -225,30 +233,115 @@ class PuddlejumpImportService:
 
         return temp_dir
 
+    def _create_source_file_and_artifact(
+        self,
+        library: Library,
+        file_path: str,
+        file_full_path: Path
+    ) -> tuple[SourceFile, Artifact]:
+        """
+        Create SourceFile and Artifact records for a markdown file.
+
+        Args:
+            library: Library to add file to
+            file_path: Relative path from Documents/ (e.g., "guides/intro.md")
+            file_full_path: Absolute path to extracted file
+
+        Returns:
+            Tuple of (SourceFile, Artifact)
+        """
+        # Read file content
+        file_content = file_full_path.read_text(encoding='utf-8')
+        file_size = file_full_path.stat().st_size
+
+        # Compute SHA256 hash
+        file_hash = hashlib.sha256(file_content.encode('utf-8')).hexdigest()
+
+        # Check if SourceFile already exists (for re-import)
+        existing_file = SourceFile.objects.filter(
+            library=library,
+            hash_sha256=file_hash
+        ).first()
+
+        if existing_file:
+            logger.debug(f"SourceFile already exists for {file_path}, reusing")
+            # Get or create artifact
+            artifact = Artifact.objects.filter(
+                source_file=existing_file,
+                artifact_type="extracted_text"
+            ).first()
+
+            if artifact:
+                return existing_file, artifact
+
+            # Create artifact if missing
+            artifact = Artifact.objects.create(
+                source_file=existing_file,
+                artifact_uid=f"puddlejump_{file_hash[:16]}",
+                artifact_type="extracted_text",
+                format="text/plain",
+                text=file_content
+            )
+            return existing_file, artifact
+
+        # Create new SourceFile
+        source_file = SourceFile.objects.create(
+            library=library,
+            origin="imported",  # New origin type for Puddlejump imports
+            path=file_path,
+            filename=Path(file_path).name,
+            content_type="text/markdown",
+            size_bytes=file_size,
+            hash_sha256=file_hash,
+            created_by=self.user
+        )
+
+        logger.debug(f"Created SourceFile for {file_path} (hash: {file_hash[:8]}...)")
+
+        # Create Artifact (extracted text)
+        artifact = Artifact.objects.create(
+            source_file=source_file,
+            artifact_uid=f"puddlejump_{file_hash[:16]}",
+            artifact_type="extracted_text",
+            format="text/plain",
+            text=file_content
+        )
+
+        logger.debug(f"Created Artifact for {file_path} ({len(file_content)} chars)")
+
+        return source_file, artifact
+
     def _create_library_items(
         self,
         library: Library,
         file_entries: List[Dict[str, Any]],
-        temp_dir: Path
-    ) -> List[LibraryItem]:
+        temp_dir: Path,
+        auto_ingest: bool = True
+    ) -> tuple[List[LibraryItem], List[str]]:
         """
         Create LibraryItem records for all files in bundle.
 
-        Creates folder hierarchy and file items.
+        Creates folder hierarchy, file items, SourceFiles, and Artifacts.
+        Optionally triggers Stackroom ingestion.
 
         Args:
             library: Library to add items to
             file_entries: File entries from manifest
             temp_dir: Path to extracted bundle
+            auto_ingest: Whether to trigger Stackroom ingestion (default: True)
 
         Returns:
-            List of created LibraryItem instances
+            Tuple of (List of created LibraryItem instances, List of artifact IDs for ingestion)
         """
         # Clear existing items (for re-import)
         library.items.all().delete()
 
         created_items = []
+        artifact_ids = []  # Track artifacts for ingestion
         folder_cache: Dict[str, LibraryItem] = {}  # path -> LibraryItem
+
+        # Get SourceFile content type for linking
+        source_file_ct = ContentType.objects.get_for_model(SourceFile)
 
         # Sort files by path to ensure folders are created before contents
         sorted_entries = sorted(file_entries, key=lambda x: x['path'])
@@ -287,27 +380,53 @@ class PuddlejumpImportService:
                         'review_date': front_matter.get('review_date'),
                     }
 
-            # Create LibraryItem (file)
-            # Note: In Phase 2, we create items WITHOUT content_object
-            # Phase 3 will create SourceFile and link it
+            # Phase 3: Create SourceFile and Artifact
+            source_file, artifact = self._create_source_file_and_artifact(
+                library=library,
+                file_path=file_path,
+                file_full_path=file_full_path
+            )
+
+            # Track artifact for ingestion
+            artifact_ids.append(str(artifact.id))
+
+            # Create LibraryItem linked to SourceFile
             item = LibraryItem.objects.create(
                 library=library,
                 is_folder=False,
-                title=Path(file_path).name,  # Store filename as title for now
+                title=Path(file_path).name,
                 parent=parent_item,
                 order_index=idx,
-                folder_path=file_path,  # Store full path for reference
-                is_featured=is_canonical,  # Cache canonical status
+                folder_path=file_path,
+                is_featured=is_canonical,
                 puddlejump_canonical_metadata=canonical_metadata if is_canonical else {},
                 tags=front_matter.get('tags', []) if front_matter else [],
-                notes=front_matter.get('summary', '') if front_matter else ''
+                notes=front_matter.get('summary', '') if front_matter else '',
+                # Phase 3: Link to SourceFile
+                content_type=source_file_ct,
+                content_object_id=source_file.id
             )
 
             created_items.append(item)
-            logger.debug(f"Created item for {file_path} (canonical: {is_canonical})")
+            logger.debug(
+                f"Created item for {file_path} "
+                f"(canonical: {is_canonical}, source_file: {source_file.id})"
+            )
 
-        logger.info(f"Created {len(created_items)} library items")
-        return created_items
+        # Trigger Stackroom ingestion if requested
+        if auto_ingest and artifact_ids:
+            logger.info(f"Triggering ingestion for {len(artifact_ids)} artifacts")
+            for artifact_id in artifact_ids:
+                process_artifact.delay(
+                    artifact_id=artifact_id,
+                    model_name="all-mpnet-base-v2",
+                    model_version="1",
+                    provider="sentence-transformers",
+                )
+            logger.info(f"Queued {len(artifact_ids)} artifacts for processing")
+
+        logger.info(f"Created {len(created_items)} library items with {len(artifact_ids)} source files")
+        return created_items, artifact_ids
 
     def _ensure_folder_exists(
         self,
