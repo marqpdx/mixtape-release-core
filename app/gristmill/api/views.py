@@ -98,6 +98,7 @@ def promote_draft_view(request, draft_id):
 
     # Determine sponsor from request body
     group_slug = request.data.get('group_slug')
+    timezone_name = request.data.get('timezone')
     if group_slug:
         try:
             sponsor = Group.objects.get(slug=group_slug)
@@ -108,7 +109,7 @@ def promote_draft_view(request, draft_id):
 
     # Promote based on type
     if ast['type'] == 'event':
-        event = _promote_event(ast, request.user, sponsor)
+        event = _promote_event(ast, request.user, sponsor, timezone_name=timezone_name)
 
         # Link
         draft.promoted_content_type = ContentType.objects.get_for_model(Event)
@@ -126,7 +127,7 @@ def promote_draft_view(request, draft_id):
     return Response({'error': 'Unknown block type'}, status=400)
 
 
-def _promote_event(ast, user, sponsor):
+def _promote_event(ast, user, sponsor, timezone_name=None):
     """
     Create Event from AST.
 
@@ -146,6 +147,15 @@ def _promote_event(ast, user, sponsor):
     # Parse datetime
     start_str = fields['start']
     start_time = date_parser.parse(start_str)
+    if timezone.is_naive(start_time):
+        tz = timezone.get_current_timezone()
+        if timezone_name:
+            try:
+                from zoneinfo import ZoneInfo
+                tz = ZoneInfo(timezone_name)
+            except Exception:
+                tz = timezone.get_current_timezone()
+        start_time = timezone.make_aware(start_time, tz)
 
     # Calculate end_time (default 60 minutes, or from duration field)
     duration_minutes = int(fields.get('duration', 60))

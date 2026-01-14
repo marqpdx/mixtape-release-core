@@ -79,7 +79,7 @@ def embed_library(
     try:
         # Get library
         library = Library.objects.get(id=library_id)
-        logger.info(f"Starting embed_library for {library.name}")
+        logger.info(f"Starting embed_library for {library.title}")
 
         # Get or create embedding model
         embedding_model, created = get_or_create_embedding_model(
@@ -285,7 +285,7 @@ def embed_pending_batch(
         embedding_model = EmbeddingModel.objects.get(id=embedding_model_id)
 
         logger.info(
-            f"Starting batch embed for {library.name} with {embedding_model.name}, "
+            f"Starting batch embed for {library.title} with {embedding_model.name}, "
             f"batch_size={batch_size}"
         )
 

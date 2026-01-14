@@ -23,6 +23,7 @@ formalized test plan for Collections with folders and drag-and-drop reorder.
 - Settings: `DJANGO_SETTINGS_MODULE=mixtape.settings.test`.
 - DB reset guard: abort if DB name does not contain `test`.
 - Expected services up for full-suite runs.
+- Some suites expect a stable test DB with `--keepdb` to avoid schema drift.
 
 ## Collection Items with Folders and Reorder
 

@@ -158,8 +158,10 @@ class LibraryItemSerializer(serializers.Serializer):
     Handles polymorphic content (SourceFile | WritingPiece).
     """
     id = serializers.UUIDField()
+    title = serializers.CharField(allow_blank=True)
     order_index = serializers.IntegerField()
     folder_path = serializers.CharField(allow_blank=True)
+    parent_id = serializers.SerializerMethodField()
     tags = serializers.JSONField()
     notes = serializers.CharField(allow_blank=True)
     is_featured = serializers.BooleanField()
@@ -172,6 +174,10 @@ class LibraryItemSerializer(serializers.Serializer):
     # Timestamps
     created_at = serializers.DateTimeField()
     updated_at = serializers.DateTimeField()
+
+    def get_parent_id(self, obj):
+        """Return parent ID for tree structure (null for root items)"""
+        return str(obj.parent_id) if obj.parent_id else None
 
     def get_content_type(self, obj):
         """Return 'source_file' | 'writing_piece' | 'collection'"""

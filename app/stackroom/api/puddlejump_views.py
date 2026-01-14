@@ -123,7 +123,8 @@ class PuddlejumpImportView(APIView):
             import_result = import_service.import_bundle(
                 zip_file=uploaded_file,
                 manifest=validation_result['manifest'],
-                conflict_strategy=conflict_strategy
+                conflict_strategy=conflict_strategy,
+                auto_ingest=auto_ingest
             )
 
             logger.info(
