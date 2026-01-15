@@ -67,7 +67,7 @@ class CollectionTextSearchView(APIView):
             'artifact__source_file'
         ).order_by(
             'artifact__source_file__filename',
-            'chunk_index'
+            'order_index'
         )[:limit]
 
         # Format results
@@ -97,7 +97,7 @@ class CollectionTextSearchView(APIView):
                 'filename': chunk.artifact.source_file.filename,
                 'chunk_id': str(chunk.id),
                 'chunk_text': snippet,
-                'chunk_index': chunk.chunk_index,
+                'chunk_index': chunk.order_index,
             })
 
         return Response({
