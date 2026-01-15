@@ -218,6 +218,14 @@ def process_pending_uploads() -> dict[str, int]:
                 },
             )
 
+            # Queue metadata extraction (interior_summary + keywords)
+            # This runs in parallel to chunking/embedding and is fast (no external API)
+            from stackroom.tasks.metadata import extract_artifact_metadata_task
+            extract_artifact_metadata_task.delay(
+                artifact_id=str(artifact.id),
+                summary_method='simple',  # Can be switched to 'inkwell' later
+            )
+
             # Queue chunking and embedding tasks
             process_artifact.delay(
                 artifact_id=str(artifact.id),

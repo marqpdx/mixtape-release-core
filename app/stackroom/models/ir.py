@@ -396,6 +396,23 @@ class Artifact(TimeStamped):
 
     ir_version = models.CharField(max_length=32, default="0.1")
 
+    # Extractive metadata for Simple Search (non-editable, programmatically generated)
+    interior_summary = models.TextField(
+        blank=True,
+        default='',
+        help_text='Extractive summary (2-3 sentences from original text, ~300-500 chars) for fast search'
+    )
+    keywords = models.JSONField(
+        default=list,
+        help_text='Top 12 keywords extracted via TF-IDF or RAKE (array of strings)'
+    )
+    metadata_version = models.CharField(
+        max_length=32,
+        default='',
+        blank=True,
+        help_text='Version of extraction logic used (e.g., "1.0-tfidf" or "1.1-inkwell")'
+    )
+
     class Meta:
         indexes = [
             models.Index(fields=["source_file", "artifact_type"]),
