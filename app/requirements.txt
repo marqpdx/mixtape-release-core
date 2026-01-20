@@ -20,6 +20,8 @@ click-didyoumean==0.3.1
 click-plugins==1.1.1.2
 click-repl==0.3.0
 colorama==0.4.6
+colorlog==6.10.1
+ctranslate2==4.6.3
 dataclasses-json==0.6.7
 defusedxml==0.7.1
 Deprecated==1.2.18
@@ -31,6 +33,7 @@ django-cors-headers==4.9.0
 django-environ==0.12.0
 django-extensions==4.1
 django-filter==25.2
+django-oauth-toolkit==3.2.0
 django-storages==1.14.6
 django-stubs==5.2.8
 django-stubs-ext==5.2.8
@@ -42,6 +45,7 @@ filelock==3.20.0
 filetype==1.2.0
 frozenlist==1.8.0
 fsspec==2025.12.0
+faster-whisper==1.2.1
 greenlet==3.2.4
 griffe==1.15.0
 grpcio==1.76.0
@@ -124,7 +128,7 @@ tenacity==9.1.2
 threadpoolctl==3.6.0
 tiktoken==0.12.0
 tokenizers==0.22.1
-torch==2.9.1
+torch==2.3.1
 tqdm==4.67.1
 transformers==4.57.3
 types-PyYAML==6.0.12.20250915

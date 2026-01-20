@@ -1,4 +1,5 @@
 # fundamentals/models.py
+
 # ============================================================================
 # BaseData and BaseContent: Core abstract models with polymorphic sponsorship
 # ============================================================================

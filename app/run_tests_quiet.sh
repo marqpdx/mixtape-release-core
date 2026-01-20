@@ -31,6 +31,7 @@ tests=(
   "stackroom.tests.test_collection_serializers stackroom.tests.test_library_item_model"
   "stackroom.tests.test_puddlejump_api"
   "stackroom.tests.test_puddlejump_phase2_api"
+  "concord.tests.test_recording_api concord.tests.test_recording_models concord.tests.test_session_models concord.tests.test_speaker_anchor_models concord.tests.test_transcription_models"
 )
 
 passed=0
