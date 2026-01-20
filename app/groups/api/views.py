@@ -95,10 +95,10 @@ class GroupListCreateView(generics.ListCreateAPIView):
             queryset = Group.objects.filter(is_active=True)
         else:
             # Regular users see public groups + groups they're members of
-            user_content_type = ContentType.objects.get_for_model(user)
+            user_content_type = ContentType.objects.get_for_model(User)
             member_group_ids = GroupMembership.objects.filter(
                 member_content_type=user_content_type,
-                member_object_id=user.id,
+                member_object_id=user.pk,
                 is_active=True
             ).values_list("group_id", flat=True)
 
@@ -432,12 +432,12 @@ class UserGroupsView(generics.ListAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        user_content_type = ContentType.objects.get_for_model(user)
+        user_content_type = ContentType.objects.get_for_model(User)
 
         # Get groups where user is an active member
         member_group_ids = GroupMembership.objects.filter(
             member_content_type=user_content_type,
-            member_object_id=user.id,
+            member_object_id=user.pk,
             is_active=True,
             is_banned=False,
             is_evicted=False
@@ -633,9 +633,8 @@ def accept_invite(request):
     if request.method != "POST":
         return JsonResponse({"error": "POST required"}, status=405)
 
-    try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
+    data = request.data
+    if not isinstance(data, dict):
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
     shortcode = data.get("shortcode")
@@ -676,4 +675,3 @@ def accept_invite(request):
             {"error": "An unexpected error occurred."},
             status=500
         )
-
