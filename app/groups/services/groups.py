@@ -5,6 +5,7 @@ Service layer for Group operations.
 Handles all business logic for creating, updating, and managing groups.
 """
 
+from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 
@@ -64,11 +65,11 @@ class GroupService:
 
         # Add creator as admin member with both member and admin roles
         if add_creator_membership:
-            user_content_type = ContentType.objects.get_for_model(created_by)
+            user_content_type = ContentType.objects.get_for_model(get_user_model())
             GroupMembership.objects.create(
                 group=group,
                 member_content_type=user_content_type,
-                member_object_id=created_by.id,
+                member_object_id=created_by.pk,
                 roles=["member", "admin"],
                 is_active=True,
                 is_pending=False,
@@ -137,11 +138,11 @@ class GroupService:
         Returns:
             GroupMembership instance or None
         """
-        user_content_type = ContentType.objects.get_for_model(user)
+        user_content_type = ContentType.objects.get_for_model(get_user_model())
         return GroupMembership.objects.filter(
             group=group,
             member_content_type=user_content_type,
-            member_object_id=user.id,
+            member_object_id=user.pk,
             is_active=True,
             is_banned=False,
             is_evicted=False

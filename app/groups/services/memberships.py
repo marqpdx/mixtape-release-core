@@ -3,6 +3,7 @@
 Service functions for managing group memberships.
 """
 
+from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 
 from groups.models import GroupMembership
@@ -28,7 +29,8 @@ def ensure_user_membership(group, user, *, role="member", is_active=True):
       - member_content_type
       - member_object_id
     """
-    ct = ContentType.objects.get_for_model(user)
+    expected_ct = ContentType.objects.get_for_model(get_user_model())
+    ct = expected_ct
 
     # Convert single role to roles array
     roles = _role_to_roles_array(role)
@@ -42,6 +44,11 @@ def ensure_user_membership(group, user, *, role="member", is_active=True):
             "is_active": is_active
         },
     )
+
+    if m.member_content_type_id != expected_ct.id:
+        raise RuntimeError(
+            f"Bad content type for user membership: got {m.member_content_type.app_label}.{m.member_content_type.model}"
+        )
 
     if not created:
         # Update existing membership if needed
