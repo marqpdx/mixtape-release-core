@@ -56,13 +56,22 @@ echo "🧩 PYTHONPATH:             $PYTHONPATH"
 echo "📬 Queue (consume):        $SHARED_RABBIT_CHAT_QUEUE"
 echo "🐰 Broker:                 ${CELERY_BROKER_URL:-<not set>}"
 
+# --- worker tuning (local overrides) ---
+# For transcription workers on macOS, run with: CELERY_POOL=solo CELERY_CONCURRENCY=1
+CELERY_POOL="${CELERY_POOL:-prefork}"
+CELERY_CONCURRENCY="${CELERY_CONCURRENCY:-5}"
+CELERY_PREFETCH_MULTIPLIER="${CELERY_PREFETCH_MULTIPLIER:-5}"
+CELERY_NODE_NAME="${CELERY_NODE_NAME:-local-worker@%h}"
+
 # --- run worker ---
+# Default: standard worker for general queues
 exec celery -A mixtape.celery_app worker \
   --loglevel=info \
-  --concurrency=5 \
-  --prefetch-multiplier=5 \
+  --concurrency="$CELERY_CONCURRENCY" \
+  --prefetch-multiplier="$CELERY_PREFETCH_MULTIPLIER" \
+  -P "$CELERY_POOL" \
   -Q "$SHARED_RABBIT_CHAT_QUEUE" \
-  -n local-worker@%h
+  -n "$CELERY_NODE_NAME"
 
 
 

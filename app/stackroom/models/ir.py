@@ -64,6 +64,18 @@ class Library(BaseContent):
         help_text='Timestamp of last Puddlejump bundle export'
     )
 
+    # Personal/Group Puddlejump flags
+    is_personal_puddlejump = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text='True if this is the user\'s personal canonical archive (one per user)'
+    )
+    is_group_puddlejump = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text='True if this is a group\'s canonical archive (one per group)'
+    )
+
     class Meta(BaseContent.Meta):
         constraints = BaseContent.Meta.constraints + [
             # Unique library title per sponsor

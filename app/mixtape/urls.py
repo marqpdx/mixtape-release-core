@@ -38,6 +38,10 @@ urlpatterns = [
     path("api/auth/", include("accounts.api.auth_urls")),
     # Endpoints: /api/auth/token, /api/auth/token/refresh, /api/auth/logout, /api/auth/me
 
+    # OAuth2 Authorization Server (for desktop/mobile apps)
+    path("oauth/", include("oauth2_provider.urls", namespace="oauth2_provider")),
+    # Endpoints: /oauth/authorize, /oauth/token, /oauth/revoke_token, etc.
+
     # Members (User + Profile combined)
     path("api/members/", include("profiles.api.urls")),
 
@@ -59,12 +63,14 @@ urlpatterns = [
     path("api/inkwell/", include("inkwell.api.urls")),
     path("api/lanternmail/", include("lanternmail.api.urls")),  # Global lanternmail endpoints
     path("api/livewire/", include("livewire.api.urls")),
+    path("api/ops/", include("ops.api.urls")),
     path("api/projects/", include("projects.api.urls")),
     path("api/appearance/", include("appearance.api.urls")),
     path("api/stackroom/", include("stackroom.api.urls")),
 
     path('api/threadworks/', include('threadworks.api.urls')),
     path("api/writing/", include("writing.api.urls")),
+    path("api/concord/", include("concord.api.urls")),  # Audio transcription/interpretation
 
     # === PHASE 4 ENDPOINTS ===
 

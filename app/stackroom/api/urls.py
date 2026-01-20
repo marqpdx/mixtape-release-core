@@ -19,6 +19,12 @@ from stackroom.api.activity_views import LibraryActivityView
 from stackroom.api.puddlejump_views import (
     PuddlejumpImportView,
     PuddlejumpHealthView,
+    PersonalPuddlejumpView,
+    PuddlejumpSyncStatusView,
+    PuddlejumpSyncUploadView,
+    PuddlejumpSyncDownloadView,
+    PuddlejumpSyncDeleteView,
+    PuddlejumpSyncCompleteView,
 )
 
 urlpatterns = [
@@ -37,5 +43,12 @@ urlpatterns = [
     path("retrieve", RetrieveView.as_view()),
     # Puddlejump endpoints
     path("puddlejump/health", PuddlejumpHealthView.as_view(), name="puddlejump-health"),
-    path("puddlejump/import/", PuddlejumpImportView.as_view(), name="puddlejump-import"),
+    path("puddlejump/personal", PersonalPuddlejumpView.as_view(), name="puddlejump-personal"),
+    path("puddlejump/import", PuddlejumpImportView.as_view(), name="puddlejump-import"),
+    # Puddlejump sync endpoints (for desktop client)
+    path("puddlejump/sync/status", PuddlejumpSyncStatusView.as_view(), name="puddlejump-sync-status"),
+    path("puddlejump/sync/upload", PuddlejumpSyncUploadView.as_view(), name="puddlejump-sync-upload"),
+    path("puddlejump/sync/download/<uuid:file_id>", PuddlejumpSyncDownloadView.as_view(), name="puddlejump-sync-download"),
+    path("puddlejump/sync/delete/<uuid:file_id>", PuddlejumpSyncDeleteView.as_view(), name="puddlejump-sync-delete"),
+    path("puddlejump/sync/complete", PuddlejumpSyncCompleteView.as_view(), name="puddlejump-sync-complete"),
 ]

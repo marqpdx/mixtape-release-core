@@ -24,7 +24,16 @@ def init_worker_process(**kwargs):
     try:
         import force_cpu
         force_cpu.patch_torch()  # Explicitly call patch
-        force_cpu.patch_tqdm()   # Also patch tqdm to prevent threading issues
+        # Skip patch_tqdm if fake tqdm module is already injected
+        if getattr(force_cpu, "__file__", "") and "force_cpu.py" in force_cpu.__file__:
+            import sys
+            tqdm_module = sys.modules.get("tqdm")
+            if tqdm_module and tqdm_module.__class__.__name__ == "FakeTqdm":
+                logger.info("ℹ️  Worker process: Fake tqdm already injected, skipping patch_tqdm")
+            else:
+                force_cpu.patch_tqdm()   # Also patch tqdm to prevent threading issues
+        else:
+            force_cpu.patch_tqdm()
         logger.info("✅ Worker process: MPS disabled, CPU-only mode enforced")
     except Exception as e:
         # Don't crash the worker if patching fails - log warning and continue

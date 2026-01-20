@@ -73,6 +73,7 @@ INSTALLED_APPS = [
     "corsheaders",          # CORS handling for frontend
     "rest_framework",       # Django REST Framework
     "rest_framework_simplejwt",  # JWT authentication
+    "oauth2_provider",      # OAuth2 authorization server
     "storages",            # S3 and cloud storage support
 
     # Local - MINIMAL for Phase 1
@@ -83,6 +84,7 @@ INSTALLED_APPS = [
     "assets",          # Asset management (deferred to Phase 2)
     "chat",            # Chat app, socket.io
     "classifications", # Tags and categories system
+    "concord",         # Audio transcription and interpretation (Whisper, EchoLine)
     "contexts",        # Context management
     "dispatch",        # Collaborative writing (yjs-based real-time editing)
     "fundamentals",    # BaseModel (timestamps, soft delete)
@@ -90,6 +92,7 @@ INSTALLED_APPS = [
     "groups",          # Group model, GroupMembership, Invitations (Phase 2)
     "inkwell",         # AI services, RAG, synopsis generation
     "lanternmail",     # Newsletter and email campaigns
+    "ops",             # SysAdmin / Ops dashboard backend
     "profiles",        # UserProfile, Member API
     "publishing",      # Universal publishing system (BaseVersion, ContentPlacement)
     "projects",        # Project boards and tasks
@@ -306,6 +309,7 @@ SPONSOR_MODELS = {
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",  # Primary auth for Phase 1
+        "oauth2_provider.contrib.rest_framework.OAuth2Authentication",  # OAuth2 for desktop/mobile apps
         "rest_framework.authentication.SessionAuthentication",        # For Django admin
     ),
 
@@ -371,6 +375,54 @@ LIVEWIRE_JWT_SECRET = os.getenv("LIVEWIRE_JWT_SECRET")
 LIVEWIRE_JWT_ALG = os.getenv("LIVEWIRE_JWT_ALG", "HS256")
 LIVEWIRE_JWT_ISS = os.getenv("LIVEWIRE_JWT_ISS", "mixtape")
 LIVEWIRE_JWT_AUD = os.getenv("LIVEWIRE_JWT_AUD", "livewire")
+
+# ============================================================================
+# OAUTH2 PROVIDER SETTINGS (django-oauth-toolkit)
+# ============================================================================
+# Makes Mixtape an OAuth2 authorization server for desktop/mobile apps
+# ============================================================================
+
+OAUTH2_PROVIDER = {
+    # Access token expires in 1 hour
+    "ACCESS_TOKEN_EXPIRE_SECONDS": 3600,
+
+    # Refresh token expires in 30 days
+    "REFRESH_TOKEN_EXPIRE_SECONDS": 60 * 60 * 24 * 30,
+
+    # Rotate refresh tokens on use
+    "ROTATE_REFRESH_TOKEN": True,
+
+    # Allowed grant types
+    "ALLOWED_GRANT_TYPES": [
+        "authorization_code",  # Standard OAuth2 flow for desktop/mobile
+        "refresh_token",       # Allow token refresh
+    ],
+
+    # PKCE is required for public clients (desktop apps)
+    "PKCE_REQUIRED": True,
+
+    # Scopes available to OAuth2 clients
+    "SCOPES": {
+        "read": "Read access to your data",
+        "write": "Write access to your data",
+        "puddlejump": "Access to your Puddlejump library",
+    },
+
+    # Default scopes if none specified
+    "DEFAULT_SCOPES": ["read", "write", "puddlejump"],
+
+    # Use custom user model
+    "OAUTH2_BACKEND_CLASS": "oauth2_provider.oauth2_backends.OAuthLibCore",
+
+    # Allow application to be confidential or public
+    "APPLICATION_MODEL": "oauth2_provider.Application",
+
+    # Request approval prompt
+    "REQUEST_APPROVAL_PROMPT": "auto",  # Only prompt if not previously approved
+}
+
+# Custom URL for OAuth2 login (uses existing auth)
+LOGIN_URL = "/login"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
@@ -599,7 +651,6 @@ https://docs.djangoproject.com/en/4.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
-
 
 
 

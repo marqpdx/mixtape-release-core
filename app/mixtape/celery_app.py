@@ -1,9 +1,10 @@
 # mixtape/celery.py
 
-# CRITICAL: Import force_cpu FIRST to disable MPS before any torch imports
-import force_cpu  # noqa: F401 - Must be first!
-
+# CRITICAL: Import force_cpu FIRST in dev to disable MPS before any torch imports
 import os
+if os.getenv("DJANGO_ENV") == "dev":
+    import force_cpu  # noqa: F401 - Must be first!
+
 from celery import Celery
 from kombu import Queue
 
@@ -29,13 +30,19 @@ app.conf.result_backend = os.getenv("CELERY_RESULT_BACKEND", "rpc://")
 
 default_q = os.getenv("SHARED_RABBIT_CHAT_QUEUE", "mixtape_shared_rabbit_chat_queue")
 app.conf.task_default_queue = default_q
-app.conf.task_queues = (
+task_queues = [
     Queue(default_q, routing_key=default_q),
     Queue("synopsis_results", routing_key="synopsis_results"),  # For FastAPI → Django synopsis communication
-)
+]
+
+# Dev-only: isolate transcription tasks to avoid prefork + torch issues
+if os.getenv("DJANGO_ENV") == "dev":
+    task_queues.append(Queue("transcription", routing_key="transcription"))
+
+app.conf.task_queues = tuple(task_queues)
 
 # Optional explicit routing (keep or remove if not needed)
-app.conf.task_routes = {
+task_routes = {
     "utils.tasks.send_transactional_email_task": {
         "queue": default_q, "routing_key": default_q
     },
@@ -43,6 +50,18 @@ app.conf.task_routes = {
         "queue": "synopsis_results", "routing_key": "synopsis_results"
     },
 }
+
+if os.getenv("DJANGO_ENV") == "dev":
+    task_routes.update({
+        "concord.tasks.transcription.transcribe_recording_task": {
+            "queue": "transcription", "routing_key": "transcription"
+        },
+        "concord.tasks.transcription.transcribe_pending_recordings": {
+            "queue": "transcription", "routing_key": "transcription"
+        },
+    })
+
+app.conf.task_routes = task_routes
 
 # ---- Sensible defaults (no need to keep in Django settings) ----
 app.conf.update(

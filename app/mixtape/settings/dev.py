@@ -15,29 +15,34 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
-# CRITICAL: Inject fake tqdm module BEFORE anything imports it
-# This prevents monitor threads from being created at all
-class FakeTqdm(ModuleType):
-    """Fake tqdm module that does nothing."""
-    def __init__(self, *args, **kwargs):
-        super().__init__('tqdm')
+if os.environ.get("MIXTAPE_FAKE_TQDM") == "1":
+    # CRITICAL: Inject fake tqdm module BEFORE anything imports it
+    # This prevents monitor threads from being created at all
+    class FakeTqdm(ModuleType):
+        """Fake tqdm module that does nothing."""
+        def __init__(self, *args, **kwargs):
+            super().__init__('tqdm')
 
-    def tqdm(self, iterable=None, *args, **kwargs):
-        """No-op tqdm function."""
-        return iterable if iterable is not None else []
+        def tqdm(self, iterable=None, *args, **kwargs):
+            """No-op tqdm function."""
+            return iterable if iterable is not None else []
 
-    def __getattr__(self, name):
-        """Return self for any attribute access (tqdm.auto, etc)."""
-        return self
+        def __call__(self, iterable=None, *args, **kwargs):
+            """Allow calling fake tqdm module like a function."""
+            return self.tqdm(iterable, *args, **kwargs)
 
-# Inject fake modules into sys.modules BEFORE any real imports
-fake_tqdm = FakeTqdm()
-sys.modules['tqdm'] = fake_tqdm
-sys.modules['tqdm.auto'] = fake_tqdm
-sys.modules['tqdm._monitor'] = fake_tqdm
-sys.modules['tqdm.std'] = fake_tqdm
+        def __getattr__(self, name):
+            """Return self for any attribute access (tqdm.auto, etc)."""
+            return self
 
-print("🔧 Injected fake tqdm module to prevent threading crashes")
+    # Inject fake modules into sys.modules BEFORE any real imports
+    fake_tqdm = FakeTqdm()
+    sys.modules['tqdm'] = fake_tqdm
+    sys.modules['tqdm.auto'] = fake_tqdm
+    sys.modules['tqdm._monitor'] = fake_tqdm
+    sys.modules['tqdm.std'] = fake_tqdm
+
+    print("🔧 Injected fake tqdm module to prevent threading crashes")
 
 # Disable tqdm before any imports that might use it
 import warnings
@@ -51,12 +56,13 @@ faulthandler.enable(file=sys.stderr, all_threads=True)
 import signal
 faulthandler.register(signal.SIGUSR1, all_threads=True)
 
-# Import and apply force_cpu patch immediately
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import force_cpu  # noqa: E402
-# Patch torch if already imported, or set up import hook
-if 'torch' in sys.modules:
-    force_cpu.patch_torch()
+# Import and apply force_cpu patch immediately (dev only, avoid double-init on autoreload)
+if os.environ.get("RUN_MAIN") == "true":
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    import force_cpu  # noqa: E402
+    # Patch torch if already imported, or set up import hook
+    if 'torch' in sys.modules:
+        force_cpu.patch_torch()
 
 from django.db.backends.signals import connection_created
 from django.dispatch import receiver
@@ -168,4 +174,3 @@ FRONTEND_URL = "http://127.0.0.1:3011"
 #         "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
 #     },
 # }
-
