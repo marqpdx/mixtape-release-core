@@ -179,6 +179,11 @@ class InvitationStatus(models.TextChoices):
     EXPIRED = "expired", "Expired"
 
 
+class InvitationKind(models.TextChoices):
+    INVITE = "invite", "Invite"
+    REQUEST = "request", "Request"
+
+
 class GroupInvitation(BaseModel):
     invited_by = models.ForeignKey(
         User,
@@ -192,9 +197,16 @@ class GroupInvitation(BaseModel):
         on_delete=models.SET_NULL,
         related_name="invitations_received"
     )
-    invited_email = models.EmailField()
+    invited_email = models.EmailField(null=True, blank=True)
 
     group = models.ForeignKey("groups.Group", on_delete=models.CASCADE, related_name="invitations")
+    invited_group = models.ForeignKey(
+        "groups.Group",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="group_invitations_received",
+    )
 
     message = models.TextField(blank=True)
 
@@ -210,6 +222,11 @@ class GroupInvitation(BaseModel):
         choices=InvitationStatus.choices,
         default=InvitationStatus.PENDING,
     )
+    invitation_kind = models.CharField(
+        max_length=20,
+        choices=InvitationKind.choices,
+        default=InvitationKind.INVITE,
+    )
 
     expires_at = models.DateTimeField(null=True, blank=True)
     class Meta:
@@ -221,7 +238,8 @@ class GroupInvitation(BaseModel):
         return self.expires_at < timezone.now()
 
     def __str__(self):
-        return f"Invite to {self.group} for {self.invited_email}"
+        target = self.invited_email or (self.invited_group.title if self.invited_group else "unknown")
+        return f"Invite to {self.group} for {target}"
 
 
 class InviteLink(models.Model):

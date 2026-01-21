@@ -17,6 +17,7 @@ from ..models import (
     GroupAnnouncement,
     GroupInvitation,
     GroupMembership,
+    InvitationKind,
     InvitationStatus,
     InviteLink,
 )
@@ -224,6 +225,8 @@ class GroupCreateSerializer(serializers.ModelSerializer):
     """
     Serializer for creating new groups.
     """
+    tagline = serializers.CharField(required=False, allow_blank=True, write_only=True)
+
     class Meta:
         model = Group
         fields = [
@@ -232,6 +235,7 @@ class GroupCreateSerializer(serializers.ModelSerializer):
             "profile_image_path",
             "background_image_path",
             "summary", "body", "author_name",
+            "tagline",
         ]
 
     def validate_title(self, value):
@@ -241,6 +245,13 @@ class GroupCreateSerializer(serializers.ModelSerializer):
         if len(value.strip()) < 3:
             raise serializers.ValidationError("Title must be at least 3 characters.")
         return value.strip()
+
+    def validate(self, data):
+        tagline = data.get("tagline")
+        summary = data.get("summary")
+        if tagline and not summary:
+            data["summary"] = tagline
+        return data
 
 
 class GroupMembershipListSerializer(serializers.ModelSerializer):
@@ -501,6 +512,13 @@ class GroupInvitationSerializer(serializers.ModelSerializer):
     invited_by = UserSerializer(read_only=True)
     invited_email = serializers.EmailField(required=False)  # Make optional
     invited_username = serializers.CharField(required=False, write_only=True)  # Add this field
+    invited_group = serializers.SerializerMethodField()
+    group_detail = serializers.SerializerMethodField()
+    invitation_kind = serializers.ChoiceField(
+        choices=InvitationKind.choices,
+        required=False,
+        default=InvitationKind.INVITE,
+    )
 
     email_status = serializers.ChoiceField(
         choices=EmailStatus.choices,
@@ -515,13 +533,14 @@ class GroupInvitationSerializer(serializers.ModelSerializer):
     )
 
     def validate(self, data):
-        # Ensure either email or username is provided
+        # Ensure either email/username or invited group is provided
         invited_email = data.get("invited_email")
         invited_username = data.get("invited_username")
+        invited_group = data.get("invited_group")
 
-        if not invited_email and not invited_username:
+        if not invited_email and not invited_username and not invited_group:
             raise serializers.ValidationError(
-                "Either invited_email or invited_username must be provided."
+                "Either invited_email, invited_username, or invited_group must be provided."
             )
 
         # Only validate email uniqueness if we have an email
@@ -545,8 +564,11 @@ class GroupInvitationSerializer(serializers.ModelSerializer):
             "id",
             "invited_email",
             "invited_username",  # Add this
+            "invited_group",
+            "group_detail",
             "message",
             "invitation_status",
+            "invitation_kind",
             "email_status",
             "invited_by",
             "invited_user",
@@ -578,6 +600,16 @@ class GroupInvitationSerializer(serializers.ModelSerializer):
             invited_user=invited_user,
             **validated_data,
         )
+
+    def get_invited_group(self, obj):
+        if not obj.invited_group:
+            return None
+        return GroupMinimalSerializer(obj.invited_group).data
+
+    def get_group_detail(self, obj):
+        if not obj.group:
+            return None
+        return GroupMinimalSerializer(obj.group).data
 
 
 
@@ -688,5 +720,3 @@ class AnnouncementDismissalSerializer(serializers.ModelSerializer):
         model = AnnouncementDismissal
         fields = ["id", "dismissal_type", "dismissed_at", "snoozed_until"]
         read_only_fields = ["id", "dismissed_at", "snoozed_until"]
-
-

@@ -17,7 +17,8 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone as dj_timezone
 
 from groups.models import GroupInvitation, GroupMembership
-from groups.models.group import InviteLink
+from groups.models.group import Group, InvitationKind, InvitationStatus, InviteLink
+from groups.permissions import canUserModerateGroupUser
 from profiles.models import UserProfile
 from users.models import Role
 from utils.email.shortcode import generate_shortcode
@@ -133,7 +134,7 @@ class InvitationService:
         )
 
         # Mark invitation as accepted
-        invitation.invitation_status = "accepted"
+        invitation.invitation_status = InvitationStatus.JOINED
         invitation.save()
 
         return membership
@@ -330,4 +331,87 @@ class InvitationService:
         }
 
 
+    @staticmethod
+    def create_group_invitation(coalition, invited_group, invited_by, message="", kind=InvitationKind.INVITE):
+        """
+        Create a group-to-group invitation or join request.
+        """
+        if invited_group.pk == coalition.pk:
+            raise ValidationError("A group cannot invite itself.")
 
+        group_ct = ContentType.objects.get_for_model(Group)
+        existing_membership = GroupMembership.objects.filter(
+            group=coalition,
+            member_content_type=group_ct,
+            member_object_id=invited_group.pk,
+            is_active=True,
+            is_banned=False,
+            is_evicted=False,
+        ).first()
+
+        if existing_membership:
+            raise ValidationError(f"{invited_group.title} is already a member of {coalition.title}.")
+
+        pending_invitation = GroupInvitation.objects.filter(
+            group=coalition,
+            invited_group=invited_group,
+            invitation_status=InvitationStatus.PENDING,
+        ).first()
+
+        if pending_invitation:
+            raise ValidationError(f"A pending invitation already exists for {invited_group.title}.")
+
+        return GroupInvitation.objects.create(
+            group=coalition,
+            invited_group=invited_group,
+            invited_by=invited_by,
+            message=message,
+            invitation_kind=kind,
+        )
+
+
+    @staticmethod
+    def respond_to_group_invitation(invitation, user, action):
+        """
+        Accept or decline a group invitation/request.
+        """
+        if invitation.invitation_status != InvitationStatus.PENDING:
+            raise ValidationError("This invitation has already been used or cancelled.")
+
+        if not invitation.invited_group:
+            raise ValidationError("This invitation is not for a group.")
+
+        coalition = invitation.group
+        invited_group = invitation.invited_group
+
+        can_moderate_coalition = canUserModerateGroupUser(user, coalition)
+        can_moderate_invited_group = canUserModerateGroupUser(user, invited_group)
+
+        if invitation.invitation_kind == InvitationKind.INVITE and not can_moderate_invited_group:
+            raise ValidationError("You do not have permission to accept this invitation.")
+
+        if invitation.invitation_kind == InvitationKind.REQUEST and not can_moderate_coalition:
+            raise ValidationError("You do not have permission to approve this request.")
+
+        if action == "decline":
+            invitation.invitation_status = InvitationStatus.DECLINED
+            invitation.save(update_fields=["invitation_status"])
+            return None
+
+        if action != "accept":
+            raise ValidationError("Invalid action.")
+
+        from groups.services.memberships import ensure_group_membership
+
+        membership = ensure_group_membership(
+            group=coalition,
+            member_group=invited_group,
+            role="member",
+            is_active=True,
+            is_pending=False,
+        )
+
+        invitation.invitation_status = InvitationStatus.JOINED
+        invitation.save(update_fields=["invitation_status"])
+
+        return membership
