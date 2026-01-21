@@ -361,13 +361,17 @@ class InvitationService:
         if pending_invitation:
             raise ValidationError(f"A pending invitation already exists for {invited_group.title}.")
 
-        return GroupInvitation.objects.create(
+        invitation = GroupInvitation.objects.create(
             group=coalition,
             invited_group=invited_group,
             invited_by=invited_by,
             message=message,
             invitation_kind=kind,
         )
+
+        InvitationService.send_group_invitation_email(invitation)
+
+        return invitation
 
 
     @staticmethod
@@ -415,3 +419,75 @@ class InvitationService:
         invitation.save(update_fields=["invitation_status"])
 
         return membership
+
+    @staticmethod
+    def send_group_invitation_email(invitation: GroupInvitation) -> None:
+        """
+        Send coalition invitation/request emails to group moderators.
+        """
+        if not invitation.invited_group:
+            return
+
+        recipients = InvitationService._get_group_moderator_emails(
+            invitation.group if invitation.invitation_kind == InvitationKind.REQUEST else invitation.invited_group
+        )
+        if not recipients:
+            return
+
+        inviter_name = invitation.invited_by.get_full_name() if invitation.invited_by else ""
+        coalition = invitation.group
+        invited_group = invitation.invited_group
+
+        if invitation.invitation_kind == InvitationKind.REQUEST:
+            subject = f"Join request: {invited_group.title} → {coalition.title}"
+            headline = f"{invited_group.title} wants to join {coalition.title}"
+            cta_label = "Review request"
+            target_group_slug = coalition.slug
+        else:
+            subject = f"Coalition invite: {coalition.title}"
+            headline = f"{coalition.title} invited {invited_group.title}"
+            cta_label = "Review invite"
+            target_group_slug = invited_group.slug
+
+        invite_url = f"{settings.FRONTEND_URL}/groups/{target_group_slug}?view=admin&section=coalition-invitations"
+
+        context = {
+            "headline": headline,
+            "invited_by_name": inviter_name,
+            "coalition_name": coalition.title,
+            "group_name": invited_group.title,
+            "message": invitation.message,
+            "invite_url": invite_url,
+            "cta_label": cta_label,
+        }
+
+        send_transactional_email_task.delay(
+            subject=subject,
+            to_emails=recipients,
+            template_base="email/invite_group_to_coalition",
+            context=context,
+            invitation_id=invitation.id,
+        )
+
+    @staticmethod
+    def _get_group_moderator_emails(group: Group) -> list[str]:
+        """
+        Return unique emails for admin/steward members of a group.
+        """
+        user_ct = ContentType.objects.get_for_model(get_user_model())
+        memberships = GroupMembership.objects.filter(
+            group=group,
+            member_content_type=user_ct,
+            roles__overlap=["admin", "steward"],
+            is_active=True,
+            is_banned=False,
+            is_evicted=False,
+        ).select_related("member_object")
+
+        emails = []
+        for membership in memberships:
+            user = membership.member_object
+            if user and user.email:
+                emails.append(user.email)
+
+        return sorted(set(emails))
