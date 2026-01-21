@@ -1,0 +1,20 @@
+{{ headline }}
+
+Hi there,
+
+{% if invited_by_name %}{{ invited_by_name }}{% else %}Someone{% endif %} initiated a coalition request in Mixtape.
+
+Coalition: {{ coalition_name }}
+Group: {{ group_name }}
+
+{% if message %}
+Message:
+{{ message }}
+{% endif %}
+
+{{ cta_label }}:
+{{ invite_url }}
+
+If you have questions, reply to this email.
+
+The Mixtape Team

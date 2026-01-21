@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>{{ headline }}</title>
+  </head>
+  <body style="font-family: Arial, sans-serif; color: #1f2933;">
+    <h2 style="margin-bottom: 12px;">{{ headline }}</h2>
+    <p>
+      {% if invited_by_name %}{{ invited_by_name }}{% else %}Someone{% endif %} initiated a coalition request in Mixtape.
+    </p>
+    <p>
+      <strong>Coalition:</strong> {{ coalition_name }}<br />
+      <strong>Group:</strong> {{ group_name }}
+    </p>
+    {% if message %}
+    <p>
+      <strong>Message:</strong><br />
+      {{ message }}
+    </p>
+    {% endif %}
+    <p>
+      <a
+        href="{{ invite_url }}"
+        style="
+          display: inline-block;
+          padding: 10px 16px;
+          background: #16a34a;
+          color: #ffffff;
+          text-decoration: none;
+          border-radius: 6px;
+        "
+      >{{ cta_label }}</a>
+    </p>
+    <p style="color: #6b7280; font-size: 14px;">
+      If you have questions, reply to this email.
+    </p>
+  </body>
+</html>
