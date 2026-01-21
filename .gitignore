@@ -21,6 +21,12 @@ db.sqlite3-journal
 /staticfiles
 /static
 
+# Celery beat schedule database (runtime artifact)
+celerybeat-schedule
+celerybeat-schedule.db
+celerybeat-schedule.*
+*.db-journal
+
 # Environment variables
 .env
 .env.local
