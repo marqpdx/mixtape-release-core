@@ -7,6 +7,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 
 from groups.models import GroupMembership
+from groups.models.group import Group
 
 
 def ensure_user_membership(group, user, *, role="member", is_active=True):
@@ -68,6 +69,58 @@ def ensure_user_membership(group, user, *, role="member", is_active=True):
 
         if updated:
             m.save(update_fields=["roles", "is_active"])
+
+    return m
+
+
+def ensure_group_membership(group, member_group, *, role="member", is_active=True, is_pending=False):
+    """
+    Idempotently ensure `member_group` is a member of `group`.
+
+    Args:
+        group: Group instance (parent/coalition)
+        member_group: Group instance joining
+        role: Role string for the membership
+        is_active: Whether membership is active
+        is_pending: Whether membership is pending
+
+    Returns:
+        GroupMembership instance
+    """
+    expected_ct = ContentType.objects.get_for_model(Group)
+    roles = _role_to_roles_array(role)
+
+    m, created = GroupMembership.objects.get_or_create(
+        group=group,
+        member_content_type=expected_ct,
+        member_object_id=member_group.pk,
+        defaults={
+            "roles": roles,
+            "is_active": is_active,
+            "is_pending": is_pending,
+        },
+    )
+
+    if m.member_content_type_id != expected_ct.id:
+        raise RuntimeError(
+            f"Bad content type for group membership: got {m.member_content_type.app_label}.{m.member_content_type.model}"
+        )
+
+    if not created:
+        updated = False
+        expected_roles = set(roles)
+        current_roles = set(m.roles)
+        if current_roles != expected_roles:
+            m.roles = roles
+            updated = True
+        if m.is_active != is_active:
+            m.is_active = is_active
+            updated = True
+        if m.is_pending != is_pending:
+            m.is_pending = is_pending
+            updated = True
+        if updated:
+            m.save(update_fields=["roles", "is_active", "is_pending"])
 
     return m
 

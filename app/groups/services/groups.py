@@ -24,6 +24,7 @@ class GroupService:
         created_by,
         description: str = "",
         visibility: str = "public",
+        summary: str = "",
         profile_image: str = None,
         background_image: str = None,
         profile_code: str = None,
@@ -51,6 +52,7 @@ class GroupService:
             group_type=group_type,
             description=description,
             visibility=visibility,
+            summary=summary or "",
             profile_image=profile_image,
             background_image=background_image,
             submitted_by=created_by,
@@ -61,7 +63,7 @@ class GroupService:
         group.save()
 
         # Create type-specific detail record if needed
-        GroupService._create_type_detail(group)
+        GroupService._create_type_detail(group, summary=summary)
 
         # Add creator as admin member with both member and admin roles
         if add_creator_membership:
@@ -87,10 +89,13 @@ class GroupService:
         return group
 
     @staticmethod
-    def _create_type_detail(group):
+    def _create_type_detail(group, summary: str = ""):
         """Create the type-specific detail record for a group."""
         if group.group_type == GroupType.COMMUNITY:
-            CommunityGroup.objects.create(group=group)
+            detail = CommunityGroup.objects.create(group=group)
+            if summary:
+                detail.tagline = summary
+                detail.save(update_fields=["tagline"])
         elif group.group_type == GroupType.CIRCLE:
             from groups.models import CircleGroup
             CircleGroup.objects.create(group=group)

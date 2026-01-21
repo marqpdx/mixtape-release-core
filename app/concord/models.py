@@ -160,6 +160,17 @@ class Recording(BaseContent):
     - Each segment becomes one SourceFile → Artifacts → Shards → Chunks
     - Deterministic filenames: call-2026-01-16T10-00_part-01.wav
 
+    Artifact Lifecycle (per mixtape-audio.md):
+    - Capture artifact (MKV): Ephemeral, deleted after ingestion succeeds
+    - Working audio (WAV): Temp format for Whisper, not stored
+    - Archived audio (M4A/AAC): Canonical storage format, long-term retention
+    - Transcript: Permanent audit trail
+
+    Storage Policy:
+    - audio_path stores the canonical M4A/AAC archive format
+    - Whisper handles M4A directly via internal ffmpeg decoder
+    - No need for separate WAV storage
+
     Inherits from BaseContent which provides:
     - id (UUID primary key)
     - title, slug, summary, body (content fields)

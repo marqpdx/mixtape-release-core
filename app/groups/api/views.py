@@ -44,7 +44,8 @@ from groups.models import (
     GroupInvitation,
     GroupMembership,
 )
-from groups.permissions import IsGroupAdminOrSteward
+from groups.models.group import InvitationKind, InvitationStatus
+from groups.permissions import IsGroupAdminOrSteward, canUserModerateGroupUser
 from groups.services.groups import GroupService
 from groups.services.invitations import InvitationService
 
@@ -114,6 +115,21 @@ class GroupListCreateView(generics.ListCreateAPIView):
         if group_type:
             queryset = queryset.filter(group_type=group_type)
 
+        search = self.request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(
+                Q(title__icontains=search) |
+                Q(slug__icontains=search) |
+                Q(description__icontains=search)
+            )
+
+        exclude = self.request.query_params.getlist("exclude")
+        if exclude:
+            if "unlisted" in exclude:
+                queryset = queryset.exclude(visibility="unlisted")
+            if "private" in exclude:
+                queryset = queryset.exclude(visibility="private")
+
         return queryset.order_by("-created_at")
 
     def perform_create(self, serializer):
@@ -127,6 +143,7 @@ class GroupListCreateView(generics.ListCreateAPIView):
             created_by=user,
             description=serializer.validated_data.get("description", ""),
             visibility=serializer.validated_data.get("visibility", "public"),
+            summary=serializer.validated_data.get("summary", ""),
             profile_image=serializer.validated_data.get("profile_image"),
             background_image=serializer.validated_data.get("background_image"),
         )
@@ -513,6 +530,59 @@ class GroupInvitationsListView(generics.ListAPIView):
         return queryset
 
 
+class GroupCoalitionInvitationsListView(generics.ListAPIView):
+    """
+    List coalition invitations/requests for a coalition group.
+    """
+    permission_classes = [permissions.IsAuthenticated, IsGroupAdminOrSteward]
+    serializer_class = GroupInvitationSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        group_slug = self.kwargs["slug"]
+        group = get_object_or_404(Group, slug=group_slug)
+
+        if group.group_type != "coalition":
+            return GroupInvitation.objects.none()
+
+        queryset = group.invitations.filter(invited_group__isnull=False)
+
+        status_filter = self.request.query_params.get("status")
+        kind_filter = self.request.query_params.get("kind")
+
+        if status_filter:
+            queryset = queryset.filter(invitation_status=status_filter)
+        if kind_filter:
+            queryset = queryset.filter(invitation_kind=kind_filter)
+
+        return queryset
+
+
+class GroupCoalitionInvitationsReceivedListView(generics.ListAPIView):
+    """
+    List coalition invitations/requests received by a group.
+    """
+    permission_classes = [permissions.IsAuthenticated, IsGroupAdminOrSteward]
+    serializer_class = GroupInvitationSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        group_slug = self.kwargs["slug"]
+        group = get_object_or_404(Group, slug=group_slug)
+
+        queryset = GroupInvitation.objects.filter(invited_group=group)
+
+        status_filter = self.request.query_params.get("status")
+        kind_filter = self.request.query_params.get("kind")
+
+        if status_filter:
+            queryset = queryset.filter(invitation_status=status_filter)
+        if kind_filter:
+            queryset = queryset.filter(invitation_kind=kind_filter)
+
+        return queryset
+
+
 @api_view(["POST"])
 @permission_classes([CanInviteMembers])
 def invite_to_group(request, slug):
@@ -610,6 +680,117 @@ def invite_to_group(request, slug):
         return Response(response_data, status=status.HTTP_207_MULTI_STATUS)
 
     return Response(response_data, status=status.HTTP_201_CREATED)
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated, IsGroupAdminOrSteward])
+def invite_group_to_coalition(request, slug):
+    """
+    Invite a group to join a coalition.
+    """
+    coalition = get_object_or_404(Group, slug=slug)
+    if coalition.group_type != "coalition":
+        return Response(
+            {"detail": "Group is not a coalition."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    invited_group_slug = request.data.get("invited_group_slug")
+    message = request.data.get("message", "")
+
+    if not invited_group_slug:
+        return Response(
+            {"detail": "invited_group_slug is required."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    invited_group = get_object_or_404(Group, slug=invited_group_slug)
+    if invited_group.visibility == "unlisted":
+        return Response(
+            {"detail": "Unlisted groups cannot be invited to a coalition."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        invitation = InvitationService.create_group_invitation(
+            coalition=coalition,
+            invited_group=invited_group,
+            invited_by=request.user,
+            message=message,
+            kind=InvitationKind.INVITE,
+        )
+    except ValidationError as e:
+        return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response(
+        {"id": invitation.id, "detail": "Invitation created."},
+        status=status.HTTP_201_CREATED,
+    )
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+def request_to_join_coalition(request, slug):
+    """
+    Request to join a coalition as a group.
+    """
+    coalition = get_object_or_404(Group, slug=slug)
+    if coalition.group_type != "coalition":
+        return Response(
+            {"detail": "Group is not a coalition."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    requesting_group_slug = request.data.get("requesting_group_slug")
+    message = request.data.get("message", "")
+
+    if not requesting_group_slug:
+        return Response(
+            {"detail": "requesting_group_slug is required."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    requesting_group = get_object_or_404(Group, slug=requesting_group_slug)
+
+    if not canUserModerateGroupUser(request.user, requesting_group):
+        return Response(
+            {"detail": "You do not have permission to request for this group."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    try:
+        invitation = InvitationService.create_group_invitation(
+            coalition=coalition,
+            invited_group=requesting_group,
+            invited_by=request.user,
+            message=message,
+            kind=InvitationKind.REQUEST,
+        )
+    except ValidationError as e:
+        return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response(
+        {"id": invitation.id, "detail": "Join request created."},
+        status=status.HTTP_201_CREATED,
+    )
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+def respond_to_group_invitation(request, invitation_id):
+    """
+    Accept or decline a group-to-group invitation/request.
+    """
+    invitation = get_object_or_404(GroupInvitation, pk=invitation_id)
+    action = request.data.get("action")
+
+    try:
+        InvitationService.respond_to_group_invitation(invitation, request.user, action)
+    except ValidationError as e:
+        return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    detail = "Invitation accepted." if action == "accept" else "Invitation declined."
+    return Response({"detail": detail}, status=status.HTTP_200_OK)
 
 
 

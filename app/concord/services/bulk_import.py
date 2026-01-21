@@ -76,7 +76,8 @@ SUPPORTED_EXTENSIONS = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
 class ImportedRecording:
     """Represents an imported recording before DB creation."""
     original_path: Path
-    processed_path: Optional[Path] = None  # WAV path after conversion
+    processed_path: Optional[Path] = None  # WAV path after conversion (temp, for Whisper)
+    archive_path: Optional[Path] = None    # M4A path for canonical storage
     filename: str = ""
     segment_index: int = 0
     duration_ms: Optional[int] = None
@@ -424,11 +425,11 @@ class BulkImportService:
             if is_standalone:
                 # Create standalone Recording without Session
                 imported_rec = imported_session.recordings[0]
-                file_to_upload = (
-                    imported_rec.processed_path
-                    if imported_rec.processed_path
-                    else imported_rec.original_path
-                )
+                # Priority: archive_path (M4A) > original_path (for non-video files)
+                if imported_rec.archive_path:
+                    file_to_upload = imported_rec.archive_path
+                else:
+                    file_to_upload = imported_rec.original_path
 
                 storage_path = self._upload_to_storage_standalone(
                     file_to_upload,
@@ -463,11 +464,11 @@ class BulkImportService:
                 result.sessions_created += 1
 
                 for imported_rec in imported_session.recordings:
-                    file_to_upload = (
-                        imported_rec.processed_path
-                        if imported_rec.processed_path
-                        else imported_rec.original_path
-                    )
+                    # Priority: archive_path (M4A) > original_path (for non-video files)
+                    if imported_rec.archive_path:
+                        file_to_upload = imported_rec.archive_path
+                    else:
+                        file_to_upload = imported_rec.original_path
 
                     storage_path = self._upload_to_storage(
                         file_to_upload,
@@ -506,8 +507,11 @@ class BulkImportService:
             f"{recording_id}/{original_filename}"
         )
 
-        if file_path.suffix == '.wav' and not original_filename.endswith('.wav'):
-            storage_key = storage_key.rsplit('.', 1)[0] + '.wav'
+        # Use the actual file extension (M4A for converted video files)
+        actual_ext = file_path.suffix.lower()
+        original_ext = Path(original_filename).suffix.lower()
+        if actual_ext != original_ext:
+            storage_key = storage_key.rsplit('.', 1)[0] + actual_ext
 
         with open(file_path, 'rb') as f:
             saved_path = default_storage.save(storage_key, ContentFile(f.read()))
@@ -759,19 +763,48 @@ class BulkImportService:
         sessions: list[ImportedSession],
         result: BulkImportResult
     ):
-        """Convert video files (MKV, etc.) to WAV for Whisper."""
+        """
+        Convert video files (MKV, etc.) to both WAV and M4A.
+
+        Per mixtape-audio.md:
+        - WAV: temp working format for Whisper ASR (regenerable)
+        - M4A: canonical archive format for long-term storage
+        - MKV: ephemeral capture artifact (deleted after successful ingestion)
+
+        Pipeline: MKV → WAV (temp) + M4A (canonical) → delete MKV after success
+        """
         for session in sessions:
             for recording in session.recordings:
                 if recording.needs_conversion:
+                    # Create WAV for Whisper processing (temp)
                     wav_path = self._convert_to_wav(recording.original_path, result)
                     if wav_path:
                         recording.processed_path = wav_path
-                        recording.content_type = 'audio/wav'
                     else:
                         result.warnings.append(
-                            f"Failed to convert '{recording.filename}', "
-                            "will use original file"
+                            f"Failed to create WAV for '{recording.filename}', "
+                            "Whisper may fail on this file"
                         )
+
+                    # Create M4A for canonical storage
+                    m4a_path = self._convert_to_m4a(recording.original_path, result)
+                    if m4a_path:
+                        recording.archive_path = m4a_path
+                        recording.content_type = 'audio/mp4'  # MIME type for M4A
+                    else:
+                        # Fall back to WAV if M4A conversion fails
+                        if wav_path:
+                            result.warnings.append(
+                                f"M4A conversion failed for '{recording.filename}', "
+                                "storing as WAV instead"
+                            )
+                            recording.archive_path = wav_path
+                            recording.content_type = 'audio/wav'
+                        else:
+                            result.warnings.append(
+                                f"All conversions failed for '{recording.filename}', "
+                                "will use original file"
+                            )
 
     def _convert_to_wav(
         self,
@@ -827,6 +860,61 @@ class BulkImportService:
 
         return None
 
+    def _convert_to_m4a(
+        self,
+        input_path: Path,
+        result: BulkImportResult
+    ) -> Optional[Path]:
+        """
+        Convert video/audio file to M4A (AAC) for canonical storage.
+
+        Per mixtape-audio.md:
+        - M4A/AAC is the canonical archive format
+        - Compact long-term storage
+        - Canonical audio is stored as M4A, not WAV
+        """
+        output_path = input_path.with_suffix('.m4a')
+
+        try:
+            # ffmpeg command for M4A/AAC:
+            # -i input: input file
+            # -vn: no video
+            # -c:a aac: AAC audio codec
+            # -b:a 128k: 128kbps bitrate (good quality for speech)
+            cmd = [
+                'ffmpeg',
+                '-i', str(input_path),
+                '-vn',  # No video
+                '-c:a', 'aac',  # AAC codec
+                '-b:a', '128k',  # 128kbps bitrate
+                '-y',  # Overwrite
+                str(output_path),
+            ]
+
+            subprocess.run(
+                cmd,
+                check=True,
+                capture_output=True,
+                timeout=300,  # 5 minute timeout per file
+            )
+
+            return output_path
+
+        except subprocess.CalledProcessError as e:
+            result.warnings.append(
+                f"ffmpeg M4A conversion failed for '{input_path.name}': {e.stderr.decode()[:200]}"
+            )
+        except subprocess.TimeoutExpired:
+            result.warnings.append(
+                f"ffmpeg M4A conversion timed out for '{input_path.name}'"
+            )
+        except FileNotFoundError:
+            result.errors.append(
+                "ffmpeg not found. Install ffmpeg for video conversion support."
+            )
+
+        return None
+
     def _create_db_objects(
         self,
         sessions: list[ImportedSession],
@@ -850,12 +938,14 @@ class BulkImportService:
 
             # Create Recordings
             for imported_rec in imported_session.recordings:
-                # Upload file to storage
-                file_to_upload = (
-                    imported_rec.processed_path
-                    if imported_rec.processed_path
-                    else imported_rec.original_path
-                )
+                # Determine which file to upload as canonical storage
+                # Priority: archive_path (M4A) > original_path (for non-video files)
+                # Note: processed_path (WAV) is temp-only for Whisper, not stored
+                if imported_rec.archive_path:
+                    file_to_upload = imported_rec.archive_path
+                else:
+                    # Non-video files (mp3, m4a, etc.) use original
+                    file_to_upload = imported_rec.original_path
 
                 storage_path = self._upload_to_storage(
                     file_to_upload,
@@ -895,9 +985,11 @@ class BulkImportService:
             f"sessions/{session.id}/{original_filename}"
         )
 
-        # If converted to WAV, use .wav extension
-        if file_path.suffix == '.wav' and not original_filename.endswith('.wav'):
-            storage_key = storage_key.rsplit('.', 1)[0] + '.wav'
+        # Use the actual file extension (M4A for converted video files)
+        actual_ext = file_path.suffix.lower()
+        original_ext = Path(original_filename).suffix.lower()
+        if actual_ext != original_ext:
+            storage_key = storage_key.rsplit('.', 1)[0] + actual_ext
 
         with open(file_path, 'rb') as f:
             saved_path = default_storage.save(storage_key, ContentFile(f.read()))

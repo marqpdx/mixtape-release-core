@@ -7,6 +7,8 @@ from django.urls import include, path
 # ============================================================================
 from .views import (
     GroupCirclesListCreateView,
+    GroupCoalitionInvitationsListView,
+    GroupCoalitionInvitationsReceivedListView,
     GroupDetailView,
     GroupInvitationDetailView,
     GroupInvitationsListView,
@@ -15,6 +17,9 @@ from .views import (
     GroupMembersView,
     UserGroupsView,
     invite_to_group,
+    invite_group_to_coalition,
+    request_to_join_coalition,
+    respond_to_group_invitation,
 )
 
 from .permissions_views import (
@@ -71,6 +76,13 @@ urlpatterns = [
     path("<slug:slug>/invitations", GroupInvitationsListView.as_view(), name="group-invitations"),
     path("<slug:group_slug>/invitations/<int:pk>", GroupInvitationDetailView.as_view(), name="group-invitation-detail", ),
 
+    # Coalition invitations / requests
+    path("<slug:slug>/coalition-invitations", GroupCoalitionInvitationsListView.as_view(), name="group-coalition-invitations"),
+    path("<slug:slug>/coalition-invitations/received", GroupCoalitionInvitationsReceivedListView.as_view(), name="group-coalition-invitations-received"),
+    path("<slug:slug>/coalition-invitations/invite", invite_group_to_coalition, name="group-coalition-invite"),
+    path("<slug:slug>/coalition-invitations/request", request_to_join_coalition, name="group-coalition-request"),
+    path("coalition-invitations/<int:invitation_id>/respond", respond_to_group_invitation, name="group-coalition-respond"),
+
     # ============================================================================
     # PHASE 3: Emblems (Deferred - requires identity app)
     # ============================================================================
@@ -123,5 +135,4 @@ urlpatterns = [
     # path("/<uuid:group_id>/assets/folders", GroupAssetFolderListView.as_view(), name="group-asset-folders",),
 
 ]
-
 

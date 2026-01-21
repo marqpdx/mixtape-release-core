@@ -339,6 +339,10 @@ def transcribe_audio(
     """
     Convenience function to transcribe audio.
 
+    Supports M4A (AAC), WAV, MP3, and other formats via faster-whisper's
+    internal ffmpeg decoder. Per mixtape-audio.md, M4A is the canonical
+    archive format - Whisper handles it directly without separate conversion.
+
     Args:
         audio_path: Path to audio file (local path or storage path)
         model_name: Whisper model size
@@ -351,7 +355,9 @@ def transcribe_audio(
     # If path is in storage, download to temp file
     if audio_path.startswith("recordings/") or not os.path.exists(audio_path):
         if default_storage.exists(audio_path):
-            with tempfile.NamedTemporaryFile(suffix=".audio", delete=False) as tmp:
+            # Preserve file extension for ffmpeg format detection
+            file_ext = Path(audio_path).suffix or ".audio"
+            with tempfile.NamedTemporaryFile(suffix=file_ext, delete=False) as tmp:
                 with default_storage.open(audio_path, 'rb') as src:
                     tmp.write(src.read())
                 tmp_path = tmp.name
