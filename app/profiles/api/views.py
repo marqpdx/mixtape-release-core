@@ -25,9 +25,9 @@ class MemberListView(generics.ListAPIView):
 
 class MemberDetailView(generics.RetrieveAPIView):
     """
-    GET /api/members/<slug>/
+    GET /api/members/<username>/
 
-    Retrieve a single member by slug (public).
+    Retrieve a single member by username (public).
     Returns combined User + Profile data.
     """
     permission_classes = [AllowAny]
@@ -36,16 +36,18 @@ class MemberDetailView(generics.RetrieveAPIView):
         deleted_at__isnull=True,
         user__is_active=True
     )
-    lookup_field = "slug"  # Use slug instead of pk
+    lookup_field = "user__username"
+    lookup_url_kwarg = "username"
 
 
 # Phase 2: Add update/delete views with proper permissions
 # class MemberUpdateView(generics.UpdateAPIView):
 #     """
-#     PATCH /api/members/<slug>/
+#     PATCH /api/members/<username>/
 #     Update member profile (authenticated, own profile only)
 #     """
 #     permission_classes = [IsAuthenticated, IsOwnerOrReadOnly]
 #     serializer_class = MemberUpdateSerializer
 #     queryset = UserProfile.objects.all()
-#     lookup_field = 'slug'
+#     lookup_field = 'user__username'
+#     lookup_url_kwarg = 'username'

@@ -196,8 +196,7 @@ class WritingPiecePublicView(generics.RetrieveAPIView):
             "author",
             "sponsor_content_type"
         ).prefetch_related(
-            "versions",
-            "placements"
+            "versions"
         )
 
         # TODO: Add visibility filtering based on placements if needed
@@ -716,6 +715,33 @@ class WritingPiecePublishAndPlaceView(generics.GenericAPIView):
         except Exception as e:
             # TODO: logger.exception("Publish & place failed", extra={...})
             return Response({"error": f"Publish & place failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class WritingPieceUnpublishView(generics.GenericAPIView):
+    """
+    Unpublish a piece and return it to draft status.
+
+    POST /api/writing/pieces/<uuid:pk>/unpublish
+    """
+    serializer_class = WritingPieceSerializer
+    permission_classes = [permissions.IsAuthenticated, CanPublishWritingPiece]
+
+    def post(self, request, pk=None):
+        piece = get_object_or_404(
+            WritingPiece.objects.select_related("sponsor_content_type", "author"),
+            pk=pk
+        )
+        self.check_object_permissions(request, piece)
+
+        piece.unpublish()
+
+        return Response(
+            {
+                "message": "Piece unpublished and returned to draft.",
+                "piece": self.get_serializer(piece).data,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class WritingCommentListCreateView(generics.ListCreateAPIView):

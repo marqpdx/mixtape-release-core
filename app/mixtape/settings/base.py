@@ -82,6 +82,7 @@ INSTALLED_APPS = [
     "almanac",         # Events and calendar system
     "appearance",      # Themes and such
     "assets",          # Asset management (deferred to Phase 2)
+    "bazaar",          # E-commerce and payments
     "chat",            # Chat app, socket.io
     "classifications", # Tags and categories system
     "concord",         # Audio transcription and interpretation (Whisper, EchoLine)

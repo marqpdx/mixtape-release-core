@@ -5,8 +5,9 @@ from django.urls import path
 from .views import MemberDetailView, MemberListView
 
 
-# /api/members
+# /api/members/
+
 urlpatterns = [
     path("", MemberListView.as_view(), name="member-list"),
-    path("<slug:slug>", MemberDetailView.as_view(), name="member-detail"),
+    path("<str:username>", MemberDetailView.as_view(), name="member-detail"),
 ]
