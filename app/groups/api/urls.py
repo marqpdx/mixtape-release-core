@@ -15,6 +15,7 @@ from .views import (
     GroupListCreateView,
     GroupMemberSearchView,
     GroupMembersView,
+    GroupWelcomePinView,
     UserGroupsView,
     invite_to_group,
     invite_group_to_coalition,
@@ -26,6 +27,7 @@ from .permissions_views import (
     AvailablePermissionsView,
     MemberPermissionsListView,
     MemberPermissionManageView,
+    MemberRoleManageView,
     MyPermissionsView,
 )
 
@@ -57,6 +59,7 @@ urlpatterns = [
     path("", GroupListCreateView.as_view(), name="group-list-create"),
     path("my", UserGroupsView.as_view(), name="user-groups"),  # /api/groups/my
     path("<slug:slug>", GroupDetailView.as_view(), name="group-detail"),  # /api/groups/<slug>/
+    path("<slug:slug>/welcome", GroupWelcomePinView.as_view(), name="group-welcome-pin"),
 
     # Group membership - consolidated single endpoint
     path("<slug:slug>/members", GroupMembersView.as_view(), name="group-members"),
@@ -69,6 +72,7 @@ urlpatterns = [
     path("<slug:slug>/members/permissions", MemberPermissionsListView.as_view(), name="group-member-permissions-list"),
     path("<slug:slug>/members/<uuid:user_id>/permissions", MemberPermissionManageView.as_view(), name="group-member-permission-grant"),
     path("<slug:slug>/members/<uuid:user_id>/permissions/<str:decorator>", MemberPermissionManageView.as_view(), name="group-member-permission-revoke"),
+    path("<slug:slug>/members/<uuid:user_id>/roles", MemberRoleManageView.as_view(), name="group-member-role-grant"),
     path("<slug:slug>/my-permissions", MyPermissionsView.as_view(), name="group-my-permissions"),
 
 #     # Invitations
@@ -135,4 +139,3 @@ urlpatterns = [
     # path("/<uuid:group_id>/assets/folders", GroupAssetFolderListView.as_view(), name="group-asset-folders",),
 
 ]
-

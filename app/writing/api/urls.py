@@ -5,7 +5,7 @@ from django.urls import path
 
 from .sponsor_views import (
     SponsorDraftsListView,
-    # SponsorPlacementsListView,  # Deprecated - will use ContentPlacement
+    SponsorPlacementsListView,
 )
 from .views import (
     SeedDetailView,
@@ -25,6 +25,7 @@ from .views import (
     WritingPieceRetrieveUpdateDestroyView,
     WritingPieceScheduleView,
     WritingPieceTagsView,
+    WritingPieceUnpublishView,
     WritingPieceUnpinView,
     WritingWorkingCopyApplyView,
     WritingWorkingCopyUpsertView,
@@ -39,7 +40,7 @@ app_name = "writing"
 urlpatterns = [
 
     # Sponsor-based queries (generic for groups and members)
-    # path("placements", SponsorPlacementsListView.as_view(), name="sponsor-placements-list"),  # Deprecated
+    path("placements", SponsorPlacementsListView.as_view(), name="sponsor-placements-list"),
     path("drafts", SponsorDraftsListView.as_view(), name="sponsor-drafts-list"),
 
     # Pieces
@@ -67,6 +68,7 @@ urlpatterns = [
     # Publish & schedule
     path("pieces/<uuid:pk>/publish", WritingPiecePublishAndPlaceView.as_view(), name="writingpiece-publish"),
     path("pieces/<uuid:pk>/schedule", WritingPieceScheduleView.as_view(), name="writingpiece-schedule"),
+    path("pieces/<uuid:pk>/unpublish", WritingPieceUnpublishView.as_view(), name="writingpiece-unpublish"),
 
 
 

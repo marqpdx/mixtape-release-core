@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
+from psycopg2 import sql
 
 
 class Command(BaseCommand):
@@ -15,6 +16,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         db_name = settings.DATABASES.get("default", {}).get("NAME", "")
+        db_user = settings.DATABASES.get("default", {}).get("USER", "")
         if "test" not in db_name:
             raise CommandError(
                 f"Refusing to reset database '{db_name}'. Name must contain 'test'."
@@ -29,7 +31,33 @@ class Command(BaseCommand):
                 return
 
         with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT pg_terminate_backend(pid)
+                FROM pg_stat_activity
+                WHERE datname = %s
+                  AND pid <> pg_backend_pid();
+                """,
+                [db_name],
+            )
             cursor.execute("DROP SCHEMA public CASCADE;")
             cursor.execute("CREATE SCHEMA public;")
+            if db_user:
+                cursor.execute(
+                    sql.SQL("GRANT ALL ON SCHEMA public TO {};").format(
+                        sql.Identifier(db_user)
+                    )
+                )
+            cursor.execute("GRANT ALL ON SCHEMA public TO public;")
+
+            extensions = settings.DATABASES.get("default", {}).get(
+                "TEST_EXTENSIONS", []
+            )
+            for extension in extensions:
+                cursor.execute(
+                    sql.SQL('CREATE EXTENSION IF NOT EXISTS "{}";').format(
+                        sql.Identifier(extension)
+                    )
+                )
 
         self.stdout.write(self.style.SUCCESS("Test database schema reset."))

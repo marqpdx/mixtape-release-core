@@ -52,6 +52,11 @@ from groups.services.invitations import InvitationService
 # from identity.models import EmblemAvatar  # PHASE 3: Deferred
 from users.models import CustomUser
 from utils.email.invitations import generate_username_from_email
+from mixtape.services.defaults import get_default_group
+from publishing.models import ContentPlacement
+from publishing.services.content_access import can_view_placement
+from publishing.services.content_display import get_display_payload
+from writing.models import WritingPiece
 
 from ..permissions import HasGroupDecorator, IsGroupAdminOrSteward
 from .serializers import (
@@ -218,6 +223,94 @@ class GroupDetailView(generics.RetrieveUpdateAPIView):
 
         group.save()
         return group
+
+
+class GroupWelcomePinView(generics.GenericAPIView):
+    """
+    GET /api/groups/<slug>/welcome
+    Returns the most relevant welcome pin for the current user.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, slug):
+        group = get_object_or_404(Group, slug=slug, is_active=True)
+        if not GroupService.can_user_view_group(group, request.user):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        ct_group = ContentType.objects.get_for_model(Group)
+        ct_piece = ContentType.objects.get_for_model(WritingPiece)
+
+        placements = (
+            ContentPlacement.objects.filter(
+                target_content_type=ct_group,
+                target_object_id=group.id,
+                source_content_type=ct_piece,
+                channel="feed",
+                overrides__pin_kind="welcome",
+            )
+            .order_by("-created_at")
+        )
+
+        if not placements.exists():
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        user = request.user if request.user.is_authenticated else None
+        is_group_member = bool(user and GroupService.get_user_membership(group, user))
+
+        default_group = get_default_group()
+        is_default_member = bool(
+            user and default_group and GroupService.get_user_membership(default_group, user)
+        )
+
+        if is_group_member:
+            allowed_audiences = ["group", "community", "public"]
+        elif is_default_member:
+            allowed_audiences = ["community", "public"]
+        else:
+            allowed_audiences = ["public"]
+
+        for audience in allowed_audiences:
+            for placement in placements:
+                overrides = placement.overrides or {}
+                placement_audience = overrides.get("pin_audience") or "group"
+                if placement_audience != audience:
+                    continue
+                if not can_view_placement(placement, user):
+                    continue
+                try:
+                    payload = get_display_payload(placement)
+                except Exception:
+                    continue
+
+                piece = payload.get("source")
+                if not piece or getattr(piece, "status", None) != "published":
+                    continue
+
+                metadata = payload.get("metadata") or {}
+                author_name = getattr(piece, "author_name", None)
+                if not author_name and getattr(piece, "author", None):
+                    author_name = piece.author.get_full_name() or piece.author.username
+
+                return Response(
+                    {
+                        "placement_id": str(placement.id),
+                        "audience": placement_audience,
+                        "piece": {
+                            "id": str(piece.id),
+                            "slug": piece.slug,
+                            "title": metadata.get("title") or piece.title,
+                            "excerpt": metadata.get("excerpt") or piece.excerpt,
+                            "published_at": piece.published_at,
+                            "author_name": author_name,
+                        },
+                        "display": {
+                            "title": metadata.get("title"),
+                            "excerpt": metadata.get("excerpt"),
+                        },
+                    }
+                )
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 

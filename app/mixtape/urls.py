@@ -45,7 +45,7 @@ urlpatterns = [
     # Members (User + Profile combined)
     path("api/members/", include("profiles.api.urls")),
 
-    # Endpoints: /api/members/, /api/members/<slug>/
+    # Endpoints: /api/members/, /api/members/<slug>
 
     # === END PHASE 1 ENDPOINTS ===
 
@@ -56,6 +56,7 @@ urlpatterns = [
 
     path("api/almanac/", include("almanac.api.urls")),
     path("api/assets/", include("assets.api.urls")),
+    path("api/bazaar/", include("bazaar.api.urls")),
     path("api/chat/", include("chat.api.urls")),
     path("api/collections/", include("stackroom.api.collection_urls")),  # Collection curation layer
     path("api/dispatch/", include("dispatch.api.urls")),

@@ -246,6 +246,53 @@ class MemberPermissionManageView(generics.GenericAPIView):
         return Response(response_serializer.data)
 
 
+class MemberRoleManageView(generics.GenericAPIView):
+    """
+    POST /api/groups/{slug}/members/{user_id}/roles
+    Body: { "role": "admin" | "steward" }
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, slug, user_id):
+        group = get_object_or_404(Group, slug=slug)
+
+        # Verify requester is an admin
+        requester_membership = GroupMembership.objects.filter(
+            group=group,
+            member_object_id=request.user.id,
+            is_active=True
+        ).first()
+
+        if not requester_membership or not requester_membership.is_admin():
+            return Response(
+                {"error": "Only admins can assign roles"},
+                status=403
+            )
+
+        role = (request.data or {}).get("role")
+        if role not in ("admin", "steward"):
+            return Response({"error": "Invalid role"}, status=400)
+
+        user_ct = ContentType.objects.get_for_model(User)
+        membership = GroupMembership.objects.filter(
+            group=group,
+            member_object_id=user_id,
+            member_content_type=user_ct,
+            is_active=True
+        ).first()
+
+        if not membership:
+            return Response(
+                {"error": "User is not a member of this group"},
+                status=404
+            )
+
+        membership.grant_role(role)
+
+        response_serializer = MemberPermissionsSerializer(membership)
+        return Response(response_serializer.data)
+
+
 class MyPermissionsView(generics.GenericAPIView):
     """
     GET /api/groups/{slug}/my-permissions

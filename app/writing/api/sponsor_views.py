@@ -6,10 +6,16 @@ Works with both Group and Member sponsors.
 
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
-from rest_framework import generics, permissions
+from rest_framework import generics, permissions, status
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from writing.models import WritingWorkingCopy
 from .serializers import WritingWorkingCopySerializer
+from publishing.models import ContentPlacement
+from publishing.services.content_access import can_view_placement
+from publishing.services.content_display import get_display_payload
+from writing.models import WritingPiece
 
 
 # ==============================================================================
@@ -23,6 +29,97 @@ from .serializers import WritingWorkingCopySerializer
 # - publishing.serializers.ContentPlacementSerializer
 # - content_display service for resolution
 # ==============================================================================
+
+
+class SponsorPlacementsListView(APIView):
+    """
+    List all placements for a given sponsor (group or member).
+
+    URL pattern: /api/writing/placements?sponsor_type=group&sponsor_slug=my-group
+    Query params:
+      - sponsor_type: 'group' or 'member'
+      - sponsor_slug: slug or username of the sponsor
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        sponsor_type = request.query_params.get("sponsor_type")
+        sponsor_slug = request.query_params.get("sponsor_slug")
+
+        if not sponsor_type or not sponsor_slug:
+            return Response([], status=status.HTTP_200_OK)
+
+        sponsor = None
+        target_ct = None
+        if sponsor_type == "group":
+            from groups.models import Group
+            sponsor = Group.objects.filter(slug=sponsor_slug).first()
+            target_ct = ContentType.objects.get_for_model(Group)
+        elif sponsor_type == "member":
+            from users.models import User
+            sponsor = User.objects.filter(username=sponsor_slug).first()
+            target_ct = ContentType.objects.get_for_model(User)
+        else:
+            return Response([], status=status.HTTP_200_OK)
+
+        if not sponsor:
+            return Response([], status=status.HTTP_200_OK)
+
+        ct_piece = ContentType.objects.get_for_model(WritingPiece)
+        placements = ContentPlacement.objects.filter(
+            target_content_type=target_ct,
+            target_object_id=sponsor.id,
+            source_content_type=ct_piece,
+            channel="feed",
+        ).order_by("-created_at")
+
+        user = request.user if request.user.is_authenticated else None
+        results = []
+
+        for placement in placements:
+            if not can_view_placement(placement, user):
+                continue
+            try:
+                payload = get_display_payload(placement)
+            except Exception:
+                continue
+
+            piece = payload.get("source")
+            if not piece or getattr(piece, "status", None) != "published":
+                continue
+
+            metadata = payload.get("metadata") or {}
+            author_name = getattr(piece, "author_name", None)
+            if not author_name and getattr(piece, "author", None):
+                author_name = piece.author.get_full_name() or piece.author.username
+
+            results.append(
+                {
+                    "id": str(placement.id),
+                    "piece_id": str(piece.id),
+                    "piece_slug": piece.slug,
+                    "piece_title": metadata.get("title") or piece.title,
+                    "piece_body_json": metadata.get("body_json") or piece.body_json,
+                    "piece_status": piece.status,
+                    "published_at": piece.published_at,
+                    "pinned_at": piece.pinned_at,
+                    "author_name": author_name,
+                    "visibility": placement.visibility,
+                    "is_pinned": bool(piece.pinned_at),
+                    "is_announcement": piece.writing_kind == "announcement",
+                    "order": 0,
+                    "created_at": placement.created_at,
+                    "updated_at": placement.updated_at,
+                    "display": {
+                        "title": metadata.get("title"),
+                        "excerpt": metadata.get("excerpt"),
+                        "is_excerpt": metadata.get("is_excerpt"),
+                        "body_json": metadata.get("body_json"),
+                    },
+                }
+            )
+
+        return Response(results, status=status.HTTP_200_OK)
 
 
 class SponsorDraftsListView(generics.ListAPIView):
