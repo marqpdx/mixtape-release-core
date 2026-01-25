@@ -3,20 +3,22 @@
 """
 Bazaar API URL Configuration
 
+Note: APPEND_SLASH=False, so no trailing slashes on URLs.
+
 Routes:
-    /api/bazaar/products/                       - Product CRUD
-    /api/bazaar/offerings/                      - Offering CRUD
-    /api/bazaar/offerings/<id>/action/          - Offering actions
-    /api/bazaar/orders/                         - Order operations
-    /api/bazaar/orders/<id>/action/             - Order actions
-    /api/bazaar/stalls/<type>/<id>/             - Stall view
-    /api/bazaar/vendor/orders/                  - Vendor order list
-    /api/bazaar/vendor/stats/                   - Vendor statistics
-    /api/bazaar/payments/create-intent/         - Create PaymentIntent
-    /api/bazaar/payments/intent/<id>/           - Get PaymentIntent status
-    /api/bazaar/payments/cancel-intent/         - Cancel PaymentIntent
-    /api/bazaar/payments/refund/                - Create refund
-    /api/bazaar/payments/webhook/               - Stripe webhook endpoint
+    /api/bazaar/products                        - Product CRUD
+    /api/bazaar/offerings                       - Offering CRUD
+    /api/bazaar/offerings/<id>/action           - Offering actions
+    /api/bazaar/orders                          - Order operations
+    /api/bazaar/orders/<id>/action              - Order actions
+    /api/bazaar/stalls/<type>/<id>              - Stall view
+    /api/bazaar/vendor/orders                   - Vendor order list
+    /api/bazaar/vendor/stats                    - Vendor statistics
+    /api/bazaar/payments/create-intent          - Create PaymentIntent
+    /api/bazaar/payments/intent/<id>            - Get PaymentIntent status
+    /api/bazaar/payments/cancel-intent          - Cancel PaymentIntent
+    /api/bazaar/payments/refund                 - Create refund
+    /api/bazaar/payments/webhook                - Stripe webhook endpoint
 """
 
 from django.urls import path, include
@@ -32,8 +34,8 @@ from bazaar.api.views import (
 )
 
 
-# Create router for ViewSets
-router = DefaultRouter()
+# Create router for ViewSets (no trailing slash to match APPEND_SLASH=False)
+router = DefaultRouter(trailing_slash=False)
 router.register(r"products", ProductViewSet, basename="product")
 router.register(r"offerings", OfferingViewSet, basename="offering")
 router.register(r"orders", OrderViewSet, basename="order")
@@ -45,19 +47,19 @@ urlpatterns = [
 
     # Stall view (virtual vendor surface)
     path(
-        "stalls/<str:sponsor_type>/<uuid:sponsor_id>/",
+        "stalls/<str:sponsor_type>/<uuid:sponsor_id>",
         StallView.as_view(),
         name="stall-detail",
     ),
 
     # Vendor dashboard endpoints
     path(
-        "vendor/orders/",
+        "vendor/orders",
         VendorOrdersView.as_view(),
         name="vendor-orders",
     ),
     path(
-        "vendor/stats/",
+        "vendor/stats",
         VendorStatsView.as_view(),
         name="vendor-stats",
     ),
