@@ -1,11 +1,16 @@
 # groups/api/serializers.py
 
+import uuid
+
 from django.contrib.contenttypes.models import ContentType
 from rest_framework import serializers
 
 from accounts.api.serializers import UserSerializer
 from groups.models import Group, GroupMembership
 from groups.services.groups import GroupService
+from groups.models import GroupOverviewLayout
+from identity.models import EmblemAvatar
+from utils.storage.storage_utils import key_to_url
 
 # from identity.models import EmblemAvatar  # PHASE 3: Deferred
 # from groups.utils import prefetch_members
@@ -22,42 +27,138 @@ from ..models import (
     InviteLink,
 )
 
+# Group Overview layout constraints
+OVERVIEW_BLOCK_TYPES = {
+    "welcome",
+    "announcements",
+    "upcoming_events",
+    "recent_posts",
+    "member_highlights",
+    "stewards",
+    "pinned_resources",
+    "pinned_writing",
+    "quick_links",
+}
+
+OVERVIEW_SINGLETON_BLOCKS = {
+    "welcome",
+    "announcements",
+    "upcoming_events",
+    "recent_posts",
+    "member_highlights",
+    "stewards",
+    "pinned_resources",
+    "pinned_writing",
+}
+
+OVERVIEW_WIDTHS = {"full", "two_thirds", "half", "one_third"}
+OVERVIEW_VISIBILITY = {"members", "public"}
+
+
+class GroupOverviewLayoutSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GroupOverviewLayout
+        fields = ("id", "layout_version", "blocks", "created_at", "updated_at")
+        read_only_fields = ("id", "created_at", "updated_at")
+
+    def validate_blocks(self, value):
+        if not isinstance(value, list):
+            raise serializers.ValidationError("blocks must be a list.")
+
+        seen_singletons: set[str] = set()
+        normalized: list[dict] = []
+
+        for block in value:
+            if not isinstance(block, dict):
+                raise serializers.ValidationError("Each block must be an object.")
+
+            block_id = block.get("id") or str(uuid.uuid4())
+            block_type = block.get("type")
+            width = block.get("width", "full")
+            visibility = block.get("visibility", "members")
+            config = block.get("config", {})
+
+            if block_type not in OVERVIEW_BLOCK_TYPES:
+                raise serializers.ValidationError(f"Unknown block type: {block_type}")
+            if width not in OVERVIEW_WIDTHS:
+                raise serializers.ValidationError(f"Unknown width: {width}")
+            if visibility not in OVERVIEW_VISIBILITY:
+                raise serializers.ValidationError(f"Unknown visibility: {visibility}")
+            if not isinstance(config, dict):
+                raise serializers.ValidationError("config must be an object.")
+
+            if block_type in OVERVIEW_SINGLETON_BLOCKS:
+                if block_type in seen_singletons:
+                    raise serializers.ValidationError(f"Duplicate singleton block: {block_type}")
+                seen_singletons.add(block_type)
+
+            if block_type == "welcome":
+                images = config.get("images", [])
+                ctas = config.get("ctas", [])
+                if isinstance(images, list) and len(images) > 3:
+                    raise serializers.ValidationError("Welcome block images may not exceed 3.")
+                if isinstance(ctas, list) and len(ctas) > 2:
+                    raise serializers.ValidationError("Welcome block CTAs may not exceed 2.")
+
+            normalized.append(
+                {
+                    "id": block_id,
+                    "type": block_type,
+                    "width": width,
+                    "visibility": visibility,
+                    "config": config,
+                }
+            )
+
+        return normalized
+
 
 # ============================================================================
-# PHASE 3: Identity Integration (Deferred)
+# Emblem inline serializer (reuses identity subsystem)
 # ============================================================================
-# class EmblemInlineSerializer(serializers.ModelSerializer):
-#     size_48_url  = serializers.SerializerMethodField()
-#     size_96_url  = serializers.SerializerMethodField()
-#     size_192_url = serializers.SerializerMethodField()
-#     size_512_url = serializers.SerializerMethodField()
-#     # nice convenience: pick the "best" size for badges/headers
-#     url          = serializers.SerializerMethodField()
-#
-#     class Meta:
-#         model = EmblemAvatar
-#         fields = (
-#             "id",
-#             # raw keys (keep if you want)
-#             "size_48", "size_96", "size_192", "size_512",
-#             "seed", "initials", "fg", "bg",
-#             # resolved URLs
-#             "size_48_url", "size_96_url", "size_192_url", "size_512_url",
-#             "url",
-#         )
-#
-#     def _url(self, key):  # tiny helper
-#         return key_to_url(key)
-#
-#     def get_size_48_url(self, obj):  return self._url(obj.size_48)
-#     def get_size_96_url(self, obj):  return self._url(obj.size_96)
-#     def get_size_192_url(self, obj): return self._url(obj.size_192)
-#     def get_size_512_url(self, obj): return self._url(obj.size_512)
-#
-#     def get_url(self, obj):
-#         # choose a default display size
-#         return self._url(obj.size_96) or self._url(obj.size_48) \
-#             or self._url(obj.size_192) or self._url(obj.size_512)
+class EmblemInlineSerializer(serializers.ModelSerializer):
+    size_48_url = serializers.SerializerMethodField()
+    size_96_url = serializers.SerializerMethodField()
+    size_192_url = serializers.SerializerMethodField()
+    size_512_url = serializers.SerializerMethodField()
+    url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EmblemAvatar
+        fields = (
+            "id",
+            "size_48",
+            "size_96",
+            "size_192",
+            "size_512",
+            "seed",
+            "initials",
+            "fg",
+            "bg",
+            "size_48_url",
+            "size_96_url",
+            "size_192_url",
+            "size_512_url",
+            "url",
+        )
+
+    def _url(self, key):
+        return key_to_url(key)
+
+    def get_size_48_url(self, obj):
+        return self._url(obj.size_48)
+
+    def get_size_96_url(self, obj):
+        return self._url(obj.size_96)
+
+    def get_size_192_url(self, obj):
+        return self._url(obj.size_192)
+
+    def get_size_512_url(self, obj):
+        return self._url(obj.size_512)
+
+    def get_url(self, obj):
+        return self._url(obj.size_96) or self._url(obj.size_48) or self._url(obj.size_192) or self._url(obj.size_512)
 
 
 
@@ -74,7 +175,7 @@ class GroupListSerializer(serializers.ModelSerializer):
     profile_image_url = serializers.ReadOnlyField()
     background_image_url = serializers.ReadOnlyField()
 
-    # emblem = EmblemInlineSerializer(read_only=True)  # PHASE 3: Deferred
+    emblem = EmblemInlineSerializer(read_only=True)
 
     def get_member_count(self, obj):
         return obj.memberships.filter(
@@ -133,6 +234,7 @@ class GroupListSerializer(serializers.ModelSerializer):
             "profile_image_path",
             "background_image_path",
             "profile_image_url", "background_image_url",         # resolved URLs (use these in UI)
+            "emblem",
             "is_active", "created_at", "member_count", "user_roles", "sponsor_group",
         ]
 
@@ -151,8 +253,8 @@ class GroupDetailSerializer(GroupListSerializer):
     sponsor_group = serializers.SerializerMethodField()
 
     # write-only inputs for updates
-    # emblem_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
-    # emblem_avatar_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
+    emblem_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
+    emblem_avatar_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
 
     # submitted_by_username = serializers.CharField(
     #     source="submitted_by.username", read_only=True
@@ -194,6 +296,7 @@ class GroupDetailSerializer(GroupListSerializer):
                 # Computed image URLs (read-only, generated on-demand)
                 "profile_image_url",
                 "background_image_url",
+                "emblem",
                 # Additional content fields
                 "summary",
                 "body",
@@ -203,8 +306,8 @@ class GroupDetailSerializer(GroupListSerializer):
                 # "status",
                 # "display_layout",
                 # write-only inputs (included so DRF accepts them on PATCH)
-                # "emblem_id",
-                # "emblem_avatar_id",
+                "emblem_id",
+                "emblem_avatar_id",
             ]
         )
         read_only_fields = (

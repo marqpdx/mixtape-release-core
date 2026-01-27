@@ -13,6 +13,7 @@ from django.utils.crypto import get_random_string
 from fundamentals.bases import BaseModel
 from fundamentals.models import BaseContent, LayoutParent
 from groups.models.dec_enums import GroupType, GroupVisibility
+from identity.models import EmblemAvatar
 
 
 def generate_token():
@@ -62,12 +63,13 @@ class Group(LayoutParent, BaseContent):
     # ============================================================================
     # PHASE 3: Identity Integration (Deferred)
     # ============================================================================
-    # emblem = models.ForeignKey(
-    #     "identity.EmblemAvatar",
-    #     null=True, blank=True,
-    #     on_delete=models.SET_NULL,
-    #     related_name="groups",
-    # )
+    emblem = models.ForeignKey(
+        EmblemAvatar,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="groups",
+    )
 
     is_active = models.BooleanField(default=True, db_index=True)
 

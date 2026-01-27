@@ -8,6 +8,7 @@ We are moving toward a comprehensive, repeatable testing architecture that is bo
 - Test settings isolated in `mixtape.settings.test` with `TEST_DB_*` env overrides.
 - Quiet, repeatable test runner script that resets, migrates, and runs targeted suites with logs captured.
 - Collection Curation API suite implemented with polymorphic `LibraryItem` coverage.
+- Note: In Codex, local Postgres access may require elevated permissions to reach `localhost:5433`.
 
 ## Next Steps
 

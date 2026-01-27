@@ -23,6 +23,9 @@ echo "TEST_DB_PASSWORD=${TEST_DB_PASSWORD:-}"
 echo "TEST_DB_HOST=${TEST_DB_HOST:-}"
 echo "TEST_DB_PORT=${TEST_DB_PORT:-}"
 echo "DJANGO_SETTINGS_MODULE=${DJANGO_SETTINGS_MODULE}"
+if [[ "${CODEX_SANDBOX_NETWORK_DISABLED:-}" == "1" ]]; then
+  echo "note: CODEX sandbox network is disabled; DB connections to ${TEST_DB_HOST:-localhost}:${TEST_DB_PORT:-} may fail unless you rerun with elevated permissions."
+fi
 
 ${PIP} install -r requirements.txt >"${LOG_DIR}/pip_install.log" 2>&1
 ./reset_test_db.sh

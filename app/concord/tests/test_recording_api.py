@@ -42,15 +42,28 @@ class ConcordRecordingAPITests(APITestCase):
         )
         self.client.force_authenticate(user=self.user)
 
-        self.group = Group.objects.create(
+        self.group = self._create_group(
+            sponsor_user=self.user,
             title="Concord Group",
             slug="concord-group",
+        )
+        self.group_ct = ContentType.objects.get_for_model(Group)
+
+    def _create_group(self, *, sponsor_user, title, slug):
+        group = Group(
+            title=title,
+            slug=slug,
             description="Test group",
             group_type="community",
             decorators=[],
             additional_permissions=[],
         )
-        self.group_ct = ContentType.objects.get_for_model(Group)
+        group.set_sponsor(sponsor_user)
+        group.set_submitted_by(sponsor_user)
+        group.author = sponsor_user
+        group.author_name = sponsor_user.get_full_name() or sponsor_user.username
+        group.save()
+        return group
 
     def _make_audio(self, name="test.mp3", content_type="audio/mpeg", content=b"fake audio"):
         return SimpleUploadedFile(name, content, content_type=content_type)

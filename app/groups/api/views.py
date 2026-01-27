@@ -1,6 +1,7 @@
 # groups/api/views.py
 
 import json
+import uuid
 
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
@@ -31,6 +32,7 @@ from groups.api.serializers import (
     GroupInvitationSerializer,
     GroupListSerializer,
     GroupMembershipSerializer,
+    GroupOverviewLayoutSerializer,
 )
 
 # from groups.api.serializers import GroupSerializer
@@ -43,10 +45,12 @@ from groups.models import (
     Group,
     GroupInvitation,
     GroupMembership,
+    GroupOverviewLayout,
 )
 from groups.models.group import InvitationKind, InvitationStatus
 from groups.permissions import IsGroupAdminOrSteward, canUserModerateGroupUser
 from groups.services.groups import GroupService
+from identity.models import EmblemAvatar
 from groups.services.invitations import InvitationService
 
 # from identity.models import EmblemAvatar  # PHASE 3: Deferred
@@ -67,11 +71,28 @@ from .serializers import (
     GroupMembershipSearchSerializer,
 )
 
+DEFAULT_OVERVIEW_BLOCKS = [
+    {"type": "welcome", "width": "two_thirds", "visibility": "members", "config": {}},
+    {"type": "member_highlights", "width": "one_third", "visibility": "members", "config": {}},
+    {"type": "announcements", "width": "two_thirds", "visibility": "members", "config": {}},
+    {"type": "upcoming_events", "width": "one_third", "visibility": "members", "config": {}},
+    {"type": "pinned_writing", "width": "two_thirds", "visibility": "members", "config": {}},
+    {"type": "recent_posts", "width": "two_thirds", "visibility": "members", "config": {}},
+    {"type": "pinned_resources", "width": "full", "visibility": "members", "config": {}},
+    {"type": "stewards", "width": "one_third", "visibility": "members", "config": {}},
+]
+
+
+def build_default_overview_blocks():
+    blocks = []
+    for block in DEFAULT_OVERVIEW_BLOCKS:
+        entry = dict(block)
+        entry["id"] = str(uuid.uuid4())
+        blocks.append(entry)
+    return blocks
+
 
 User = get_user_model()
-
-
-
 
 
 class GroupListCreateView(generics.ListCreateAPIView):
@@ -313,6 +334,83 @@ class GroupWelcomePinView(generics.GenericAPIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class GroupEmblemAttachView(generics.GenericAPIView):
+    """
+    POST /api/groups/<slug>/emblem/attach
+    Body: { "emblem_id": "<uuid>" }
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, slug):
+        group = get_object_or_404(Group, slug=slug, is_active=True)
+        membership = GroupService.get_user_membership(group, request.user)
+        if not membership or not (membership.is_admin() or membership.is_steward()):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        emblem_id = request.data.get("emblem_id")
+        if not emblem_id:
+            return Response({"detail": "emblem_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        emblem = get_object_or_404(EmblemAvatar, id=emblem_id)
+        if not emblem.can_be_attached_by(request.user):
+            return Response({"detail": "Emblem cannot be attached by this user."}, status=status.HTTP_403_FORBIDDEN)
+
+        group.emblem = emblem
+        group.save(update_fields=["emblem"])
+        return Response(GroupDetailSerializer(group, context={"request": request}).data)
+
+
+class GroupEmblemResetView(generics.GenericAPIView):
+    """
+    POST /api/groups/<slug>/emblem/reset
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, slug):
+        group = get_object_or_404(Group, slug=slug, is_active=True)
+        membership = GroupService.get_user_membership(group, request.user)
+        if not membership or not (membership.is_admin() or membership.is_steward()):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        group.emblem = None
+        group.save(update_fields=["emblem"])
+        return Response(GroupDetailSerializer(group, context={"request": request}).data)
+
+
+class GroupOverviewLayoutView(generics.RetrieveUpdateAPIView):
+    """
+    GET/PUT /api/groups/<slug>/overview-layout
+    """
+    serializer_class = GroupOverviewLayoutSerializer
+    permission_classes = [permissions.AllowAny]
+
+    def _get_group(self):
+        return get_object_or_404(Group, slug=self.kwargs["slug"], is_active=True)
+
+    def _ensure_layout(self, group):
+        layout = getattr(group, "overview_layout", None)
+        if layout:
+            return layout
+        return GroupOverviewLayout.objects.create(
+            group=group,
+            layout_version="1",
+            blocks=build_default_overview_blocks(),
+        )
+
+    def get_object(self):
+        group = self._get_group()
+        if self.request.method == "GET":
+            if not GroupService.can_user_view_group(group, self.request.user):
+                self.permission_denied(self.request, message="You don't have permission to view this group.")
+        return self._ensure_layout(group)
+
+    def update(self, request, *args, **kwargs):
+        group = self._get_group()
+        membership = GroupService.get_user_membership(group, request.user)
+        if not membership or not (membership.is_admin() or membership.is_steward()):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+        return super().update(request, *args, **kwargs)
+
 
 class GroupInvitationDetailView(generics.RetrieveAPIView):
     serializer_class = GroupInvitationSerializer
@@ -322,8 +420,6 @@ class GroupInvitationDetailView(generics.RetrieveAPIView):
     def get_queryset(self):
         group_slug = self.kwargs["group_slug"]
         return GroupInvitation.objects.filter(group__slug=group_slug)
-
-
 
 
 class GroupMembersView(generics.ListAPIView):
@@ -493,8 +589,6 @@ class GroupCirclesListCreateView(generics.ListCreateAPIView):
         #     circle.circle_detail.save()
 
         return circle
-
-
 
 
 class GroupMemberSearchView(generics.ListAPIView):
@@ -884,8 +978,6 @@ def respond_to_group_invitation(request, invitation_id):
 
     detail = "Invitation accepted." if action == "accept" else "Invitation declined."
     return Response({"detail": detail}, status=status.HTTP_200_OK)
-
-
 
 
 @api_view(["POST"])

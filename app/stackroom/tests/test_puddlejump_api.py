@@ -62,7 +62,7 @@ class PuddlejumpAPITests(APITestCase):
         if extra_fields:
             payload.update(extra_fields)
         return self.client.post(
-            "/api/stackroom/puddlejump/import/",
+            "/api/stackroom/puddlejump/import",
             data=payload,
             format="multipart",
         )
@@ -89,7 +89,7 @@ class PuddlejumpAPITests(APITestCase):
         bundle = _make_zip({"puddlejump.json": b"{}", "PUDDLEJUMP.md": b"# Catalog"})
         client = APIClient()
         response = client.post(
-            "/api/stackroom/puddlejump/import/",
+            "/api/stackroom/puddlejump/import",
             data={"file": SimpleUploadedFile("bundle.zip", bundle)},
             format="multipart",
         )
@@ -97,7 +97,7 @@ class PuddlejumpAPITests(APITestCase):
 
     def test_missing_file(self):
         response = self.client.post(
-            "/api/stackroom/puddlejump/import/",
+            "/api/stackroom/puddlejump/import",
             data={},
             format="multipart",
         )

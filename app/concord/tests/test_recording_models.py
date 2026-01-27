@@ -19,15 +19,28 @@ class RecordingModelTests(TestCase):
             email="recording@example.com",
             password="testpass123",
         )
-        self.group = Group.objects.create(
+        self.group = self._create_group(
+            sponsor_user=self.user,
             title="Recording Group",
             slug="recording-group",
+        )
+        self.group_ct = ContentType.objects.get_for_model(Group)
+
+    def _create_group(self, *, sponsor_user, title, slug):
+        group = Group(
+            title=title,
+            slug=slug,
             description="Test group",
             group_type="community",
             decorators=[],
             additional_permissions=[],
         )
-        self.group_ct = ContentType.objects.get_for_model(Group)
+        group.set_sponsor(sponsor_user)
+        group.set_submitted_by(sponsor_user)
+        group.author = sponsor_user
+        group.author_name = sponsor_user.get_full_name() or sponsor_user.username
+        group.save()
+        return group
 
     def _create_recording(self, **kwargs):
         return Recording.objects.create(
@@ -76,13 +89,10 @@ class RecordingModelTests(TestCase):
         self.assertTrue(first.slug.startswith(slugify(title)))
         self.assertTrue(second.slug.startswith(slugify(title)))
 
-        other_group = Group.objects.create(
+        other_group = self._create_group(
+            sponsor_user=self.user,
             title="Other Group",
             slug="other-group",
-            description="Test group",
-            group_type="community",
-            decorators=[],
-            additional_permissions=[],
         )
         other_recording = Recording.objects.create(
             sponsor_content_type=ContentType.objects.get_for_model(Group),

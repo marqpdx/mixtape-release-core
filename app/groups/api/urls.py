@@ -10,6 +10,9 @@ from .views import (
     GroupCoalitionInvitationsListView,
     GroupCoalitionInvitationsReceivedListView,
     GroupDetailView,
+    GroupEmblemAttachView,
+    GroupEmblemResetView,
+    GroupOverviewLayoutView,
     GroupInvitationDetailView,
     GroupInvitationsListView,
     GroupListCreateView,
@@ -60,6 +63,9 @@ urlpatterns = [
     path("my", UserGroupsView.as_view(), name="user-groups"),  # /api/groups/my
     path("<slug:slug>", GroupDetailView.as_view(), name="group-detail"),  # /api/groups/<slug>/
     path("<slug:slug>/welcome", GroupWelcomePinView.as_view(), name="group-welcome-pin"),
+    path("<slug:slug>/emblem/attach", GroupEmblemAttachView.as_view(), name="group-emblem-attach"),
+    path("<slug:slug>/emblem/reset", GroupEmblemResetView.as_view(), name="group-emblem-reset"),
+    path("<slug:slug>/overview-layout", GroupOverviewLayoutView.as_view(), name="group-overview-layout"),
 
     # Group membership - consolidated single endpoint
     path("<slug:slug>/members", GroupMembersView.as_view(), name="group-members"),
@@ -88,10 +94,8 @@ urlpatterns = [
     path("coalition-invitations/<int:invitation_id>/respond", respond_to_group_invitation, name="group-coalition-respond"),
 
     # ============================================================================
-    # PHASE 3: Emblems (Deferred - requires identity app)
+    # PHASE 3: Emblems (Enabled)
     # ============================================================================
-    # path('/<slug:group_slug>/emblem/attach', GroupEmblemAttachView.as_view(), name='group-emblem-attach'),
-    # path('/<slug:group_slug>/emblem/reset', GroupEmblemResetView.as_view(), name='group-emblem-reset'),
 
 
     # Group Announcements

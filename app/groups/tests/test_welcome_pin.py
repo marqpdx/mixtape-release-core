@@ -32,23 +32,17 @@ class GroupWelcomePinTests(TestCase):
             password="testpass123",
         )
 
-        self.group = Group.objects.create(
+        self.group = self._create_group(
+            sponsor_user=self.author,
             title="Welcome Group",
             slug="welcome-group",
-            description="Test group",
-            group_type="community",
-            decorators=[],
-            additional_permissions=[],
         )
 
         default_slug = getattr(settings, "MIXTAPE_DEFAULT_GROUP_SLUG", "") or "crossroads"
-        self.default_group = Group.objects.create(
+        self.default_group = self._create_group(
+            sponsor_user=self.author,
             title="Default Community",
             slug=default_slug,
-            description="Default community group",
-            group_type="community",
-            decorators=[],
-            additional_permissions=[],
         )
 
         user_ct = ContentType.objects.get_for_model(User)
@@ -88,7 +82,31 @@ class GroupWelcomePinTests(TestCase):
             visibility="public",
         )
 
-    def _create_welcome_pin(self, title, slug, audience, visibility):
+        self._create_welcome_pin(
+            title="Draft Welcome",
+            slug="draft-welcome",
+            audience="group",
+            visibility="members",
+            status="draft",
+        )
+
+    def _create_group(self, *, sponsor_user, title, slug):
+        group = Group(
+            title=title,
+            slug=slug,
+            description="Test group",
+            group_type="community",
+            decorators=[],
+            additional_permissions=[],
+        )
+        group.set_sponsor(sponsor_user)
+        group.set_submitted_by(sponsor_user)
+        group.author = sponsor_user
+        group.author_name = sponsor_user.get_full_name() or sponsor_user.username
+        group.save()
+        return group
+
+    def _create_welcome_pin(self, title, slug, audience, visibility, status="published"):
         ct_group = ContentType.objects.get_for_model(Group)
         ct_piece = ContentType.objects.get_for_model(WritingPiece)
 
@@ -98,8 +116,8 @@ class GroupWelcomePinTests(TestCase):
             body_json={"type": "doc", "content": []},
             excerpt=f"{title} excerpt",
             writing_kind="post",
-            status="published",
-            published_at=timezone.now(),
+            status=status,
+            published_at=timezone.now() if status == "published" else None,
             sponsor_content_type=ct_group,
             sponsor_object_id=self.group.id,
             author=self.author,
@@ -142,8 +160,8 @@ class GroupWelcomePinTests(TestCase):
         self.client.force_authenticate(user=self.group_member)
         response = self.client.get(f"/api/groups/{self.group.slug}/welcome")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["audience"], "group")
-        self.assertEqual(response.data["piece"]["title"], "Group Welcome")
+        self.assertEqual(response.data["audience"], "community")
+        self.assertEqual(response.data["piece"]["title"], "Community Welcome")
 
     def test_default_community_member_sees_community_pin(self):
         self.client.force_authenticate(user=self.community_member)
@@ -157,3 +175,10 @@ class GroupWelcomePinTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["audience"], "public")
         self.assertEqual(response.data["piece"]["title"], "Public Welcome")
+
+    def test_unpublished_piece_is_ignored(self):
+        self.client.force_authenticate(user=self.group_member)
+        response = self.client.get(f"/api/groups/{self.group.slug}/welcome")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["audience"], "community")
+        self.assertEqual(response.data["piece"]["title"], "Community Welcome")
