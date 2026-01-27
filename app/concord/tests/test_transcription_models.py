@@ -19,13 +19,10 @@ class TranscriptionModelTests(TestCase):
             email="transcription@example.com",
             password="testpass123",
         )
-        self.group = Group.objects.create(
+        self.group = self._create_group(
+            sponsor_user=self.user,
             title="Transcription Group",
             slug="transcription-group",
-            description="Test group",
-            group_type="community",
-            decorators=[],
-            additional_permissions=[],
         )
         self.group_ct = ContentType.objects.get_for_model(Group)
         self.recording = Recording.objects.create(
@@ -35,6 +32,22 @@ class TranscriptionModelTests(TestCase):
             submitted_by=self.user,
             status=RecordingStatus.UPLOADED,
         )
+
+    def _create_group(self, *, sponsor_user, title, slug):
+        group = Group(
+            title=title,
+            slug=slug,
+            description="Test group",
+            group_type="community",
+            decorators=[],
+            additional_permissions=[],
+        )
+        group.set_sponsor(sponsor_user)
+        group.set_submitted_by(sponsor_user)
+        group.author = sponsor_user
+        group.author_name = sponsor_user.get_full_name() or sponsor_user.username
+        group.save()
+        return group
 
     def test_unique_version_per_recording(self):
         Transcription.objects.create(recording=self.recording, version=1, text="v1")
@@ -55,13 +68,10 @@ class TranscriptSegmentModelTests(TestCase):
             email="segment@example.com",
             password="testpass123",
         )
-        self.group = Group.objects.create(
+        self.group = self._create_group(
+            sponsor_user=self.user,
             title="Segment Group",
             slug="segment-group",
-            description="Test group",
-            group_type="community",
-            decorators=[],
-            additional_permissions=[],
         )
         group_ct = ContentType.objects.get_for_model(Group)
         recording = Recording.objects.create(
@@ -72,6 +82,22 @@ class TranscriptSegmentModelTests(TestCase):
             status=RecordingStatus.UPLOADED,
         )
         self.transcription = Transcription.objects.create(recording=recording, version=1, text="v1")
+
+    def _create_group(self, *, sponsor_user, title, slug):
+        group = Group(
+            title=title,
+            slug=slug,
+            description="Test group",
+            group_type="community",
+            decorators=[],
+            additional_permissions=[],
+        )
+        group.set_sponsor(sponsor_user)
+        group.set_submitted_by(sponsor_user)
+        group.author = sponsor_user
+        group.author_name = sponsor_user.get_full_name() or sponsor_user.username
+        group.save()
+        return group
 
     def test_segment_duration_and_ordering(self):
         TranscriptSegment.objects.create(

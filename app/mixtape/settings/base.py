@@ -91,6 +91,7 @@ INSTALLED_APPS = [
     "fundamentals",    # BaseModel (timestamps, soft delete)
     "gristmill",       # Import and Promotion system
     "groups",          # Group model, GroupMembership, Invitations (Phase 2)
+    "identity",        # Emblems etc..
     "inkwell",         # AI services, RAG, synopsis generation
     "lanternmail",     # Newsletter and email campaigns
     "ops",             # SysAdmin / Ops dashboard backend

@@ -29,21 +29,17 @@ class CoalitionInvitationFlowTests(TestCase):
             password="testpass123",
         )
 
-        self.coalition = Group.objects.create(
+        self.coalition = self._create_group(
+            sponsor_user=self.user_admin,
             title="Test Coalition",
             slug="test-coalition",
-            description="Coalition group",
             group_type="coalition",
-            decorators=[],
-            additional_permissions=[],
         )
-        self.member_group = Group.objects.create(
+        self.member_group = self._create_group(
+            sponsor_user=self.user_group_admin,
             title="Member Group",
             slug="member-group",
-            description="Group to be invited",
             group_type="community",
-            decorators=[],
-            additional_permissions=[],
         )
 
         user_ct = ContentType.objects.get_for_model(User)
@@ -64,6 +60,22 @@ class CoalitionInvitationFlowTests(TestCase):
             is_active=True,
             is_pending=False,
         )
+
+    def _create_group(self, *, sponsor_user, title, slug, group_type):
+        group = Group(
+            title=title,
+            slug=slug,
+            description="Test group",
+            group_type=group_type,
+            decorators=[],
+            additional_permissions=[],
+        )
+        group.set_sponsor(sponsor_user)
+        group.set_submitted_by(sponsor_user)
+        group.author = sponsor_user
+        group.author_name = sponsor_user.get_full_name() or sponsor_user.username
+        group.save()
+        return group
 
     def test_coalition_invite_creates_group_invitation(self):
         self.client.force_authenticate(user=self.user_admin)
@@ -155,13 +167,11 @@ class CoalitionInvitationFlowTests(TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_invite_rejected_for_non_coalition_group(self):
-        community = Group.objects.create(
+        community = self._create_group(
+            sponsor_user=self.user_regular,
             title="Community",
             slug="community-group",
-            description="Not a coalition",
             group_type="community",
-            decorators=[],
-            additional_permissions=[],
         )
         self.client.force_authenticate(user=self.user_admin)
         response = self.client.post(
@@ -170,4 +180,4 @@ class CoalitionInvitationFlowTests(TestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 403)

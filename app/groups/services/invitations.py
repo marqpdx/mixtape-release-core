@@ -482,7 +482,7 @@ class InvitationService:
             is_active=True,
             is_banned=False,
             is_evicted=False,
-        ).select_related("member_object")
+        ).select_related("member_content_type")
 
         emails = []
         for membership in memberships:

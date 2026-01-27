@@ -19,13 +19,10 @@ class SpeakerAnchorModelTests(TestCase):
             email="anchor@example.com",
             password="testpass123",
         )
-        self.group = Group.objects.create(
+        self.group = self._create_group(
+            sponsor_user=self.user,
             title="Anchor Group",
             slug="anchor-group",
-            description="Test group",
-            group_type="community",
-            decorators=[],
-            additional_permissions=[],
         )
         self.group_ct = ContentType.objects.get_for_model(Group)
         self.session = RecordingSession.objects.create(
@@ -35,6 +32,22 @@ class SpeakerAnchorModelTests(TestCase):
             submitted_by=self.user,
             status=SessionStatus.RECORDING,
         )
+
+    def _create_group(self, *, sponsor_user, title, slug):
+        group = Group(
+            title=title,
+            slug=slug,
+            description="Test group",
+            group_type="community",
+            decorators=[],
+            additional_permissions=[],
+        )
+        group.set_sponsor(sponsor_user)
+        group.set_submitted_by(sponsor_user)
+        group.author = sponsor_user
+        group.author_name = sponsor_user.get_full_name() or sponsor_user.username
+        group.save()
+        return group
 
     def test_anchor_requires_scope(self):
         with self.assertRaises(IntegrityError):

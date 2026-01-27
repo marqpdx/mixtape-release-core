@@ -9,6 +9,9 @@ from .decorators import *
 # 2. Base Group model (depends on enums)
 from .group import *
 
+# 2.5. Overview layout (depends on Group)
+from .overview_layout import *
+
 # 3. Membership (depends on Group)
 from .membership import *
 

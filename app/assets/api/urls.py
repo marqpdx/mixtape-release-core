@@ -24,8 +24,8 @@ urlpatterns = [
     path("managed/folders", views.SponsorAssetFolderListView.as_view(), name="sponsor-asset-folders"),
     path("managed/<uuid:asset_id>/presign", views.SponsorAssetPresignView.as_view(), name="sponsor-asset-presign"),
 
-    # ===== GROUP-SPECIFIC ENDPOINTS (Deprecated - use sponsor-agnostic above) =====
 
+    # ===== GROUP-SPECIFIC ENDPOINTS (Deprecated - use sponsor-agnostic above) =====
     path("groups/<uuid:group_id>/upload", views.GroupAssetUploadView.as_view(), name="group-asset-upload"),
     path("groups/<uuid:group_id>/assets", views.GroupAssetListView.as_view(), name="group-asset-list"),
     path("groups/<uuid:group_id>/folders", views.GroupAssetFolderListView.as_view(), name="group-asset-folders"),

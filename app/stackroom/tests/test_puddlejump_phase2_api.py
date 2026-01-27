@@ -52,7 +52,7 @@ def _manifest_payload(*, bundle_id: str, title: str, files: list[dict]) -> dict:
 
 def _upload(client, file_bytes: bytes, name: str):
     return client.post(
-        "/api/stackroom/puddlejump/import/",
+        "/api/stackroom/puddlejump/import",
         data={"file": SimpleUploadedFile(name, file_bytes)},
         format="multipart",
     )
