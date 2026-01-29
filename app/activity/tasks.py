@@ -33,35 +33,45 @@ def fanout_action_task(self, action_id: str):
     # For visibility: if action is clearly not for notifications (e.g., plain chat message), skip
     # In your producers, avoid creating Action for routine chat messages.
 
-    with transaction.atomic():
-        outbox = ActionOutbox.objects.select_for_update().get(action=action)
-        # If already dispatched, we can be idempotent; but still attempt fanout (e.g., partial failures)
-        for user in recipients:
-            level, bucket, priority = apply_preferences(user, action)
-            if level == "mute":
-                continue
+    try:
+        with transaction.atomic():
+            outbox = ActionOutbox.objects.select_for_update().get(action=action)
+            # If already dispatched, we can be idempotent; but still attempt fanout (e.g., partial failures)
+            for user in recipients:
+                level, bucket, priority = apply_preferences(user, action)
+                if level == "mute":
+                    continue
 
-            notif, created = Notification.objects.get_or_create(
-                recipient=user,
-                dedupe_key=action.dedupe_key,
-                defaults=dict(
-                    action=action,
-                    bucket=bucket,
-                    priority=priority,
-                    aggregate_key=action.aggregate_key,
-                    last_occurred_at=action.occurs_at,
-                ),
-            )
-            if not created:
-                # Only roll up when the aggregate_key matches (same rolling topic)
-                if notif.aggregate_key == action.aggregate_key:
-                    Notification.objects.filter(pk=notif.pk).update(
-                        aggregate_count=models.F("aggregate_count") + 1,
+                notif, created = Notification.objects.get_or_create(
+                    recipient=user,
+                    dedupe_key=action.dedupe_key,
+                    defaults=dict(
+                        action=action,
+                        bucket=bucket,
+                        level=level,
+                        priority=priority,
+                        aggregate_key=action.aggregate_key,
                         last_occurred_at=action.occurs_at,
-                        priority=max_priority(notif.priority, priority),
-                    )
-                # else: keep existing notif (represents the same object already)
+                    ),
+                )
+                if not created:
+                    # Only roll up when the aggregate_key matches (same rolling topic)
+                    if notif.aggregate_key == action.aggregate_key:
+                        Notification.objects.filter(pk=notif.pk).update(
+                            aggregate_count=models.F("aggregate_count") + 1,
+                            last_occurred_at=action.occurs_at,
+                            priority=max_priority(notif.priority, priority),
+                            level=level,
+                        )
+                    # else: keep existing notif (represents the same object already)
 
-        outbox.dispatched_at = timezone.now()
-        outbox.attempts = models.F("attempts") + 1
-        outbox.save(update_fields=["dispatched_at", "attempts"])
+            outbox.dispatched_at = timezone.now()
+            outbox.attempts = models.F("attempts") + 1
+            outbox.last_error = ""
+            outbox.save(update_fields=["dispatched_at", "attempts", "last_error"])
+    except Exception as exc:
+        ActionOutbox.objects.filter(action=action).update(
+            attempts=models.F("attempts") + 1,
+            last_error=str(exc),
+        )
+        raise

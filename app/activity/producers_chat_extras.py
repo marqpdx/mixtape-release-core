@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from activity.models import Action, ActionOutbox, ActivityType
 from activity.services.mentions import expand_mention_to_users
-from activity.tasks import fanout_action_task
+from activity.services.validation import validate_audience_spec
 
 
 User = get_user_model()
@@ -28,11 +28,10 @@ def _ensure_activity_type(code, title, default_channel, default_priority, suppre
     )
     return at
 
-def _create_and_dispatch(action_kwargs):
+def _create_and_outbox(action_kwargs):
+    validate_audience_spec(action_kwargs.get("audience", {}))
     action = Action.objects.create(**action_kwargs)
     ActionOutbox.objects.create(action=action)
-    # fire immediately in dev; in prod you might rely on post_save on outbox or Celery async
-    fanout_action_task.delay(str(action.pk))
     return action
 
 # ---------------------------------------------------------------------
@@ -64,12 +63,12 @@ def produce_mentions_for_message(*, message, conversation, actor_user, mentions_
     if not user_ids:
         return False
 
-    dedupe_key = f"chat-mention:{_id(conversation)}:{_id(message)}"
+    dedupe_key = f"{at.code}:message:{_id(message)}"
     # Avoid duplicate Actions if this gets called multiple times
     if Action.objects.filter(dedupe_key=dedupe_key).exists():
         return False
 
-    _create_and_dispatch(dict(
+    _create_and_outbox(dict(
         actor_content_type=_ct(actor_user),
         actor_id=_id(actor_user),
         actor_label="user",
@@ -115,7 +114,7 @@ def produce_reaction_notification(*, reaction) -> bool:
 
     at = _ensure_activity_type("chat.message.reaction", "Reaction to Your Message", "activity", "low", True)
 
-    _create_and_dispatch(dict(
+    _create_and_outbox(dict(
         actor_content_type=_ct(reactor),
         actor_id=_id(reactor),
         actor_label="user",
@@ -136,7 +135,7 @@ def produce_reaction_notification(*, reaction) -> bool:
             "message_preview": getattr(msg, "text", "")[:140],
         },
 
-        dedupe_key=f"chat-reaction:{_id(msg)}:{_id(sender)}",
+        dedupe_key=f"{at.code}:message:{_id(msg)}:user:{_id(sender)}",
         aggregate_key=f"chat-reactions:{_id(msg)}:{timezone.now():%Y%m%d%H}",
 
         audience={"type": "users", "ids": [str(sender.pk)], "exclude_actor": True},

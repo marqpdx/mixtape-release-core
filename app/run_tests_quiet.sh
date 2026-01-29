@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 if [ -f ".env.test" ]; then
   set -a
@@ -27,7 +28,12 @@ if [[ "${CODEX_SANDBOX_NETWORK_DISABLED:-}" == "1" ]]; then
   echo "note: CODEX sandbox network is disabled; DB connections to ${TEST_DB_HOST:-localhost}:${TEST_DB_PORT:-} may fail unless you rerun with elevated permissions."
 fi
 
-${PIP} install -r requirements.txt >"${LOG_DIR}/pip_install.log" 2>&1
+REQ_FILE="${ROOT_DIR}/requirements-dev.txt"
+if [[ ! -f "${REQ_FILE}" ]]; then
+  echo "missing ${REQ_FILE}; update run_tests_quiet.sh to point at the correct requirements file"
+  exit 1
+fi
+${PIP} install -r "${REQ_FILE}" >"${LOG_DIR}/pip_install.log" 2>&1
 ./reset_test_db.sh
 ${PYTHON} manage.py migrate >"${LOG_DIR}/migrate.log" 2>&1
 

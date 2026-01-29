@@ -5,7 +5,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
 
 from activity.models import Action, ActionOutbox, ActivityType
-from activity.tasks import fanout_action_task
+from activity.services.validation import validate_audience_spec
 
 
 # ---------- Small helpers ----------
@@ -39,15 +39,13 @@ def _ensure_activity_type(
     )
     return at
 
-def _create_action_and_dispatch(**kwargs) -> Action:
+def _create_action_and_outbox(**kwargs) -> Action:
     """
-    Create Action + Outbox, and enqueue fanout task (Celery).
-    If you wired a post_save signal on ActionOutbox to enqueue, you can omit the .delay() here.
+    Create Action + Outbox. Fanout is triggered by ActionOutbox post_save.
     """
+    validate_audience_spec(kwargs.get("audience", {}))
     action = Action.objects.create(**kwargs)
-    outbox = ActionOutbox.objects.create(action=action)
-    # enqueue now (comment out if you use post_save signal to trigger)
-    fanout_action_task.delay(str(action.pk))
+    ActionOutbox.objects.create(action=action)
     return action
 
 
@@ -71,7 +69,7 @@ def on_chat_mention(*, message, conversation, mentioned_users):
         suppressible_by_user=False,  # generally we don't allow suppressing mentions
     )
 
-    _create_action_and_dispatch(
+    _create_action_and_outbox(
         # actor
         actor_content_type=_ct(message.sender),
         actor_id=_id(message.sender),
@@ -94,7 +92,7 @@ def on_chat_mention(*, message, conversation, mentioned_users):
         metadata={"message_preview": getattr(message, "text", "")[:140]},
 
         # dedupe / aggregate
-        dedupe_key=f"chat-mention:{_id(conversation)}:{_id(message)}",
+        dedupe_key=f"{at.code}:message:{_id(message)}",
         aggregate_key=f"chat-mentions:{_id(conversation)}:{timezone.now():%Y%m%d%H%M}",
 
         # audience
@@ -124,7 +122,7 @@ def on_conversation_participant_added(*, conversation, added_user, added_by):
         suppressible_by_user=True,
     )
 
-    _create_action_and_dispatch(
+    _create_action_and_outbox(
         actor_content_type=_ct(added_by),
         actor_id=_id(added_by),
         actor_label="user",
@@ -142,7 +140,7 @@ def on_conversation_participant_added(*, conversation, added_user, added_by):
 
         metadata={"conversation_name": getattr(conversation, "name", "")},
 
-        dedupe_key=f"chat-participant-added:{_id(conversation)}:{_id(added_user)}",
+        dedupe_key=f"{at.code}:conversation:{_id(conversation)}:user:{_id(added_user)}",
         aggregate_key=f"chat-participants:{_id(conversation)}:{timezone.now():%Y%m%d}",
 
         audience={"type": "users", "ids": [str(_id(added_user))], "exclude_actor": False},
@@ -176,7 +174,7 @@ def on_conversation_created(*, conversation, creator, initial_participants):
     if not recipient_ids:
         return  # nothing to notify
 
-    _create_action_and_dispatch(
+    _create_action_and_outbox(
         actor_content_type=_ct(creator),
         actor_id=_id(creator),
         actor_label="user",
@@ -194,7 +192,7 @@ def on_conversation_created(*, conversation, creator, initial_participants):
 
         metadata={"conversation_name": getattr(conversation, "name", "")},
 
-        dedupe_key=f"chat-conversation:{_id(conversation)}",
+        dedupe_key=f"{at.code}:conversation:{_id(conversation)}",
         aggregate_key=f"chat-conversation:{_id(conversation)}:{timezone.now():%Y%m%d}",
 
         audience={"type": "users", "ids": recipient_ids, "exclude_actor": False},
@@ -240,7 +238,7 @@ def on_conversation_updated(*, conversation, updated_by, changes: dict):
     # (e.g., {"name":"New Name","locked":true}) -> "name,locked"
     change_keys = ",".join(sorted(changes.keys())) if changes else "meta"
 
-    _create_action_and_dispatch(
+    _create_action_and_outbox(
         actor_content_type=_ct(updated_by),
         actor_id=_id(updated_by),
         actor_label="user",
@@ -258,7 +256,7 @@ def on_conversation_updated(*, conversation, updated_by, changes: dict):
 
         metadata={"changes": changes},
 
-        dedupe_key=f"chat-conversation-updated:{_id(conversation)}:{change_keys}",
+        dedupe_key=f"{at.code}:conversation:{_id(conversation)}:{change_keys}",
         aggregate_key=f"chat-conversation-updates:{_id(conversation)}:{timezone.now():%Y%m%d}",
 
         audience={"type": "users", "ids": recipient_ids, "exclude_actor": False},

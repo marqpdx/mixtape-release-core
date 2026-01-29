@@ -3,7 +3,7 @@
 from django.contrib.contenttypes.models import ContentType
 from rest_framework import serializers
 
-from activity.models import Notification
+from activity.models import Notification, NotificationPreference
 
 
 class NotificationSerializer(serializers.ModelSerializer):
@@ -19,6 +19,7 @@ class NotificationSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "bucket",
+            "level",
             "priority",
             "aggregate_count",
             "last_occurred_at",
@@ -46,13 +47,47 @@ class NotificationSerializer(serializers.ModelSerializer):
         return ""
 
     def get_action_url(self, obj):
+        if obj.action.metadata.get("action_url"):
+            return obj.action.metadata.get("action_url", "")
+        if obj.action.metadata.get("url"):
+            return obj.action.metadata.get("url", "")
         # For group invitations, return the invite URL from metadata
-        if obj.action.activity_code == "group_invitation":
+        if obj.action.activity_code in ("group_invitation", "group.invitation"):
             return obj.action.metadata.get("invite_url", "")
 
         # Otherwise construct based on object type
         if obj.action.object:
+            absolute_url = getattr(obj.action.object, "get_absolute_url", None)
+            if callable(absolute_url):
+                try:
+                    return absolute_url()
+                except Exception:
+                    pass
             ct = ContentType.objects.get_for_model(obj.action.object)
             if ct.model == "group":
-                return f"/groups/{obj.action.object.slug}"
+                return f"/app/groups/{obj.action.object.slug}"
+            if ct.model == "writingpiece":
+                sponsor = getattr(obj.action.object, "sponsor", None)
+                sponsor_slug = getattr(sponsor, "slug", None)
+                piece_slug = getattr(obj.action.object, "slug", None)
+                if sponsor_slug and piece_slug:
+                    return f"/app/groups/{sponsor_slug}/writing/{piece_slug}"
+            if ct.model == "writingcomment":
+                piece = getattr(obj.action.object, "piece", None)
+                sponsor = getattr(piece, "sponsor", None)
+                sponsor_slug = getattr(sponsor, "slug", None)
+                piece_slug = getattr(piece, "slug", None)
+                if sponsor_slug and piece_slug:
+                    return f"/app/groups/{sponsor_slug}/writing/{piece_slug}#comment-{obj.action.object.pk}"
         return ""
+
+
+class NotificationPreferenceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = NotificationPreference
+        fields = [
+            "id",
+            "bucket",
+            "activity_code",
+            "level",
+        ]
