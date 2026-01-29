@@ -5,6 +5,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
 
 from activity.models import Action, ActionOutbox, ActivityType
+from activity.services.validation import validate_audience_spec
 
 
 def _id(obj) -> str:
@@ -28,6 +29,7 @@ def _ensure_activity_type(code: str, *, label: str, default_channel: str = "acti
     return at
 
 def _create_action_and_outbox(**kwargs) -> Action:
+    validate_audience_spec(kwargs.get("audience", {}))
     action = Action.objects.create(**kwargs)
     ActionOutbox.objects.create(action=action)
     return action
@@ -58,7 +60,7 @@ def on_group_post_created(*, post, groups, actor_user=None):
         channel=at.default_channel,
         priority=at.default_priority,
         metadata={},
-        dedupe_key=f"post:{_ct(post).pk}:{_id(post)}",
+        dedupe_key=f"{at.code}:{_ct(post).model}:{_id(post)}",
         aggregate_key=f"post:{_ct(post).pk}:{_id(post)}",
         audience={"type": "group_members_multi", "group_ids": [str(g.pk) for g in groups], "exclude_actor": True},
         occurs_at=timezone.now(),
@@ -87,38 +89,9 @@ def on_comment_created(*, comment, post):
         channel=at.default_channel,
         priority=at.default_priority,
         metadata={},
-        dedupe_key=f"post:{_ct(post).pk}:{_id(post)}",              # canonical to the post
+        dedupe_key=f"{at.code}:{_ct(comment).model}:{_id(comment)}",
         aggregate_key=f"comments:post:{_ct(post).pk}:{_id(post)}",  # rollup key
         audience={"type": "post_participants", "post_id": _id(post), "exclude_actor": True},
-        occurs_at=timezone.now(),
-    )
-
-# 3) Chat @mention (Messages channel; CRITICAL)
-def on_chat_mention(*, message, conversation, mentioned_users):
-    at = _ensure_activity_type(
-        code="chat.mention",
-        label="Chat Mention",
-        default_channel="messages",
-        default_priority="critical",
-        suppressible=False,
-    )
-    _create_action_and_outbox(
-        actor_content_type=_ct(message.sender),
-        actor_id=_id(message.sender),
-        actor_label="user",
-        object_content_type=_ct(message),
-        object_id=_id(message),
-        context_content_type=_ct(conversation),
-        context_id=_id(conversation),
-        activity_type=at,
-        verb="mentioned",
-        activity_code=at.code,
-        channel=at.default_channel,
-        priority=at.default_priority,
-        metadata={"message_preview": getattr(message, "text", "")[:140]},
-        dedupe_key=f"chat-mention:{_id(conversation)}:{_id(message)}",
-        aggregate_key=f"chat-mentions:{_id(conversation)}:{timezone.now():%Y%m%d%H%M}",
-        audience={"type": "users", "ids": [str(u.pk) for u in mentioned_users], "exclude_actor": True},
         occurs_at=timezone.now(),
     )
 
@@ -146,7 +119,7 @@ def on_group_announcement(*, group, announcement, authored_by=None):
         channel=at.default_channel,
         priority=at.default_priority,
         metadata={"title": getattr(announcement, "title", "")},
-        dedupe_key=f"announcement:{_ct(announcement).pk}:{_id(announcement)}",
+        dedupe_key=f"{at.code}:{_ct(announcement).model}:{_id(announcement)}",
         aggregate_key=f"announcement:{_ct(group).pk}:{_id(group)}:{timezone.now():%Y%m%d}",
         audience={"type": "group_members", "group_id": _id(group), "exclude_actor": True},
         occurs_at=timezone.now(),

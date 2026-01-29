@@ -9,6 +9,7 @@ Supports various audience types: direct users, group members, post participants,
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.models import ContentType
 
 
 User = get_user_model()
@@ -80,7 +81,7 @@ def resolve_audience(audience_spec: dict, action) -> list[User]:
         # Users who have interacted with a post
         post_id = audience_spec.get("post_id")
         if post_id:
-            users = _resolve_post_participants(post_id)
+            users = _resolve_post_participants(post_id, action)
 
     else:
         # Unknown audience type - log warning and return empty
@@ -131,11 +132,75 @@ def _resolve_multi_group_members(group_ids: list[str]) -> list[User]:
         return []
 
 
-def _resolve_post_participants(post_id: str) -> list[User]:
+def _resolve_post_participants(post_id: str, action=None) -> list[User]:
     """
     Get users who have interacted with a post (author, commenters, reactors).
-
-    TODO: Implement based on your comment/reaction models.
-    For now, returns empty list.
+    Attempts to resolve the post from action context or known models.
     """
-    return []
+    post_obj = None
+
+    if action and action.context_id and str(action.context_id) == str(post_id):
+        post_obj = action.context
+    elif action and action.context_content_type_id:
+        try:
+            post_obj = action.context_content_type.get_object_for_this_type(pk=post_id)
+        except Exception:
+            post_obj = None
+
+    if not post_obj:
+        for model_path in (
+            "writing.WritingPiece",
+            "dispatch.Post",
+            "threadworks.Post",
+        ):
+            try:
+                app_label, model_name = model_path.split(".")
+                model = ContentType.objects.get(app_label=app_label, model=model_name.lower()).model_class()
+                post_obj = model.objects.filter(pk=post_id).first()
+                if post_obj:
+                    break
+            except Exception:
+                continue
+
+    if not post_obj:
+        return []
+
+    participant_ids = set()
+
+    author_id = getattr(post_obj, "author_id", None)
+    if author_id:
+        participant_ids.add(author_id)
+
+    model_label = post_obj._meta.label_lower
+
+    if model_label == "writing.writingpiece":
+        try:
+            from writing.models import WritingComment, CommentLike
+            commenter_ids = WritingComment.objects.filter(
+                piece_id=post_obj.pk
+            ).values_list("author_id", flat=True)
+            participant_ids.update(commenter_ids)
+
+            liker_ids = CommentLike.objects.filter(
+                comment__piece_id=post_obj.pk
+            ).values_list("user_id", flat=True)
+            participant_ids.update(liker_ids)
+        except Exception:
+            pass
+
+    elif model_label == "threadworks.post":
+        try:
+            from threadworks.models import Post, PostReaction
+            reply_ids = Post.objects.filter(
+                parent_id=post_obj.pk
+            ).values_list("author_id", flat=True)
+            participant_ids.update(reply_ids)
+
+            reactor_ids = PostReaction.objects.filter(
+                post_id=post_obj.pk
+            ).values_list("user_id", flat=True)
+            participant_ids.update(reactor_ids)
+        except Exception:
+            pass
+
+    return list(User.objects.filter(pk__in=participant_ids, is_active=True))

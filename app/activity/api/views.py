@@ -1,17 +1,27 @@
 # activity/api/views.py
 import logging
+from datetime import datetime
 
-from django.db.models import Count
+from django.db.models import Count, Q, Value
+from django.db.models.functions import Coalesce
+from django.utils import timezone
 from rest_framework import generics, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.pagination import CursorPagination
 
 from activity.api.permissions import LoggingIsAuthenticated
-from activity.api.serializers import NotificationSerializer
-from activity.models import Notification
+from activity.api.serializers import NotificationPreferenceSerializer, NotificationSerializer
+from activity.models import Notification, NotificationPreference
 
 # If your chat models live elsewhere, adjust imports:
 from chat.models import ChatMessage, ConversationParticipant
+
+
+class NotificationCursorPagination(CursorPagination):
+    page_size = 20
+    ordering = "-last_occurred_at"
+    cursor_query_param = "cursor"
 
 
 logger = logging.getLogger(__name__)
@@ -23,7 +33,7 @@ class NotificationListView(generics.ListAPIView):
     """
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = NotificationSerializer
-    pagination_class = None  # optional; add PageNumberPagination if you want
+    pagination_class = NotificationCursorPagination
 
     def get_queryset(self):
         user = self.request.user
@@ -37,11 +47,9 @@ class NotificationListView(generics.ListAPIView):
         if is_read in ("true", "false"):
             qs = qs.filter(is_read=(is_read == "true"))
 
-        # Order: critical first, then newest
-        priority_order = {"critical": 0, "normal": 1, "low": 2}
-        # We can’t sort by mapping directly in ORM; a simple ordering fallback:
+        # Order newest first (priority ordering can be layered on in UI)
         qs = qs.order_by("-last_occurred_at")
-        return qs[:50]  # keep it small for the drawer by default
+        return qs
 
 
 class NotificationMarkReadView(APIView):
@@ -97,20 +105,26 @@ class NotificationSummaryView(APIView):
         logger.info(f"✅ NotificationSummaryView accessed by {request.user}")
 
         # --- Messages unread per conversation ---
-        parts = (ConversationParticipant.objects
-                 .filter(user=user)
-                 .values("conversation_id", "last_read_at"))
+        min_time = timezone.make_aware(datetime(1970, 1, 1))
+        unread_counts = (
+            ConversationParticipant.objects
+            .filter(user=user)
+            .annotate(
+                unread_count=Count(
+                    "conversation__messages",
+                    filter=Q(
+                        conversation__messages__created__gt=Coalesce("last_read_at", Value(min_time))
+                    ),
+                )
+            )
+            .values("conversation_id", "unread_count")
+        )
 
-        conv_last_read: dict[str, object] = {str(p["conversation_id"]): p["last_read_at"] for p in parts}
-        conv_ids = list(conv_last_read.keys())
-
-        unread_by_conversation: dict[str, int] = {}
-        for cid in conv_ids:
-            lra = conv_last_read[cid]
-            qs = ChatMessage.objects.filter(conversation_id=cid)
-            if lra:
-                qs = qs.filter(created__gt=lra)
-            unread_by_conversation[cid] = qs.count()
+        unread_by_conversation: dict[str, int] = {
+            str(row["conversation_id"]): row["unread_count"]
+            for row in unread_counts
+            if row["unread_count"] > 0
+        }
 
         # --- Notifications unread ---
         unread = Notification.objects.filter(recipient=user, is_read=False)
@@ -124,3 +138,41 @@ class NotificationSummaryView(APIView):
             "mentions_unread_count": mentions_unread,
             "notifications_unread_by_bucket": by_bucket,
         })
+
+
+class NotificationPreferenceView(generics.ListCreateAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = NotificationPreferenceSerializer
+
+    def get_queryset(self):
+        return NotificationPreference.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        bucket = serializer.validated_data.get("bucket")
+        activity_code = serializer.validated_data.get("activity_code")
+        level = serializer.validated_data.get("level")
+
+        pref, _ = NotificationPreference.objects.update_or_create(
+            user=self.request.user,
+            bucket=bucket,
+            activity_code=activity_code,
+            defaults={"level": level},
+        )
+        serializer.instance = pref
+
+
+class NotificationDismissView(APIView):
+    """
+    DELETE /api/activity/<uuid:notification_id>
+    Deletes a notification for the current user.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, notification_id):
+        deleted, _ = Notification.objects.filter(
+            recipient=request.user,
+            id=notification_id,
+        ).delete()
+        if deleted == 0:
+            return Response({"error": "Not found"}, status=404)
+        return Response(status=204)

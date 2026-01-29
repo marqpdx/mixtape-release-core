@@ -170,6 +170,11 @@ class Notification(BaseModel):
         default="activity",
         choices=[("messages", "messages"), ("activity", "activity"), ("system", "system")],
     )
+    level = models.CharField(
+        max_length=16,
+        default="realtime",
+        choices=[("mute", "mute"), ("digest", "digest"), ("realtime", "realtime")],
+    )
     priority = models.CharField(
         max_length=16,
         default="normal",
@@ -241,5 +246,4 @@ class UserNotificationSettings(BaseModel):
 
     def __str__(self):
         return f"UserNotificationSettings({self.user_id})"
-
 

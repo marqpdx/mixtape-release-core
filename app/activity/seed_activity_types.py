@@ -1,4 +1,5 @@
 # activity/seed_activity_types.py
+
 from activity.models import ActivityType
 
 
