@@ -7,12 +7,21 @@ from ops.api.serializers import OpsSummarySerializer, OpsTilesSerializer
 from ops.services.snapshot import build_health_snapshot
 
 
+def _no_cache_response(data):
+    """Return a Response with no-cache headers to ensure fresh data."""
+    response = Response(data)
+    response["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response["Pragma"] = "no-cache"
+    response["Expires"] = "0"
+    return response
+
+
 class HealthSnapshotView(APIView):
     permission_classes = [IsAuthenticated, IsSuperuser]
 
     def get(self, request):
         snapshot = build_health_snapshot()
-        return Response(snapshot)
+        return _no_cache_response(snapshot)
 
 
 def _derive_overall_status(snapshot: dict) -> str:
@@ -130,7 +139,7 @@ class OpsSummaryView(APIView):
         summary = _friendly_summary(snapshot)
         serializer = OpsSummarySerializer(data=summary)
         serializer.is_valid(raise_exception=True)
-        return Response(serializer.data)
+        return _no_cache_response(serializer.data)
 
 
 class OpsTilesView(APIView):
@@ -145,4 +154,4 @@ class OpsTilesView(APIView):
         }
         serializer = OpsTilesSerializer(data=payload)
         serializer.is_valid(raise_exception=True)
-        return Response(serializer.data)
+        return _no_cache_response(serializer.data)
