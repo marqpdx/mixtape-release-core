@@ -15,7 +15,7 @@ from activity.api.serializers import NotificationPreferenceSerializer, Notificat
 from activity.models import Notification, NotificationPreference
 
 # If your chat models live elsewhere, adjust imports:
-from chat.models import ChatMessage, ConversationParticipant
+from chat.models import ChatMessage, ConversationStatusTracker
 
 
 class NotificationCursorPagination(CursorPagination):
@@ -107,16 +107,8 @@ class NotificationSummaryView(APIView):
         # --- Messages unread per conversation ---
         min_time = timezone.make_aware(datetime(1970, 1, 1))
         unread_counts = (
-            ConversationParticipant.objects
+            ConversationStatusTracker.objects
             .filter(user=user)
-            .annotate(
-                unread_count=Count(
-                    "conversation__messages",
-                    filter=Q(
-                        conversation__messages__created__gt=Coalesce("last_read_at", Value(min_time))
-                    ),
-                )
-            )
             .values("conversation_id", "unread_count")
         )
 
