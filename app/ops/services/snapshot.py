@@ -339,6 +339,16 @@ def _parse_monotonic_us(value: Optional[str]) -> Optional[int]:
         return None
 
 
+def _parse_memory_bytes(value: Optional[str]) -> Optional[int]:
+    """Parse MemoryCurrent which can be a number, '[not set]', or empty."""
+    if not value or value == "[not set]":
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
 def _collect_service_state(unit: str, uptime_seconds: Optional[float]) -> Tuple[Dict[str, Any], List[str]]:
     errors: List[str] = []
     output, err = _run_command(
@@ -392,7 +402,7 @@ def _collect_service_state(unit: str, uptime_seconds: Optional[float]) -> Tuple[
         "last_trigger_age_seconds": last_trigger_age,
         "result": data.get("Result"),
         "main_pid": data.get("MainPID"),
-        "memory_bytes": int(data.get("MemoryCurrent") or 0) if data.get("MemoryCurrent") else None,
+        "memory_bytes": _parse_memory_bytes(data.get("MemoryCurrent")),
     }, errors
 
 
