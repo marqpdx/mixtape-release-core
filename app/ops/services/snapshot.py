@@ -639,10 +639,17 @@ def _evaluate_backups(services: Dict[str, Any]) -> Dict[str, Any]:
                 status = "degraded"
                 issues.append(f"{unit_name} last triggered {int(age)}s ago")
         else:
-            if active_state in ("failed", "inactive"):
+            # For oneshot services triggered by timers, "inactive" after success is normal
+            result = unit_state.get("result")
+            if active_state == "failed" or result == "failed":
                 if status != "critical":
                     status = "degraded"
-                issues.append(f"{unit_name} is {active_state}")
+                issues.append(f"{unit_name} failed")
+            elif active_state == "inactive" and result not in ("success", None):
+                # Only flag inactive if result indicates a problem
+                if status != "critical":
+                    status = "degraded"
+                issues.append(f"{unit_name} is {active_state} (result: {result})")
 
     return {
         "status": status,
