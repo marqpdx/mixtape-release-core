@@ -331,12 +331,31 @@ def _parse_timestamp(value: Optional[str]) -> Optional[str]:
 
 
 def _parse_monotonic_us(value: Optional[str]) -> Optional[int]:
+    """Parse monotonic timestamp which can be microseconds or human-readable like '5h 1min 19.980440s'."""
     if not value:
         return None
+    # Try parsing as raw microseconds first
     try:
         return int(value)
     except ValueError:
-        return None
+        pass
+    # Parse human-readable format: "5d 2h 1min 19.980440s"
+    import re
+    total_us = 0
+    patterns = [
+        (r"(\d+)d", 86400 * 1_000_000),      # days
+        (r"(\d+)h", 3600 * 1_000_000),        # hours
+        (r"(\d+)min", 60 * 1_000_000),        # minutes
+        (r"([\d.]+)s", 1_000_000),            # seconds (can have decimals)
+    ]
+    matched_any = False
+    for pattern, multiplier in patterns:
+        match = re.search(pattern, value)
+        if match:
+            matched_any = True
+            num = float(match.group(1))
+            total_us += int(num * multiplier)
+    return total_us if matched_any else None
 
 
 def _parse_memory_bytes(value: Optional[str]) -> Optional[int]:
