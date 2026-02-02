@@ -5,6 +5,7 @@ Works with both Group and Member sponsors.
 """
 
 from django.contrib.contenttypes.models import ContentType
+from django.contrib.auth import get_user_model
 from django.db import models
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
@@ -56,7 +57,8 @@ class SponsorPlacementsListView(APIView):
             sponsor = Group.objects.filter(slug=sponsor_slug).first()
             target_ct = ContentType.objects.get_for_model(Group)
         elif sponsor_type == "member":
-            from users.models import User
+            User = get_user_model()
+            # Members don't have slugs; sponsor_slug is the username.
             sponsor = User.objects.filter(username=sponsor_slug).first()
             target_ct = ContentType.objects.get_for_model(User)
         else:
@@ -150,8 +152,9 @@ class SponsorDraftsListView(generics.ListAPIView):
                 content_type = ContentType.objects.get_for_model(Group)
                 sponsor = Group.objects.get(slug=sponsor_slug)
             elif sponsor_type == "member":
-                from users.models import User
+                User = get_user_model()
                 content_type = ContentType.objects.get_for_model(User)
+                # Members don't have slugs; sponsor_slug is the username.
                 sponsor = User.objects.get(username=sponsor_slug)
             else:
                 return WritingWorkingCopy.objects.none()
