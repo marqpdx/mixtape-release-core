@@ -59,12 +59,14 @@ urlpatterns = [
     path("api/assets/", include("assets.api.urls")),
     path("api/bazaar/", include("bazaar.api.urls")),
     path("api/chat/", include("chat.api.urls")),
+    path("api/classifications/", include("classifications.api.urls")),
     path("api/collections/", include("stackroom.api.collection_urls")),  # Collection curation layer
     path("api/dispatch/", include("dispatch.api.urls")),
     path("api/gristmill/", include("gristmill.api.urls")),
     path("api/identity/", include("identity.api.urls")),
     path("api/inkwell/", include("inkwell.api.urls")),
     path("api/lanternmail/", include("lanternmail.api.urls")),  # Global lanternmail endpoints
+    path("api/lists/", include("lists.api.urls")),
     path("api/livewire/", include("livewire.api.urls")),
     path("api/ops/", include("ops.api.urls")),
     path("api/projects/", include("projects.api.urls")),
@@ -74,6 +76,7 @@ urlpatterns = [
     path("api/threadworks/", include("threadworks.api.urls")),
     path("api/writing/", include("writing.api.urls")),
     path("api/concord/", include("concord.api.urls")),  # Audio transcription/interpretation
+    path("api/spellbook/", include("spellbook.api.urls")),  # Shared spell dictionary
 
     # === PHASE 4 ENDPOINTS ===
 

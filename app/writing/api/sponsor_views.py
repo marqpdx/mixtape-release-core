@@ -1,4 +1,5 @@
 # writing/api/sponsor_views.py
+
 """
 Generic sponsor-based views for writing content.
 Works with both Group and Member sponsors.

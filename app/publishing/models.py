@@ -11,6 +11,7 @@ Architecture:
 
 import uuid
 from django.db import models
+from django.db.models import Q, CheckConstraint
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.auth import get_user_model
@@ -232,6 +233,25 @@ class ContentPlacement(BaseModel):
                 fields=['source_content_type', 'source_object_id',
                        'target_content_type', 'target_object_id', 'channel'],
                 name='unique_placement'
+            ),
+            CheckConstraint(
+                name='placement_valid_state',
+                check=(
+                    Q(follow_updates=True) &
+                    Q(locked_artifact_content_type__isnull=True) &
+                    Q(locked_artifact_object_id__isnull=True)
+                ) | (
+                    Q(follow_updates=False) &
+                    Q(locked_artifact_content_type__isnull=False) &
+                    Q(locked_artifact_object_id__isnull=False)
+                )
+            ),
+            CheckConstraint(
+                name='placement_lock_fields_both_null_or_set',
+                check=(
+                    Q(locked_artifact_content_type__isnull=True, locked_artifact_object_id__isnull=True) |
+                    Q(locked_artifact_content_type__isnull=False, locked_artifact_object_id__isnull=False)
+                )
             ),
         ]
 

@@ -126,7 +126,8 @@ class GroupWelcomePinTests(TestCase):
 
         WritingVersion.objects.create(
             writing_piece=piece,
-            version_number=1,
+            sequence_no=1,
+            version_label="1",
             body_json=piece.body_json,
             title=piece.title,
             excerpt=piece.excerpt,

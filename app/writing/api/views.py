@@ -3,16 +3,19 @@
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Max
 from django.db.models.functions import Length, Trim
 from django.shortcuts import get_object_or_404
-from django.utils import dateparse
+from django.utils import dateparse, timezone
 from rest_framework import generics, permissions, status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from groups.models import Group
+from publishing.models import ContentPlacement
+from publishing.services.content_access import can_view_placement
+from publishing.services.content_display import get_display_payload
 from writing.api.permissions import IsAuthorOrStaff
 from writing.models import (
     Seed,
@@ -206,11 +209,41 @@ class WritingPiecePublicView(generics.RetrieveAPIView):
         return queryset
 
     def retrieve(self, request, *args, **kwargs):
-        """Override to increment view count"""
+        """Override to resolve artifact payload from placements"""
         instance = self.get_object()
+        ct_piece = ContentType.objects.get_for_model(WritingPiece)
+        placements = ContentPlacement.objects.filter(
+            source_content_type=ct_piece,
+            source_object_id=instance.id,
+            channel="feed",
+        ).order_by("-created_at")
+
+        user = request.user if request.user.is_authenticated else None
+        selected = None
+        for placement in placements:
+            if can_view_placement(placement, user):
+                selected = placement
+                break
+
+        if not selected:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        payload = get_display_payload(selected)
+        metadata = payload.get("metadata") or {}
+
         instance.increment_view_count()
         serializer = self.get_serializer(instance)
-        return Response(serializer.data)
+        data = serializer.data
+        if metadata.get("title"):
+            data["title"] = metadata["title"]
+        if metadata.get("excerpt") is not None:
+            data["excerpt"] = metadata["excerpt"]
+        if metadata.get("body_json") is not None:
+            data["body_json"] = metadata["body_json"]
+        data["placement_id"] = str(selected.id)
+        data["placement_visibility"] = selected.visibility
+        data["placement_channel"] = selected.channel
+        return Response(data)
 
 
 class WritingPieceDetailView(generics.RetrieveAPIView):
@@ -259,11 +292,46 @@ class WritingPieceDetailView(generics.RetrieveAPIView):
         return queryset
 
     def retrieve(self, request, *args, **kwargs):
-        """Override to increment view count"""
+        """Override to resolve artifact payload from placements"""
         instance = self.get_object()
+        group_slug = self.kwargs.get("group_slug")
+        group = get_object_or_404(Group, slug=group_slug)
+        ct_piece = ContentType.objects.get_for_model(WritingPiece)
+        ct_group = ContentType.objects.get_for_model(Group)
+        placements = ContentPlacement.objects.filter(
+            source_content_type=ct_piece,
+            source_object_id=instance.id,
+            target_content_type=ct_group,
+            target_object_id=group.id,
+            channel="feed",
+        ).order_by("-created_at")
+
+        user = request.user if request.user.is_authenticated else None
+        selected = None
+        for placement in placements:
+            if can_view_placement(placement, user):
+                selected = placement
+                break
+
+        if not selected:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        payload = get_display_payload(selected)
+        metadata = payload.get("metadata") or {}
+
         instance.increment_view_count()
         serializer = self.get_serializer(instance)
-        return Response(serializer.data)
+        data = serializer.data
+        if metadata.get("title"):
+            data["title"] = metadata["title"]
+        if metadata.get("excerpt") is not None:
+            data["excerpt"] = metadata["excerpt"]
+        if metadata.get("body_json") is not None:
+            data["body_json"] = metadata["body_json"]
+        data["placement_id"] = str(selected.id)
+        data["placement_visibility"] = selected.visibility
+        data["placement_channel"] = selected.channel
+        return Response(data)
 
 
 class WritingPieceScheduleView(generics.GenericAPIView):
@@ -437,8 +505,7 @@ class WritingPiecePublishAndPlaceView(generics.GenericAPIView):
       // Defaults applied to all placements unless overridden per-target:
       "placement_options": {
         "visibility": "public",               // "public"|"members"|"private"|"scheduled"
-        "follow_updates": true,               // if false, locks to a version
-        "locked_version_no": 2,               // optional; will default to current_version_no if follow_updates=false
+        "follow_updates": false,              // if false, locks to an artifact
         "is_excerpt": false,
         "fragment_selector": {...},           // optional JSON
         "overrides": { "title_override": "...", "excerpt_override": "...", "lantern_subject": "..." },
@@ -505,11 +572,10 @@ class WritingPiecePublishAndPlaceView(generics.GenericAPIView):
             if fld in data:
                 editable_fields[fld] = data[fld]
 
-        # derive follow_updates default
-        # prefer request default if provided, otherwise canonical-kind heuristic
+        # derive follow_updates default (v1: locked by default)
         default_follow_updates = placement_defaults.get("follow_updates")
         if default_follow_updates is None:
-            default_follow_updates = piece.is_canonical_kind
+            default_follow_updates = False
 
         try:
             with transaction.atomic():
@@ -536,13 +602,44 @@ class WritingPiecePublishAndPlaceView(generics.GenericAPIView):
                 if hasattr(piece, "tags") and isinstance(data.get("tags"), (list, tuple)):
                     piece.tags.set(data["tags"])
 
-                # publish or schedule (this may create first version if publishing now)
-                piece.publish(scheduled_for=scheduled_for)
+                # publish or schedule (v1: create artifact first, then placements)
+                if scheduled_for:
+                    if not (piece.title or "").strip():
+                        raise ValidationError("Please add a title before scheduling.")
+                    piece.status = "scheduled"
+                    piece.scheduled_for = scheduled_for
+                    piece.save(update_fields=["status", "scheduled_for", "slug", "updated_at"])
+                else:
+                    if not (piece.title or "").strip():
+                        raise ValidationError("Please add a title before publishing.")
+                    piece.status = "published"
+                    piece.published_at = timezone.now()
+                    piece.save(update_fields=["status", "published_at", "slug", "updated_at"])
+
+                # create immutable artifact (WritingVersion)
+                from writing.models import WritingVersion
+                next_sequence_no = (
+                    WritingVersion.objects.filter(writing_piece=piece)
+                    .aggregate(Max("sequence_no"))
+                    .get("sequence_no__max") or 0
+                ) + 1
+                writing_version = WritingVersion.objects.create(
+                    writing_piece=piece,
+                    sequence_no=next_sequence_no,
+                    version_label=str(next_sequence_no),
+                    body_json=piece.body_json,
+                    title=piece.title,
+                    excerpt=piece.excerpt,
+                    kind="release",
+                    created_by=request.user,
+                )
+                piece.current_version_no = next_sequence_no
+                piece.save(update_fields=["current_version_no", "updated_at"])
 
                 # ==============================================================================
                 # PLACEMENT CREATION (Phase 5)
                 # ==============================================================================
-                from publishing.models import ContentPlacement, PublicationGroup
+                from publishing.models import PublicationGroup
                 from publishing.serializers import ContentPlacementSerializer
 
                 # Create publication group
@@ -577,11 +674,8 @@ class WritingPiecePublishAndPlaceView(generics.GenericAPIView):
                     locked_artifact_ct = None
                     locked_artifact_id = None
                     if not follow_updates:
-                        # Lock to current version
-                        current_version = piece.get_current_artifact()
-                        if current_version:
-                            locked_artifact_ct = ContentType.objects.get_for_model(WritingVersion)
-                            locked_artifact_id = current_version.id
+                        locked_artifact_ct = ContentType.objects.get_for_model(writing_version.__class__)
+                        locked_artifact_id = writing_version.id
 
                     return {
                         "follow_updates": follow_updates,
@@ -667,11 +761,6 @@ class WritingPiecePublishAndPlaceView(generics.GenericAPIView):
                 if destinations.get("lantern"):
                     ct_user = ContentType.objects.get_for_model(request.user.__class__)
                     kwargs = build_placement_kwargs(placement_defaults)
-
-                    # Lantern typically follows updates
-                    kwargs["follow_updates"] = True
-                    kwargs["locked_artifact_content_type"] = None
-                    kwargs["locked_artifact_object_id"] = None
 
                     # Set lantern subject
                     overrides = kwargs.get("overrides", {}).copy()

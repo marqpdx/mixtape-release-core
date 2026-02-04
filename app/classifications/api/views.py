@@ -1,3 +1,5 @@
+# classification/api/view.py
+
 from rest_framework import generics, permissions, filters
 from django.contrib.contenttypes.models import ContentType
 from django.shortcuts import get_object_or_404
@@ -48,6 +50,26 @@ class CategoryListCreateView(generics.ListCreateAPIView):
     ordering_fields = ['title', 'usage_count', 'created_at']
     ordering = ['title']  # Default ordering
 
+    def get_queryset(self):
+        user = self.request.user
+        if not user.is_authenticated:
+            return Category.objects.none()
+        if user.is_staff:
+            return Category.objects.all()
+        sponsor_ct = ContentType.objects.get_for_model(user.__class__)
+        return Category.objects.filter(
+            sponsor_content_type=sponsor_ct,
+            sponsor_object_id=user.id,
+        )
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        sponsor_ct = ContentType.objects.get_for_model(user.__class__)
+        serializer.save(
+            sponsor_content_type=sponsor_ct,
+            sponsor_object_id=user.id,
+        )
+
 
 class CategoryRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     """
@@ -58,18 +80,22 @@ class CategoryRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     lookup_field = 'slug'  # Use slug instead of pk
 
+    def get_queryset(self):
+        user = self.request.user
+        if not user.is_authenticated:
+            return Category.objects.none()
+        if user.is_staff:
+            return Category.objects.all()
+        sponsor_ct = ContentType.objects.get_for_model(user.__class__)
+        return Category.objects.filter(
+            sponsor_content_type=sponsor_ct,
+            sponsor_object_id=user.id,
+        )
+
 
 # Legacy aliases for backwards compatibility
 TagList = TagListCreateView
 TagDetail = TagRetrieveUpdateDestroyView
-
-
-
-
-
-
-
-
 
 class ClassificationUsageListCreateView(generics.ListCreateAPIView):
     serializer_class = ClassificationUsageSerializer
