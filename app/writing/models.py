@@ -8,7 +8,7 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
-from django.db.models import CheckConstraint, Q
+from django.db.models import CheckConstraint, Q, Max
 from django.utils import timezone
 
 from fundamentals.bases import BaseModel
@@ -78,6 +78,11 @@ class WritingPiece(BaseContent, PublishableContentMixin):
         default="post",
     )
 
+    class AddressedTo(models.TextChoices):
+        PUBLIC = "public", "Public"
+        CROSSROADS = "crossroads", "Crossroads"
+        SELF = "self", "Self"
+
     # Versioning
     current_version_no = models.PositiveIntegerField(default=1)
     is_empty = models.BooleanField(default=False)
@@ -86,6 +91,13 @@ class WritingPiece(BaseContent, PublishableContentMixin):
     canonical_url = models.URLField(blank=True, null=True)
     excerpt = models.TextField(blank=True)
     reading_time = models.PositiveIntegerField(null=True, blank=True)
+    addressed_to = models.CharField(
+        max_length=32,
+        choices=AddressedTo.choices,
+        default=AddressedTo.CROSSROADS,
+        db_index=True,
+    )
+    addressed_to = models.CharField(max_length=200, blank=True, default="")
 
     # Scheduling
     scheduled_for = models.DateTimeField(null=True, blank=True)
@@ -146,7 +158,7 @@ class WritingPiece(BaseContent, PublishableContentMixin):
     @property
     def current_version(self):
         if self.is_published:
-            return self.versions.filter(version_no=self.current_version_no).first()
+            return self.get_current_artifact()
         return None
 
     @property
@@ -163,20 +175,20 @@ class WritingPiece(BaseContent, PublishableContentMixin):
         Get the latest published version (artifact).
         Used by ContentPlacement to resolve follow_updates=True.
         """
-        return self.versions.filter(kind='release').order_by('-version_number').first()
+        return self.versions.filter(kind='release').order_by('-sequence_no').first()
 
     def get_artifact(self, ref):
         """
-        Get specific artifact by version number or ID.
+        Get specific artifact by sequence number or ID.
 
         Args:
-            ref: int (version_number) or UUID (artifact id)
+            ref: int (sequence_no) or UUID (artifact id)
 
         Returns:
             WritingVersion instance or None
         """
         if isinstance(ref, int):
-            return self.versions.get(version_number=ref)
+            return self.versions.get(sequence_no=ref)
         return self.versions.get(id=ref)
 
     # -------- Lifecycle --------
@@ -231,12 +243,15 @@ class WritingPiece(BaseContent, PublishableContentMixin):
         if not self.is_published:
             return None
         with transaction.atomic():
-            if content_changed:
-                self.current_version_no += 1
-                self.save(update_fields=["current_version_no", "updated_at"])
+            next_sequence_no = (
+                WritingVersion.objects.filter(writing_piece=self)
+                .aggregate(Max("sequence_no"))
+                .get("sequence_no__max") or 0
+            ) + 1
             return WritingVersion.objects.create(
                 writing_piece=self,
-                version_number=self.current_version_no,
+                sequence_no=next_sequence_no,
+                version_label=str(next_sequence_no),
                 body_json=self.body_json,
                 title=self.title,
                 excerpt=self.excerpt,
@@ -437,7 +452,8 @@ class WritingVersion(BaseVersion):
         related_name="versions"
     )
 
-    version_number = models.PositiveIntegerField(default=1)
+    sequence_no = models.PositiveIntegerField()
+    version_label = models.CharField(max_length=32, blank=True, default="")
 
     # Canonical published content
     body_json = models.JSONField(help_text="Immutable snapshot of published content")
@@ -448,16 +464,17 @@ class WritingVersion(BaseVersion):
     changelog = models.TextField(blank=True)
 
     class Meta(BaseVersion.Meta):
-        unique_together = ["writing_piece", "version_number"]
-        ordering = ["-version_number"]
+        unique_together = ["writing_piece", "sequence_no"]
+        ordering = ["-sequence_no"]
         indexes = [
-            models.Index(fields=["writing_piece", "version_number"]),
+            models.Index(fields=["writing_piece", "sequence_no"]),
         ]
         verbose_name = "Writing Version"
         verbose_name_plural = "Writing Versions"
 
     def __str__(self):
-        return f"{self.writing_piece.title} v{self.version_number}"
+        label = self.version_label or self.sequence_no
+        return f"{self.writing_piece.title} v{label}"
 
 
 # WritingPlacement has been replaced by universal ContentPlacement
@@ -574,29 +591,6 @@ class AnnouncementFields(models.Model):
     click_rate = models.FloatField(null=True, blank=True)
 
 
-# class ForumFields(models.Model):
-#     """Extra fields for Forum writing kind"""
-#     piece = models.OneToOneField(
-#         WritingPiece,
-#         on_delete=models.CASCADE,
-#         related_name='forum_fields'
-#     )
-
-#     discussion = models.ForeignKey('threadworks.Discussion', on_delete=models.CASCADE)  # FK instead of UUID
-#     parent_piece = models.ForeignKey(
-#         WritingPiece,
-#         null=True, blank=True,
-#         on_delete=models.CASCADE,
-#         related_name='replies'
-#     )
-#     depth = models.PositiveIntegerField(default=0)
-#     sort_key = models.CharField(max_length=100)
-#     is_solution = models.BooleanField(default=False)
-
-#     class Meta:
-#         indexes = [
-#             models.Index(fields=['discussion', 'sort_key']),
-#         ]
 
 
 class DispatchFields(models.Model):
@@ -616,32 +610,6 @@ class DispatchFields(models.Model):
     collaboration_enabled = models.BooleanField(default=True)
 
 
-# class AlmanacFields(models.Model):
-#     """Extra fields for Almanac event writing"""
-#     piece = models.OneToOneField(
-#         WritingPiece,
-#         on_delete=models.CASCADE,
-#         related_name='almanac_fields'
-#     )
-
-#     event = models.ForeignKey('almanac.EventSeries', on_delete=models.CASCADE)  # FK instead of UUID
-#     phase = models.CharField(
-#         max_length=20,
-#         choices=[
-#             ('pre', 'Pre-Event'),
-#             ('during', 'During Event'),
-#             ('post', 'Post-Event'),
-#         ]
-#     )
-#     content_type = models.CharField(
-#         max_length=20,
-#         choices=[
-#             ('invite', 'Invitation'),
-#             ('runsheet', 'Run of Show'),
-#             ('recap', 'Recap'),
-#             (            'notes', 'Notes'),
-#         ]
-#     )
 
 
 # QuerySets and Managers for common operations

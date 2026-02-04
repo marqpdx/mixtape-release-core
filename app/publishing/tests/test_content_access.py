@@ -52,7 +52,8 @@ class ContentAccessServiceTest(TestCase):
         # Create a version
         self.version = WritingVersion.objects.create(
             writing_piece=self.piece,
-            version_number=1,
+            sequence_no=1,
+            version_label="1",
             body_json={'type': 'doc', 'content': []},
             title='Test Article',
             excerpt='Test excerpt',

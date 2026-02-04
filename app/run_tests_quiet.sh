@@ -44,6 +44,9 @@ tests=(
   "stackroom.tests.test_puddlejump_phase2_api"
   "concord.tests.test_recording_api concord.tests.test_recording_models concord.tests.test_session_models concord.tests.test_speaker_anchor_models concord.tests.test_transcription_models"
   "groups.tests"
+  "lists"
+  "publishing.tests"
+  "writing.tests"
 )
 
 passed=0

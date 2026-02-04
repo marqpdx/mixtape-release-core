@@ -94,9 +94,11 @@ INSTALLED_APPS = [
     "identity",        # Emblems etc..
     "inkwell",         # AI services, RAG, synopsis generation
     "lanternmail",     # Newsletter and email campaigns
+    "lists",           # Lightweight text-first lists for Mill/Grist
     "ops",             # SysAdmin / Ops dashboard backend
     "profiles",        # UserProfile, Member API
     "publishing",      # Universal publishing system (BaseVersion, ContentPlacement)
+    "spellbook",       # Shared spell dictionary for writing tools
     "projects",        # Project boards and tasks
     "stackroom.apps.StackroomConfig",  # Stackroom integration
     "threadworks",     # Threadworks forums and discussions
