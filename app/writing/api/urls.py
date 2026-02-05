@@ -4,6 +4,7 @@
 from django.urls import path
 
 from .sponsor_views import (
+    SponsorDraftDeleteView,
     SponsorDraftsListView,
     SponsorPlacementsListView,
 )
@@ -42,6 +43,7 @@ urlpatterns = [
     # Sponsor-based queries (generic for groups and members)
     path("placements", SponsorPlacementsListView.as_view(), name="sponsor-placements-list"),
     path("drafts", SponsorDraftsListView.as_view(), name="sponsor-drafts-list"),
+    path("drafts/<uuid:pk>", SponsorDraftDeleteView.as_view(), name="sponsor-drafts-delete"),
 
     # Pieces
     path("pieces", WritingPieceListCreateView.as_view(), name="writingpiece-list-create"),
