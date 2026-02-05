@@ -9,6 +9,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.contrib.auth import get_user_model
 from django.db import models
 from rest_framework import generics, permissions, status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -203,3 +204,22 @@ class SponsorDraftsListView(generics.ListAPIView):
             qs = base_qs.filter(user=user)
 
         return qs.order_by("-last_saved_at")
+
+
+class SponsorDraftDeleteView(generics.DestroyAPIView):
+    """
+    Delete a working copy (draft) by ID.
+    Only the draft owner, the piece author, or staff can delete.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    queryset = WritingWorkingCopy.objects.select_related("piece")
+    lookup_field = "pk"
+
+    def get_object(self):
+        wc = super().get_object()
+        user = self.request.user
+
+        if wc.user_id != user.id and wc.piece.author_id != user.id and not getattr(user, "is_staff", False):
+            raise PermissionDenied("You do not have permission to delete this draft.")
+
+        return wc
