@@ -11,6 +11,8 @@ from django.db import transaction, connection, models
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from django.core.cache import cache
+from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.models import ContentType
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -26,6 +28,11 @@ from stackroom.models import (
     Chunk,
     IngestionReceipt,
 )
+from publishing.models import ContentPlacement
+from publishing.services.content_access import can_view_placement
+from publishing.services.content_display import get_display_payload
+from writing.models import WritingPiece
+from groups.models import Group
 from stackroom.api.auth import ServiceJWTAuthentication
 from stackroom.api.permissions import HasStackroomIRScope
 from stackroom.api.serializers import (
@@ -1105,9 +1112,42 @@ class LibraryListCreateView(APIView):
         TODO: Filter by user permissions/memberships.
         """
         libraries = Library.objects.all().order_by('-created_at')
+        scope = request.query_params.get("scope")
+        if scope:
+            libraries = libraries.filter(scope=scope)
+
+        sponsor_type = request.query_params.get("sponsor_type")
+        sponsor_id = request.query_params.get("sponsor_id")
+        sponsor_username = request.query_params.get("sponsor_username")
+        if sponsor_type:
+            if sponsor_type == "group" and sponsor_id:
+                from groups.models import Group
+                sponsor_ct = ContentType.objects.get_for_model(Group)
+                libraries = libraries.filter(
+                    sponsor_content_type=sponsor_ct,
+                    sponsor_object_id=sponsor_id,
+                )
+            elif sponsor_type == "user":
+                User = get_user_model()
+                sponsor_ct = ContentType.objects.get_for_model(User)
+                if sponsor_id:
+                    libraries = libraries.filter(
+                        sponsor_content_type=sponsor_ct,
+                        sponsor_object_id=sponsor_id,
+                    )
+                elif sponsor_username:
+                    try:
+                        user = User.objects.get(username=sponsor_username)
+                        libraries = libraries.filter(
+                            sponsor_content_type=sponsor_ct,
+                            sponsor_object_id=user.id,
+                        )
+                    except User.DoesNotExist:
+                        libraries = libraries.none()
 
         serializer = LibrarySerializer(libraries, many=True)
-        return Response(serializer.data, status=drf_status.HTTP_200_OK)
+        data = serializer.data
+        return Response(data, status=drf_status.HTTP_200_OK)
 
     def post(self, request):
         """
@@ -1163,6 +1203,10 @@ class LibraryListCreateView(APIView):
             sponsor_content_type=sponsor_ct,
             sponsor_object_id=data['tenant_id'],
             title=data['name'],  # Serializer uses 'name', model uses 'title'
+            summary=data.get("summary", ""),
+            body=data.get("body", ""),
+            scope=data.get("scope", "general"),
+            visibility=data.get("visibility", "private"),
             submitted_by=request.user,
         )
 
@@ -1228,24 +1272,32 @@ class LibraryDetailView(APIView):
 
         # Check for naming conflict with same sponsor
         # Model uses sponsor_content_type/sponsor_object_id and title, not tenant_*/name
-        existing = Library.objects.filter(
-            sponsor_content_type=library.sponsor_content_type,
-            sponsor_object_id=library.sponsor_object_id,
-            title=data['name'],
-        ).exclude(id=library_id).first()
+        if "name" in data:
+            existing = Library.objects.filter(
+                sponsor_content_type=library.sponsor_content_type,
+                sponsor_object_id=library.sponsor_object_id,
+                title=data['name'],
+            ).exclude(id=library_id).first()
 
-        if existing:
-            return Response(
-                {
-                    "detail": "Library with this name already exists for this tenant",
-                    "library_id": str(existing.id),
-                },
-                status=drf_status.HTTP_409_CONFLICT
-            )
+            if existing:
+                return Response(
+                    {
+                        "detail": "Library with this name already exists for this tenant",
+                        "library_id": str(existing.id),
+                    },
+                    status=drf_status.HTTP_409_CONFLICT
+                )
 
         # Update library title (serializer uses 'name', model uses 'title')
-        library.title = data['name']
-        library.save(update_fields=['title', 'updated_at'])
+        if "name" in data:
+            library.title = data['name']
+        if "summary" in data:
+            library.summary = data["summary"]
+        if "body" in data:
+            library.body = data["body"]
+        if "visibility" in data:
+            library.visibility = data["visibility"]
+        library.save(update_fields=['title', 'summary', 'body', 'visibility', 'updated_at'])
 
         # Return updated library
         response_serializer = LibrarySerializer(library)
@@ -1253,3 +1305,217 @@ class LibraryDetailView(APIView):
 
     # Alias PUT to PATCH for convenience
     put = patch
+
+
+class PublicLibraryListView(APIView):
+    """
+    Public library list for a user.
+
+    GET /api/stackroom/libraries/public?username=<username>&scope=writing
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        username = request.query_params.get("username")
+        if not username:
+            return Response({"detail": "username is required"}, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        User = get_user_model()
+        user = User.objects.filter(username=username).first()
+        if not user:
+            return Response([], status=drf_status.HTTP_200_OK)
+
+        scope = request.query_params.get("scope")
+        sponsor_ct = ContentType.objects.get_for_model(User)
+        libraries = Library.objects.filter(
+            sponsor_content_type=sponsor_ct,
+            sponsor_object_id=user.id,
+        )
+        if scope:
+            libraries = libraries.filter(scope=scope)
+
+        allowed_visibility = ["public"]
+        if request.user.is_authenticated:
+            allowed_visibility.append("members")
+        libraries = libraries.filter(visibility__in=allowed_visibility).order_by("-created_at")
+
+        serializer = LibrarySerializer(libraries, many=True)
+        return Response(serializer.data, status=drf_status.HTTP_200_OK)
+
+
+class LibraryPlacementsView(APIView):
+    """
+    Public placements for a library (shelf).
+
+    GET /api/stackroom/libraries/<uuid:library_id>/placements
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, library_id):
+        library = get_object_or_404(Library, id=library_id)
+
+        if library.visibility == "private":
+            if not request.user.is_authenticated or library.sponsor != request.user:
+                return Response({"detail": "Not found."}, status=drf_status.HTTP_404_NOT_FOUND)
+        if library.visibility == "members" and not request.user.is_authenticated:
+            return Response({"detail": "Not found."}, status=drf_status.HTTP_404_NOT_FOUND)
+
+        ct_library = ContentType.objects.get_for_model(Library)
+        ct_piece = ContentType.objects.get_for_model(WritingPiece)
+        placements = ContentPlacement.objects.filter(
+            target_content_type=ct_library,
+            target_object_id=library.id,
+            source_content_type=ct_piece,
+            channel="shelf",
+        ).order_by("order_index", "-created_at")
+
+        user = request.user if request.user.is_authenticated else None
+        results = []
+        for placement in placements:
+            if not can_view_placement(placement, user):
+                continue
+            try:
+                payload = get_display_payload(placement)
+            except Exception:
+                continue
+
+            piece = payload.get("source")
+            if not piece or getattr(piece, "status", None) != "published":
+                continue
+
+            metadata = payload.get("metadata") or {}
+            results.append(
+                {
+                    "id": str(placement.id),
+                    "piece_id": str(piece.id),
+                    "piece_slug": piece.slug,
+                    "piece_title": metadata.get("title") or piece.title,
+                    "piece_body_json": metadata.get("body_json") or piece.body_json,
+                    "piece_status": piece.status,
+                    "published_at": piece.published_at,
+                    "visibility": placement.visibility,
+                    "order_index": placement.order_index,
+                    "created_at": placement.created_at,
+                    "updated_at": placement.updated_at,
+                    "display": {
+                        "title": metadata.get("title"),
+                        "excerpt": metadata.get("excerpt"),
+                        "is_excerpt": metadata.get("is_excerpt"),
+                        "body_json": metadata.get("body_json"),
+                    },
+                }
+            )
+
+        results.sort(
+            key=lambda item: item["published_at"] or timezone.datetime.min.replace(tzinfo=timezone.utc),
+            reverse=True,
+        )
+        return Response(results, status=drf_status.HTTP_200_OK)
+
+
+class LibraryPlacementsManageView(APIView):
+    """
+    Manage shelf placements (author-facing).
+
+    POST /api/stackroom/libraries/<uuid:library_id>/placements
+      body: { piece_id }
+
+    DELETE /api/stackroom/libraries/<uuid:library_id>/placements/<uuid:placement_id>
+    """
+    permission_classes = [IsAuthenticated]
+
+    def _can_edit_library(self, request, library: Library) -> bool:
+        sponsor = library.sponsor
+        if sponsor is None:
+            return False
+        if isinstance(sponsor, request.user.__class__):
+            return sponsor == request.user
+        if isinstance(sponsor, Group):
+            if hasattr(sponsor, "can_user_post"):
+                return sponsor.can_user_post(request.user)
+        return False
+
+    def post(self, request, library_id):
+        library = get_object_or_404(Library, id=library_id)
+        if not self._can_edit_library(request, library):
+            return Response({"detail": "Forbidden"}, status=drf_status.HTTP_403_FORBIDDEN)
+
+        piece_id = request.data.get("piece_id")
+        if not piece_id:
+            return Response({"detail": "piece_id is required"}, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        piece = get_object_or_404(WritingPiece, id=piece_id)
+        ct_piece = ContentType.objects.get_for_model(WritingPiece)
+        ct_library = ContentType.objects.get_for_model(Library)
+
+        next_order = (
+            ContentPlacement.objects.filter(
+                target_content_type=ct_library,
+                target_object_id=library.id,
+                channel="shelf",
+            ).aggregate(models.Max("order_index")).get("order_index__max") or 0
+        ) + 1
+
+        placement, _ = ContentPlacement.objects.update_or_create(
+            source_content_type=ct_piece,
+            source_object_id=piece.id,
+            target_content_type=ct_library,
+            target_object_id=library.id,
+            channel="shelf",
+            defaults={
+                "placed_by": request.user,
+                "visibility": library.visibility,
+                "follow_updates": True,
+                "order_index": next_order,
+            },
+        )
+
+        return Response({"id": str(placement.id)}, status=drf_status.HTTP_201_CREATED)
+
+    def delete(self, request, library_id, placement_id=None):
+        library = get_object_or_404(Library, id=library_id)
+        if not self._can_edit_library(request, library):
+            return Response({"detail": "Forbidden"}, status=drf_status.HTTP_403_FORBIDDEN)
+
+        placement = get_object_or_404(ContentPlacement, id=placement_id, target_object_id=library.id)
+        placement.delete()
+        return Response(status=drf_status.HTTP_204_NO_CONTENT)
+
+
+class LibraryPlacementsReorderView(APIView):
+    """
+    Reorder placements within a shelf.
+
+    POST /api/stackroom/libraries/<uuid:library_id>/placements/reorder
+    body: { order: [placement_id, ...] }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def _can_edit_library(self, request, library: Library) -> bool:
+        sponsor = library.sponsor
+        if sponsor is None:
+            return False
+        if isinstance(sponsor, request.user.__class__):
+            return sponsor == request.user
+        if isinstance(sponsor, Group):
+            if hasattr(sponsor, "can_user_post"):
+                return sponsor.can_user_post(request.user)
+        return False
+
+    def post(self, request, library_id):
+        library = get_object_or_404(Library, id=library_id)
+        if not self._can_edit_library(request, library):
+            return Response({"detail": "Forbidden"}, status=drf_status.HTTP_403_FORBIDDEN)
+
+        order_list = request.data.get("order") or []
+        if not isinstance(order_list, list):
+            return Response({"detail": "order must be a list"}, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        for idx, placement_id in enumerate(order_list):
+            ContentPlacement.objects.filter(
+                id=placement_id,
+                target_object_id=library.id,
+                channel="shelf",
+            ).update(order_index=idx + 1)
+
+        return Response({"detail": "ok"}, status=drf_status.HTTP_200_OK)

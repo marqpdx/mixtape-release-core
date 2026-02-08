@@ -92,9 +92,15 @@ class FileUploadResponseSerializer(serializers.Serializer):
 class LibrarySerializer(serializers.Serializer):
     """Library metadata for frontend"""
     id = serializers.UUIDField()
+    title = serializers.CharField()
+    slug = serializers.CharField()
     tenant_type = serializers.SerializerMethodField()
     tenant_id = serializers.SerializerMethodField()
     name = serializers.SerializerMethodField()
+    summary = serializers.CharField(allow_blank=True, required=False)
+    body = serializers.CharField(allow_blank=True, required=False)
+    scope = serializers.CharField()
+    visibility = serializers.CharField()
     created_at = serializers.DateTimeField()
     updated_at = serializers.DateTimeField()
 
@@ -120,11 +126,25 @@ class LibraryCreateSerializer(serializers.Serializer):
     tenant_type = serializers.CharField(max_length=20, help_text="Type of tenant: 'group' or 'user'")
     tenant_id = serializers.CharField(max_length=64, help_text="UUID or int-as-string")
     name = serializers.CharField(max_length=255, help_text="Library name")
+    summary = serializers.CharField(required=False, allow_blank=True)
+    body = serializers.CharField(required=False, allow_blank=True)
+    scope = serializers.CharField(required=False, default="general")
+    visibility = serializers.ChoiceField(
+        required=False,
+        choices=["public", "members", "unlisted", "private"],
+        default="private",
+    )
 
 
 class LibraryUpdateSerializer(serializers.Serializer):
     """Serializer for updating/renaming a library"""
-    name = serializers.CharField(max_length=255, help_text="New library name")
+    name = serializers.CharField(max_length=255, required=False, help_text="New library name")
+    summary = serializers.CharField(required=False, allow_blank=True)
+    body = serializers.CharField(required=False, allow_blank=True)
+    visibility = serializers.ChoiceField(
+        required=False,
+        choices=["public", "members", "unlisted", "private"],
+    )
 
 
 # Retrieval API Serializers

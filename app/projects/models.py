@@ -1,3 +1,5 @@
+# projects/models.py
+
 import uuid
 
 from django.core.exceptions import ValidationError

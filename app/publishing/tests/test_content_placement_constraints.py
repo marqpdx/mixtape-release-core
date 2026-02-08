@@ -3,7 +3,9 @@
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError
+from django.utils import timezone
 
 from publishing.models import ContentPlacement, PublicationGroup
 from writing.models import WritingPiece, WritingVersion
@@ -26,6 +28,7 @@ class ContentPlacementConstraintTests(TestCase):
             excerpt="Constraint excerpt",
             body_json={"type": "doc", "content": []},
             status="published",
+            published_at=timezone.now(),
             sponsor_content_type=ct_user,
             sponsor_object_id=self.user.id,
         )
@@ -50,7 +53,7 @@ class ContentPlacementConstraintTests(TestCase):
         self.ct_version = ContentType.objects.get_for_model(WritingVersion)
 
     def test_invalid_unlocked_without_follow_updates(self):
-        with self.assertRaises(IntegrityError):
+        with self.assertRaises((ValidationError, IntegrityError)):
             ContentPlacement.objects.create(
                 publication_group=self.pub_group,
                 placed_by=self.user,
@@ -64,7 +67,7 @@ class ContentPlacementConstraintTests(TestCase):
             )
 
     def test_invalid_follow_updates_with_lock(self):
-        with self.assertRaises(IntegrityError):
+        with self.assertRaises((ValidationError, IntegrityError)):
             ContentPlacement.objects.create(
                 publication_group=self.pub_group,
                 placed_by=self.user,

@@ -167,6 +167,7 @@ class ContentPlacement(BaseModel):
         max_length=50,
         choices=[
             ('feed', 'Feed'),
+            ('shelf', 'Shelf'),
             ('lantern', 'Newsletter'),
             ('forum', 'Forum'),
             ('dispatch', 'Dispatch'),
@@ -179,6 +180,7 @@ class ContentPlacement(BaseModel):
         choices=[
             ('public', 'Public'),
             ('members', 'Members Only'),
+            ('unlisted', 'Unlisted'),
             ('private', 'Private'),
             ('scheduled', 'Scheduled'),
         ]
@@ -217,6 +219,7 @@ class ContentPlacement(BaseModel):
         blank=True,
         help_text="Override title, excerpt, cover, etc. Keys: title, excerpt, subject, cover_image"
     )
+    order_index = models.IntegerField(default=0)
 
     class Meta(BaseModel.Meta):
         ordering = ['-created_at']

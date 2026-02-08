@@ -94,10 +94,9 @@ class WritingPiece(BaseContent, PublishableContentMixin):
     addressed_to = models.CharField(
         max_length=32,
         choices=AddressedTo.choices,
-        default=AddressedTo.CROSSROADS,
+        default=AddressedTo.PUBLIC,
         db_index=True,
     )
-    addressed_to = models.CharField(max_length=200, blank=True, default="")
 
     # Scheduling
     scheduled_for = models.DateTimeField(null=True, blank=True)

@@ -76,6 +76,25 @@ class Library(BaseContent):
         help_text='True if this is a group\'s canonical archive (one per group)'
     )
 
+    scope = models.CharField(
+        max_length=32,
+        default="general",
+        db_index=True,
+        help_text="Library scope (e.g., writing, general)"
+    )
+    visibility = models.CharField(
+        max_length=20,
+        choices=[
+            ("public", "Public"),
+            ("members", "Members"),
+            ("unlisted", "Unlisted"),
+            ("private", "Private"),
+        ],
+        default="private",
+        db_index=True,
+        help_text="Visibility of this library"
+    )
+
     class Meta(BaseContent.Meta):
         constraints = BaseContent.Meta.constraints + [
             # Unique library title per sponsor

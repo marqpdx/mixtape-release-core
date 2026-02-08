@@ -23,7 +23,7 @@ class Command(BaseCommand):
                 "name": "Puddlejump Desktop",
                 "client_type": Application.CLIENT_PUBLIC,  # Desktop app, no secret
                 "authorization_grant_type": Application.GRANT_AUTHORIZATION_CODE,
-                "redirect_uris": "puddlejump://callback\nhttp://localhost:5173/callback",
+                "redirect_uris": "puddlejump://callback\nhttp://127.0.0.1:17823/callback\nhttp://localhost:5173/callback",
                 "skip_authorization": False,  # User must approve first time
             }
         )
@@ -36,13 +36,14 @@ class Command(BaseCommand):
                     f"  Grant Type: Authorization Code\n"
                     f"  Client Type: Public (PKCE required)\n"
                     f"  Redirect URIs:\n"
-                    f"    - puddlejump://callback (production)\n"
-                    f"    - http://localhost:5173/callback (development)"
+                    f"    - puddlejump://callback (production, bundled app)\n"
+                    f"    - http://127.0.0.1:17823/callback (local callback server)\n"
+                    f"    - http://localhost:5173/callback (development fallback)"
                 )
             )
         else:
             # Update redirect URIs in case they changed
-            app.redirect_uris = "puddlejump://callback\nhttp://localhost:5173/callback"
+            app.redirect_uris = "puddlejump://callback\nhttp://127.0.0.1:17823/callback\nhttp://localhost:5173/callback"
             app.save()
             self.stdout.write(
                 self.style.WARNING(

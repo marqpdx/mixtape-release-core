@@ -8,10 +8,12 @@ from rest_framework.views import APIView
 from groups.services.permissions import PermissionService
 from lists.api.serializers import (
     ListCreateSerializer,
+    ListItemAnnotationSerializer,
+    ListItemPromoteSerializer,
     ListSerializer,
     ListUpdateSerializer,
 )
-from lists.models import List
+from lists.models import List, ListItemAnnotation
 from lists.parser import (
     parse_list_text,
     serialize_list_items,
@@ -393,3 +395,171 @@ class ListReorderView(APIView):
             )
 
         return Response(ListSerializer(lst).data)
+
+
+class ListItemPromoteView(APIView):
+    """
+    POST /api/lists/<id>/promote/
+    Promote a list item to a Project task.
+
+    Payload:
+        project_id: UUID - target project
+        column_id: UUID (optional) - target column (defaults to Backlog)
+        item_text: str - the item text to promote
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, list_id):
+        from projects.models import Project, ProjectColumn, ProjectColumnSemanticType, Task
+
+        lst = get_object_or_404(List, id=list_id, deleted_at__isnull=True)
+        user = request.user
+
+        # Permission check
+        if not (user.is_staff or user.is_superuser):
+            sponsor_ct = lst.sponsor_content_type
+            if sponsor_ct.model == "group":
+                from groups.models import Group
+
+                sponsor = get_object_or_404(Group, id=lst.sponsor_object_id, is_active=True)
+                allowed = PermissionService.can_user_perform_action(
+                    user,
+                    "can_edit_list",
+                    group_slug=sponsor.slug,
+                )
+                if not allowed:
+                    return Response(
+                        {"detail": "You don't have permission to promote items from this list."},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+            else:
+                if str(lst.sponsor_object_id) != str(user.id):
+                    return Response(
+                        {"detail": "You don't have permission to promote items from this list."},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+
+        serializer = ListItemPromoteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        project_id = serializer.validated_data["project_id"]
+        column_id = serializer.validated_data.get("column_id")
+        item_text = serializer.validated_data["item_text"]
+
+        # Get the project
+        project = get_object_or_404(Project, id=project_id, deleted_at__isnull=True)
+
+        # Check user has permission to add tasks to this project
+        if not (user.is_staff or user.is_superuser):
+            project_sponsor_ct = project.sponsor_content_type
+            if project_sponsor_ct.model == "group":
+                from groups.models import Group
+
+                project_sponsor = get_object_or_404(Group, id=project.sponsor_object_id, is_active=True)
+                allowed = PermissionService.can_user_perform_action(
+                    user,
+                    "can_edit_project",
+                    group_slug=project_sponsor.slug,
+                )
+                if not allowed:
+                    return Response(
+                        {"detail": "You don't have permission to add tasks to this project."},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+            else:
+                if str(project.sponsor_object_id) != str(user.id):
+                    return Response(
+                        {"detail": "You don't have permission to add tasks to this project."},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+
+        # Get target column (default to Backlog)
+        if column_id:
+            column = get_object_or_404(ProjectColumn, id=column_id, project=project)
+        else:
+            column = ProjectColumn.objects.filter(
+                project=project,
+                semantic_type=ProjectColumnSemanticType.BACKLOG,
+            ).first()
+            if not column:
+                column = ProjectColumn.objects.filter(project=project).order_by("position").first()
+            if not column:
+                return Response(
+                    {"detail": "Project has no columns."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        # Check if already promoted
+        existing = ListItemAnnotation.find_by_text(lst, item_text)
+        if existing and existing.task:
+            return Response(
+                {
+                    "detail": "This item has already been promoted.",
+                    "task_id": str(existing.task.id),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        # Create the task
+        task = Task.create_in_column(
+            project=project,
+            column=column,
+            title=item_text.strip(),
+            submitted_by=user,
+            author=user,
+        )
+
+        # Create the annotation
+        annotation = ListItemAnnotation.objects.create(
+            list=lst,
+            item_text_hash=ListItemAnnotation.hash_item_text(item_text),
+            item_text_snapshot=item_text[:500],
+            task=task,
+            promoted_by=user,
+        )
+
+        return Response(
+            ListItemAnnotationSerializer(annotation).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class ListItemAnnotationsView(APIView):
+    """
+    GET /api/lists/<id>/annotations/
+    Get all annotations (promoted items) for a list.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, list_id):
+        lst = get_object_or_404(List, id=list_id, deleted_at__isnull=True)
+        user = request.user
+
+        # Permission check (same as view)
+        if not (user.is_staff or user.is_superuser):
+            sponsor_ct = lst.sponsor_content_type
+            if sponsor_ct.model == "group":
+                from groups.models import Group
+
+                sponsor = get_object_or_404(Group, id=lst.sponsor_object_id, is_active=True)
+                allowed = PermissionService.can_user_perform_action(
+                    user,
+                    "can_view_list",
+                    group_slug=sponsor.slug,
+                )
+                if not allowed:
+                    return Response(
+                        {"detail": "You don't have permission to view this list."},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+            else:
+                if str(lst.sponsor_object_id) != str(user.id):
+                    return Response(
+                        {"detail": "You don't have permission to view this list."},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+
+        annotations = lst.annotations.select_related("task", "task__project", "promoted_by").all()
+        return Response(ListItemAnnotationSerializer(annotations, many=True).data)
