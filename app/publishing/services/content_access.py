@@ -29,8 +29,8 @@ def can_view_placement(placement, user: Optional = None) -> bool:
     Returns:
         bool: True if user can view the placement
     """
-    # Public visibility - anyone can view
-    if placement.visibility == 'public':
+    # Public or unlisted visibility - anyone can view
+    if placement.visibility in {'public', 'unlisted'}:
         return True
 
     # Scheduled visibility - check if published
@@ -99,6 +99,10 @@ def _is_member_of_target(target, user) -> bool:
     User = get_user_model()
     if isinstance(target, User):
         return target == user
+
+    # If target is a Library, members means any authenticated user
+    if target.__class__.__name__ == "Library":
+        return user.is_authenticated
 
     # If target is a Group, check membership
     if hasattr(target, 'members'):

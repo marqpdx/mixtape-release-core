@@ -37,6 +37,7 @@ def _create_piece(*, author: User, sponsor) -> WritingPiece:
         status="draft",
     )
     piece.set_sponsor(sponsor)
+    piece.slug = "draft-title"
     piece.set_submitted_by(author)
     piece.save()
     return piece
@@ -162,9 +163,14 @@ class PublishingV1Tests(TestCase):
 
         publish_response = self._publish(
             piece,
-            payload={"destinations": {"groups": [group.slug]}},
+            payload={
+                "destinations": {"groups": [str(group.id)]},
+                "placement_options": {"visibility": "public"},
+            },
         )
         self.assertEqual(publish_response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(publish_response.data.get("placements_created", 0), 1)
+        piece.refresh_from_db()
 
         version = WritingVersion.objects.get(writing_piece=piece, sequence_no=1)
         updated_body = _body_json("draft changed again")
@@ -172,6 +178,12 @@ class PublishingV1Tests(TestCase):
         piece.save(update_fields=["body_json", "updated_at"])
 
         self.client.force_authenticate(user=None)
+        placement = ContentPlacement.objects.get(
+            source_object_id=piece.id,
+            target_object_id=group.id,
+            channel="feed",
+        )
+        self.assertEqual(placement.visibility, "public")
         response = self.client.get(f"/api/groups/{group.slug}/writing/{piece.slug}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["body_json"], version.body_json)

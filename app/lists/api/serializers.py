@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from lists.models import List
+from lists.models import List, ListItemAnnotation
 from lists.parser import count_items, parse_list_text
 from utils.shared.contenttypes import resolve_content_type
 
@@ -93,3 +93,36 @@ class ListUpdateSerializer(serializers.Serializer):
     title = serializers.CharField(max_length=100, required=False)
     body_text = serializers.CharField(required=False, allow_blank=True)
     summary = serializers.CharField(required=False, allow_blank=True)
+
+
+class ListItemAnnotationSerializer(serializers.ModelSerializer):
+    """Serializer for list item annotations."""
+
+    task_id = serializers.UUIDField(source="task.id", read_only=True, allow_null=True)
+    task_title = serializers.CharField(source="task.title", read_only=True, allow_null=True)
+    project_id = serializers.UUIDField(source="task.project.id", read_only=True, allow_null=True)
+    project_title = serializers.CharField(source="task.project.title", read_only=True, allow_null=True)
+    promoted_by_username = serializers.CharField(source="promoted_by.username", read_only=True, allow_null=True)
+
+    class Meta:
+        model = ListItemAnnotation
+        fields = [
+            "id",
+            "item_text_hash",
+            "item_text_snapshot",
+            "task_id",
+            "task_title",
+            "project_id",
+            "project_title",
+            "promoted_at",
+            "promoted_by_username",
+        ]
+        read_only_fields = fields
+
+
+class ListItemPromoteSerializer(serializers.Serializer):
+    """Serializer for promoting a list item to a project task."""
+
+    project_id = serializers.UUIDField()
+    column_id = serializers.UUIDField(required=False, allow_null=True)
+    item_text = serializers.CharField(max_length=500)

@@ -14,11 +14,16 @@ from stackroom.api.views import (
     FileUploadView,
     LibraryListCreateView,
     LibraryDetailView,
+    PublicLibraryListView,
+    LibraryPlacementsView,
+    LibraryPlacementsManageView,
+    LibraryPlacementsReorderView,
 )
 from stackroom.api.activity_views import LibraryActivityView
 from stackroom.api.puddlejump_views import (
     PuddlejumpImportView,
     PuddlejumpHealthView,
+    PuddlejumpAuthDebugView,
     PersonalPuddlejumpView,
     PuddlejumpSyncStatusView,
     PuddlejumpSyncUploadView,
@@ -30,7 +35,16 @@ from stackroom.api.puddlejump_views import (
 urlpatterns = [
     path("health", HealthCheckView.as_view(), name="stackroom-health"),
     path("libraries", LibraryListCreateView.as_view(), name="library-list"),
+    path("libraries/public", PublicLibraryListView.as_view(), name="library-public-list"),
     path("libraries/<uuid:library_id>", LibraryDetailView.as_view(), name="library-detail"),
+    path("libraries/<uuid:library_id>/placements", LibraryPlacementsView.as_view(), name="library-placements"),
+    path("libraries/<uuid:library_id>/placements/manage", LibraryPlacementsManageView.as_view(), name="library-placements-manage"),
+    path("libraries/<uuid:library_id>/placements/reorder", LibraryPlacementsReorderView.as_view(), name="library-placements-reorder"),
+    path(
+        "libraries/<uuid:library_id>/placements/<uuid:placement_id>",
+        LibraryPlacementsManageView.as_view(),
+        name="library-placements-delete",
+    ),
     path("libraries/<uuid:library_id>/activity", LibraryActivityView.as_view(), name="library-activity"),
     path("upload", FileUploadView.as_view(), name="file-upload"),
     path("ingestion/start", IngestionStartView.as_view()),
@@ -43,6 +57,7 @@ urlpatterns = [
     path("retrieve", RetrieveView.as_view()),
     # Puddlejump endpoints
     path("puddlejump/health", PuddlejumpHealthView.as_view(), name="puddlejump-health"),
+    path("puddlejump/auth-debug", PuddlejumpAuthDebugView.as_view(), name="puddlejump-auth-debug"),
     path("puddlejump/personal", PersonalPuddlejumpView.as_view(), name="puddlejump-personal"),
     path("puddlejump/import", PuddlejumpImportView.as_view(), name="puddlejump-import"),
     # Puddlejump sync endpoints (for desktop client)

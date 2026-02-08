@@ -312,9 +312,9 @@ SPONSOR_MODELS = {
 # REST Framework Configuration
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",  # Primary auth for Phase 1
-        "oauth2_provider.contrib.rest_framework.OAuth2Authentication",  # OAuth2 for desktop/mobile apps
-        "rest_framework.authentication.SessionAuthentication",        # For Django admin
+        "oauth2_provider.contrib.rest_framework.OAuth2Authentication",  # OAuth2 first — returns None gracefully if token isn't OAuth
+        "rest_framework_simplejwt.authentication.JWTAuthentication",    # JWT second — raises exception on invalid tokens
+        "rest_framework.authentication.SessionAuthentication",          # Session for Django admin/browsable API
     ),
 
     "DEFAULT_PERMISSION_CLASSES": [
@@ -423,10 +423,13 @@ OAUTH2_PROVIDER = {
 
     # Request approval prompt
     "REQUEST_APPROVAL_PROMPT": "auto",  # Only prompt if not previously approved
+
+    # Allow custom URI schemes for desktop app callbacks (e.g. puddlejump://callback)
+    "ALLOWED_REDIRECT_URI_SCHEMES": ["https", "http", "puddlejump"],
 }
 
-# Custom URL for OAuth2 login (uses existing auth)
-LOGIN_URL = "/login"
+# OAuth2 login redirect — uses DRF's built-in session login view
+LOGIN_URL = "/api-auth/login/"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field

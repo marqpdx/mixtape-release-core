@@ -33,6 +33,7 @@ from .permissions_views import (
     MemberRoleManageView,
     MyPermissionsView,
 )
+from writing.api.views import WritingPieceDetailView
 
 
 # ============================================================================
@@ -62,6 +63,7 @@ urlpatterns = [
     path("", GroupListCreateView.as_view(), name="group-list-create"),
     path("my", UserGroupsView.as_view(), name="user-groups"),  # /api/groups/my
     path("<slug:slug>", GroupDetailView.as_view(), name="group-detail"),  # /api/groups/<slug>/
+    path("<slug:group_slug>/writing/<slug:piece_slug>", WritingPieceDetailView.as_view(), name="writingpiece-detail"),
     path("<slug:slug>/welcome", GroupWelcomePinView.as_view(), name="group-welcome-pin"),
     path("<slug:slug>/emblem/attach", GroupEmblemAttachView.as_view(), name="group-emblem-attach"),
     path("<slug:slug>/emblem/reset", GroupEmblemResetView.as_view(), name="group-emblem-reset"),

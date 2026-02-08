@@ -3,6 +3,8 @@ from django.urls import path
 from lists.api.views import (
     ListBySlugView,
     ListDetailView,
+    ListItemAnnotationsView,
+    ListItemPromoteView,
     ListItemToggleView,
     ListReorderView,
     ListRootView,
@@ -28,4 +30,8 @@ urlpatterns = [
     # Item operations
     path("<uuid:list_id>/items/<int:item_index>/toggle", ListItemToggleView.as_view(), name="list-item-toggle"),
     path("<uuid:list_id>/reorder", ListReorderView.as_view(), name="list-reorder"),
+
+    # Promote to Project
+    path("<uuid:list_id>/promote/", ListItemPromoteView.as_view(), name="list-item-promote"),
+    path("<uuid:list_id>/annotations/", ListItemAnnotationsView.as_view(), name="list-item-annotations"),
 ]

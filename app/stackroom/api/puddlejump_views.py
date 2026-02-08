@@ -15,6 +15,9 @@ from rest_framework.response import Response
 from rest_framework import status as drf_status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
+from oauth2_provider.contrib.rest_framework import OAuth2Authentication
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework.authentication import SessionAuthentication
 
 from django.contrib.contenttypes.models import ContentType
 
@@ -433,6 +436,7 @@ class PuddlejumpSyncStatusView(APIView):
             ]
         }
     """
+    authentication_classes = [OAuth2Authentication, JWTAuthentication, SessionAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -510,6 +514,7 @@ class PuddlejumpSyncUploadView(APIView):
             "created": true
         }
     """
+    authentication_classes = [OAuth2Authentication, JWTAuthentication, SessionAuthentication]
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
@@ -637,6 +642,7 @@ class PuddlejumpSyncDownloadView(APIView):
 
     Returns the file content.
     """
+    authentication_classes = [OAuth2Authentication, JWTAuthentication, SessionAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request, file_id):
@@ -696,6 +702,7 @@ class PuddlejumpSyncDeleteView(APIView):
 
     DELETE /api/stackroom/puddlejump/sync/delete/<file_id>
     """
+    authentication_classes = [OAuth2Authentication, JWTAuthentication, SessionAuthentication]
     permission_classes = [IsAuthenticated]
 
     def delete(self, request, file_id):
@@ -756,6 +763,7 @@ class PuddlejumpSyncCompleteView(APIView):
 
     Updates last_synced_at timestamp.
     """
+    authentication_classes = [OAuth2Authentication, JWTAuthentication, SessionAuthentication]
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
@@ -816,3 +824,60 @@ class PuddlejumpHealthView(APIView):
             },
             status=drf_status.HTTP_200_OK
         )
+
+
+class PuddlejumpAuthDebugView(APIView):
+    """Temporary debug view — test OAuth2 token validation in isolation."""
+    authentication_classes = [OAuth2Authentication]
+    permission_classes = []  # Skip permission check, just test auth
+
+    def get(self, request):
+        from oauth2_provider.models import AccessToken as OAuthAccessToken
+        from django.utils import timezone as tz
+
+        # Check what auth resolved
+        auth_header = request.META.get("HTTP_AUTHORIZATION", "none")
+        token_str = auth_header.replace("Bearer ", "") if auth_header.startswith("Bearer ") else ""
+
+        # Check token in DB
+        token_count = OAuthAccessToken.objects.count()
+        token_obj = None
+        if token_str:
+            token_obj = OAuthAccessToken.objects.filter(token=token_str).first()
+
+        # Token details
+        token_info = None
+        if token_obj:
+            token_info = {
+                "user": str(token_obj.user),
+                "application": str(token_obj.application),
+                "expires": str(token_obj.expires),
+                "is_expired": token_obj.expires < tz.now() if token_obj.expires else "no_expiry",
+                "scope": token_obj.scope,
+                "created": str(token_obj.created) if hasattr(token_obj, 'created') else "n/a",
+            }
+
+        # Try DOT validation directly
+        dot_error = None
+        try:
+            from oauth2_provider.oauth2_backends import get_oauthlib_core
+            oauthlib_core = get_oauthlib_core()
+            valid, r = oauthlib_core.verify_request(request, scopes=[])
+            dot_result = {
+                "valid": valid,
+                "oauth2_error": getattr(r, "oauth2_error", {}),
+            }
+            if valid:
+                dot_result["verified_user"] = str(r.user)
+        except Exception as e:
+            dot_result = {"error": str(e)}
+
+        return Response({
+            "user": str(request.user),
+            "is_authenticated": request.user.is_authenticated if hasattr(request.user, 'is_authenticated') else False,
+            "auth_header_present": auth_header != "none",
+            "token_preview": token_str[:20] + "..." if len(token_str) > 20 else token_str,
+            "total_oauth_tokens_in_db": token_count,
+            "token_in_db": token_info,
+            "dot_verify_request": dot_result,
+        })

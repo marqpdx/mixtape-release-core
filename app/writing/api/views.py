@@ -215,7 +215,7 @@ class WritingPiecePublicView(generics.RetrieveAPIView):
         placements = ContentPlacement.objects.filter(
             source_content_type=ct_piece,
             source_object_id=instance.id,
-            channel="feed",
+            channel__in=["feed", "shelf"],
         ).order_by("-created_at")
 
         user = request.user if request.user.is_authenticated else None
@@ -261,33 +261,18 @@ class WritingPieceDetailView(generics.RetrieveAPIView):
 
     def get_queryset(self):
         group_slug = self.kwargs.get("group_slug")
-        group = get_object_or_404(Group, slug=group_slug)
+        get_object_or_404(Group, slug=group_slug)
 
-        # Base queryset: published pieces in this group's feed
+        # Base queryset: published pieces. Placement visibility is enforced in retrieve().
         queryset = WritingPiece.objects.filter(
-            placements__target_content_type=ContentType.objects.get_for_model(Group),
-            placements__target_object_id=group.id,
-            placements__channel="feed",
-            status="published"
+            status="published",
         ).select_related(
             "author",
             "author__profile",
-            "sponsor_content_type"
+            "sponsor_content_type",
         ).prefetch_related(
             "versions",
-            "placements"
         ).distinct()
-
-        # Visibility filtering
-        user = self.request.user
-        if user.is_authenticated and hasattr(group, "is_member") and group.is_member(user):
-            # Members can see public + members-only
-            queryset = queryset.filter(
-                placements__visibility__in=["public", "members"]
-            )
-        else:
-            # Public users can only see public pieces
-            queryset = queryset.filter(placements__visibility="public")
 
         return queryset
 
@@ -296,12 +281,8 @@ class WritingPieceDetailView(generics.RetrieveAPIView):
         instance = self.get_object()
         group_slug = self.kwargs.get("group_slug")
         group = get_object_or_404(Group, slug=group_slug)
-        ct_piece = ContentType.objects.get_for_model(WritingPiece)
-        ct_group = ContentType.objects.get_for_model(Group)
         placements = ContentPlacement.objects.filter(
-            source_content_type=ct_piece,
             source_object_id=instance.id,
-            target_content_type=ct_group,
             target_object_id=group.id,
             channel="feed",
         ).order_by("-created_at")
@@ -499,6 +480,7 @@ class WritingPiecePublishAndPlaceView(generics.GenericAPIView):
       "destinations": {
         "personal": true,
         "groups": ["group-slug-1","group-uuid-2"],
+        "shelves": ["library-uuid-1"],
         "lantern": false
       },
 
@@ -520,7 +502,10 @@ class WritingPiecePublishAndPlaceView(generics.GenericAPIView):
           "is_pinned": true,
           "order": 1
         }
-      }
+      },
+
+      "audience": "just_me" | "readers",
+      "addressed_to": "public" | "crossroads" | "self"
     }
     """
     serializer_class = WritingPieceSerializer
@@ -553,10 +538,22 @@ class WritingPiecePublishAndPlaceView(generics.GenericAPIView):
         destinations = data.get("destinations", {}) or {}
         placement_defaults = data.get("placement_options", {}) or {}
         group_overrides = data.get("group_overrides", {}) or {}
+        audience = data.get("audience")
+        addressed_to = data.get("addressed_to")
 
-        if not any([destinations.get("personal"), destinations.get("lantern"), destinations.get("groups")]):
-            return Response({"error": "At least one destination must be selected."},
-                            status=status.HTTP_400_BAD_REQUEST)
+        has_destinations = any(
+            [
+                destinations.get("personal"),
+                destinations.get("lantern"),
+                destinations.get("groups"),
+                destinations.get("shelves"),
+            ]
+        )
+        if not has_destinations and audience != "just_me":
+            return Response(
+                {"error": "At least one destination must be selected."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # parse schedule
         scheduled_for = None
@@ -568,7 +565,7 @@ class WritingPiecePublishAndPlaceView(generics.GenericAPIView):
 
         # collect optional edits
         editable_fields = {}
-        for fld in ("title", "excerpt", "canonical_url", "writing_kind", "body_json"):
+        for fld in ("title", "excerpt", "canonical_url", "writing_kind", "body_json", "addressed_to"):
             if fld in data:
                 editable_fields[fld] = data[fld]
 
@@ -583,6 +580,9 @@ class WritingPiecePublishAndPlaceView(generics.GenericAPIView):
                 if editable_fields:
                     if editable_fields.get("title") in (None, ""):
                         editable_fields["title"] = "Untitled"
+
+                    if "addressed_to" in editable_fields and not editable_fields["addressed_to"]:
+                        editable_fields.pop("addressed_to")
 
                     piece.__dict__.update({k: v for k, v in editable_fields.items() if v is not None})
 
@@ -602,19 +602,26 @@ class WritingPiecePublishAndPlaceView(generics.GenericAPIView):
                 if hasattr(piece, "tags") and isinstance(data.get("tags"), (list, tuple)):
                     piece.tags.set(data["tags"])
 
+                # addressed_to default (if not explicitly set)
+                if not piece.addressed_to:
+                    if audience == "just_me":
+                        piece.addressed_to = WritingPiece.AddressedTo.SELF
+                    elif audience == "readers":
+                        piece.addressed_to = WritingPiece.AddressedTo.PUBLIC
+
                 # publish or schedule (v1: create artifact first, then placements)
                 if scheduled_for:
                     if not (piece.title or "").strip():
                         raise ValidationError("Please add a title before scheduling.")
                     piece.status = "scheduled"
                     piece.scheduled_for = scheduled_for
-                    piece.save(update_fields=["status", "scheduled_for", "slug", "updated_at"])
+                    piece.save(update_fields=["status", "scheduled_for", "slug", "updated_at", "addressed_to"])
                 else:
                     if not (piece.title or "").strip():
                         raise ValidationError("Please add a title before publishing.")
                     piece.status = "published"
                     piece.published_at = timezone.now()
-                    piece.save(update_fields=["status", "published_at", "slug", "updated_at"])
+                    piece.save(update_fields=["status", "published_at", "slug", "updated_at", "addressed_to"])
 
                 # create immutable artifact (WritingVersion)
                 from writing.models import WritingVersion
@@ -642,14 +649,19 @@ class WritingPiecePublishAndPlaceView(generics.GenericAPIView):
                 from publishing.models import PublicationGroup
                 from publishing.serializers import ContentPlacementSerializer
 
-                # Create publication group
                 ct_piece = ContentType.objects.get_for_model(WritingPiece)
-                pub_group = PublicationGroup.objects.create(
-                    created_by=request.user,
-                    source_content_type=ct_piece,
-                    source_object_id=piece.id,
-                    note=data.get("publish_note", ""),
-                )
+                pub_group = None
+
+                def ensure_publication_group():
+                    nonlocal pub_group
+                    if pub_group is None:
+                        pub_group = PublicationGroup.objects.create(
+                            created_by=request.user,
+                            source_content_type=ct_piece,
+                            source_object_id=piece.id,
+                            note=data.get("publish_note", ""),
+                        )
+                    return pub_group
 
                 placements_created = 0
                 placements = []
@@ -703,7 +715,7 @@ class WritingPiecePublishAndPlaceView(generics.GenericAPIView):
                         target_object_id=request.user.id,
                         channel="feed",
                         defaults={
-                            "publication_group": pub_group,
+                            "publication_group": ensure_publication_group(),
                             "placed_by": request.user,
                             **kwargs,
                         }
@@ -748,7 +760,7 @@ class WritingPiecePublishAndPlaceView(generics.GenericAPIView):
                             target_object_id=grp.id,
                             channel="feed",
                             defaults={
-                                "publication_group": pub_group,
+                                "publication_group": ensure_publication_group(),
                                 "placed_by": request.user,
                                 **kwargs,
                             }
@@ -779,7 +791,7 @@ class WritingPiecePublishAndPlaceView(generics.GenericAPIView):
                         target_object_id=request.user.id,
                         channel="lantern",
                         defaults={
-                            "publication_group": pub_group,
+                            "publication_group": ensure_publication_group(),
                             "placed_by": request.user,
                             **kwargs,
                         }
@@ -787,6 +799,44 @@ class WritingPiecePublishAndPlaceView(generics.GenericAPIView):
                     if created:
                         placements_created += 1
                     placements.append(placement)
+
+                # SHELVES (Library placements)
+                shelf_ids = destinations.get("shelves") or []
+                if shelf_ids:
+                    from stackroom.models import Library
+                    ct_library = ContentType.objects.get_for_model(Library)
+                    shelves = Library.objects.filter(id__in=shelf_ids)
+                    for shelf in shelves:
+                        next_order = (
+                            ContentPlacement.objects.filter(
+                                target_content_type=ct_library,
+                                target_object_id=shelf.id,
+                                channel="shelf",
+                            ).aggregate(Max("order_index")).get("order_index__max") or 0
+                        ) + 1
+                        kwargs = build_placement_kwargs(placement_defaults)
+                        if piece.status != "scheduled":
+                            kwargs["visibility"] = shelf.visibility
+
+                        if data.get("summary") or piece.excerpt or data.get("excerpt"):
+                            kwargs["overrides"]["excerpt"] = data.get("summary") or piece.excerpt or data.get("excerpt")
+
+                        placement, created = ContentPlacement.objects.update_or_create(
+                            source_content_type=ct_piece,
+                            source_object_id=piece.id,
+                            target_content_type=ct_library,
+                            target_object_id=shelf.id,
+                            channel="shelf",
+                            defaults={
+                                "publication_group": ensure_publication_group(),
+                                "placed_by": request.user,
+                                "order_index": next_order,
+                                **kwargs,
+                            }
+                        )
+                        if created:
+                            placements_created += 1
+                        placements.append(placement)
 
                 # Return response
                 serializer = self.get_serializer(piece, context={"request": request})
@@ -796,7 +846,7 @@ class WritingPiecePublishAndPlaceView(generics.GenericAPIView):
                     "piece": serializer.data,
                     "placements_created": placements_created,
                     "placements": ContentPlacementSerializer(placements, many=True, context={"request": request}).data,
-                    "publication_group_id": str(pub_group.id),
+                    "publication_group_id": str(pub_group.id) if pub_group else None,
                     "message": f'Successfully {msg_base} "{piece.title}" to {placements_created} destination(s).'
                 }, status=status.HTTP_200_OK)
         except ValidationError as ve:
