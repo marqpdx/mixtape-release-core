@@ -120,7 +120,7 @@ INSTALLED_APPS += ["rest_framework_simplejwt.token_blacklist"]
 
 
 # ============================================================================
-# GROUPS (Phase 2)
+# GROUPS
 # ============================================================================
 MIXTAPE_DEFAULT_GROUP_NAME = os.getenv("MIXTAPE_DEFAULT_GROUP_NAME", "Crossroads")
 MIXTAPE_DEFAULT_GROUP_SLUG = os.getenv("MIXTAPE_DEFAULT_GROUP_SLUG", "crossroads")

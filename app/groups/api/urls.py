@@ -9,6 +9,7 @@ from .views import (
     GroupCirclesListCreateView,
     GroupCoalitionInvitationsListView,
     GroupCoalitionInvitationsReceivedListView,
+    DefaultGroupView,
     GroupDetailView,
     GroupEmblemAttachView,
     GroupEmblemResetView,
@@ -62,6 +63,7 @@ urlpatterns = [
 
     path("", GroupListCreateView.as_view(), name="group-list-create"),
     path("my", UserGroupsView.as_view(), name="user-groups"),  # /api/groups/my
+    path("default", DefaultGroupView.as_view(), name="default-group"),
     path("<slug:slug>", GroupDetailView.as_view(), name="group-detail"),  # /api/groups/<slug>/
     path("<slug:group_slug>/writing/<slug:piece_slug>", WritingPieceDetailView.as_view(), name="writingpiece-detail"),
     path("<slug:slug>/welcome", GroupWelcomePinView.as_view(), name="group-welcome-pin"),
