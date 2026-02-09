@@ -571,3 +571,202 @@ def suggest_canonical_candidates(
     # Sort by score descending
     candidates.sort(key=lambda c: c["score"], reverse=True)
     return candidates[:top_n]
+
+
+# ============================================================================
+# PHASE 6: SUGGEST SUMMARIES (Inkwell LLM)
+# ============================================================================
+
+def suggest_summaries(library_id: UUID | str) -> list[dict[str, Any]]:
+    """
+    Suggest summaries for artifacts missing interior_summary using Inkwell.
+
+    Read-only — returns proposals for user review. Does NOT write back.
+    Gracefully handles Inkwell unavailability per-artifact.
+
+    Returns: list of {artifact_id, source_file_id, filename, suggested_summary, method}
+    """
+    from inkwell.client import summarize, InkwellUnavailableError
+
+    library_id = str(library_id)
+
+    # Get artifacts missing summaries (same query as health check)
+    artifacts = (
+        Artifact.objects.filter(
+            source_file__library_id=library_id,
+        )
+        .filter(Q(interior_summary="") | Q(interior_summary__isnull=True))
+        .select_related("source_file")
+    )
+
+    results = []
+    for artifact in artifacts:
+        text = artifact.text or ""
+        if len(text) < 50:
+            # Too short for meaningful summarization
+            results.append({
+                "artifact_id": str(artifact.id),
+                "source_file_id": str(artifact.source_file_id),
+                "filename": artifact.source_file.filename,
+                "suggested_summary": "",
+                "method": "skipped_too_short",
+                "error": None,
+            })
+            continue
+
+        try:
+            resp = summarize(text, words=60, style="neutral")
+            results.append({
+                "artifact_id": str(artifact.id),
+                "source_file_id": str(artifact.source_file_id),
+                "filename": artifact.source_file.filename,
+                "suggested_summary": resp.get("summary", ""),
+                "method": resp.get("method", "inkwell"),
+                "error": None,
+            })
+        except InkwellUnavailableError as e:
+            logger.warning("Inkwell unavailable for artifact %s: %s", artifact.id, e)
+            results.append({
+                "artifact_id": str(artifact.id),
+                "source_file_id": str(artifact.source_file_id),
+                "filename": artifact.source_file.filename,
+                "suggested_summary": "",
+                "method": "error",
+                "error": str(e),
+            })
+
+    return results
+
+
+# ============================================================================
+# PHASE 7: RESTRUCTURE / CONSOLIDATE (Inkwell LLM)
+# ============================================================================
+
+def restructure_documents(
+    library_id: UUID | str,
+    similarity_threshold: float = 0.6,
+    embedding_model_name: str = "all-mpnet-base-v2",
+    embedding_model_version: str = "1",
+) -> list[dict[str, Any]]:
+    """
+    Cluster related documents and suggest consolidation outlines using Inkwell.
+
+    Read-only — returns clusters with outlines for user review. Does NOT merge.
+
+    Steps:
+    1. Compute document embeddings (reuses _get_document_embeddings)
+    2. Cluster by cosine similarity > threshold
+    3. For each cluster, generate an outline via Inkwell summarize
+
+    Returns: list of clusters, each with {cluster_id, documents, outline, similarity_avg}
+    """
+    from inkwell.client import summarize, InkwellUnavailableError
+
+    library_id = str(library_id)
+
+    # Step 1: Get document embeddings
+    doc_embeddings = _get_document_embeddings(library_id, embedding_model_name, embedding_model_version)
+
+    if len(doc_embeddings) < 2:
+        return []
+
+    sf_ids = list(doc_embeddings.keys())
+
+    # Step 2: Build similarity matrix and cluster
+    # Simple greedy clustering: each document joins the first cluster where it
+    # has similarity > threshold with ANY member
+    clusters: list[list[str]] = []
+    assigned: set[str] = set()
+
+    # Precompute pairwise similarities for efficient lookup
+    sim_matrix: dict[tuple[str, str], float] = {}
+    for i in range(len(sf_ids)):
+        for j in range(i + 1, len(sf_ids)):
+            id_a, id_b = sf_ids[i], sf_ids[j]
+            sim = float(np.dot(doc_embeddings[id_a]["vector"], doc_embeddings[id_b]["vector"]))
+            sim_matrix[(id_a, id_b)] = sim
+            sim_matrix[(id_b, id_a)] = sim
+
+    for sf_id in sf_ids:
+        if sf_id in assigned:
+            continue
+
+        # Start new cluster
+        cluster = [sf_id]
+        assigned.add(sf_id)
+
+        # Find all unassigned docs similar to any cluster member
+        changed = True
+        while changed:
+            changed = False
+            for other_id in sf_ids:
+                if other_id in assigned:
+                    continue
+                for member_id in cluster:
+                    pair_key = (member_id, other_id)
+                    if sim_matrix.get(pair_key, 0.0) >= similarity_threshold:
+                        cluster.append(other_id)
+                        assigned.add(other_id)
+                        changed = True
+                        break
+
+        if len(cluster) >= 2:
+            clusters.append(cluster)
+
+    # Step 3: For each cluster, build outline via Inkwell
+    results = []
+    for idx, cluster_ids in enumerate(clusters):
+        # Gather document info
+        docs = []
+        combined_text_parts = []
+        similarities = []
+
+        for sf_id in cluster_ids:
+            emb = doc_embeddings[sf_id]
+            docs.append({
+                "source_file_id": sf_id,
+                "filename": emb["filename"],
+                "excerpt": emb["excerpt"],
+            })
+            # Get full text for outline generation
+            artifact = Artifact.objects.filter(source_file_id=sf_id).first()
+            if artifact and artifact.text:
+                combined_text_parts.append(
+                    f"--- {emb['filename']} ---\n{artifact.text[:2000]}"
+                )
+
+        # Average pairwise similarity within cluster
+        for i in range(len(cluster_ids)):
+            for j in range(i + 1, len(cluster_ids)):
+                pair_key = (cluster_ids[i], cluster_ids[j])
+                similarities.append(sim_matrix.get(pair_key, 0.0))
+
+        avg_sim = float(np.mean(similarities)) if similarities else 0.0
+
+        # Generate outline via Inkwell
+        outline = ""
+        outline_method = "none"
+        combined_text = "\n\n".join(combined_text_parts)
+
+        if combined_text and len(combined_text) >= 50:
+            try:
+                resp = summarize(combined_text, words=120, style="bullet")
+                outline = resp.get("summary", "")
+                outline_method = resp.get("method", "inkwell")
+            except InkwellUnavailableError as e:
+                logger.warning("Inkwell unavailable for cluster %d: %s", idx, e)
+                outline = ""
+                outline_method = "error"
+
+        results.append({
+            "cluster_id": idx,
+            "documents": docs,
+            "document_count": len(docs),
+            "similarity_avg": round(avg_sim, 4),
+            "outline": outline,
+            "outline_method": outline_method,
+        })
+
+    # Sort by document count descending
+    results.sort(key=lambda c: c["document_count"], reverse=True)
+    return results

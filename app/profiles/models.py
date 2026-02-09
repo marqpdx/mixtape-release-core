@@ -1,3 +1,5 @@
+# profies/models.py
+
 import uuid
 
 from django.contrib.auth import get_user_model
@@ -27,6 +29,10 @@ class UserProfile(BaseModel):
 
     # Placeholder for avatar/images (next phase - will use actual file storage)
     avatar_url = models.CharField(max_length=512, default="", blank=True, help_text="Avatar image URL")
+    profile_image = models.CharField(max_length=512, default="", blank=True, help_text="Profile image storage key")
+    background_image = models.CharField(max_length=512, default="", blank=True, help_text="Background image storage key")
+    bio_json = models.JSONField(blank=True, default=dict)
+    bio_markdown = models.TextField(max_length=2000, blank=True, default="")
 
     def save(self, *args, **kwargs):
         # Auto-generate slug from display_name or username

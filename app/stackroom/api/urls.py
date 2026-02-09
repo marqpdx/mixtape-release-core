@@ -36,6 +36,8 @@ from stackroom.api.puddlejump_utility_views import (
     DuplicateDetectionView,
     GlossaryExtractionView,
     CanonicalCandidatesView,
+    SuggestSummariesView,
+    RestructureView,
 )
 
 urlpatterns = [
@@ -77,4 +79,6 @@ urlpatterns = [
     path("puddlejump/utilities/check-duplicates", DuplicateDetectionView.as_view(), name="puddlejump-check-duplicates"),
     path("puddlejump/utilities/extract-glossary", GlossaryExtractionView.as_view(), name="puddlejump-extract-glossary"),
     path("puddlejump/utilities/suggest-canonical", CanonicalCandidatesView.as_view(), name="puddlejump-suggest-canonical"),
+    path("puddlejump/utilities/suggest-summaries", SuggestSummariesView.as_view(), name="puddlejump-suggest-summaries"),
+    path("puddlejump/utilities/restructure", RestructureView.as_view(), name="puddlejump-restructure"),
 ]
