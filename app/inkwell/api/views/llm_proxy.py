@@ -1,4 +1,4 @@
-# app/inkwell/api/views/llm_proxy.py
+# `inkwell/api/views/llm_proxy.py
 
 import json
 import logging

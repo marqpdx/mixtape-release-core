@@ -28,6 +28,8 @@ from stackroom.services.puddlejump_utilities import (
     detect_duplicates,
     extract_glossary,
     suggest_canonical_candidates,
+    suggest_summaries,
+    restructure_documents,
 )
 
 logger = logging.getLogger(__name__)
@@ -269,5 +271,116 @@ class CanonicalCandidatesView(APIView):
             logger.error(f"Canonical suggestion failed for {library_id}: {e}", exc_info=True)
             return Response(
                 {"error": f"Canonical suggestion failed: {str(e)}"},
+                status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class SuggestSummariesView(APIView):
+    """
+    Suggest summaries for artifacts missing them, using Inkwell LLM.
+
+    POST /api/stackroom/puddlejump/utilities/suggest-summaries/
+
+    Request body:
+        {
+            "library_id": "uuid"
+        }
+
+    Returns list of suggested summaries for user review (does NOT write back).
+    """
+    authentication_classes = [OAuth2Authentication, JWTAuthentication, SessionAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        library_id = request.data.get("library_id")
+        if not library_id:
+            return Response(
+                {"error": "library_id is required"},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        library = _verify_library_access(request, str(library_id))
+        if not library:
+            return Response(
+                {"error": "Library not found or access denied"},
+                status=drf_status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            suggestions = suggest_summaries(library_id)
+            succeeded = [s for s in suggestions if s["error"] is None and s["suggested_summary"]]
+            return Response({
+                "library_id": str(library_id),
+                "total_missing": len(suggestions),
+                "suggestions_generated": len(succeeded),
+                "suggestions": suggestions,
+            })
+        except Exception as e:
+            logger.error(f"Summary suggestion failed for {library_id}: {e}", exc_info=True)
+            return Response(
+                {"error": f"Summary suggestion failed: {str(e)}"},
+                status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class RestructureView(APIView):
+    """
+    Cluster related documents and suggest consolidation outlines via Inkwell.
+
+    POST /api/stackroom/puddlejump/utilities/restructure/
+
+    Request body:
+        {
+            "library_id": "uuid",
+            "similarity_threshold": 0.6  (optional, default 0.6)
+        }
+
+    Returns clusters with document lists, average similarity, and outlines.
+    Does NOT merge — user reviews and approves.
+    """
+    authentication_classes = [OAuth2Authentication, JWTAuthentication, SessionAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        library_id = request.data.get("library_id")
+        if not library_id:
+            return Response(
+                {"error": "library_id is required"},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        library = _verify_library_access(request, str(library_id))
+        if not library:
+            return Response(
+                {"error": "Library not found or access denied"},
+                status=drf_status.HTTP_404_NOT_FOUND,
+            )
+
+        similarity_threshold = request.data.get("similarity_threshold", 0.6)
+        try:
+            similarity_threshold = float(similarity_threshold)
+            if not (0.0 < similarity_threshold <= 1.0):
+                raise ValueError
+        except (TypeError, ValueError):
+            return Response(
+                {"error": "similarity_threshold must be a number between 0 and 1"},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            clusters = restructure_documents(
+                library_id,
+                similarity_threshold=similarity_threshold,
+            )
+            return Response({
+                "library_id": str(library_id),
+                "similarity_threshold": similarity_threshold,
+                "cluster_count": len(clusters),
+                "clusters": clusters,
+            })
+        except Exception as e:
+            logger.error(f"Restructure analysis failed for {library_id}: {e}", exc_info=True)
+            return Response(
+                {"error": f"Restructure analysis failed: {str(e)}"},
                 status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
