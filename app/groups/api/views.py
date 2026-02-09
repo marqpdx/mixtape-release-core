@@ -331,6 +331,28 @@ class GroupWelcomePinView(generics.GenericAPIView):
                     }
                 )
 
+
+class DefaultGroupView(generics.GenericAPIView):
+    """
+    GET /api/groups/default
+    Returns the default group (by settings), if present.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        default_group = get_default_group()
+        if not default_group:
+            return Response({"detail": "Default group not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response(
+            {
+                "id": str(default_group.id),
+                "slug": default_group.slug,
+                "title": default_group.title,
+                "group_type": getattr(default_group, "group_type", None),
+            }
+        )
+
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
