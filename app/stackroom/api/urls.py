@@ -31,6 +31,12 @@ from stackroom.api.puddlejump_views import (
     PuddlejumpSyncDeleteView,
     PuddlejumpSyncCompleteView,
 )
+from stackroom.api.puddlejump_utility_views import (
+    LibraryHealthView,
+    DuplicateDetectionView,
+    GlossaryExtractionView,
+    CanonicalCandidatesView,
+)
 
 urlpatterns = [
     path("health", HealthCheckView.as_view(), name="stackroom-health"),
@@ -66,4 +72,9 @@ urlpatterns = [
     path("puddlejump/sync/download/<uuid:file_id>", PuddlejumpSyncDownloadView.as_view(), name="puddlejump-sync-download"),
     path("puddlejump/sync/delete/<uuid:file_id>", PuddlejumpSyncDeleteView.as_view(), name="puddlejump-sync-delete"),
     path("puddlejump/sync/complete", PuddlejumpSyncCompleteView.as_view(), name="puddlejump-sync-complete"),
+    # Puddlejump utility endpoints
+    path("puddlejump/utilities/libraries/<uuid:library_id>/health", LibraryHealthView.as_view(), name="puddlejump-library-health"),
+    path("puddlejump/utilities/check-duplicates", DuplicateDetectionView.as_view(), name="puddlejump-check-duplicates"),
+    path("puddlejump/utilities/extract-glossary", GlossaryExtractionView.as_view(), name="puddlejump-extract-glossary"),
+    path("puddlejump/utilities/suggest-canonical", CanonicalCandidatesView.as_view(), name="puddlejump-suggest-canonical"),
 ]
