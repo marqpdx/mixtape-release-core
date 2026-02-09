@@ -44,6 +44,14 @@ ALLOWED_HOSTS = ["*"]
 # ============================================================================
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 
+# ============================================================================
+# LLM PROVIDER (for Puddlejump utilities — summarization, restructure)
+# ============================================================================
+LLM_BACKEND = os.getenv("LLM_BACKEND", "ollama")  # ollama | openai | anthropic
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://localhost:11434")
+LLM_MODEL = os.getenv("LLM_MODEL", "llama3.1:8b")
+LLM_API_KEY = os.getenv("LLM_API_KEY", None)
+
 INKWELL_BASE_URL = os.getenv(
     "INKWELL_BASE_URL",
     "https://inkwell.crossroads.place",  # default if not set
