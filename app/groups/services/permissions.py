@@ -15,6 +15,35 @@ from groups.models import GroupMembership
 # Phase 1: Simple role → permissions mapping (hardcoded)
 # Will be replaced by permission tree in Phase 2A
 ROLE_PERMISSIONS = {
+    "owner": [
+        # All admin permissions
+        "create_course",
+        "edit_course",
+        "delete_course",
+        "publish_course",
+        "manage_courses",
+        "manage_members",
+        "invite_members",
+        "remove_members",
+        "assign_roles",
+        "edit_group",
+        "manage_group_settings",
+        "view_content",
+        "view_drafts",
+        "enroll_in_courses",
+        "can_view_project",
+        "can_edit_project",
+        "can_create_task",
+        "can_move_task",
+        "can_edit_task",
+        "can_archive_task",
+
+        # Owner-only permissions
+        "manage_ownership",
+        "set_escrow_owner",
+        "transfer_ownership",
+    ],
+
     "admin": [
         # Course management
         "create_course",

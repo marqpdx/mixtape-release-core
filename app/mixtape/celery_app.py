@@ -81,6 +81,10 @@ app.conf.beat_schedule = {
         "task": "stackroom.tasks.processing.process_pending_uploads",
         "schedule": 15.0,  # Run every 15 seconds
     },
+    "execute-due-ownership-requests": {
+        "task": "groups.tasks.execute_due_ownership_requests",
+        "schedule": 60.0,  # Every 1 minute
+    },
     # "cleanup-empty-drafts": {
     #     "task": "your_app.tasks.cleanup.cleanup_empty_drafts",
     #     "schedule": crontab(hour=2, minute=0),

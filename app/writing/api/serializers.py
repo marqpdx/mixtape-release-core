@@ -1,6 +1,7 @@
 # api/writing/serializers.py
 
 from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.models import ContentType
 from rest_framework import serializers
 
 from utils.shared.contenttypes import resolve_content_type
@@ -17,6 +18,22 @@ from ..models import (
 
 
 User = get_user_model()
+
+
+def _get_tag_titles_for_piece(piece: WritingPiece) -> list[str]:
+    try:
+        from classifications.models import Tag, ClassificationUsage
+        tag_ct = ContentType.objects.get_for_model(Tag)
+        piece_ct = ContentType.objects.get_for_model(WritingPiece)
+        tag_ids = ClassificationUsage.objects.filter(
+            classification_client_content_type=piece_ct,
+            classification_client_object_id=str(piece.id),
+            classification_content_type=tag_ct,
+        ).values_list("classification_object_id", flat=True)
+        tags = Tag.objects.filter(id__in=tag_ids).order_by("title")
+        return [tag.title for tag in tags]
+    except Exception:
+        return []
 
 class WritingPieceSerializer(serializers.ModelSerializer):
     status = serializers.ChoiceField(
@@ -186,12 +203,7 @@ class WritingPieceListSerializer(serializers.ModelSerializer):
         return obj.placements.count()
 
     def get_tags_list(self, obj):
-        try:
-            if hasattr(obj, "tags"):
-                return [tag.name for tag in obj.tags.all()]
-            return []
-        except:
-            return []
+        return _get_tag_titles_for_piece(obj)
 
         # # api/writing/serializers.py
 
@@ -254,12 +266,16 @@ class UserMinimalSerializer(serializers.ModelSerializer):
 
 class WritingPieceMinimalSerializer(serializers.ModelSerializer):
     """Minimal piece info for working copy context."""
+    tags_list = serializers.SerializerMethodField()
     class Meta:
         model = WritingPiece
         fields = [
             "id", "slug", "title", "writing_kind",
-            "status", "created_at", "updated_at", "excerpt"
+            "status", "created_at", "updated_at", "excerpt", "tags_list"
         ]
+
+    def get_tags_list(self, obj):
+        return _get_tag_titles_for_piece(obj)
 
 
 class WritingWorkingCopySerializer(serializers.ModelSerializer):

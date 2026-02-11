@@ -144,6 +144,9 @@ def _role_to_roles_array(role: str) -> list[str]:
     """
     role = role.lower()
 
+    if role == "owner":
+        return ["member", "admin", "owner"]
+
     # Founder is treated as admin structurally
     # (will get 'isGroupFounder' decorator in Phase 2)
     if role == "founder":
@@ -208,11 +211,22 @@ def demote_from_admin(membership) -> bool:
     """
     Demote an admin to regular member.
     Removes 'admin' role but keeps 'member'.
+    Owners cannot be demoted via this function.
 
     Args:
         membership: GroupMembership instance
 
     Returns:
-        True if demoted, False if wasn't admin
+        True if demoted, False if wasn't admin or is owner
     """
+    if membership.is_owner():
+        return False
     return membership.revoke_role("admin")
+
+
+def demote_from_owner(membership):
+    """
+    Placeholder — owner demotion requires a time-delayed OwnershipChangeRequest.
+    Will be implemented in Phase B.
+    """
+    raise NotImplementedError("Owner demotion requires an ownership change request (Phase B)")

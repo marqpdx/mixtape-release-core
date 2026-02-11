@@ -11,7 +11,7 @@ from django.db import models
 
 from fundamentals.bases import BaseModel
 
-from .dec_enums import highest_role, is_admin, is_steward
+from .dec_enums import highest_role, is_admin, is_owner, is_steward
 
 
 User = get_user_model()
@@ -113,6 +113,10 @@ class GroupMembership(BaseModel):
     def has_role(self, role: str) -> bool:
         """Check if this membership has a specific role."""
         return role in self.roles
+
+    def is_owner(self) -> bool:
+        """Check if this member is an owner."""
+        return is_owner(self.roles)
 
     def is_admin(self) -> bool:
         """Check if this member is an admin."""
@@ -358,6 +362,26 @@ class GroupMembership(BaseModel):
             member_object_id=user.id,
             is_active=True,
             roles__contains=["admin"],  # PostgreSQL array contains
+            group__is_active=True
+        ).select_related("group")
+
+    @classmethod
+    def get_user_owner_memberships(cls, user):
+        """
+        Get groups where user is an owner.
+
+        Args:
+            user: User object
+
+        Returns:
+            QuerySet of GroupMembership objects where user is owner
+        """
+        user_content_type = ContentType.objects.get_for_model(user.__class__)
+        return cls.objects.filter(
+            member_content_type=user_content_type,
+            member_object_id=user.id,
+            is_active=True,
+            roles__contains=["owner"],
             group__is_active=True
         ).select_related("group")
 

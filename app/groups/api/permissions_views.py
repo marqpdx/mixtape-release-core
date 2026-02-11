@@ -135,7 +135,12 @@ class MemberPermissionManageView(generics.GenericAPIView):
                 status=404
             )
 
-        # Don't allow modifying admin permissions
+        # Don't allow modifying owner or admin permissions
+        if membership.is_owner():
+            return Response(
+                {"error": "Cannot modify owner permissions"},
+                status=403
+            )
         if membership.is_admin():
             return Response(
                 {"error": "Cannot modify admin permissions"},
@@ -216,7 +221,12 @@ class MemberPermissionManageView(generics.GenericAPIView):
                 status=404
             )
 
-        # Don't allow modifying admin permissions
+        # Don't allow modifying owner or admin permissions
+        if membership.is_owner():
+            return Response(
+                {"error": "Cannot modify owner permissions"},
+                status=403
+            )
         if membership.is_admin():
             return Response(
                 {"error": "Cannot modify admin permissions"},
@@ -270,6 +280,11 @@ class MemberRoleManageView(generics.GenericAPIView):
             )
 
         role = (request.data or {}).get("role")
+        if role == "owner":
+            return Response(
+                {"error": "Owner role can only be assigned via ownership change request"},
+                status=403
+            )
         if role not in ("admin", "steward"):
             return Response({"error": "Invalid role"}, status=400)
 
@@ -285,6 +300,13 @@ class MemberRoleManageView(generics.GenericAPIView):
             return Response(
                 {"error": "User is not a member of this group"},
                 status=404
+            )
+
+        # Block modifying owner roles — owners are protected
+        if membership.is_owner():
+            return Response(
+                {"error": "Cannot modify owner roles"},
+                status=403
             )
 
         membership.grant_role(role)
@@ -323,6 +345,7 @@ class MyPermissionsView(generics.GenericAPIView):
             'role': membership.highest_role(),
             'roles': membership.roles,
             'decorators': membership.get_decorator_codes(),
+            'is_owner': membership.is_owner(),
             'is_admin': membership.is_admin(),
             'is_steward': membership.is_steward(),
         })

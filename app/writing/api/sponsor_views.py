@@ -11,6 +11,7 @@ from django.db import models
 from rest_framework import generics, permissions, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
+from django.contrib.contenttypes.models import ContentType
 from rest_framework.views import APIView
 
 from writing.models import WritingWorkingCopy
@@ -112,6 +113,7 @@ class SponsorPlacementsListView(APIView):
                     "is_pinned": bool(piece.pinned_at),
                     "is_announcement": piece.writing_kind == "announcement",
                     "order": 0,
+                    "tags": _get_tag_titles_for_piece(piece),
                     "created_at": placement.created_at,
                     "updated_at": placement.updated_at,
                     "display": {
@@ -223,3 +225,17 @@ class SponsorDraftDeleteView(generics.DestroyAPIView):
             raise PermissionDenied("You do not have permission to delete this draft.")
 
         return wc
+def _get_tag_titles_for_piece(piece: WritingPiece) -> list[str]:
+    try:
+        from classifications.models import Tag, ClassificationUsage
+        tag_ct = ContentType.objects.get_for_model(Tag)
+        piece_ct = ContentType.objects.get_for_model(WritingPiece)
+        tag_ids = ClassificationUsage.objects.filter(
+            classification_client_content_type=piece_ct,
+            classification_client_object_id=str(piece.id),
+            classification_content_type=tag_ct,
+        ).values_list("classification_object_id", flat=True)
+        tags = Tag.objects.filter(id__in=tag_ids).order_by("title")
+        return [tag.title for tag in tags]
+    except Exception:
+        return []
