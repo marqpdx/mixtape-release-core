@@ -325,8 +325,189 @@ GET /api/stackroom/puddlejump/utilities/libraries/<LIBRARY_ID>/health
 
 ---
 
+## Phase 6-7: LLM Utilities (Inkwell)
+
+These endpoints depend on Inkwell (the FastAPI LLM microservice). Verify it's running first:
+```
+curl $INKWELL_BASE_URL/health/ready
+```
+Expected: `{"status": "ready", ...}` with HTTP 200. If Inkwell is down, suggest-summaries returns per-artifact errors and restructure returns an empty cluster list — both degrade gracefully.
+
+---
+
+## 13) Suggest Summaries
+
+**Request**
+```
+POST /api/stackroom/puddlejump/utilities/suggest-summaries
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
+
+{
+    "library_id": "<LIBRARY_ID>"
+}
+```
+
+**Expected**
+- 200 OK
+- Response contains:
+  - `library_id` — matches
+  - `total_missing` — integer ≥ 0 (artifacts without interior_summary)
+  - `suggestions_generated` — integer ≤ total_missing
+  - `suggestions` — array of objects, each with:
+    - `artifact_id` — valid UUID
+    - `source_file_id` — valid UUID
+    - `filename` — actual filename
+    - `suggested_summary` — non-empty string (when successful)
+    - `method` — e.g. "llm_abstractive", "extractive_fallback", "skipped_too_short", "error"
+    - `error` — null on success, error message string on failure
+
+**Verify**
+- [ ] If all artifacts already have summaries, `total_missing` is 0 and `suggestions` is empty
+- [ ] Artifacts with < 50 chars text get `method: "skipped_too_short"`
+- [ ] Summaries read as coherent natural language
+- [ ] If Inkwell is down, each suggestion has `method: "error"` and a descriptive `error` string
+- [ ] Does NOT write summaries back to artifacts — read-only
+
+---
+
+## 14) Restructure / Consolidate
+
+**Request**
+```
+POST /api/stackroom/puddlejump/utilities/restructure
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
+
+{
+    "library_id": "<LIBRARY_ID>"
+}
+```
+
+**Expected**
+- 200 OK
+- Response contains:
+  - `library_id` — matches
+  - `similarity_threshold` — 0.6 (default)
+  - `cluster_count` — integer ≥ 0
+  - `clusters` — array of objects, each with:
+    - `cluster_id` — integer starting from 0
+    - `documents` — array of `{source_file_id, filename, excerpt}`
+    - `document_count` — integer ≥ 2 (clusters always have 2+ docs)
+    - `similarity_avg` — float 0.0-1.0 (average pairwise similarity within cluster)
+    - `outline` — summary text from Inkwell (or empty if Inkwell down)
+    - `outline_method` — "llm_abstractive", "extractive_fallback", "error", or "none"
+  - Sorted by `document_count` descending
+
+**Verify**
+- [ ] Each cluster has at least 2 documents
+- [ ] Documents within a cluster are genuinely related (check filenames/excerpts)
+- [ ] Outlines make sense as consolidation summaries
+- [ ] No document appears in more than one cluster
+- [ ] If Inkwell is down, clusters still form (embedding-based) but outlines are empty with `outline_method: "error"`
+
+---
+
+## 15) Restructure — Custom Threshold
+
+**Request**
+```
+POST /api/stackroom/puddlejump/utilities/restructure
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
+
+{
+    "library_id": "<LIBRARY_ID>",
+    "similarity_threshold": 0.8
+}
+```
+
+**Expected**
+- 200 OK
+- Higher threshold → fewer, tighter clusters (or none)
+- All documents in each cluster have pairwise similarity ≥ 0.8
+
+---
+
+## Frontend UI Testing
+
+### Prerequisites
+- Django dev server running (port 8011 or similar)
+- Inkwell running (check `/health/ready`)
+- Qdrant running (port 6333)
+- Frontend running (`yarn dev` on port 3010)
+- Logged in as a user with a Puddlejump library containing synced, ingested files
+
+### Navigate to Puddlejump
+1. Go to `/puddlejump` in the browser
+2. Sidebar should show two sections: **Library** (Overview, Files) and **Utilities** (Duplicates, Glossary, Canonical, Summaries, Restructure)
+
+### Test each panel
+
+**Overview** (default view)
+- [ ] Loads automatically — shows file count, total size, folder depth
+- [ ] Coverage bars (canon, summary, keyword) show correct percentages
+- [ ] Ingestion status bar reflects embedding completion
+- [ ] Missing summaries alert expands to show filenames (if any exist)
+- [ ] Overdue reviews alert shows (if any canonical items have past review dates)
+
+**Files**
+- [ ] Files grouped by folder path, root files listed first
+- [ ] Folder sections are collapsible
+- [ ] Clicking a file expands detail: path, canonical status, tags, updated date
+- [ ] File sizes display correctly (bytes/KB/MB)
+- [ ] "canon" badge appears on featured files
+
+**Duplicates**
+- [ ] Default threshold shows 0.85 in input
+- [ ] Click "Run Analysis" — spinner appears, then results
+- [ ] Pairs show filenames, similarity percentage, text excerpts
+- [ ] High similarity (≥ 95%) gets red badge, lower gets yellow
+- [ ] Zero-pair result shows green "No duplicates found" message
+- [ ] Changing threshold and re-running updates results
+
+**Glossary**
+- [ ] Click "Extract Glossary" — spinner, then results
+- [ ] Terms show with definitions (if pattern-matched), occurrence counts, source file badges
+- [ ] Sort toggle switches between frequency and A-Z ordering
+- [ ] Min occurrences filter reduces results when increased
+
+**Canonical**
+- [ ] Click "Find Candidates" — spinner, then ranked results
+- [ ] Candidates show rank number, filename, score bar, reason list
+- [ ] "canonical" badge appears on already-canonical files
+- [ ] "Exclude already canonical" checkbox filters them out on re-run
+- [ ] Top N input limits the result count
+
+**Summaries** (Phase 6 — requires Inkwell)
+- [ ] Click "Suggest Summaries" — spinner appears (may take 10-30s depending on file count)
+- [ ] Results show filename, method badge, and suggested summary in a blue-bordered card
+- [ ] Dismiss button (X) removes a suggestion from the list
+- [ ] Count badges update: "N generated" and "N total missing"
+- [ ] If all files already have summaries, shows "All documents already have summaries"
+- [ ] Skipped/error counts appear at bottom when relevant
+- [ ] If Inkwell is down: error messages appear per-artifact, not a full page crash
+
+**Restructure** (Phase 7 — requires Inkwell + Qdrant embeddings)
+- [ ] Default threshold shows 0.6 in input
+- [ ] Click "Analyze Structure" — spinner (may take 10-30s)
+- [ ] Clusters appear as cards with: cluster number, document count, avg similarity badge
+- [ ] Each cluster lists its member documents with filenames and excerpts
+- [ ] Purple-bordered "Suggested outline" section appears below each cluster's documents
+- [ ] Zero-cluster result shows green "No document clusters found" message
+- [ ] Raising threshold (e.g. 0.8) produces fewer, tighter clusters
+
+### Error states to verify
+- [ ] If Inkwell is down: Summaries and Restructure degrade gracefully (no crash, clear error messaging)
+- [ ] If Qdrant has no embeddings: Duplicates, Canonical, and Restructure return empty results (not errors)
+- [ ] If library has no files: Overview shows zero counts, Files shows empty state, utilities return empty
+
+---
+
 ## Notes / Known Constraints
 - Duplicate detection and canonical candidates return empty results if ingestion hasn't completed (no embeddings in Qdrant). This is expected — not a failure.
 - Glossary extraction works purely from artifact text and keywords, so it returns results even without embeddings.
-- The LLM provider (`llm_provider.py`) is a skeleton — no endpoints depend on it yet. It will be used by future utilities (suggest summaries, restructure).
-- All utility operations are synchronous. For large libraries (200+ files), duplicate detection may take a few seconds due to Qdrant round-trips.
+- Summaries and Restructure depend on Inkwell. Both degrade gracefully if it's unavailable.
+- `llm_provider.py` has been deleted — all LLM operations go through `inkwell/client.py` → Inkwell FastAPI.
+- All utility operations are synchronous. For large libraries (200+ files), LLM-based operations (summaries, restructure) may take 30-60s due to per-document Inkwell calls.
+- Suggest Summaries does NOT write back to artifacts — it's a proposal for user review only.
