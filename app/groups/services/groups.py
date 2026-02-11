@@ -56,6 +56,7 @@ class GroupService:
             profile_image=profile_image,
             background_image=background_image,
             submitted_by=created_by,
+            escrow_owner=created_by,
             is_active=True
         )
         sponsor_obj = sponsor or created_by
@@ -72,7 +73,7 @@ class GroupService:
                 group=group,
                 member_content_type=user_content_type,
                 member_object_id=created_by.pk,
-                roles=["member", "admin"],
+                roles=["member", "admin", "owner"],
                 is_active=True,
                 is_pending=False,
             )
@@ -169,6 +170,21 @@ class GroupService:
         return membership.is_admin() if membership else False
 
     @staticmethod
+    def is_user_owner(group, user):
+        """
+        Check if user is an owner of the group.
+
+        Args:
+            group: Group instance
+            user: User instance
+
+        Returns:
+            bool
+        """
+        membership = GroupService.get_user_membership(group, user)
+        return membership.is_owner() if membership else False
+
+    @staticmethod
     def get_user_role(group, user):
         """
         Get user's role in the group for API responses.
@@ -186,9 +202,11 @@ class GroupService:
             return None
 
         # Map backend roles to frontend expectations
-        # Backend: ['member', 'admin', 'steward']
-        # Frontend: 'admin' | 'moderator' | 'member'
+        # Backend: ['member', 'admin', 'steward', 'owner']
+        # Frontend: 'owner' | 'admin' | 'moderator' | 'member'
 
+        if membership.is_owner():
+            return "owner"
         if membership.is_admin():
             return "admin"
         if membership.is_steward():

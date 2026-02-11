@@ -17,3 +17,6 @@ from .membership import *
 
 # 4. Types (depends on Group)
 from .types import *
+
+# 7. Ownership change requests (depends on Group)
+from .ownership import *

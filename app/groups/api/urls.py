@@ -34,6 +34,11 @@ from .permissions_views import (
     MemberRoleManageView,
     MyPermissionsView,
 )
+from .ownership_views import (
+    OwnershipRequestCreateView,
+    OwnershipRequestListView,
+    OwnershipRequestCancelView,
+)
 from writing.api.views import WritingPieceDetailView
 
 
@@ -96,6 +101,11 @@ urlpatterns = [
     path("<slug:slug>/coalition-invitations/invite", invite_group_to_coalition, name="group-coalition-invite"),
     path("<slug:slug>/coalition-invitations/request", request_to_join_coalition, name="group-coalition-request"),
     path("coalition-invitations/<int:invitation_id>/respond", respond_to_group_invitation, name="group-coalition-respond"),
+
+    # Ownership change requests
+    path("<slug:slug>/ownership/requests", OwnershipRequestListView.as_view(), name="group-ownership-requests"),
+    path("<slug:slug>/ownership/requests/create", OwnershipRequestCreateView.as_view(), name="group-ownership-request-create"),
+    path("<slug:slug>/ownership/requests/<uuid:request_id>/cancel", OwnershipRequestCancelView.as_view(), name="group-ownership-request-cancel"),
 
     # ============================================================================
     # PHASE 3: Emblems (Enabled)

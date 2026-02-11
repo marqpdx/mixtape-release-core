@@ -71,6 +71,22 @@ class Group(LayoutParent, BaseContent):
         related_name="groups",
     )
 
+    # ============================================================================
+    # OWNERSHIP SAFETY (Phase A)
+    # ============================================================================
+    escrow_owner = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="escrow_owned_groups",
+        help_text="Designated recovery owner for continuity"
+    )
+    ownership_change_delay_seconds = models.IntegerField(
+        default=86400,
+        help_text="Delay in seconds before ownership changes execute (default 24h)"
+    )
+
     is_active = models.BooleanField(default=True, db_index=True)
 
     visibility = models.CharField(
