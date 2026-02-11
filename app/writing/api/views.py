@@ -135,7 +135,6 @@ class WritingPieceListCreateView(generics.ListCreateAPIView):
             "author__profile",
             "sponsor_content_type"
         ).prefetch_related(
-            "placements",
             "versions"
         ).order_by("-pinned_at", "-published_at", "-updated_at")
 

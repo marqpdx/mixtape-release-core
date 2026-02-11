@@ -98,6 +98,8 @@ class PuddlejumpUtilitiesAPITests(TestCase):
             "/api/stackroom/puddlejump/utilities/check-duplicates",
             "/api/stackroom/puddlejump/utilities/extract-glossary",
             "/api/stackroom/puddlejump/utilities/suggest-canonical",
+            "/api/stackroom/puddlejump/utilities/suggest-summaries",
+            "/api/stackroom/puddlejump/utilities/restructure",
         ):
             response = self.client.post(path, {}, format="json")
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -253,6 +255,116 @@ class PuddlejumpUtilitiesAPITests(TestCase):
         self._auth()
         response = self.client.post(
             "/api/stackroom/puddlejump/utilities/check-duplicates",
+            {"library_id": str(self.other_library.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.data.get("error"), "Library not found or access denied")
+
+    def test_post_requires_auth(self):
+        for path in (
+            "/api/stackroom/puddlejump/utilities/check-duplicates",
+            "/api/stackroom/puddlejump/utilities/extract-glossary",
+            "/api/stackroom/puddlejump/utilities/suggest-canonical",
+            "/api/stackroom/puddlejump/utilities/suggest-summaries",
+            "/api/stackroom/puddlejump/utilities/restructure",
+        ):
+            response = self.client.post(path, {"library_id": str(self.library.id)}, format="json")
+            self.assertIn(
+                response.status_code,
+                (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN),
+            )
+
+    @mock.patch("stackroom.api.puddlejump_utility_views.suggest_summaries")
+    def test_suggest_summaries_default(self, mock_suggest):
+        self._auth()
+        mock_suggest.return_value = [
+            {
+                "artifact_id": "a",
+                "source_file_id": "b",
+                "filename": "a.md",
+                "suggested_summary": "Summary",
+                "method": "llm_abstractive",
+                "error": None,
+            }
+        ]
+
+        response = self.client.post(
+            "/api/stackroom/puddlejump/utilities/suggest-summaries",
+            {"library_id": str(self.library.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["total_missing"], 1)
+        self.assertEqual(response.data["suggestions_generated"], 1)
+        self.assertEqual(len(response.data["suggestions"]), 1)
+
+    def test_suggest_summaries_access_denied(self):
+        self._auth()
+        response = self.client.post(
+            "/api/stackroom/puddlejump/utilities/suggest-summaries",
+            {"library_id": str(self.other_library.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.data.get("error"), "Library not found or access denied")
+
+    @mock.patch("stackroom.api.puddlejump_utility_views.restructure_documents")
+    def test_restructure_default(self, mock_restructure):
+        self._auth()
+        mock_restructure.return_value = [
+            {
+                "cluster_id": 0,
+                "documents": [
+                    {"source_file_id": "a", "filename": "a.md", "excerpt": "a"},
+                    {"source_file_id": "b", "filename": "b.md", "excerpt": "b"},
+                ],
+                "document_count": 2,
+                "similarity_avg": 0.7,
+                "outline": "",
+                "outline_method": "none",
+            }
+        ]
+
+        response = self.client.post(
+            "/api/stackroom/puddlejump/utilities/restructure",
+            {"library_id": str(self.library.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["similarity_threshold"], 0.6)
+        self.assertEqual(response.data["cluster_count"], 1)
+
+    @mock.patch("stackroom.api.puddlejump_utility_views.restructure_documents")
+    def test_restructure_custom_threshold(self, mock_restructure):
+        self._auth()
+        mock_restructure.return_value = []
+
+        response = self.client.post(
+            "/api/stackroom/puddlejump/utilities/restructure",
+            {"library_id": str(self.library.id), "similarity_threshold": 0.8},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["similarity_threshold"], 0.8)
+
+    def test_restructure_invalid_threshold(self):
+        self._auth()
+        response = self.client.post(
+            "/api/stackroom/puddlejump/utilities/restructure",
+            {"library_id": str(self.library.id), "similarity_threshold": 1.5},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data.get("error"),
+            "similarity_threshold must be a number between 0 and 1",
+        )
+
+    def test_restructure_access_denied(self):
+        self._auth()
+        response = self.client.post(
+            "/api/stackroom/puddlejump/utilities/restructure",
             {"library_id": str(self.other_library.id)},
             format="json",
         )
