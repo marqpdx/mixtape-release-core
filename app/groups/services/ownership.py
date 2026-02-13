@@ -125,8 +125,8 @@ def create_ownership_request(
             raise ValueError("Target user is already an owner")
 
     elif action == OwnershipAction.SET_ESCROW_OWNER:
-        # Target doesn't need to be a current member
-        pass
+        if not target_membership:
+            raise ValueError("Target user must be a member of this group")
 
     # Compute execution time
     execute_after = timezone.now() + timedelta(
@@ -316,7 +316,13 @@ def _execute_transfer_ownership(group, requester, target_user):
 
 
 def _execute_set_escrow_owner(group, target_user):
-    """Set the group's escrow owner."""
+    """Set the group's escrow owner, granting owner role if needed."""
+    membership = _get_user_membership(group, target_user)
+    if not membership:
+        raise ValueError("Target user is not a member of this group")
+    if not membership.is_owner():
+        membership.grant_role("admin")
+        membership.grant_role("owner")
     group.escrow_owner = target_user
     group.save(update_fields=["escrow_owner", "updated_at"])
 
