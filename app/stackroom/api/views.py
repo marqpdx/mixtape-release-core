@@ -1393,6 +1393,7 @@ class LibraryPlacementsView(APIView):
                     "piece_body_json": metadata.get("body_json") or piece.body_json,
                     "piece_status": piece.status,
                     "published_at": piece.published_at,
+                    "writing_kind": getattr(piece, "writing_kind", None),
                     "visibility": placement.visibility,
                     "order_index": placement.order_index,
                     "created_at": placement.created_at,
