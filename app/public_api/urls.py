@@ -1,0 +1,22 @@
+# public_api/urls.py
+
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path(
+        "members/<str:username>",
+        views.PublicMemberProfileView.as_view(),
+        name="public-member-profile",
+    ),
+    path(
+        "members/<str:username>/shelves",
+        views.PublicMemberShelvesView.as_view(),
+        name="public-member-shelves",
+    ),
+    path(
+        "writing/<slug:slug>",
+        views.PublicWritingPieceView.as_view(),
+        name="public-writing-piece",
+    ),
+]

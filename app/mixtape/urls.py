@@ -49,6 +49,9 @@ urlpatterns = [
 
     # === END PHASE 1 ENDPOINTS ===
 
+    # Public API (anonymous + logged-in reader surface)
+    path("api/public/", include("public_api.urls")),
+
     # === PHASE 2 ENDPOINTS ===
 
     # Groups

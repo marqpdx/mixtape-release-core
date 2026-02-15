@@ -47,6 +47,7 @@ tests=(
   "concord.tests.test_recording_api concord.tests.test_recording_models concord.tests.test_session_models concord.tests.test_speaker_anchor_models concord.tests.test_transcription_models"
   "groups.tests"
   "lists"
+  "public_api.tests"
   "publishing.tests"
   "writing.tests"
 )
