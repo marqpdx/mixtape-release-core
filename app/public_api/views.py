@@ -1,0 +1,187 @@
+# public_api/views.py
+
+"""
+Public API views for anonymous + logged-in reader surface.
+
+All endpoints use AllowAny permissions with server-side visibility enforcement.
+No email, roles, or internal data exposed.
+"""
+
+from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.models import ContentType
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+
+from rest_framework import status as drf_status
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from profiles.models import UserProfile
+from publishing.models import ContentPlacement
+from publishing.services.content_access import can_view_placement
+from publishing.services.content_display import get_display_payload
+from stackroom.models import Library
+from writing.models import WritingPiece
+
+from .serializers import PublicMemberSerializer
+
+
+class PublicMemberProfileView(APIView):
+    """
+    GET /api/public/members/{username}
+
+    Returns a lean public profile. No email, no roles, no internal fields.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, username):
+        profile = get_object_or_404(
+            UserProfile.objects.select_related("user"),
+            user__username=username,
+            deleted_at__isnull=True,
+            user__is_active=True,
+        )
+        serializer = PublicMemberSerializer(profile)
+        return Response(serializer.data)
+
+
+class PublicMemberShelvesView(APIView):
+    """
+    GET /api/public/members/{username}shelves/
+
+    Returns public shelves with writing items inline.
+    Anonymous: public shelves only.
+    Authenticated: public + members shelves.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, username):
+        User = get_user_model()
+        user_obj = get_object_or_404(User, username=username, is_active=True)
+
+        sponsor_ct = ContentType.objects.get_for_model(User)
+        allowed_visibility = ["public"]
+        if request.user.is_authenticated:
+            allowed_visibility.append("members")
+
+        libraries = Library.objects.filter(
+            sponsor_content_type=sponsor_ct,
+            sponsor_object_id=user_obj.id,
+            visibility__in=allowed_visibility,
+            scope="writing",
+        ).order_by("-created_at")
+
+        ct_library = ContentType.objects.get_for_model(Library)
+        ct_piece = ContentType.objects.get_for_model(WritingPiece)
+        viewer = request.user if request.user.is_authenticated else None
+
+        results = []
+        for library in libraries:
+            placements = ContentPlacement.objects.filter(
+                target_content_type=ct_library,
+                target_object_id=library.id,
+                source_content_type=ct_piece,
+                channel="shelf",
+            ).order_by("order_index", "-created_at")
+
+            items = []
+            for placement in placements:
+                if not can_view_placement(placement, viewer):
+                    continue
+                try:
+                    payload = get_display_payload(placement)
+                except Exception:
+                    continue
+
+                piece = payload.get("source")
+                if not piece or getattr(piece, "status", None) != "published":
+                    continue
+
+                metadata = payload.get("metadata") or {}
+                items.append({
+                    "id": str(placement.id),
+                    "title": metadata.get("title") or piece.title,
+                    "slug": piece.slug,
+                    "excerpt": metadata.get("excerpt") or getattr(piece, "excerpt", ""),
+                    "writing_kind": getattr(piece, "writing_kind", None),
+                    "published_at": piece.published_at,
+                })
+
+            items.sort(
+                key=lambda x: x["published_at"] or timezone.datetime.min.replace(tzinfo=timezone.utc),
+                reverse=True,
+            )
+
+            results.append({
+                "id": str(library.id),
+                "title": library.title,
+                "slug": library.slug,
+                "summary": library.summary or "",
+                "visibility": library.visibility,
+                "item_count": len(items),
+                "items": items,
+            })
+
+        return Response(results)
+
+
+class PublicWritingPieceView(APIView):
+    """
+    GET /api/public/writing/{slug}
+
+    Public reading endpoint for a single writing piece.
+    Resolves artifact via placements, respects visibility.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, slug):
+        piece = get_object_or_404(
+            WritingPiece.objects.select_related("author", "sponsor_content_type"),
+            slug=slug,
+            status="published",
+        )
+
+        ct_piece = ContentType.objects.get_for_model(WritingPiece)
+        placements = ContentPlacement.objects.filter(
+            source_content_type=ct_piece,
+            source_object_id=piece.id,
+            channel__in=["feed", "shelf"],
+        ).order_by("-created_at")
+
+        viewer = request.user if request.user.is_authenticated else None
+        selected = None
+        for placement in placements:
+            if can_view_placement(placement, viewer):
+                selected = placement
+                break
+
+        if not selected:
+            return Response(
+                {"detail": "Not found."},
+                status=drf_status.HTTP_404_NOT_FOUND,
+            )
+
+        payload = get_display_payload(selected)
+        metadata = payload.get("metadata") or {}
+
+        # Build lean public response
+        author_profile = getattr(piece.author, "profile", None)
+        data = {
+            "id": str(piece.id),
+            "slug": piece.slug,
+            "title": metadata.get("title") or piece.title,
+            "excerpt": metadata.get("excerpt") or piece.excerpt,
+            "body_json": metadata.get("body_json") or piece.body_json,
+            "writing_kind": piece.writing_kind,
+            "published_at": piece.published_at,
+            "author": {
+                "username": piece.author.username,
+                "display_name": author_profile.display_name if author_profile else piece.author.username,
+                "avatar_url": author_profile.avatar_url if author_profile else "",
+            },
+            "placement_visibility": selected.visibility,
+        }
+
+        piece.increment_view_count()
+        return Response(data)
