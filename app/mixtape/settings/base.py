@@ -23,7 +23,7 @@ env = environ.Env(
 SITE_ADMIN_EMAIL = "marqpdx@gmail.com"
 CONTACT_NOTIFICATION_EMAIL = "marqpdx@gmail.com"
 
-DEFAULT_FROM_EMAIL = "The Mixtape Team <ml@marklilly.com>"
+DEFAULT_FROM_EMAIL = "Crossroads <connect@crossroads.place>"
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-unsafe-secret-key")
 
@@ -269,6 +269,8 @@ LISTMONK_BASE_URL = os.environ["LISTMONK_BASE_URL"]
 LISTMONK_API_USER = os.environ["LISTMONK_API_USER"]
 LISTMONK_API_TOKEN = os.environ["LISTMONK_API_TOKEN"]
 LISTMONK_TIMEOUT = int(os.environ.get("LISTMONK_TIMEOUT", "10"))
+LISTMONK_PUBLIC_URL = os.getenv("LISTMONK_PUBLIC_URL", LISTMONK_BASE_URL)
+LISTMONK_INVITE_TEMPLATE_ID = os.getenv("LISTMONK_INVITE_TEMPLATE_ID")
 
 
 # Service JWT auth, for Stackroom, ...
@@ -658,7 +660,5 @@ https://docs.djangoproject.com/en/4.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
-
-
 
 

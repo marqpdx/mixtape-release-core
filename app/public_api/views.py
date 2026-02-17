@@ -24,7 +24,43 @@ from publishing.services.content_display import get_display_payload
 from stackroom.models import Library
 from writing.models import WritingPiece
 
-from .serializers import PublicMemberSerializer
+from django.db.models import Count, Q
+
+from groups.models.group import Group
+
+from .serializers import PublicGroupSerializer, PublicMemberSerializer
+
+
+class PublicGroupsListView(APIView):
+    """
+    GET /api/public/groups
+
+    Returns all public, active groups with emblem data and member counts.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        groups = (
+            Group.objects.filter(
+                visibility="public",
+                is_active=True,
+            )
+            .select_related("emblem", "sponsor_content_type")
+            .annotate(
+                member_count=Count(
+                    "memberships",
+                    filter=Q(
+                        memberships__is_active=True,
+                        memberships__is_banned=False,
+                        memberships__is_evicted=False,
+                        memberships__is_pending=False,
+                    ),
+                )
+            )
+            .order_by("group_type", "title")
+        )
+        serializer = PublicGroupSerializer(groups, many=True)
+        return Response(serializer.data)
 
 
 class PublicMemberProfileView(APIView):

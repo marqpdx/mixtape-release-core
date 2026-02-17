@@ -4,8 +4,16 @@ import requests
 from django.conf import settings
 from typing import List, Dict, Any, Optional, Tuple
 
-LISTMONK_BASE_URL = getattr(settings, 'LISTMONK_BASE_URL', 'http://localhost:9090/api')
-LISTMONK_AUTH = getattr(settings, 'LISTMONK_AUTH', ('listmonk', 'listmonk'))
+_base = getattr(settings, "LISTMONK_BASE_URL", "http://localhost:9090")
+LISTMONK_BASE_URL = _base if _base.rstrip("/").endswith("/api") else f"{_base.rstrip('/')}/api"
+_public_base = getattr(settings, "LISTMONK_PUBLIC_URL", _base)
+LISTMONK_PUBLIC_URL = _public_base.rstrip("/")
+_template_id = getattr(settings, "LISTMONK_INVITE_TEMPLATE_ID", None)
+LISTMONK_INVITE_TEMPLATE_ID = int(_template_id) if _template_id else None
+LISTMONK_AUTH = (
+    getattr(settings, "LISTMONK_API_USER", None),
+    getattr(settings, "LISTMONK_API_TOKEN", None),
+)
 
 
 def validate_emails(emails: List[str]) -> List[str]:
@@ -16,6 +24,16 @@ def validate_emails(emails: List[str]) -> List[str]:
         if '@' in email and len(email) > 0:
             valid_emails.append(email)
     return valid_emails
+
+
+def build_email_query(email: str) -> str:
+    cleaned = email.strip().lower().replace("'", "\\'")
+    return f"email = '{cleaned}'"
+
+
+def build_uuid_query(value: str) -> str:
+    cleaned = value.strip().lower().replace("'", "\\'")
+    return f"uuid = '{cleaned}'"
 
 
 def create_new_subscriber(email: str, listmonk_list_id: int) -> bool:
@@ -81,7 +99,7 @@ def find_existing_subscriber(email: str) -> Optional[Dict[str, Any]]:
         search_response = requests.get(
             f"{LISTMONK_BASE_URL}/subscribers",
             params={
-                'query': email,  # Use the query parameter
+                'query': build_email_query(email),
                 'per_page': 1
             },
             auth=LISTMONK_AUTH,
@@ -148,13 +166,18 @@ def send_invitation_email(email: str, subscriber_uuid: str, listmonk_list_id: in
     """Send transactional invitation email"""
     try:
 
-        optin_url = f"http://localhost:9090/subscription/optin/{subscriber_uuid}?l={listmonk_list_uuid}"
+        optin_url = f"{LISTMONK_PUBLIC_URL}/subscription/optin/{subscriber_uuid}?l={listmonk_list_uuid}"
+
+        if not LISTMONK_INVITE_TEMPLATE_ID:
+            print("📧 No LISTMONK_INVITE_TEMPLATE_ID set; skipping transactional invite email.")
+            print(f"📧 Using optin URL: {optin_url}")
+            return True
 
         tx_response = requests.post(
             f"{LISTMONK_BASE_URL}/tx",
             json={
                 'subscriber_email': email,
-                'template_id': 5,  # Your invitation template ID
+                'template_id': LISTMONK_INVITE_TEMPLATE_ID,
                 'data': {
                     'list_name': list_name,
                     'inviter_name': 'Mixtape Team',
@@ -296,4 +319,3 @@ def send_listmonk_invitations(listmonk_list_id: int, listmonk_list_uuid: str, em
             "error": "All invitations failed",
             "failed": failed_emails
         }
-

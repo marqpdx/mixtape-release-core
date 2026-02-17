@@ -194,6 +194,10 @@ class ListmonkClient:
         }
         return self._req("POST", f"/api/campaigns/{campaign_id}/test", json=payload)
 
+    def update_campaign_status(self, campaign_id: int, status: str) -> Json:
+        payload = {"status": status}
+        return self._req("PUT", f"/api/campaigns/{campaign_id}/status", json=payload)
+
 
 def get_listmonk_client() -> ListmonkClient:
     return ListmonkClient(
