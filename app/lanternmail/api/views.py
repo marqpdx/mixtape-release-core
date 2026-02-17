@@ -7,16 +7,19 @@ from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.db import IntegrityError
 from django.shortcuts import get_object_or_404
+from django.conf import settings
+import requests
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.decorators import api_view, permission_classes, throttle_classes, authentication_classes
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
+from django.views.decorators.csrf import csrf_exempt
 
 from groups.models import Group
 from lanternmail.models import LanternmailList
 
 from lanternmail.services.listmonk_client import get_listmonk_client
-from lanternmail.api.utils import send_listmonk_invitations
+from lanternmail.api.utils import send_listmonk_invitations, build_email_query, build_uuid_query
 
 from lanternmail.services.lanternmail_service import LanternmailService
 from lanternmail.services.exceptions import (
@@ -25,6 +28,7 @@ from lanternmail.services.exceptions import (
     ListmonkNotFoundError,
     ListmonkUpstreamError,
 )
+from lanternmail.api.throttles import NewsletterIPThrottle, NewsletterEmailThrottle
 
 User = get_user_model()
 
@@ -170,8 +174,20 @@ def list_user_mailing_lists(request) -> Response:
     NOTE: This assumes you have a `group__members` relation. If your membership
     model differs (GenericFK), swap this queryset accordingly.
     """
+    user_content_type = ContentType.objects.get_for_model(User)
+    group_ids = (
+        Group.memberships.through.objects.filter(
+            is_active=True,
+            is_pending=False,
+            is_banned=False,
+            is_evicted=False,
+            member_content_type=user_content_type,
+            member_object_id=request.user.id,
+        )
+        .values_list("group_id", flat=True)
+    )
     user_lists = (
-        LanternmailList.objects.filter(group__members=request.user, is_active=True)
+        LanternmailList.objects.filter(group_id__in=group_ids, is_active=True)
         .select_related("group")
         .order_by("-created_at")
     )
@@ -181,7 +197,7 @@ def list_user_mailing_lists(request) -> Response:
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
-def get_mailing_list_detail(request, list_id: int) -> Response:
+def get_mailing_list_detail(request, slug: str, list_id: int) -> Response:
     """
     Get details of a specific mailing list including Listmonk stats.
     Returns Django record even if Listmonk is temporarily unavailable.
@@ -276,7 +292,7 @@ def get_group_members_with_subscription_status(request, slug: str, list_id: int)
         invited_at = None
 
         try:
-            resp = lm.search_subscribers(query=user.email)
+            resp = lm.search_subscribers(query=build_email_query(user.email))
             results = resp.get("data", {}).get("results", [])
             subscriber = _find_exact_email(results, user.email)
 
@@ -333,6 +349,8 @@ def get_group_members_all_lists(request, slug: str) -> Response:
     """
     group = get_object_or_404(Group, slug=slug)
     mailing_lists = LanternmailList.objects.filter(group=group, is_active=True).order_by("created_at")
+    list_id_param = request.query_params.get("list_id")
+    list_id = int(list_id_param) if list_id_param and list_id_param.isdigit() else None
 
     user_content_type = ContentType.objects.get_for_model(User)
     user_memberships = group.memberships.filter(
@@ -356,7 +374,7 @@ def get_group_members_all_lists(request, slug: str) -> Response:
         latest_invited_at = None
 
         try:
-            resp = lm.search_subscribers(query=user.email)
+            resp = lm.search_subscribers(query=build_email_query(user.email))
             results = resp.get("data", {}).get("results", [])
             subscriber = _find_exact_email(results, user.email)
 
@@ -394,6 +412,9 @@ def get_group_members_all_lists(request, slug: str) -> Response:
             overall_status = "never_invited"
             latest_invited_at = None
 
+        if list_id and list_id not in list_subscriptions:
+            continue
+
         display_name = user.get_full_name() or getattr(user, "username", "") or user.email
         if hasattr(user, "profile") and user.profile:
             display_name = user.profile.display_name or display_name
@@ -426,6 +447,137 @@ def get_group_members_all_lists(request, slug: str) -> Response:
             },
         }
     )
+
+
+# -----------------------------------------------------------------------------
+# Subscriber removal (list-scoped)
+# -----------------------------------------------------------------------------
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def remove_list_subscriber(request, slug: str, list_id: int) -> Response:
+    """
+    Remove a subscriber from a specific list (Listmonk).
+    Expects: { email: string }
+    """
+    email = (request.data.get("email") or "").strip().lower()
+    if not email:
+        return Response({"error": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    group = get_object_or_404(Group, slug=slug)
+    mailing_list = get_object_or_404(LanternmailList, id=list_id, group=group)
+
+    lm = get_listmonk_client()
+
+    try:
+        resp = lm.search_subscribers(query=build_email_query(email), per_page=1, page=1)
+        results = resp.get("data", {}).get("results", [])
+        subscriber = next((s for s in results if (s.get("email") or "").lower() == email), None)
+        if not subscriber:
+            return Response({"error": "Subscriber not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        subscriber_id = subscriber.get("id")
+        if not subscriber_id:
+            return Response({"error": "Subscriber not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        lm.update_subscriber_lists(subscriber_id=subscriber_id, remove=[mailing_list.listmonk_id])
+    except (ListmonkBadRequestError, ListmonkAuthError, ListmonkNotFoundError, ListmonkUpstreamError) as e:
+        return _listmonk_error_response(e)
+
+    return Response({"message": "Subscriber removed from list"}, status=status.HTTP_200_OK)
+
+
+# -----------------------------------------------------------------------------
+# Campaigns
+# -----------------------------------------------------------------------------
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def list_group_campaigns(request, slug: str) -> Response:
+    """
+    List campaigns for a group. Optional query param: list_id (Django list id).
+    """
+    group = get_object_or_404(Group, slug=slug)
+    list_id_param = request.query_params.get("list_id")
+    list_id = int(list_id_param) if list_id_param and list_id_param.isdigit() else None
+
+    listmonk_list_id = None
+    if list_id:
+        mailing_list = get_object_or_404(LanternmailList, id=list_id, group=group)
+        listmonk_list_id = mailing_list.listmonk_id
+
+    lm = get_listmonk_client()
+    try:
+        campaigns = lm.list_campaigns(list_id=listmonk_list_id)
+        return Response({"data": campaigns.get("data", {}).get("results", [])})
+    except (ListmonkBadRequestError, ListmonkAuthError, ListmonkNotFoundError, ListmonkUpstreamError) as e:
+        return _listmonk_error_response(e)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def create_group_campaign(request, slug: str) -> Response:
+    """
+    Create a draft campaign for a specific list.
+    Expects: { list_id, name, subject, body, content_type? }
+    """
+    group = get_object_or_404(Group, slug=slug)
+    list_id = request.data.get("list_id")
+    name = (request.data.get("name") or "").strip()
+    subject = (request.data.get("subject") or "").strip()
+    body = (request.data.get("body") or "").strip()
+    content_type = request.data.get("content_type") or "richtext"
+
+    if not list_id:
+        return Response({"error": "List id is required"}, status=status.HTTP_400_BAD_REQUEST)
+    if not name or not subject or not body:
+        return Response({"error": "Name, subject, and body are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    mailing_list = get_object_or_404(LanternmailList, id=list_id, group=group)
+    lm = get_listmonk_client()
+
+    try:
+        resp = lm.create_campaign(
+            name=name,
+            subject=subject,
+            list_ids=[mailing_list.listmonk_id],
+            body=body,
+            content_type=content_type,
+        )
+        return Response({"data": resp.get("data")}, status=status.HTTP_201_CREATED)
+    except (ListmonkBadRequestError, ListmonkAuthError, ListmonkNotFoundError, ListmonkUpstreamError) as e:
+        return _listmonk_error_response(e)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def test_group_campaign(request, slug: str, campaign_id: int) -> Response:
+    """
+    Send a test campaign to a list of emails.
+    Expects: { emails: string[] }
+    """
+    emails = request.data.get("emails", [])
+    if not emails:
+        return Response({"error": "No email addresses provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+    lm = get_listmonk_client()
+    try:
+        resp = lm.test_campaign(campaign_id=campaign_id, subscribers=emails)
+        return Response({"data": resp.get("data")})
+    except (ListmonkBadRequestError, ListmonkAuthError, ListmonkNotFoundError, ListmonkUpstreamError) as e:
+        return _listmonk_error_response(e)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def send_group_campaign(request, slug: str, campaign_id: int) -> Response:
+    """
+    Send a campaign now (set status to running).
+    """
+    lm = get_listmonk_client()
+    try:
+        resp = lm.update_campaign_status(campaign_id=campaign_id, status="running")
+        return Response({"data": resp.get("data")})
+    except (ListmonkBadRequestError, ListmonkAuthError, ListmonkNotFoundError, ListmonkUpstreamError) as e:
+        return _listmonk_error_response(e)
 
 
 # -----------------------------------------------------------------------------
@@ -465,3 +617,88 @@ def send_list_invitations(request, list_id: int) -> Response:
         {"error": result.get("error", "Failed to send invitations"), "detail": result.get("detail")},
         status=status.HTTP_502_BAD_GATEWAY,
     )
+
+
+# -----------------------------------------------------------------------------
+# Public Subscribe
+# -----------------------------------------------------------------------------
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+@throttle_classes([NewsletterIPThrottle, NewsletterEmailThrottle])
+@csrf_exempt
+def public_subscribe(request) -> Response:
+    """
+    Public subscribe endpoint for the primary newsletter.
+    Expects: { email: string, list_slug: string, website?: string }
+    """
+    email = request.data.get("email")
+    list_slug = request.data.get("list_slug")
+    honeypot = request.data.get("website")
+
+    if not email:
+        return Response({"error": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
+    if not list_slug:
+        return Response({"error": "List slug is required"}, status=status.HTTP_400_BAD_REQUEST)
+    if honeypot:
+        return Response({"error": "Invalid request"}, status=status.HTTP_400_BAD_REQUEST)
+
+    mailing_list = get_object_or_404(LanternmailList, listmonk_name=list_slug)
+
+    result = send_listmonk_invitations(
+        mailing_list.listmonk_id,
+        mailing_list.listmonk_uuid,
+        [email],
+        mailing_list.display_name,
+    )
+
+    if result.get("success"):
+        return Response(
+            {
+                "message": "Invitation sent",
+                "data": {"invited_count": result.get("invited_count", 1), "emails": [email]},
+            }
+        )
+
+    return Response(
+        {"error": result.get("error", "Failed to subscribe"), "detail": result.get("detail")},
+        status=status.HTTP_502_BAD_GATEWAY,
+    )
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+@authentication_classes([])
+@csrf_exempt
+def public_confirm_subscription(request) -> Response:
+    """
+    Public confirmation endpoint that proxies Listmonk opt-in.
+    Expects query params: uuid, list
+    """
+    subscriber_uuid = request.query_params.get("uuid")
+    list_uuid = request.query_params.get("list")
+
+    if not subscriber_uuid or not list_uuid:
+        return Response({"error": "Missing confirmation parameters"}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        mailing_list = get_object_or_404(LanternmailList, listmonk_uuid=list_uuid)
+        lm = get_listmonk_client()
+        resp = lm.search_subscribers(query=build_uuid_query(subscriber_uuid), per_page=1, page=1)
+        results = resp.get("data", {}).get("results", [])
+        subscriber = next((s for s in results if (s.get("uuid") or "").lower() == subscriber_uuid.lower()), None)
+        if not subscriber:
+            return Response({"error": "Subscriber not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        subscriber_id = subscriber.get("id")
+        if not subscriber_id:
+            return Response({"error": "Subscriber not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        lm.update_subscriber_lists(
+            subscriber_id=subscriber_id,
+            add=[mailing_list.listmonk_id],
+            status="confirmed",
+        )
+        return Response({"message": "Subscription confirmed"}, status=status.HTTP_200_OK)
+    except (ListmonkBadRequestError, ListmonkAuthError, ListmonkNotFoundError, ListmonkUpstreamError) as e:
+        return _listmonk_error_response(e)

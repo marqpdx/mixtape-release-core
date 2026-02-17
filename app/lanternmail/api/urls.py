@@ -18,7 +18,14 @@ group_lanternmail_patterns = [
     # Subscribers
     path('subscribers', views.get_group_members_all_lists, name='group-all-subscribers'),
     path('mailing-lists/<int:list_id>/subscribers', views.get_group_members_with_subscription_status, name='list-subscribers'),
+    path('mailing-lists/<int:list_id>/subscribers/remove', views.remove_list_subscriber, name='remove-list-subscriber'),
     path('mailing-lists/<int:list_id>/invitations', views.send_list_invitations, name='send-invitations'),
+
+    # Campaigns
+    path('campaigns', views.list_group_campaigns, name='group-campaigns'),
+    path('campaigns/create', views.create_group_campaign, name='group-campaigns-create'),
+    path('campaigns/<int:campaign_id>/test', views.test_group_campaign, name='group-campaign-test'),
+    path('campaigns/<int:campaign_id>/send', views.send_group_campaign, name='group-campaign-send'),
 ]
 
 # ============================================================================
@@ -28,4 +35,6 @@ group_lanternmail_patterns = [
 
 urlpatterns = [
     path('my-lists', views.list_user_mailing_lists, name='user-all-lists'),
+    path('subscribe', views.public_subscribe, name='public-subscribe'),
+    path('confirm', views.public_confirm_subscription, name='public-confirm-subscription'),
 ]

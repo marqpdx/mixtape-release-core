@@ -5,6 +5,11 @@ from . import views
 
 urlpatterns = [
     path(
+        "groups",
+        views.PublicGroupsListView.as_view(),
+        name="public-groups-list",
+    ),
+    path(
         "members/<str:username>",
         views.PublicMemberProfileView.as_view(),
         name="public-member-profile",

@@ -146,7 +146,7 @@ class PublicMemberProfileViewTests(TestCase):
         self.client = APIClient()
 
     def _url(self, username: str) -> str:
-        return f"/api/public/members/{username}/"
+        return f"/api/public/members/{username}"
 
     def test_get_profile_anonymous(self):
         response = self.client.get(self._url(self.user.username))
@@ -294,7 +294,7 @@ class PublicMemberShelvesViewTests(TestCase):
         self.client = APIClient()
 
     def _url(self, username: str) -> str:
-        return f"/api/public/members/{username}/shelves/"
+        return f"/api/public/members/{username}/shelves"
 
     def test_shelves_anonymous_sees_public_only(self):
         response = self.client.get(self._url(self.author.username))
@@ -392,7 +392,7 @@ class PublicWritingPieceViewTests(TestCase):
         self.client = APIClient()
 
     def _url(self, slug: str) -> str:
-        return f"/api/public/writing/{slug}/"
+        return f"/api/public/writing/{slug}"
 
     def test_get_piece_anonymous_public_placement(self):
         piece = _create_piece(author=self.author, title="Readable Piece")

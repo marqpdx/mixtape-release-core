@@ -1,4 +1,4 @@
-# models.py
+# lanternmail/models.py
 
 from django.db import models
 
