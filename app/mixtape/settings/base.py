@@ -106,6 +106,7 @@ INSTALLED_APPS = [
     "users",           # CustomUser, Role models
     "utils",           # Utility functions and helpers
     "writing",         # Writing app
+    "earthlab",        # EarthLab learning/course system
 ]
 
 INSTALLED_APPS += ["rest_framework_simplejwt.token_blacklist"]

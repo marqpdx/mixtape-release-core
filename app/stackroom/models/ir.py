@@ -9,6 +9,7 @@ from django.core.validators import MinValueValidator
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from fundamentals.models import BaseContent
+from fundamentals.mixins import CuratedSequenceMixin
 
 # User = settings.AUTH_USER_MODEL
 
@@ -21,7 +22,7 @@ class TimeStamped(models.Model):
         abstract = True
 
 
-class Library(BaseContent):
+class Library(BaseContent, CuratedSequenceMixin):
     """
     Document library with polymorphic sponsorship.
 
