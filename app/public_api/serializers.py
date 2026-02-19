@@ -112,10 +112,93 @@ class PublicGroupSerializer(serializers.ModelSerializer):
     def get_parent_slug(self, obj):
         group_ct = ContentType.objects.get_for_model(Group)
         if obj.sponsor_content_type_id == group_ct.id:
-            # Sponsor is a Group — return its slug
             try:
                 parent = Group.objects.only("slug").get(pk=obj.sponsor_object_id)
                 return parent.slug
             except Group.DoesNotExist:
                 return None
         return None
+
+
+class PublicGroupDetailSerializer(PublicGroupSerializer):
+    """
+    Extended serializer for the group detail/landing page.
+    Adds: description, parent_title, child_groups, member_preview.
+    """
+    description = serializers.CharField(read_only=True)
+    parent_title = serializers.SerializerMethodField()
+    child_groups = serializers.SerializerMethodField()
+    member_preview = serializers.SerializerMethodField()
+
+    class Meta(PublicGroupSerializer.Meta):
+        fields = PublicGroupSerializer.Meta.fields + [
+            "description",
+            "parent_title",
+            "child_groups",
+            "member_preview",
+            "admission_policy",
+        ]
+
+    def get_parent_title(self, obj):
+        group_ct = ContentType.objects.get_for_model(Group)
+        if obj.sponsor_content_type_id == group_ct.id:
+            try:
+                parent = Group.objects.only("title", "slug").get(
+                    pk=obj.sponsor_object_id
+                )
+                return {"title": parent.title, "slug": parent.slug}
+            except Group.DoesNotExist:
+                return None
+        return None
+
+    def get_child_groups(self, obj):
+        group_ct = ContentType.objects.get_for_model(Group)
+        children = Group.objects.filter(
+            sponsor_content_type=group_ct,
+            sponsor_object_id=obj.id,
+            visibility="public",
+            is_active=True,
+        ).only("title", "slug", "group_type")[:12]
+
+        return [
+            {
+                "title": c.title,
+                "slug": c.slug,
+                "group_type": c.group_type,
+            }
+            for c in children
+        ]
+
+    def get_member_preview(self, obj):
+        """Return avatars of up to 8 active members."""
+        user_ct = ContentType.objects.get_for_model(User)
+        memberships = (
+            GroupMembership.objects.filter(
+                group=obj,
+                member_content_type=user_ct,
+                is_active=True,
+                is_banned=False,
+                is_evicted=False,
+                is_pending=False,
+            )
+            .order_by("-created_at")[:8]
+        )
+
+        previews = []
+        user_ids = [m.member_object_id for m in memberships]
+        profiles = {
+            p.user_id: p
+            for p in UserProfile.objects.filter(user_id__in=user_ids)
+            .select_related("user")
+        }
+
+        for uid in user_ids:
+            profile = profiles.get(uid)
+            if profile:
+                previews.append({
+                    "username": profile.user.username,
+                    "display_name": profile.display_name,
+                    "avatar_url": profile.avatar_url or "",
+                })
+
+        return previews

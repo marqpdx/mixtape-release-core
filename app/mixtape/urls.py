@@ -63,6 +63,7 @@ urlpatterns = [
     path("api/bazaar/", include("bazaar.api.urls")),
     path("api/chat/", include("chat.api.urls")),
     path("api/classifications/", include("classifications.api.urls")),
+    path("api/feedback/", include("feedback.api.urls")),
     path("api/collections/", include("stackroom.api.collection_urls")),  # Collection curation layer
     path("api/dispatch/", include("dispatch.api.urls")),
     path("api/gristmill/", include("gristmill.api.urls")),

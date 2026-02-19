@@ -97,6 +97,7 @@ class WritingPieceDetailSerializer(serializers.ModelSerializer):
             "body_json",
             "excerpt",
             "writing_kind",
+            "enable_outline",
             "author_name",
             "author_avatar",
             "sponsor_name",
@@ -195,7 +196,7 @@ class WritingPieceListSerializer(serializers.ModelSerializer):
             "id", "title", "slug", "excerpt", "writing_kind",
             "status", "author", "current_version_no",
             "published_at", "updated_at", "placement_count",
-            "reading_time", "tags_list"
+            "reading_time", "tags_list", "enable_outline"
         ]
         read_only_fields = fields
 
@@ -271,7 +272,7 @@ class WritingPieceMinimalSerializer(serializers.ModelSerializer):
         model = WritingPiece
         fields = [
             "id", "slug", "title", "writing_kind",
-            "status", "created_at", "updated_at", "excerpt", "tags_list"
+            "status", "created_at", "updated_at", "excerpt", "tags_list", "enable_outline"
         ]
 
     def get_tags_list(self, obj):

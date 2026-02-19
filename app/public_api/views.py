@@ -27,8 +27,13 @@ from writing.models import WritingPiece
 from django.db.models import Count, Q
 
 from groups.models.group import Group
+from groups.services.join_service import get_admission_status
 
-from .serializers import PublicGroupSerializer, PublicMemberSerializer
+from .serializers import (
+    PublicGroupDetailSerializer,
+    PublicGroupSerializer,
+    PublicMemberSerializer,
+)
 
 
 class PublicGroupsListView(APIView):
@@ -61,6 +66,61 @@ class PublicGroupsListView(APIView):
         )
         serializer = PublicGroupSerializer(groups, many=True)
         return Response(serializer.data)
+
+
+class PublicGroupDetailView(APIView):
+    """
+    GET /api/public/groups/{slug}
+
+    Returns detailed public info for a single group.
+    Includes member preview, child groups, description.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, slug):
+        group = get_object_or_404(
+            Group.objects.filter(
+                visibility="public",
+                is_active=True,
+            )
+            .select_related("emblem", "sponsor_content_type")
+            .annotate(
+                member_count=Count(
+                    "memberships",
+                    filter=Q(
+                        memberships__is_active=True,
+                        memberships__is_banned=False,
+                        memberships__is_evicted=False,
+                        memberships__is_pending=False,
+                    ),
+                )
+            ),
+            slug=slug,
+        )
+        serializer = PublicGroupDetailSerializer(group)
+        return Response(serializer.data)
+
+
+class PublicGroupAdmissionStatusView(APIView):
+    """
+    GET /api/public/groups/{slug}/admission-status
+
+    AllowAny — returns policy for anonymous users.
+    For authenticated users, also returns their specific status.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, slug):
+        group = get_object_or_404(
+            Group.objects.filter(
+                visibility="public",
+                is_active=True,
+            ),
+            slug=slug,
+        )
+        viewer = request.user if request.user.is_authenticated else None
+        status = get_admission_status(group, viewer)
+        return Response(status)
 
 
 class PublicMemberProfileView(APIView):

@@ -1,0 +1,15 @@
+New join request for {{ group_title }}
+
+{{ applicant_name }} (@{{ applicant_username }}) has requested to join {{ group_title }}.
+
+{% if message %}
+Message:
+{{ message }}
+{% endif %}
+
+Review the request:
+{{ review_url }}
+
+If you have questions, reply to this email.
+
+The Mixtape Team

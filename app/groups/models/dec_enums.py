@@ -38,10 +38,13 @@ class GroupVisibility(models.TextChoices):
 
 
 class AdmissionPolicy(models.TextChoices):
-    """Admission policies for Community groups."""
+    """Admission policies for groups."""
     OPEN = "open", "Open to All"
-    INVITE_ONLY = "invite_only", "Invite Only"
+    OPEN_PARENT_MEMBERS = "open_parent_members", "Open to Parent Group Members"
     APPLICATION = "application", "Application Required"
+    APPLICATION_PARENT_MEMBERS = "application_parent_members", "Application from Parent Members"
+    INVITE_ONLY = "invite_only", "Invite Only"
+    CLOSED = "closed", "Closed"
 
 
 class GovernanceModel(models.TextChoices):
