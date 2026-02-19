@@ -1,4 +1,4 @@
-# mixtape/assets/api/views.py
+# assets/api/views.py
 
 import io
 import logging
