@@ -43,6 +43,66 @@ EVENT_SCHEMA = {
     }
 }
 
+COURSE_SCHEMA = {
+    'type': 'course',
+    'model': 'earthlab.Course',
+    'required_fields': ['title'],
+    'fields': {
+        'title': {
+            'type': 'string',
+            'max_length': 100,
+            'source': 'declaration',
+        },
+        'difficulty': {
+            'type': 'choice',
+            'choices': ['beginner', 'intermediate', 'advanced'],
+            'maps_to': 'difficulty_level',
+        },
+        'delivery': {
+            'type': 'choice',
+            'choices': ['online', 'self_paced', 'hybrid', 'in_person'],
+            'default': 'self_paced',
+            'maps_to': 'delivery_type',
+        },
+        'duration': {
+            'type': 'integer',
+            'maps_to': 'estimated_duration',
+        },
+        'body': {
+            'type': 'markdown',
+            'multiline': True,
+        },
+    }
+}
+
+LESSON_SCHEMA = {
+    'type': 'lesson',
+    'model': 'earthlab.Lesson',
+    'required_fields': ['title'],
+    'fields': {
+        'title': {
+            'type': 'string',
+            'max_length': 100,
+            'source': 'declaration',
+        },
+        'difficulty': {
+            'type': 'choice',
+            'choices': ['beginner', 'intermediate', 'advanced'],
+            'maps_to': 'difficulty_level',
+        },
+        'duration': {
+            'type': 'integer',
+            'maps_to': 'estimated_duration',
+        },
+        'body': {
+            'type': 'markdown',
+            'multiline': True,
+        },
+    }
+}
+
 SCHEMA_REGISTRY = {
     'event': EVENT_SCHEMA,
+    'course': COURSE_SCHEMA,
+    'lesson': LESSON_SCHEMA,
 }
