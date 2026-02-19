@@ -268,6 +268,42 @@ class DispatchEditSession(BaseModel):
         return f"{self.user} editing {self.content}"
 
 
+class DispatchOutlineNode(BaseModel):
+    """
+    Persistent outline node for a WritingPiece (Dispatch).
+    Stored separately from rich text body.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, unique=True)
+
+    writing_piece = models.ForeignKey(
+        "writing.WritingPiece",
+        on_delete=models.CASCADE,
+        related_name="outline_nodes",
+    )
+    title = models.CharField(max_length=255)
+    parent = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="children",
+    )
+    order_index = models.IntegerField(default=0)
+    anchor_target = models.UUIDField(null=True, blank=True)
+
+    class Meta(BaseModel.Meta):
+        ordering = ["writing_piece_id", "parent_id", "order_index", "created_at"]
+        indexes = [
+            models.Index(fields=["writing_piece"]),
+            models.Index(fields=["parent"]),
+            models.Index(fields=["anchor_target"]),
+            models.Index(fields=["writing_piece", "parent", "order_index"]),
+        ]
+
+    def __str__(self):
+        return f"OutlineNode: {self.title} ({self.writing_piece_id})"
+
+
 class DispatchSnapshot(BaseVersion):
     """
     Immutable snapshot of collaborative DispatchContent.
@@ -300,4 +336,3 @@ class DispatchSnapshot(BaseVersion):
         doc_str = str(self.dispatch_content) if self.dispatch_content else f"Content #{self.dispatch_content_id}"
         kind_label = self.label or self.kind
         return f"Snapshot ({kind_label}): {doc_str}"
-

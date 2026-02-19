@@ -7,7 +7,7 @@ Each extends the base Group model via OneToOne relationship.
 from django.conf import settings
 from django.db import models
 
-from .dec_enums import AdmissionPolicy, GovernanceModel, MeetingFrequency, PrivacyLevel
+from .dec_enums import GovernanceModel, MeetingFrequency, PrivacyLevel
 
 
 class PersonaGroup(models.Model):
@@ -143,13 +143,6 @@ class CommunityGroup(models.Model):
         on_delete=models.CASCADE,
         related_name="community_detail",
         primary_key=True
-    )
-
-    admission_policy = models.CharField(
-        max_length=20,
-        choices=AdmissionPolicy.choices,
-        default=AdmissionPolicy.OPEN,
-        help_text="How new members can join"
     )
 
     tagline = models.CharField(

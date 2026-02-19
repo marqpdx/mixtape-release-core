@@ -11,6 +11,9 @@ from dispatch.api.views import (
     DispatchContentCollaboratorsView,
     DispatchContentVersionListCreateView,
     DispatchEditSessionListCreateView,
+    DispatchOutlineListView,
+    DispatchOutlineCreateView,
+    DispatchOutlineDetailView,
 )
 from dispatch.models import Post
 
@@ -30,4 +33,7 @@ urlpatterns = [
     path("content/<uuid:id>/collaborators", DispatchContentCollaboratorsView.as_view(), name="dispatch-content-collaborators"),
     path("versions", DispatchContentVersionListCreateView.as_view(), name="dispatch-content-versions"),
     path("sessions", DispatchEditSessionListCreateView.as_view(), name="dispatch-edit-sessions"),
+    path("outline/<uuid:piece_id>", DispatchOutlineListView.as_view(), name="dispatch-outline-list"),
+    path("outline", DispatchOutlineCreateView.as_view(), name="dispatch-outline-create"),
+    path("outline/node/<uuid:id>", DispatchOutlineDetailView.as_view(), name="dispatch-outline-detail"),
 ]

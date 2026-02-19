@@ -9,17 +9,64 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from django.db.models import Prefetch
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 # from classifications.api.views import ClassificationUsageListCreateView
 # from classifications.models import Category, Tag
-from dispatch.api.serializers import DispatchContentSerializer, DispatchContentVersionSerializer, DispatchEditSessionSerializer
-from dispatch.models import DispatchContent, DispatchContentVersion, DispatchEditSession, Post
+from dispatch.api.serializers import (
+    DispatchContentSerializer,
+    DispatchContentVersionSerializer,
+    DispatchEditSessionSerializer,
+    DispatchOutlineNodeSerializer,
+)
+from dispatch.models import (
+    DispatchContent,
+    DispatchContentVersion,
+    DispatchEditSession,
+    DispatchOutlineNode,
+    Post,
+)
 from django.contrib.auth import get_user_model
 from livewire.auth import ServiceJWTAuthentication
 from livewire.permissions import HasDispatchWriteScope
+from writing.models import WritingPiece
 
 User = get_user_model()
+
+
+def _is_dispatch_collaborator(user, piece) -> bool:
+    if not user or not user.is_authenticated:
+        return False
+    return DispatchContent.objects.filter(
+        working_documents__piece=piece,
+        collaborators=user,
+    ).exists()
+
+
+def _can_view_outline(user, piece) -> bool:
+    return piece.author_id == user.id or _is_dispatch_collaborator(user, piece)
+
+
+def _can_edit_outline(user, piece) -> bool:
+    return _can_view_outline(user, piece)
+
+
+def _build_outline_tree(nodes):
+    by_parent = {}
+    for node in nodes:
+        by_parent.setdefault(node.parent_id, []).append(node)
+
+    def _sorted(items):
+        return sorted(items, key=lambda n: (n.order_index, n.created_at))
+
+    def _serialize(node):
+        data = DispatchOutlineNodeSerializer(node).data
+        data["children"] = [_serialize(child) for child in _sorted(by_parent.get(node.id, []))]
+        return data
+
+    roots = _sorted(by_parent.get(None, []))
+    return [_serialize(node) for node in roots]
 
 
 # class PostListCreateView(generics.ListCreateAPIView):
@@ -322,7 +369,77 @@ class DispatchEditSessionListCreateView(generics.ListCreateAPIView):
     serializer_class = DispatchEditSessionSerializer
 
 
+class DispatchOutlineListView(generics.GenericAPIView):
+    serializer_class = DispatchOutlineNodeSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    pagination_class = None
 
+    def get(self, request, piece_id=None):
+        piece = get_object_or_404(WritingPiece, id=piece_id)
+        if not _can_view_outline(request.user, piece):
+            return Response(status=403)
+
+        if not piece.enable_outline:
+            return Response([])
+
+        nodes = DispatchOutlineNode.objects.filter(
+            writing_piece=piece
+        ).select_related("parent").order_by("parent_id", "order_index", "created_at")
+
+        return Response(_build_outline_tree(list(nodes)))
+
+
+class DispatchOutlineCreateView(generics.GenericAPIView):
+    serializer_class = DispatchOutlineNodeSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        ser = self.get_serializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        piece = ser.validated_data["writing_piece"]
+
+        if not _can_edit_outline(request.user, piece):
+            return Response(status=403)
+
+        if not piece.enable_outline:
+            return Response({"detail": "Outline is not enabled for this piece."}, status=400)
+
+        node = ser.save()
+        return Response(self.get_serializer(node).data, status=201)
+
+
+class DispatchOutlineDetailView(generics.GenericAPIView):
+    serializer_class = DispatchOutlineNodeSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    lookup_field = "id"
+
+    def get_queryset(self):
+        return DispatchOutlineNode.objects.all()
+
+    def patch(self, request, id=None):
+        node = self.get_object()
+        piece = node.writing_piece
+
+        if not _can_edit_outline(request.user, piece):
+            return Response(status=403)
+
+        if not piece.enable_outline:
+            return Response({"detail": "Outline is not enabled for this piece."}, status=400)
+
+        ser = self.get_serializer(node, data=request.data, partial=True)
+        ser.is_valid(raise_exception=True)
+        node = ser.save()
+        return Response(self.get_serializer(node).data, status=200)
+
+    def delete(self, request, id=None):
+        node = self.get_object()
+        piece = node.writing_piece
+
+        if not _can_edit_outline(request.user, piece):
+            return Response(status=403)
+
+        node.delete()
+        return Response(status=204)
 
 
 

@@ -1,12 +1,21 @@
 # dispatch/api/serializers.py
 
+from django.db import models
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from rest_framework import serializers
 from django.template.defaultfilters import slugify
 from accounts.api.serializers import UserSerializer
 from writing.api.serializers import UserMinimalSerializer
-from dispatch.models import DispatchContent, DispatchContentVersion, DispatchEditSession, DispatchCollaborator, Post
+from dispatch.models import (
+    DispatchContent,
+    DispatchContentVersion,
+    DispatchEditSession,
+    DispatchCollaborator,
+    DispatchOutlineNode,
+    Post,
+)
+from writing.models import WritingPiece
 # from utils.handle_collected_items import handleTagCreate
 
 
@@ -215,3 +224,53 @@ class DispatchEditSessionSerializer(serializers.ModelSerializer):
     class Meta:
         model = DispatchEditSession
         fields = '__all__'
+
+
+class DispatchOutlineNodeSerializer(serializers.ModelSerializer):
+    writing_piece = serializers.PrimaryKeyRelatedField(queryset=WritingPiece.objects.all())
+    parent = serializers.PrimaryKeyRelatedField(
+        queryset=DispatchOutlineNode.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+
+    class Meta:
+        model = DispatchOutlineNode
+        fields = [
+            "id",
+            "writing_piece",
+            "title",
+            "parent",
+            "order_index",
+            "anchor_target",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        instance = getattr(self, "instance", None)
+
+        writing_piece = data.get("writing_piece") or getattr(instance, "writing_piece", None)
+        parent = data.get("parent") if "parent" in data else getattr(instance, "parent", None)
+
+        if instance and "writing_piece" in data and data["writing_piece"].id != instance.writing_piece_id:
+            raise serializers.ValidationError({"writing_piece": "Cannot change writing_piece for an outline node."})
+
+        if parent and writing_piece and parent.writing_piece_id != writing_piece.id:
+            raise serializers.ValidationError({"parent": "Parent must belong to the same writing piece."})
+
+        if instance and parent and parent.id == instance.id:
+            raise serializers.ValidationError({"parent": "Node cannot be its own parent."})
+
+        return data
+
+    def create(self, validated_data):
+        if "order_index" not in validated_data:
+            parent = validated_data.get("parent")
+            piece = validated_data["writing_piece"]
+            qs = DispatchOutlineNode.objects.filter(writing_piece=piece, parent=parent)
+            max_index = qs.aggregate(models.Max("order_index")).get("order_index__max")
+            validated_data["order_index"] = 0 if max_index is None else max_index + 1
+        return super().create(validated_data)

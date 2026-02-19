@@ -305,6 +305,8 @@ class GroupDetailSerializer(GroupListSerializer):
                 "sponsor_group",
                 # "status",
                 # "display_layout",
+                # Admission control
+                "admission_policy",
                 # write-only inputs (included so DRF accepts them on PATCH)
                 "emblem_id",
                 "emblem_avatar_id",

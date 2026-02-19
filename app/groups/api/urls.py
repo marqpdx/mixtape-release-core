@@ -22,9 +22,13 @@ from .views import (
     GroupWelcomePinView,
     UserGroupsView,
     invite_to_group,
+    GroupJoinRequestsListView,
     invite_group_to_coalition,
+    join_group,
     request_to_join_coalition,
+    request_to_join_group,
     respond_to_group_invitation,
+    respond_to_join_request,
 )
 
 from .permissions_views import (
@@ -94,6 +98,12 @@ urlpatterns = [
     path("<slug:slug>/invite", invite_to_group, name="group-invite"),
     path("<slug:slug>/invitations", GroupInvitationsListView.as_view(), name="group-invitations"),
     path("<slug:group_slug>/invitations/<int:pk>", GroupInvitationDetailView.as_view(), name="group-invitation-detail", ),
+
+    # User join / request-to-join
+    path("<slug:slug>/join", join_group, name="group-join"),
+    path("<slug:slug>/request-join", request_to_join_group, name="group-request-join"),
+    path("<slug:slug>/join-requests", GroupJoinRequestsListView.as_view(), name="group-join-requests"),
+    path("<slug:slug>/join-requests/<int:invitation_id>/respond", respond_to_join_request, name="group-join-request-respond"),
 
     # Coalition invitations / requests
     path("<slug:slug>/coalition-invitations", GroupCoalitionInvitationsListView.as_view(), name="group-coalition-invitations"),

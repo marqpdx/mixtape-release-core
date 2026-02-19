@@ -12,7 +12,7 @@ from django.utils.crypto import get_random_string
 
 from fundamentals.bases import BaseModel
 from fundamentals.models import BaseContent, LayoutParent
-from groups.models.dec_enums import GroupType, GroupVisibility
+from groups.models.dec_enums import AdmissionPolicy, GroupType, GroupVisibility
 from identity.models import EmblemAvatar
 
 
@@ -93,6 +93,13 @@ class Group(LayoutParent, BaseContent):
         max_length=20,
         choices=GroupVisibility.choices,
         default=GroupVisibility.PUBLIC,
+    )
+
+    admission_policy = models.CharField(
+        max_length=30,
+        choices=AdmissionPolicy.choices,
+        default=AdmissionPolicy.OPEN,
+        help_text="Controls how new members can join this group"
     )
 
     # ============================================================================

@@ -233,9 +233,9 @@ class GroupDetailView(generics.RetrieveUpdateAPIView):
             "title",
             "description",
             "visibility",
+            "admission_policy",
             "profile_image",     # raw key (if you still accept it)
             "background_image",  # raw key (if you still accept it)
-            # add others you actually allow from the serializer
         ]
 
         for field, value in fields.items():
@@ -1063,3 +1063,116 @@ def accept_invite(request):
             {"error": "An unexpected error occurred."},
             status=500
         )
+
+
+# ============================================================================
+# User Join / Request-to-Join
+# ============================================================================
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+def join_group(request, slug):
+    """
+    POST /api/groups/{slug}/join
+
+    User directly joins a group (for OPEN / OPEN_PARENT_MEMBERS policies).
+    """
+    from groups.services.join_service import join_group as join_group_service
+
+    group = get_object_or_404(Group, slug=slug, is_active=True)
+
+    try:
+        membership = join_group_service(group, request.user)
+    except ValidationError as e:
+        return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response(
+        {
+            "detail": "Successfully joined group.",
+            "group": {"id": str(group.id), "title": group.title, "slug": group.slug},
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+def request_to_join_group(request, slug):
+    """
+    POST /api/groups/{slug}/request-join
+
+    User submits a join request (for APPLICATION / APPLICATION_PARENT_MEMBERS policies).
+    """
+    from groups.services.join_service import request_to_join_group as request_join_service
+
+    group = get_object_or_404(Group, slug=slug, is_active=True)
+    message = request.data.get("message", "")
+
+    try:
+        invitation = request_join_service(group, request.user, message=message)
+    except ValidationError as e:
+        return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response(
+        {
+            "detail": "Join request submitted.",
+            "invitation_id": invitation.id,
+            "group": {"id": str(group.id), "title": group.title, "slug": group.slug},
+        },
+        status=status.HTTP_201_CREATED,
+    )
+
+
+class GroupJoinRequestsListView(generics.ListAPIView):
+    """
+    GET /api/groups/{slug}/join-requests
+
+    List pending join requests for a group. Admin/steward only.
+    """
+    permission_classes = [permissions.IsAuthenticated, IsGroupAdminOrSteward]
+    serializer_class = GroupInvitationSerializer
+
+    def get_queryset(self):
+        slug = self.kwargs["slug"]
+        group = get_object_or_404(Group, slug=slug)
+        return GroupInvitation.objects.filter(
+            group=group,
+            invitation_kind=InvitationKind.REQUEST,
+            invited_user__isnull=False,
+            invitation_status=InvitationStatus.PENDING,
+        ).select_related("invited_user", "group").order_by("-created_at")
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated, IsGroupAdminOrSteward])
+def respond_to_join_request(request, slug, invitation_id):
+    """
+    POST /api/groups/{slug}/join-requests/{invitation_id}/respond
+
+    Accept or decline a user's join request. Admin/steward only.
+    """
+    from groups.services.join_service import respond_to_join_request as respond_service
+
+    group = get_object_or_404(Group, slug=slug, is_active=True)
+    invitation = get_object_or_404(
+        GroupInvitation,
+        pk=invitation_id,
+        group=group,
+        invitation_kind=InvitationKind.REQUEST,
+        invited_user__isnull=False,
+    )
+    action = request.data.get("action")
+
+    if action not in ("accept", "decline"):
+        return Response(
+            {"detail": "action must be 'accept' or 'decline'."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        respond_service(invitation, request.user, action)
+    except ValidationError as e:
+        return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    detail = "Join request accepted." if action == "accept" else "Join request declined."
+    return Response({"detail": detail}, status=status.HTTP_200_OK)

@@ -1,5 +1,6 @@
 from django.contrib.contenttypes.models import ContentType
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -12,9 +13,10 @@ from projects.api.serializers import (
     TaskSerializer,
     TaskCreateSerializer,
     TaskMoveSerializer,
+    TaskUpdateSerializer,
 )
-from projects.models import Project, Task
-from projects.permissions import CanCreateTask, CanMoveTask, CanViewProject
+from projects.models import Project, ProjectColumn, Task
+from projects.permissions import CanArchiveTask, CanCreateTask, CanEditProject, CanEditTask, CanMoveTask, CanViewProject
 from utils.shared.contenttypes import resolve_content_type
 
 
@@ -175,3 +177,47 @@ class TaskMoveView(APIView):
             "columns": column_payload,
         }
         return Response(payload, status=status.HTTP_200_OK)
+
+
+class ColumnToggleHiddenView(APIView):
+    permission_classes = [permissions.IsAuthenticated, CanEditProject]
+
+    def patch(self, request, project_id, column_id):
+        project = get_object_or_404(Project, id=project_id)
+        self.check_object_permissions(request, project)
+
+        column = get_object_or_404(ProjectColumn, id=column_id, project=project)
+        column.is_hidden = not column.is_hidden
+        column.save(update_fields=["is_hidden", "updated_at"])
+
+        return Response(ProjectColumnSerializer(column).data, status=status.HTTP_200_OK)
+
+
+class TaskUpdateView(APIView):
+    permission_classes = [permissions.IsAuthenticated, CanEditTask]
+
+    def patch(self, request, task_id):
+        task = get_object_or_404(Task, id=task_id, archived_at__isnull=True)
+        self.check_object_permissions(request, task)
+
+        serializer = TaskUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        for field, value in serializer.validated_data.items():
+            setattr(task, field, value)
+        task.save(update_fields=list(serializer.validated_data.keys()) + ["updated_at"])
+
+        return Response(TaskSerializer(task).data, status=status.HTTP_200_OK)
+
+
+class TaskArchiveView(APIView):
+    permission_classes = [permissions.IsAuthenticated, CanArchiveTask]
+
+    def post(self, request, task_id):
+        task = get_object_or_404(Task, id=task_id, archived_at__isnull=True)
+        self.check_object_permissions(request, task)
+
+        task.archived_at = timezone.now()
+        task.save(update_fields=["archived_at", "updated_at"])
+
+        return Response({"detail": "Task archived."}, status=status.HTTP_200_OK)

@@ -97,6 +97,10 @@ class WritingPiece(BaseContent, PublishableContentMixin):
         default=AddressedTo.PUBLIC,
         db_index=True,
     )
+    enable_outline = models.BooleanField(
+        default=False,
+        help_text="Opt-in: enable Dispatch outline/section navigator for this piece",
+    )
 
     # Scheduling
     scheduled_for = models.DateTimeField(null=True, blank=True)

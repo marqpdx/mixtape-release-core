@@ -85,6 +85,7 @@ INSTALLED_APPS = [
     "bazaar",          # E-commerce and payments
     "chat",            # Chat app, socket.io
     "classifications", # Tags and categories system
+    "feedback",        # Beacon + feedback system
     "concord",         # Audio transcription and interpretation (Whisper, EchoLine)
     "contexts",        # Context management
     "dispatch",        # Collaborative writing (yjs-based real-time editing)
@@ -660,5 +661,4 @@ https://docs.djangoproject.com/en/4.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
-
 

@@ -102,6 +102,16 @@ class TaskCreateSerializer(serializers.Serializer):
         )
 
 
+class TaskUpdateSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=100, required=False)
+    summary = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError("At least one field (title, summary) is required.")
+        return attrs
+
+
 class TaskMoveSerializer(serializers.Serializer):
     to_column_id = serializers.UUIDField()
     to_index = serializers.IntegerField(min_value=0)

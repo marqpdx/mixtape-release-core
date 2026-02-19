@@ -10,6 +10,16 @@ urlpatterns = [
         name="public-groups-list",
     ),
     path(
+        "groups/<slug:slug>",
+        views.PublicGroupDetailView.as_view(),
+        name="public-group-detail",
+    ),
+    path(
+        "groups/<slug:slug>/admission-status",
+        views.PublicGroupAdmissionStatusView.as_view(),
+        name="public-group-admission-status",
+    ),
+    path(
         "members/<str:username>",
         views.PublicMemberProfileView.as_view(),
         name="public-member-profile",
