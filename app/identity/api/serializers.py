@@ -117,7 +117,11 @@ class EmblemAvatarListSerializer(serializers.ModelSerializer):
     def get_size_192_url(self, o): return self._url(o.size_192)
     def get_size_512_url(self, o): return self._url(o.size_512)
     def get_url(self, o):
-        return self._url(o.size_96) or self._url(o.size_48) \
-            or self._url(o.size_192) or self._url(o.size_512)
-
+        return (
+            self._url(o.size_96)
+            or self._url(o.size_48)
+            or self._url(o.size_192)
+            or self._url(o.size_512)
+            or self._url(o.image_path)
+        )
 

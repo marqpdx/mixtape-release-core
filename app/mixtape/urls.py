@@ -80,6 +80,7 @@ urlpatterns = [
     path("api/threadworks/", include("threadworks.api.urls")),
     path("api/writing/", include("writing.api.urls")),
     path("api/concord/", include("concord.api.urls")),  # Audio transcription/interpretation
+    path("api/earthlab/", include("earthlab.api.urls")),  # EarthLab courses/lessons
     path("api/spellbook/", include("spellbook.api.urls")),  # Shared spell dictionary
 
     # === PHASE 4 ENDPOINTS ===
