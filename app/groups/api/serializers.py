@@ -158,7 +158,13 @@ class EmblemInlineSerializer(serializers.ModelSerializer):
         return self._url(obj.size_512)
 
     def get_url(self, obj):
-        return self._url(obj.size_96) or self._url(obj.size_48) or self._url(obj.size_192) or self._url(obj.size_512)
+        return (
+            self._url(obj.size_96)
+            or self._url(obj.size_48)
+            or self._url(obj.size_192)
+            or self._url(obj.size_512)
+            or self._url(obj.image_path)
+        )
 
 
 

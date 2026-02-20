@@ -124,7 +124,84 @@ def promote_draft_view(request, draft_id):
             'event_slug': event.slug,
         })
 
+    elif ast['type'] == 'course':
+        from earthlab.models import Course
+        course = _promote_course(ast, request.user, sponsor)
+
+        draft.promoted_content_type = ContentType.objects.get_for_model(Course)
+        draft.promoted_object_id = course.id
+        draft.status = 'promoted'
+        draft.promoted_at = timezone.now()
+        draft.save()
+
+        return Response({
+            'draft_id': str(draft.id),
+            'course_id': str(course.id),
+            'course_slug': course.slug,
+        })
+
+    elif ast['type'] == 'lesson':
+        from earthlab.models import Lesson
+        lesson = _promote_lesson(ast, request.user, sponsor)
+
+        draft.promoted_content_type = ContentType.objects.get_for_model(Lesson)
+        draft.promoted_object_id = lesson.id
+        draft.status = 'promoted'
+        draft.promoted_at = timezone.now()
+        draft.save()
+
+        return Response({
+            'draft_id': str(draft.id),
+            'lesson_id': str(lesson.id),
+            'lesson_slug': lesson.slug,
+        })
+
     return Response({'error': 'Unknown block type'}, status=400)
+
+
+def _promote_course(ast, user, sponsor):
+    """
+    Create Course from AST.
+    Title comes from ast['title'] (from /course Title declaration).
+    """
+    from earthlab.models import Course
+
+    fields = ast['fields']
+    course = Course(
+        title=ast['title'],
+        status='draft',
+        difficulty_level=fields.get('difficulty', ''),
+        delivery_type=fields.get('delivery', 'self_paced'),
+        estimated_duration=int(fields['duration']) if 'duration' in fields else None,
+        body=fields.get('body', ''),
+        author=user,
+        submitted_by=user,
+    )
+    course.set_sponsor(sponsor)
+    course.save()
+    return course
+
+
+def _promote_lesson(ast, user, sponsor):
+    """
+    Create Lesson from AST.
+    Title comes from ast['title'] (from /lesson Title declaration).
+    """
+    from earthlab.models import Lesson
+
+    fields = ast['fields']
+    lesson = Lesson(
+        title=ast['title'],
+        status='draft',
+        difficulty_level=fields.get('difficulty', ''),
+        estimated_duration=int(fields['duration']) if 'duration' in fields else None,
+        body=fields.get('body', ''),
+        author=user,
+        submitted_by=user,
+    )
+    lesson.set_sponsor(sponsor)
+    lesson.save()
+    return lesson
 
 
 def _promote_event(ast, user, sponsor, timezone_name=None):
