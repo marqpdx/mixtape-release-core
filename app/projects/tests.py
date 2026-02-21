@@ -274,8 +274,7 @@ class ProjectsApiTests(TestCase):
         self.client.force_authenticate(self.admin)
         toggle_url = f"/api/projects/projects/{project.id}/columns/{backlog.id}/toggle-hidden"
         reject = self.client.patch(toggle_url, {}, format="json")
-        # Current backend behavior raises model ValidationError as 500.
-        self.assertEqual(reject.status_code, 500)
+        self.assertEqual(reject.status_code, 400)
 
         active_task.archived_at = timezone.now()
         active_task.save(update_fields=["archived_at"])

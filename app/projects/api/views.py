@@ -1,4 +1,5 @@
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import permissions, status
@@ -188,7 +189,11 @@ class ColumnToggleHiddenView(APIView):
 
         column = get_object_or_404(ProjectColumn, id=column_id, project=project)
         column.is_hidden = not column.is_hidden
-        column.save(update_fields=["is_hidden", "updated_at"])
+        try:
+            column.save(update_fields=["is_hidden", "updated_at"])
+        except ValidationError as exc:
+            payload = exc.message_dict if hasattr(exc, "message_dict") else {"detail": str(exc)}
+            return Response(payload, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(ProjectColumnSerializer(column).data, status=status.HTTP_200_OK)
 

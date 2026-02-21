@@ -521,6 +521,31 @@ class Seed(BaseModel):
     )
     body_text = models.TextField(blank=True, default="")  # plaintext only (v1)
 
+    SEED_KIND_CHOICES = [
+        ("text", "Text"),
+        ("voice", "Voice"),
+    ]
+    SEED_STATUS_CHOICES = [
+        ("ready", "Ready"),
+        ("processing", "Processing"),
+        ("failed", "Failed"),
+    ]
+    kind = models.CharField(max_length=16, choices=SEED_KIND_CHOICES, default="text")
+    status = models.CharField(max_length=16, choices=SEED_STATUS_CHOICES, default="ready")
+
+    audio_file = models.ForeignKey(
+        "files.StoredFile",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="voice_seeds",
+    )
+
+    transcript_text = models.TextField(blank=True, null=True)
+    transcript_created_at = models.DateTimeField(blank=True, null=True)
+    transcript_error = models.TextField(blank=True, null=True)
+    transcript_provider = models.CharField(max_length=32, blank=True, null=True)
+
     # Future-facing, safe to keep nullable
     promoted_to = models.OneToOneField(
         "writing.WorkingDocument",  # Updated to new model name
@@ -633,6 +658,55 @@ class WritingPieceQuerySet(models.QuerySet):
 
 # Add the custom manager to WritingPiece
 WritingPiece.add_to_class("objects", WritingPieceQuerySet.as_manager())
+
+
+class ImportReceipt(BaseModel):
+    """
+    Tracks provenance and idempotency for imported documents.
+    Stores all import metadata so WritingPiece stays clean.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    source_type = models.CharField(
+        max_length=32,
+        default="docx",
+        help_text="Import source format: docx, md, etc.",
+    )
+    source_sha256 = models.CharField(
+        max_length=64,
+        db_index=True,
+        help_text="SHA-256 hash of the source file for idempotency",
+    )
+    original_filename = models.CharField(max_length=512)
+    source_url = models.URLField(
+        blank=True,
+        null=True,
+        help_text="Original document URL (e.g. Google Docs link)",
+    )
+    created_writing_piece = models.ForeignKey(
+        WritingPiece,
+        on_delete=models.CASCADE,
+        related_name="import_receipts",
+    )
+    imported_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    import_notes = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Extracted comments, warnings, stats from import",
+    )
+
+    class Meta(BaseModel.Meta):
+        indexes = [
+            models.Index(fields=["source_sha256"]),
+            models.Index(fields=["source_type"]),
+        ]
+
+    def __str__(self):
+        return f"ImportReceipt<{self.source_type}:{self.original_filename}>"
 
 
 # ============================================================================

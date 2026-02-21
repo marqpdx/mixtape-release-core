@@ -210,17 +210,49 @@ class WritingPieceListSerializer(serializers.ModelSerializer):
 
 
 class SeedSerializer(serializers.ModelSerializer):
+    audio_url = serializers.SerializerMethodField()
+
     class Meta:
         model = Seed
         fields = [
-            "id", "author", "body_text", "created_at", "updated_at",
-            "promoted_to", "context_url", "source",
+            "id",
+            "author",
+            "body_text",
+            "kind",
+            "status",
+            "audio_file",
+            "audio_url",
+            "transcript_text",
+            "transcript_created_at",
+            "transcript_error",
+            "transcript_provider",
+            "created_at",
+            "updated_at",
+            "promoted_to",
+            "context_url",
+            "source",
         ]
-        read_only_fields = ["id", "author", "created_at", "updated_at", "promoted_to", "context_url", "source"]
+        read_only_fields = [
+            "id",
+            "author",
+            "created_at",
+            "updated_at",
+            "promoted_to",
+            "context_url",
+            "source",
+            "audio_file",
+            "audio_url",
+        ]
 
     def create(self, validated_data):
         validated_data["author"] = self.context["request"].user
         return super().create(validated_data)
+
+    def get_audio_url(self, obj):
+        try:
+            return obj.audio_file.url if obj.audio_file else None
+        except Exception:
+            return None
 
 
 class SeedUpdateSerializer(serializers.ModelSerializer):

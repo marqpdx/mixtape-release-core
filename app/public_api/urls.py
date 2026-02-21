@@ -20,6 +20,16 @@ urlpatterns = [
         name="public-group-admission-status",
     ),
     path(
+        "groups/<slug:slug>/courses",
+        views.PublicGroupCoursesView.as_view(),
+        name="public-group-courses",
+    ),
+    path(
+        "groups/<slug:slug>/courses/<slug:course_slug>",
+        views.PublicCourseDetailView.as_view(),
+        name="public-course-detail",
+    ),
+    path(
         "members/<str:username>",
         views.PublicMemberProfileView.as_view(),
         name="public-member-profile",
