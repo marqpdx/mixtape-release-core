@@ -1,12 +1,18 @@
 from datetime import timedelta
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from writing.api.views import MAX_SEED_AUDIO_BYTES
+from writing.models import Seed
+from writing.tasks import transcribe_seed_task
 from groups.models import Group
 from publishing.models import ContentPlacement
 from writing.models import WritingPiece, WritingVersion
@@ -208,3 +214,154 @@ class PublishingV1Tests(TestCase):
         display_body = response.data[0]["display"]["body_json"]
         self.assertEqual(display_body, version.body_json)
         self.assertNotEqual(display_body, updated_body)
+
+
+class VoiceSeedsV1Tests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="seed_user",
+            email="seed@example.com",
+            password="testpass123",
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def _voice_file(self, *, name="voice.webm", size=128, content_type="audio/webm"):
+        return SimpleUploadedFile(name, b"a" * size, content_type=content_type)
+
+    @patch("writing.api.views.transcribe_seed_task.delay")
+    @patch("writing.api.views.default_storage.save", return_value="seeds/audio/test/voice.webm")
+    def test_create_voice_seed_multipart(self, _save_mock, delay_mock):
+        response = self.client.post(
+            "/api/writing/seeds",
+            {
+                "audio_file": self._voice_file(),
+                "kind": "voice",
+                "source": "web",
+            },
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["kind"], "voice")
+        self.assertEqual(response.data["status"], "processing")
+        self.assertIsNotNone(response.data.get("audio_file"))
+        self.assertTrue(response.data.get("audio_url"))
+        delay_mock.assert_called_once()
+
+    def test_reject_oversize_file(self):
+        response = self.client.post(
+            "/api/writing/seeds",
+            {
+                "audio_file": self._voice_file(size=MAX_SEED_AUDIO_BYTES + 1),
+                "source": "web",
+            },
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+        self.assertIn("Audio file too large", response.data.get("detail", ""))
+
+    def test_reject_non_audio(self):
+        response = self.client.post(
+            "/api/writing/seeds",
+            {
+                "audio_file": self._voice_file(name="bad.txt", content_type="text/plain"),
+                "source": "web",
+            },
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Unsupported audio type", response.data.get("detail", ""))
+
+    @patch("writing.tasks.transcribe_audio", return_value=SimpleNamespace(text="hello transcript"))
+    @patch("writing.api.views.transcribe_seed_task.delay")
+    @patch("writing.api.views.default_storage.save", return_value="seeds/audio/test/ready.webm")
+    def test_transcription_processing_to_ready(self, _save_mock, _delay_mock, _transcribe_mock):
+        create = self.client.post(
+            "/api/writing/seeds",
+            {"audio_file": self._voice_file(), "source": "web"},
+            format="multipart",
+        )
+        self.assertEqual(create.status_code, status.HTTP_201_CREATED)
+        seed_id = create.data["id"]
+
+        result = transcribe_seed_task.run(seed_id)
+        self.assertEqual(result["status"], "ok")
+
+        detail = self.client.get(f"/api/writing/seeds/{seed_id}")
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail.data["status"], "ready")
+        self.assertEqual(detail.data["transcript_text"], "hello transcript")
+        self.assertEqual(detail.data["body_text"], "hello transcript")
+        self.assertEqual(detail.data["transcript_provider"], "whisper")
+        self.assertIsNotNone(detail.data["transcript_created_at"])
+
+    @patch("writing.tasks.transcribe_audio", side_effect=RuntimeError("decode failed"))
+    @patch("writing.api.views.transcribe_seed_task.delay")
+    @patch("writing.api.views.default_storage.save", return_value="seeds/audio/test/fail.webm")
+    def test_transcription_failure_sets_failed_state(self, _save_mock, _delay_mock, _transcribe_mock):
+        create = self.client.post(
+            "/api/writing/seeds",
+            {"audio_file": self._voice_file(), "source": "web"},
+            format="multipart",
+        )
+        self.assertEqual(create.status_code, status.HTTP_201_CREATED)
+        seed_id = create.data["id"]
+
+        # Run task body once without Celery retry loop.
+        try:
+            transcribe_seed_task.run(seed_id)
+        except Exception:
+            pass
+
+        seed = Seed.objects.get(id=seed_id)
+        self.assertEqual(seed.status, "failed")
+        self.assertIn("decode failed", seed.transcript_error or "")
+
+    @patch("writing.api.views.transcribe_seed_task.delay")
+    @patch("writing.api.views.default_storage.save", return_value="seeds/audio/test/list.webm")
+    def test_voice_seed_appears_in_list_with_empty_body(self, _save_mock, _delay_mock):
+        create = self.client.post(
+            "/api/writing/seeds",
+            {"audio_file": self._voice_file(), "source": "web"},
+            format="multipart",
+        )
+        self.assertEqual(create.status_code, status.HTTP_201_CREATED)
+        seed_id = create.data["id"]
+
+        listing = self.client.get("/api/writing/seeds")
+        self.assertEqual(listing.status_code, status.HTTP_200_OK)
+        ids = {item["id"] for item in listing.data}
+        self.assertIn(seed_id, ids)
+
+    @patch("writing.api.views.transcribe_seed_task.delay")
+    @patch("writing.api.views.default_storage.save", return_value="seeds/audio/test/mixed.webm")
+    def test_mixed_list_includes_voice_and_text_seed(self, _save_mock, _delay_mock):
+        voice = self.client.post(
+            "/api/writing/seeds",
+            {"audio_file": self._voice_file(), "source": "web"},
+            format="multipart",
+        )
+        self.assertEqual(voice.status_code, status.HTTP_201_CREATED)
+
+        text = self.client.post(
+            "/api/writing/seeds",
+            {"body_text": "typed seed"},
+            format="json",
+        )
+        self.assertEqual(text.status_code, status.HTTP_201_CREATED)
+
+        listing = self.client.get("/api/writing/seeds")
+        self.assertEqual(listing.status_code, status.HTTP_200_OK)
+        kinds = {item["kind"] for item in listing.data}
+        self.assertIn("voice", kinds)
+        self.assertIn("text", kinds)
+
+    def test_text_seed_create_still_works(self):
+        response = self.client.post(
+            "/api/writing/seeds",
+            {"body_text": "plain text seed"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["kind"], "text")
+        self.assertEqual(response.data["status"], "ready")

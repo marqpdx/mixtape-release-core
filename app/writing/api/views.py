@@ -1,9 +1,12 @@
 # writing/api/views.py
 
 from django.contrib.contenttypes.models import ContentType
+import uuid
 from django.core.exceptions import ValidationError
+from django.core.files.storage import default_storage
+from django.utils.text import get_valid_filename
 from django.db import transaction
-from django.db.models import F, Max
+from django.db.models import F, Max, Q
 from django.db.models.functions import Length, Trim
 from django.shortcuts import get_object_or_404
 from django.utils import dateparse, timezone
@@ -17,6 +20,7 @@ from publishing.models import ContentPlacement
 from publishing.services.content_access import can_view_placement
 from publishing.services.content_display import get_display_payload
 from writing.api.permissions import IsAuthorOrStaff
+from files.models import StoredFile
 from writing.models import (
     Seed,
     WritingComment,
@@ -25,6 +29,11 @@ from writing.models import (
     WritingWorkingCopy,
 )
 from writing.services import promote_seed_to_working_copy
+from writing.tasks import transcribe_seed_task
+
+MAX_SEED_AUDIO_BYTES = 20 * 1024 * 1024  # 20MB
+ALLOWED_AUDIO_PREFIXES = ("audio/",)
+ALLOWED_AUDIO_MIME = ("video/webm",)
 
 from ..models import WritingPiece, is_provisional_slug
 from ..permissions import CanEditWritingPiece, CanPublishWritingPiece
@@ -377,9 +386,62 @@ class SeedListCreateView(generics.ListCreateAPIView):
 
         include_empty = self.request.query_params.get("include_empty") == "1"
         if not include_empty:
-            qs = qs.annotate(tlen=Length(Trim("body_text"))).filter(tlen__gt=0)
+            qs = qs.annotate(tlen=Length(Trim("body_text"))).filter(
+                Q(tlen__gt=0) | Q(kind="voice")
+            )
 
         return qs.order_by("-updated_at")
+
+    def create(self, request, *args, **kwargs):
+        audio_file = request.FILES.get("audio_file")
+        if audio_file:
+            if audio_file.size > MAX_SEED_AUDIO_BYTES:
+                return Response(
+                    {"detail": f"Audio file too large (max {MAX_SEED_AUDIO_BYTES // (1024 * 1024)}MB)."},
+                    status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                )
+
+            content_type = (audio_file.content_type or "").lower()
+            if not (content_type.startswith(ALLOWED_AUDIO_PREFIXES) or content_type in ALLOWED_AUDIO_MIME):
+                return Response(
+                    {"detail": f"Unsupported audio type: {content_type or 'unknown'}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            base = get_valid_filename(audio_file.name or "")
+            ext = (base.rsplit(".", 1)[-1].lower() if "." in base else "")
+            unique = f"{uuid.uuid4()}.{ext}" if ext else str(uuid.uuid4())
+            s3_key = f"seeds/audio/{request.user.id}/{unique}"
+
+            audio_file.seek(0)
+            saved_key = default_storage.save(s3_key, audio_file)
+
+            stored = StoredFile.objects.create(
+                file_path=saved_key,
+                file_name=audio_file.name or "",
+                file_type=audio_file.content_type or "",
+                file_size=audio_file.size or 0,
+                uploaded_by=request.user,
+                source=request.data.get("source") or "web",
+            )
+
+            seed = Seed.objects.create(
+                author=request.user,
+                body_text="",
+                kind="voice",
+                status="processing",
+                audio_file=stored,
+                context_url=request.data.get("context_url") or request.data.get("url"),
+                source=request.data.get("source") or "web",
+            )
+
+            transcribe_seed_task.delay(str(seed.id))
+
+            data = SeedSerializer(seed).data
+            headers = self.get_success_headers(data)
+            return Response(data, status=status.HTTP_201_CREATED, headers=headers)
+
+        return super().create(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         serializer.save(author=self.request.user)
@@ -1407,3 +1469,214 @@ class WritingPieceCategoriesView(generics.GenericAPIView):
         updated_categories = Category.objects.filter(id__in=category_ids).order_by('title')
         serializer = CategorySerializer(updated_categories, many=True)
         return Response(serializer.data)
+
+
+# ============================================================================
+# DOCX Import (Preview + Confirm)
+# ============================================================================
+
+import hashlib
+
+
+class DocxPreviewView(APIView):
+    """
+    POST /api/writing/import/preview
+
+    Accepts a .docx file upload, parses it to TipTap JSON, and returns
+    the preview data without creating any database records.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        uploaded_file = request.FILES.get("file")
+        if not uploaded_file:
+            return Response(
+                {"error": "No file provided. Send a .docx file as 'file'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not uploaded_file.name.lower().endswith(".docx"):
+            return Response(
+                {"error": f"Expected .docx file, got: {uploaded_file.name}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        file_bytes = uploaded_file.read()
+        file_sha256 = hashlib.sha256(file_bytes).hexdigest()
+
+        # Check idempotency
+        from writing.models import ImportReceipt
+        existing = ImportReceipt.objects.filter(source_sha256=file_sha256).first()
+        already_imported = None
+        if existing:
+            already_imported = {
+                "piece_id": str(existing.created_writing_piece_id),
+                "receipt_id": str(existing.id),
+                "imported_at": existing.created_at.isoformat(),
+            }
+
+        # Parse
+        from writing.importers.docx_to_tiptap import (
+            docx_to_tiptap,
+            extract_title,
+            count_nodes_by_type,
+        )
+        from writing.importers.docx_comments import extract_docx_comments
+
+        try:
+            body_json = docx_to_tiptap(file_bytes)
+        except Exception as e:
+            return Response(
+                {"error": f"Failed to parse .docx: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        title = extract_title(body_json)
+        node_counts = count_nodes_by_type(body_json)
+
+        # Comments require a file path — write to temp file
+        import tempfile, os
+        comments = []
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
+                tmp.write(file_bytes)
+                tmp_path = tmp.name
+            comments = extract_docx_comments(tmp_path)
+        except Exception:
+            pass
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+        return Response({
+            "body_json": body_json,
+            "title": title,
+            "stats": {
+                "node_counts": node_counts,
+                "comment_count": len(comments),
+            },
+            "comments": comments,
+            "file_sha256": file_sha256,
+            "original_filename": uploaded_file.name,
+            "already_imported": already_imported,
+        })
+
+
+class DocxImportView(APIView):
+    """
+    POST /api/writing/import/confirm
+
+    Creates a WritingPiece from previously previewed TipTap JSON.
+    Expects JSON body with body_json, title, sponsor info, etc.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        body_json = request.data.get("body_json")
+        title = request.data.get("title", "").strip()
+        writing_kind = request.data.get("writing_kind", "dispatch")
+        sponsor_type = request.data.get("sponsor_type")
+        sponsor_id = request.data.get("sponsor_id")
+        enable_outline = request.data.get("enable_outline", False)
+        source_url = request.data.get("source_url") or None
+        file_sha256 = request.data.get("file_sha256", "")
+        original_filename = request.data.get("original_filename", "")
+        addressed_to = request.data.get("addressed_to", "public")
+        force = request.data.get("force", False)
+
+        # Validate required fields
+        if not body_json:
+            return Response({"error": "body_json is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not title:
+            return Response({"error": "title is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not sponsor_type or not sponsor_id:
+            return Response({"error": "sponsor_type and sponsor_id are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Idempotency check
+        from writing.models import ImportReceipt
+        if file_sha256 and not force:
+            existing = ImportReceipt.objects.filter(source_sha256=file_sha256).first()
+            if existing:
+                return Response({
+                    "error": "This file has already been imported.",
+                    "existing_piece_id": str(existing.created_writing_piece_id),
+                    "receipt_id": str(existing.id),
+                }, status=status.HTTP_409_CONFLICT)
+
+        # Resolve sponsor
+        try:
+            ct = ContentType.objects.get(model=sponsor_type.lower())
+        except ContentType.DoesNotExist:
+            return Response({"error": f"Unknown sponsor type: {sponsor_type}"}, status=status.HTTP_400_BAD_REQUEST)
+        except ContentType.MultipleObjectsReturned:
+            # Try common app labels
+            ct = None
+            for app in ["groups", "users", "identity"]:
+                try:
+                    ct = ContentType.objects.get(app_label=app, model=sponsor_type.lower())
+                    break
+                except ContentType.DoesNotExist:
+                    continue
+            if ct is None:
+                return Response({"error": f"Ambiguous sponsor type: {sponsor_type}"}, status=status.HTTP_400_BAD_REQUEST)
+
+        model_class = ct.model_class()
+        try:
+            sponsor = model_class.objects.get(pk=sponsor_id)
+        except model_class.DoesNotExist:
+            return Response({"error": f"{sponsor_type} with ID {sponsor_id} not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Optionally generate outline
+        outline_specs = []
+        if enable_outline:
+            from writing.importers.docx_to_tiptap import generate_outline_from_headings
+            outline_specs = generate_outline_from_headings(body_json)
+
+        # Create records
+        with transaction.atomic():
+            piece = WritingPiece(
+                author=request.user,
+                title=title,
+                body_json=body_json,
+                writing_kind=writing_kind,
+                addressed_to=addressed_to,
+                enable_outline=enable_outline,
+            )
+            piece.set_sponsor(sponsor)
+            piece.save()
+
+            # Import receipt
+            import_notes = {"source": "web_import"}
+            if outline_specs:
+                import_notes["outline_count"] = len(outline_specs)
+
+            ImportReceipt.objects.create(
+                source_type="docx",
+                source_sha256=file_sha256,
+                original_filename=original_filename,
+                source_url=source_url,
+                created_writing_piece=piece,
+                imported_by=request.user,
+                import_notes=import_notes,
+            )
+
+            # Create outline nodes
+            if outline_specs:
+                from dispatch.models import DispatchOutlineNode
+                for spec in outline_specs:
+                    DispatchOutlineNode.objects.create(
+                        writing_piece=piece,
+                        title=spec["title"],
+                        order_index=spec["order_index"],
+                        anchor_target=spec["anchor_target"],
+                    )
+
+        serializer = WritingPieceSerializer(piece, context={"request": request})
+        return Response({
+            "piece": serializer.data,
+            "outline_nodes_created": len(outline_specs),
+            "message": f'Successfully imported "{title}"',
+        }, status=status.HTTP_201_CREATED)

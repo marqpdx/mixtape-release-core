@@ -9,6 +9,8 @@ from .sponsor_views import (
     SponsorPlacementsListView,
 )
 from .views import (
+    DocxImportView,
+    DocxPreviewView,
     SeedDetailView,
     SeedIngestView,
     SeedListCreateView,
@@ -93,5 +95,9 @@ urlpatterns = [
     # Tags and Categories
     path("pieces/<uuid:pk>/tags", WritingPieceTagsView.as_view(), name="writingpiece-tags"),
     path("pieces/<uuid:pk>/categories", WritingPieceCategoriesView.as_view(), name="writingpiece-categories"),
+
+    # DOCX Import
+    path("import/preview", DocxPreviewView.as_view(), name="docx-preview"),
+    path("import/confirm", DocxImportView.as_view(), name="docx-import"),
 
 ]

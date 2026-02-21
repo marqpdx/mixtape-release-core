@@ -23,6 +23,7 @@ from publishing.services.content_access import can_view_placement
 from publishing.services.content_display import get_display_payload
 from stackroom.models import Library
 from writing.models import WritingPiece
+from earthlab.models import Course, CourseItem
 
 from django.db.models import Count, Q
 
@@ -281,3 +282,90 @@ class PublicWritingPieceView(APIView):
 
         piece.increment_view_count()
         return Response(data)
+
+
+class PublicGroupCoursesView(APIView):
+    """
+    GET /api/public/groups/{slug}/courses
+
+    Returns published courses for a public group.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, slug):
+        group = get_object_or_404(
+            Group, slug=slug, visibility="public", is_active=True,
+        )
+        ct = ContentType.objects.get_for_model(Group)
+        courses = Course.objects.filter(
+            sponsor_content_type=ct,
+            sponsor_object_id=group.id,
+            status="published",
+            deleted_at__isnull=True,
+        ).order_by("-updated_at")
+
+        return Response([
+            {
+                "id": str(c.id),
+                "title": c.title,
+                "slug": c.slug,
+                "summary": c.summary,
+                "status": c.status,
+                "difficulty_level": c.difficulty_level,
+                "delivery_type": c.delivery_type,
+                "estimated_duration": c.estimated_duration,
+                "learning_objectives": c.learning_objectives,
+            }
+            for c in courses
+        ])
+
+
+class PublicCourseDetailView(APIView):
+    """
+    GET /api/public/groups/{slug}/courses/{course_slug}
+
+    Returns a published course with its outline.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, slug, course_slug):
+        group = get_object_or_404(
+            Group, slug=slug, visibility="public", is_active=True,
+        )
+        ct = ContentType.objects.get_for_model(Group)
+        course = get_object_or_404(
+            Course,
+            slug=course_slug,
+            sponsor_content_type=ct,
+            sponsor_object_id=group.id,
+            status="published",
+            deleted_at__isnull=True,
+        )
+
+        items = CourseItem.objects.filter(course=course).order_by("position")
+        outline = []
+        for item in items:
+            obj = item.content_object
+            outline.append({
+                "id": str(item.id),
+                "position": item.position,
+                "section_title": item.section_title,
+                "content_type": item.content_type.model,
+                "content_title": getattr(obj, "title", "") if obj else "",
+                "estimated_duration": getattr(obj, "estimated_duration", None) if obj else None,
+            })
+
+        return Response({
+            "id": str(course.id),
+            "title": course.title,
+            "slug": course.slug,
+            "summary": course.summary,
+            "body": course.body,
+            "status": course.status,
+            "difficulty_level": course.difficulty_level,
+            "delivery_type": course.delivery_type,
+            "estimated_duration": course.estimated_duration,
+            "learning_objectives": course.learning_objectives,
+            "flow_mode": course.flow_mode,
+            "items": outline,
+        })

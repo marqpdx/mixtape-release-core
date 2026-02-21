@@ -225,10 +225,13 @@ class Task(BaseData):
                 task.completed_at = timezone.now()
             else:
                 task.completed_at = None
+            task.position = 1000000
+            task.save(update_fields=["column", "position", "completed_at"])
 
             target_tasks.insert(bounded_index, task)
 
             cls._reindex(source_tasks)
+            cls._reindex(target_tasks)
             cls.objects.bulk_update(
                 target_tasks,
                 ["position", "column", "completed_at"],

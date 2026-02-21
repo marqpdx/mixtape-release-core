@@ -197,6 +197,9 @@ def on_ownership_change_failed(*, request, group):
 
 def on_member_joined(*, user, group, membership):
     """Notify group moderators when a user directly joins."""
+    moderator_ids = _moderator_user_ids(group)
+    if not moderator_ids:
+        return
     at = _ensure_activity_type(
         code="group.member.joined",
         label="Member Joined Group",
@@ -224,7 +227,7 @@ def on_member_joined(*, user, group, membership):
         aggregate_key=f"membership:{_id(group)}",
         audience={
             "type": "users",
-            "ids": _moderator_user_ids(group),
+            "ids": moderator_ids,
             "exclude_actor": True,
         },
         occurs_at=timezone.now(),
@@ -233,6 +236,9 @@ def on_member_joined(*, user, group, membership):
 
 def on_join_request_submitted(*, user, group, invitation):
     """Notify group moderators when a user requests to join."""
+    moderator_ids = _moderator_user_ids(group)
+    if not moderator_ids:
+        return
     at = _ensure_activity_type(
         code="group.join_request.submitted",
         label="Join Request Submitted",
@@ -261,7 +267,7 @@ def on_join_request_submitted(*, user, group, invitation):
         aggregate_key=f"join_requests:{_id(group)}",
         audience={
             "type": "users",
-            "ids": _moderator_user_ids(group),
+            "ids": moderator_ids,
             "exclude_actor": True,
         },
         occurs_at=timezone.now(),
