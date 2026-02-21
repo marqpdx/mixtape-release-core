@@ -21,6 +21,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone as dj_timezone
 from rest_framework import generics, permissions, status
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.exceptions import PermissionDenied
 
 # from threadworks.api.views import StandardResultsSetPagination  # PHASE 3: Deferred
 from rest_framework.response import Response
@@ -216,6 +217,14 @@ class GroupDetailView(generics.RetrieveUpdateAPIView):
                 )
 
         return obj
+
+    def delete(self, request, *args, **kwargs):
+        if not request.user or not request.user.is_superuser:
+            raise PermissionDenied("You don't have permission to delete groups.")
+
+        group = self.get_object()
+        group.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @staticmethod
     @transaction.atomic
