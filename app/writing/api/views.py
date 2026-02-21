@@ -1648,6 +1648,15 @@ class DocxImportView(APIView):
             piece.set_sponsor(sponsor)
             piece.save()
 
+            # Create working copy so the editor can load it and it appears in drafts
+            WritingWorkingCopy.objects.create(
+                piece=piece,
+                user=request.user,
+                title=title,
+                body_json=body_json,
+                excerpt="",
+            )
+
             # Import receipt
             import_notes = {"source": "web_import"}
             if outline_specs:
