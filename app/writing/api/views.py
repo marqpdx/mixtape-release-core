@@ -1645,7 +1645,7 @@ class DocxImportView(APIView):
                 replacements = notes.get("replacements", [])
                 replacements.append({
                     "replaced_at": timezone.now().isoformat(),
-                    "replaced_by": request.user.id,
+                    "replaced_by": str(request.user.id),
                 })
                 notes["replacements"] = replacements
                 receipt.import_notes = notes
