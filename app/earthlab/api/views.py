@@ -111,6 +111,13 @@ def list_or_create_courses(request, group_slug):
         course.set_sponsor(group)
         course.save()
 
+    # Fire activity producer
+    try:
+        from earthlab.producers import on_earthlab_course_updated
+        on_earthlab_course_updated(course=course, group=group, actor_user=request.user)
+    except Exception:
+        pass
+
     return Response(_serialize_course(course), status=201)
 
 
@@ -144,6 +151,14 @@ def course_detail(request, group_slug, course_slug):
                 if field in request.data:
                     setattr(course, field, request.data[field])
             course.save()
+
+        # Fire activity producer
+        try:
+            from earthlab.producers import on_earthlab_course_updated
+            on_earthlab_course_updated(course=course, group=group, actor_user=request.user)
+        except Exception:
+            pass
+
         return Response(_serialize_course_with_items(course))
 
     # DELETE — soft delete
@@ -188,6 +203,13 @@ def list_or_create_lessons(request, group_slug):
         )
         lesson.set_sponsor(group)
         lesson.save()
+
+    # Fire activity producer (reuse course_updated — any earthlab change counts)
+    try:
+        from earthlab.producers import on_earthlab_course_updated
+        on_earthlab_course_updated(course=lesson, group=group, actor_user=request.user)
+    except Exception:
+        pass
 
     return Response(_serialize_lesson(lesson), status=201)
 

@@ -183,10 +183,19 @@ def conversation_messages(request, slug):
     if serializer.is_valid():
         message = serializer.save(sender=user, conversation=conversation)
 
-        # (optional) notify other participants, enqueue events, etc.
-        # participants = ConversationParticipant.objects.filter(conversation=conversation).exclude(user=user)
-        # for participant in participants:
-        #     ...
+        # Fire activity producer for group-scoped conversations
+        try:
+            cc = conversation.conversation_contexts.select_related(
+                "context__content_type"
+            ).first()
+            if cc and cc.context.content_type.model == "group":
+                from activity.producers_livewire import on_group_chat_message
+                group = cc.context.anchor
+                on_group_chat_message(
+                    message=message, conversation=conversation, group=group,
+                )
+        except Exception:
+            pass  # Don't block message creation if activity fails
 
         return Response(ChatMessageSerializer(message).data, status=status.HTTP_201_CREATED)
 

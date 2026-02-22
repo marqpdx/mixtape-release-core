@@ -153,6 +153,94 @@ class NotificationPreferenceView(generics.ListCreateAPIView):
         serializer.instance = pref
 
 
+class GroupPulseView(APIView):
+    """
+    GET /api/activity/group-pulse
+    Returns per-group activity flags for all groups the current user belongs to.
+    Checks for Actions in the last 7 days.
+
+    Response:
+    {
+      "<group-uuid>": {
+        "livewire": true,
+        "threadworks": false,
+        "writing": true,
+        "earthlab": false,
+        "members": true
+      },
+      ...
+    }
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    # Map activity codes to pulse categories
+    CODE_TO_CATEGORY = {
+        "group.livewire.message": "livewire",
+        "group.threadworks.post_created": "threadworks",
+        "group.post.created": "writing",
+        "group.announcement": "writing",
+        "group.earthlab.course_updated": "earthlab",
+        "group.member.joined": "members",
+        "group.join_request.submitted": "members",
+    }
+
+    def get(self, request):
+        from datetime import timedelta
+        from django.contrib.auth import get_user_model
+        from django.contrib.contenttypes.models import ContentType
+        from groups.models import Group
+        from groups.models.membership import GroupMembership
+        from activity.models import Action
+
+        User = get_user_model()
+        user = request.user
+        user_ct = ContentType.objects.get_for_model(User)
+        group_ct = ContentType.objects.get_for_model(Group)
+
+        # Get all group IDs where user has active membership
+        group_ids = list(
+            GroupMembership.objects.filter(
+                member_content_type=user_ct,
+                member_object_id=user.id,
+                is_active=True,
+            ).values_list("group_id", flat=True)
+        )
+
+        if not group_ids:
+            return Response({})
+
+        # Query actions in the last 7 days for these groups
+        cutoff = timezone.now() - timedelta(days=7)
+        actions = (
+            Action.objects.filter(
+                context_content_type=group_ct,
+                context_id__in=[str(gid) for gid in group_ids],
+                occurs_at__gte=cutoff,
+                activity_code__in=list(self.CODE_TO_CATEGORY.keys()),
+            )
+            .values("context_id", "activity_code")
+            .distinct()
+        )
+
+        # Build pulse dict
+        pulse = {}
+        for row in actions:
+            gid = row["context_id"]
+            category = self.CODE_TO_CATEGORY.get(row["activity_code"])
+            if category:
+                if gid not in pulse:
+                    pulse[gid] = {
+                        "livewire": False,
+                        "threadworks": False,
+                        "writing": False,
+                        "earthlab": False,
+                        "members": False,
+                    }
+                pulse[gid][category] = True
+
+        return Response(pulse)
+
+
 class NotificationDismissView(APIView):
     """
     DELETE /api/activity/<uuid:notification_id>
