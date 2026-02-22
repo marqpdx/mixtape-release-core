@@ -1586,17 +1586,97 @@ class DocxImportView(APIView):
         original_filename = request.data.get("original_filename", "")
         addressed_to = request.data.get("addressed_to", "public")
         force = request.data.get("force", False)
+        mode = request.data.get("mode", "new")  # "new" or "replace"
 
         # Validate required fields
         if not body_json:
             return Response({"error": "body_json is required"}, status=status.HTTP_400_BAD_REQUEST)
         if not title:
             return Response({"error": "title is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        from writing.models import ImportReceipt
+
+        # ── Replace mode: update existing piece in place ──
+        if mode == "replace":
+            if not file_sha256:
+                return Response({"error": "file_sha256 is required for replace mode"}, status=status.HTTP_400_BAD_REQUEST)
+
+            receipt = ImportReceipt.objects.filter(source_sha256=file_sha256).first()
+            if not receipt:
+                return Response({"error": "No previous import found for this file."}, status=status.HTTP_404_NOT_FOUND)
+
+            piece = receipt.created_writing_piece
+
+            # Optionally regenerate outline
+            outline_specs = []
+            if enable_outline:
+                from writing.importers.docx_to_tiptap import generate_outline_from_headings
+                outline_specs = generate_outline_from_headings(body_json)
+
+            with transaction.atomic():
+                # Update the piece
+                piece.body_json = body_json
+                piece.title = title
+                piece.writing_kind = writing_kind
+                piece.addressed_to = addressed_to
+                piece.enable_outline = enable_outline
+                piece.save(update_fields=[
+                    "body_json", "title", "writing_kind", "addressed_to",
+                    "enable_outline", "updated_at",
+                ])
+
+                # If published, create a version snapshot
+                if piece.status == "published":
+                    piece.create_version(content_changed=True)
+
+                # Update or create working copy
+                wc, created = WritingWorkingCopy.objects.get_or_create(
+                    piece=piece,
+                    user=request.user,
+                    defaults={"title": title, "body_json": body_json, "excerpt": ""},
+                )
+                if not created:
+                    wc.title = title
+                    wc.body_json = body_json
+                    wc.save(update_fields=["title", "body_json", "updated_at"])
+
+                # Update receipt notes
+                notes = receipt.import_notes or {}
+                replacements = notes.get("replacements", [])
+                replacements.append({
+                    "replaced_at": timezone.now().isoformat(),
+                    "replaced_by": request.user.id,
+                })
+                notes["replacements"] = replacements
+                receipt.import_notes = notes
+                receipt.save(update_fields=["import_notes", "updated_at"])
+
+                # Regenerate outline nodes if enabled
+                outline_count = 0
+                if outline_specs:
+                    from dispatch.models import DispatchOutlineNode
+                    DispatchOutlineNode.objects.filter(writing_piece=piece).delete()
+                    for spec in outline_specs:
+                        DispatchOutlineNode.objects.create(
+                            writing_piece=piece,
+                            title=spec["title"],
+                            order_index=spec["order_index"],
+                            anchor_target=spec["anchor_target"],
+                        )
+                    outline_count = len(outline_specs)
+
+            serializer = WritingPieceSerializer(piece, context={"request": request})
+            return Response({
+                "piece": serializer.data,
+                "outline_nodes_created": outline_count,
+                "message": f'Replaced content of "{title}"',
+            }, status=status.HTTP_200_OK)
+
+        # ── New mode (default): create a new piece ──
         if not sponsor_type or not sponsor_id:
             return Response({"error": "sponsor_type and sponsor_id are required"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Idempotency check
-        from writing.models import ImportReceipt
         if file_sha256 and not force:
             existing = ImportReceipt.objects.filter(source_sha256=file_sha256).first()
             if existing:
@@ -1612,7 +1692,6 @@ class DocxImportView(APIView):
         except ContentType.DoesNotExist:
             return Response({"error": f"Unknown sponsor type: {sponsor_type}"}, status=status.HTTP_400_BAD_REQUEST)
         except ContentType.MultipleObjectsReturned:
-            # Try common app labels
             ct = None
             for app in ["groups", "users", "identity"]:
                 try:
