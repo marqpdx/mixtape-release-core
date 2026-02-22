@@ -15,7 +15,7 @@ from django.contrib.contenttypes.models import ContentType
 from rest_framework.views import APIView
 
 from writing.models import WritingWorkingCopy
-from .serializers import WritingWorkingCopySerializer
+from .serializers import WritingWorkingCopySerializer, WritingWorkingCopyListSerializer
 from publishing.models import ContentPlacement
 from publishing.services.content_access import can_view_placement
 from publishing.services.content_display import get_display_payload
@@ -137,7 +137,7 @@ class SponsorDraftsListView(generics.ListAPIView):
       - sponsor_type: 'group' or 'member'
       - sponsor_slug: slug of the sponsor
     """
-    serializer_class = WritingWorkingCopySerializer
+    serializer_class = WritingWorkingCopyListSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = None  # No pagination for drafts
 

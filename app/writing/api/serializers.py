@@ -361,3 +361,13 @@ class WritingWorkingCopySerializer(serializers.ModelSerializer):
             "collaborator_count",
             "collaborators",
         ]
+
+
+class WritingWorkingCopyListSerializer(WritingWorkingCopySerializer):
+    """List serializer that excludes body_json to keep responses lightweight."""
+
+    class Meta(WritingWorkingCopySerializer.Meta):
+        fields = [
+            f for f in WritingWorkingCopySerializer.Meta.fields
+            if f != "body_json"
+        ]
