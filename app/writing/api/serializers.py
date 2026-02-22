@@ -364,10 +364,45 @@ class WritingWorkingCopySerializer(serializers.ModelSerializer):
 
 
 class WritingWorkingCopyListSerializer(WritingWorkingCopySerializer):
-    """List serializer that excludes body_json to keep responses lightweight."""
+    """List serializer that excludes body_json, adds a short body_preview instead."""
+
+    body_preview = serializers.SerializerMethodField()
+
+    def get_body_preview(self, obj):
+        """Extract first 300 chars of plain text from body_json for list previews."""
+        body = obj.body_json
+        if not body or not isinstance(body, dict):
+            return ""
+        content = body.get("content", [])
+        if not content:
+            return ""
+
+        parts = []
+        remaining = 300
+
+        def walk(node):
+            nonlocal remaining
+            if remaining <= 0:
+                return
+            if isinstance(node, dict):
+                if node.get("type") == "text":
+                    text = node.get("text", "")
+                    parts.append(text[:remaining])
+                    remaining -= len(text)
+                for child in node.get("content", []):
+                    if remaining <= 0:
+                        break
+                    walk(child)
+
+        for block in content:
+            if remaining <= 0:
+                break
+            walk(block)
+
+        return "".join(parts)
 
     class Meta(WritingWorkingCopySerializer.Meta):
         fields = [
             f for f in WritingWorkingCopySerializer.Meta.fields
             if f != "body_json"
-        ]
+        ] + ["body_preview"]
