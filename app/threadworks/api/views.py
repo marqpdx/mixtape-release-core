@@ -223,7 +223,18 @@ class PostListCreateView(generics.ListCreateAPIView):
         if discussion.is_locked and not self.request.user.is_staff:
             raise permissions.PermissionDenied("This discussion is locked.")
 
-        serializer.save(discussion=discussion, author=self.request.user)
+        post = serializer.save(discussion=discussion, author=self.request.user)
+
+        # Fire activity producer if forum is group-sponsored
+        try:
+            group = forum.sponsor
+            if group and isinstance(group, Group):
+                from threadworks.producers import on_threadworks_post_created
+                on_threadworks_post_created(
+                    post=post, discussion=discussion, forum=forum, group=group,
+                )
+        except Exception:
+            pass  # Don't block post creation if activity fails
 
 
 class PostDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -748,7 +759,16 @@ class GroupPostListCreateView(generics.ListCreateAPIView):
         if discussion.is_locked and not self.request.user.is_staff:
             raise permissions.PermissionDenied("This discussion is locked.")
 
-        serializer.save(discussion=discussion, author=self.request.user)
+        post = serializer.save(discussion=discussion, author=self.request.user)
+
+        # Fire activity producer for group-scoped post
+        try:
+            from threadworks.producers import on_threadworks_post_created
+            on_threadworks_post_created(
+                post=post, discussion=discussion, forum=forum, group=group,
+            )
+        except Exception:
+            pass  # Don't block post creation if activity fails
 
 
 class GroupPostDetailView(generics.RetrieveUpdateDestroyAPIView):

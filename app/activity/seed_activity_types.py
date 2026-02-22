@@ -8,6 +8,9 @@ CANONICAL = [
     dict(code="post.comment.created", title="New Comment on Post", default_channel="activity", default_priority="normal", suppressible_by_user=True),
     dict(code="group.announcement",  title="Group Announcement",   default_channel="activity", default_priority="normal", suppressible_by_user=True),
     dict(code="chat.mention",        title="Chat Mention",         default_channel="messages", default_priority="critical", suppressible_by_user=False),
+    dict(code="group.threadworks.post_created", title="New Discussion Post",      default_channel="activity", default_priority="normal", suppressible_by_user=True),
+    dict(code="group.earthlab.course_updated",  title="Course or Lesson Updated", default_channel="activity", default_priority="normal", suppressible_by_user=True),
+    dict(code="group.livewire.message",         title="Group Chat Message",       default_channel="activity", default_priority="low",    suppressible_by_user=True),
 ]
 
 def run():
