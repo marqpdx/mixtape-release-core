@@ -31,6 +31,14 @@ from stackroom.api.puddlejump_views import (
     PuddlejumpSyncDeleteView,
     PuddlejumpSyncCompleteView,
 )
+from stackroom.api.canon_views import (
+    VersionListCreateView,
+    CanonApproveView,
+    CanonDiffView,
+    CheckoutView,
+    CheckinView,
+    LibraryExportView,
+)
 from stackroom.api.puddlejump_utility_views import (
     LibraryHealthView,
     DuplicateDetectionView,
@@ -59,6 +67,13 @@ urlpatterns = [
     path("artifacts", ArtifactCreateView.as_view()),
     path("artifacts/<uuid:artifact_id>/content", ArtifactContentView.as_view(), name="artifact-content"),
     path("source-files/<uuid:source_file_id>/content", SourceFileContentView.as_view(), name="source-file-content"),
+    # Canon governance endpoints (Puddlejump v1)
+    path("source-files/<uuid:source_file_id>/versions", VersionListCreateView.as_view(), name="source-file-versions"),
+    path("source-files/<uuid:source_file_id>/approve", CanonApproveView.as_view(), name="source-file-approve"),
+    path("source-files/<uuid:source_file_id>/diff", CanonDiffView.as_view(), name="source-file-diff"),
+    path("source-files/<uuid:source_file_id>/checkout", CheckoutView.as_view(), name="source-file-checkout"),
+    path("source-files/<uuid:source_file_id>/checkin", CheckinView.as_view(), name="source-file-checkin"),
+    path("libraries/<uuid:library_id>/export", LibraryExportView.as_view(), name="library-export"),
     path("shards/bulk", ShardBulkUpsertView.as_view()),
     path("chunks/bulk", ChunkBulkUpsertView.as_view()),
     path("ingestion/complete", IngestionCompleteView.as_view()),

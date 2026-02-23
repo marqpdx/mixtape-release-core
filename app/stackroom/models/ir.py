@@ -386,11 +386,146 @@ class SourceFile(TimeStamped):
     )
     ir_version = models.CharField(max_length=32, default="0.1")
 
+    # Canon governance fields (Puddlejump v1 §4, §6)
+    is_canon = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text='Whether this file has been approved as canonical'
+    )
+    canon_version = models.ForeignKey(
+        'SourceFileVersion',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='+',
+        help_text='Latest approved Canon version'
+    )
+
+    # Soft checkout (Puddlejump v1 §6, Appendix A1)
+    checked_out_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='checked_out_files',
+        help_text='User who has this file checked out (advisory, not enforced)'
+    )
+    checked_out_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='When the file was checked out'
+    )
+
     class Meta:
         constraints = [
             # Phase 0 contract: SourceFile identity = (library + hash)
             models.UniqueConstraint(fields=["library", "hash_sha256"], name="uniq_sourcefile_library_hash"),
         ]
+
+
+class SourceFileVersion(TimeStamped):
+    """
+    Append-only version history for Canon documents (Puddlejump v1 §5).
+
+    Once a document is deemed Canon, every subsequent modification creates
+    a new version record. Full prior versions are preserved internally.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    source_file = models.ForeignKey(
+        SourceFile, on_delete=models.CASCADE, related_name='versions'
+    )
+    version_number = models.PositiveIntegerField(
+        help_text='Auto-incremented per source_file'
+    )
+    hash_sha256 = models.CharField(
+        max_length=64,
+        help_text='SHA-256 hash of this version content'
+    )
+    content_snapshot = models.TextField(
+        help_text='Full markdown content at this version'
+    )
+    change_summary = models.TextField(
+        blank=True, default='',
+        help_text='Human or auto-generated description of changes'
+    )
+
+    # Actor
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='source_file_versions',
+        help_text='User who created this version'
+    )
+
+    # AI-assistance metadata (Puddlejump v1 §5, Appendix A3)
+    ai_assisted = models.BooleanField(
+        default=False,
+        help_text='Whether AI contributed to this version'
+    )
+    ai_agent = models.CharField(
+        max_length=64, blank=True, default='',
+        help_text='AI agent identifier (e.g. "claude-code", "inkwell")'
+    )
+    ai_summary = models.TextField(
+        blank=True, default='',
+        help_text='Brief description of what the agent contributed'
+    )
+
+    class Meta:
+        ordering = ['version_number']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['source_file', 'version_number'],
+                name='uniq_version_per_sourcefile'
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['source_file', 'version_number']),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.source_file.filename} v{self.version_number}"
+
+
+class CanonApproval(TimeStamped):
+    """
+    Tracks Canon approval events (Puddlejump v1 §4).
+
+    A document becomes Canon when approved by a Group Admin or a user
+    with canApproveCanon permission.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    source_file = models.ForeignKey(
+        SourceFile, on_delete=models.CASCADE, related_name='approvals'
+    )
+    version = models.ForeignKey(
+        SourceFileVersion, on_delete=models.CASCADE, related_name='approvals',
+        help_text='The version being approved as Canon'
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='canon_approvals',
+        help_text='User who approved this version'
+    )
+    approved_at = models.DateTimeField(auto_now_add=True)
+    notes = models.TextField(
+        blank=True, default='',
+        help_text='Optional approval notes'
+    )
+
+    class Meta:
+        ordering = ['-approved_at']
+        indexes = [
+            models.Index(fields=['source_file', '-approved_at']),
+        ]
+
+    def __str__(self) -> str:
+        return f"Canon approval: {self.source_file.filename} v{self.version.version_number}"
 
 
 class IngestionRun(TimeStamped):
@@ -520,6 +655,3 @@ class IngestionReceipt(TimeStamped):
 
     class Meta:
         indexes = [models.Index(fields=["run", "created_at"])]
-from django.db import models
-
-# Create your models here.

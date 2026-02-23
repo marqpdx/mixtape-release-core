@@ -3,6 +3,7 @@
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from rest_framework import serializers
+import hashlib
 
 from utils.shared.contenttypes import resolve_content_type
 from writing.choices import ContentStatus
@@ -223,9 +224,12 @@ class SeedSerializer(serializers.ModelSerializer):
             "audio_file",
             "audio_url",
             "transcript_text",
+            "edited_after_transcription",
             "transcript_created_at",
             "transcript_error",
             "transcript_provider",
+            "transcript_model",
+            "transcript_backend",
             "created_at",
             "updated_at",
             "promoted_to",
@@ -262,6 +266,16 @@ class SeedUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Seed
         fields = ["body_text"]
+
+    def update(self, instance, validated_data):
+        body_text = validated_data.get("body_text", instance.body_text or "")
+        instance.body_text = body_text
+        body_hash = hashlib.sha256(body_text.encode("utf-8")).hexdigest() if body_text is not None else ""
+        instance.body_hash = body_hash
+        if instance.transcript_hash:
+            instance.edited_after_transcription = body_hash != instance.transcript_hash
+        instance.save(update_fields=["body_text", "body_hash", "edited_after_transcription", "updated_at"])
+        return instance
 
 
 class WritingCommentSerializer(serializers.ModelSerializer):

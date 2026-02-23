@@ -427,7 +427,7 @@ class SeedListCreateView(generics.ListCreateAPIView):
 
             seed = Seed.objects.create(
                 author=request.user,
-                body_text="",
+                body_text="Transcribing voice note…",
                 kind="voice",
                 status="processing",
                 audio_file=stored,

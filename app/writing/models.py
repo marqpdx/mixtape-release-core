@@ -542,9 +542,14 @@ class Seed(BaseModel):
     )
 
     transcript_text = models.TextField(blank=True, null=True)
+    transcript_hash = models.CharField(max_length=64, blank=True, null=True)
     transcript_created_at = models.DateTimeField(blank=True, null=True)
     transcript_error = models.TextField(blank=True, null=True)
     transcript_provider = models.CharField(max_length=32, blank=True, null=True)
+    transcript_model = models.CharField(max_length=64, blank=True, null=True)
+    transcript_backend = models.CharField(max_length=32, blank=True, null=True)
+    body_hash = models.CharField(max_length=64, blank=True, null=True)
+    edited_after_transcription = models.BooleanField(default=False)
 
     # Future-facing, safe to keep nullable
     promoted_to = models.OneToOneField(
