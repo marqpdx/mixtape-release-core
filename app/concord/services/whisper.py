@@ -34,6 +34,34 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+def _env(name: str, default: str | None = None) -> str | None:
+    val = os.getenv(name)
+    return val if val not in (None, "") else default
+
+
+def _detect_device(preferred: str = "auto") -> str:
+    """
+    Decide device for faster-whisper without requiring torch.
+
+    Order:
+      1) explicit preferred (cpu/cuda)
+      2) if auto: try torch.cuda if torch exists
+      3) else: cpu
+    """
+    preferred = (preferred or "auto").lower()
+
+    if preferred in ("cpu", "cuda"):
+        return preferred
+
+    try:
+        import torch  # optional
+        if torch.cuda.is_available():
+            return "cuda"
+    except Exception:
+        pass
+
+    return "cpu"
+
 
 # ============================================================================
 # Data Classes
@@ -100,6 +128,16 @@ class WhisperService:
 
     def _detect_backend(self) -> str:
         """Detect the best available backend."""
+        backend_override = _env("WHISPER_BACKEND")
+        if backend_override:
+            override = backend_override.lower()
+            if override in ("faster-whisper", "faster_whisper", "faster"):
+                return "faster-whisper"
+            if override in ("openai-api", "openai_api", "openai"):
+                return "openai-api"
+            if override in ("whisper", "openai-whisper", "openai_whisper"):
+                return "whisper"
+
         # Check for faster-whisper
         try:
             import faster_whisper
@@ -143,24 +181,35 @@ class WhisperService:
             self._load_local_whisper()
 
     def _load_faster_whisper(self):
-        """Load faster-whisper model."""
-        from faster_whisper import WhisperModel
+        """Initialize faster-whisper without requiring torch."""
+        try:
+            from faster_whisper import WhisperModel
+        except ImportError as e:
+            raise RuntimeError(
+                "faster-whisper backend selected but not installed. "
+                "pip install faster-whisper"
+            ) from e
 
-        device = self.device
-        if device == "auto":
-            import torch
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+        model_size = _env("WHISPER_MODEL_SIZE", self.model_name or "small")
+        compute_type = _env("WHISPER_COMPUTE_TYPE", self.compute_type or "int8")
+        device_pref = _env("WHISPER_DEVICE", self.device or "auto")
 
-        compute_type = self.compute_type
-        if compute_type == "auto":
-            compute_type = "float16" if device == "cuda" else "int8"
+        device = _detect_device(device_pref)
 
-        logger.info(f"Loading faster-whisper model: {self.model_name} on {device}")
+        if device == "cpu" and compute_type in ("float16", "int8_float16"):
+            compute_type = "int8"
+
+        logger.info(
+            "Loading faster-whisper model=%s device=%s compute_type=%s",
+            model_size, device, compute_type,
+        )
         self._model = WhisperModel(
-            self.model_name,
+            model_size,
             device=device,
             compute_type=compute_type,
         )
+        self.model_name = model_size
+        self._backend = "faster-whisper"
 
     def _load_openai_api(self):
         """Configure OpenAI API client."""
