@@ -1,4 +1,7 @@
+# writing/tasks.py
+
 import logging
+import hashlib
 from django.utils import timezone
 from celery import shared_task
 
@@ -8,7 +11,7 @@ from writing.models import Seed
 logger = logging.getLogger(__name__)
 
 
-@shared_task(bind=True, max_retries=3, default_retry_delay=10)
+@shared_task(bind=True, max_retries=3, default_retry_delay=10, queue="transcription")
 def transcribe_seed_task(self, seed_id: str):
     """
     Background transcription for voice seeds.
@@ -34,18 +37,29 @@ def transcribe_seed_task(self, seed_id: str):
 
         result = transcribe_audio(seed.audio_file.file_path)
         transcript = (result.text or "").strip()
+        transcript_hash = hashlib.sha256(transcript.encode("utf-8")).hexdigest() if transcript else ""
 
         seed.transcript_text = transcript
         seed.body_text = transcript
+        seed.transcript_hash = transcript_hash
+        seed.body_hash = transcript_hash
+        seed.edited_after_transcription = False
         seed.status = "ready"
-        seed.transcript_provider = "whisper"
+        seed.transcript_provider = result.backend or "whisper"
+        seed.transcript_model = result.model_name
+        seed.transcript_backend = result.backend
         seed.transcript_created_at = timezone.now()
         seed.transcript_error = ""
         seed.save(update_fields=[
             "transcript_text",
             "body_text",
+            "transcript_hash",
+            "body_hash",
+            "edited_after_transcription",
             "status",
             "transcript_provider",
+            "transcript_model",
+            "transcript_backend",
             "transcript_created_at",
             "transcript_error",
             "updated_at",

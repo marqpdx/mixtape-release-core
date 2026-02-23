@@ -57,6 +57,7 @@ class TranscriptionResult:
     segments: List[TranscriptSegment] = field(default_factory=list)
     confidence_avg: float = 0.0
     model_name: str = ""
+    backend: str = ""
     duration_ms: int = 0
 
 
@@ -255,6 +256,7 @@ class WhisperService:
             segments=segments,
             confidence_avg=avg_confidence,
             model_name=self.model_name,
+            backend=self._backend or "",
             duration_ms=duration_ms,
         )
 
@@ -291,6 +293,7 @@ class WhisperService:
             segments=segments,
             confidence_avg=0.0,  # OpenAI doesn't provide overall confidence
             model_name="whisper-1",
+            backend=self._backend or "openai-api",
             duration_ms=duration_ms,
         )
 
@@ -322,6 +325,7 @@ class WhisperService:
             segments=segments,
             confidence_avg=0.0,
             model_name=self.model_name,
+            backend=self._backend or "",
             duration_ms=0,  # Would need to calculate from audio
         )
 

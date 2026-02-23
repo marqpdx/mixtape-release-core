@@ -250,6 +250,10 @@ class PuddlejumpImportView(APIView):
                 f"created with {import_result['counts']['new_files']} items"
             )
 
+            # Propagate large bundle warning (A2)
+            if validation_result.get("warning"):
+                import_result["warning"] = validation_result["warning"]
+
             return Response(import_result, status=drf_status.HTTP_200_OK)
 
         except Exception as e:
@@ -379,6 +383,9 @@ class PuddlejumpImportView(APIView):
                     })
                     return {"valid": False, "errors": errors}
 
+                # Warning threshold at 100 files (Appendix A2)
+                large_bundle_warning = file_count > 100
+
                 # Check 8: All files in Documents/ are markdown
                 non_markdown = [
                     f for f in documents_files
@@ -399,7 +406,7 @@ class PuddlejumpImportView(APIView):
                 )
 
                 # Success
-                return {
+                result = {
                     "valid": True,
                     "bundle_id": manifest.get('bundle', {}).get('id', 'unknown'),
                     "manifest": manifest,
@@ -407,6 +414,9 @@ class PuddlejumpImportView(APIView):
                     "total_size_bytes": total_size,
                     "errors": []
                 }
+                if large_bundle_warning:
+                    result["warning"] = "large_bundle"
+                return result
 
         finally:
             # Cleanup temp file
