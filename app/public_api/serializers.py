@@ -18,6 +18,7 @@ class PublicMemberSerializer(serializers.ModelSerializer):
     Lean public-facing member serializer.
     No email, no roles, no internal fields.
     """
+    user_id = serializers.UUIDField(source="user.id", read_only=True)
     username = serializers.CharField(source="user.username", read_only=True)
     date_joined = serializers.DateTimeField(source="user.date_joined", read_only=True)
     profile_image_url = serializers.SerializerMethodField()
@@ -27,6 +28,7 @@ class PublicMemberSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
         fields = [
+            "user_id",
             "username",
             "display_name",
             "quick_intro",

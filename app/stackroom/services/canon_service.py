@@ -240,7 +240,7 @@ def checkin(source_file: SourceFile, user) -> SourceFile:
     return source_file
 
 
-def get_checkout_status(source_file: SourceFile) -> dict | None:
+def get_checkout_status(source_file: SourceFile, request_user=None) -> dict | None:
     """Return checkout info or None if not checked out."""
     if not source_file.checked_out_by:
         return None
@@ -253,4 +253,5 @@ def get_checkout_status(source_file: SourceFile) -> dict | None:
             ),
         },
         "checked_out_at": source_file.checked_out_at.isoformat() if source_file.checked_out_at else None,
+        "is_own": request_user is not None and source_file.checked_out_by_id == request_user.id,
     }

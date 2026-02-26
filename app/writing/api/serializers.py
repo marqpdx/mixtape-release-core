@@ -9,6 +9,8 @@ from utils.shared.contenttypes import resolve_content_type
 from writing.choices import ContentStatus
 
 from ..models import (
+    Leaf,
+    LeafComment,
     Seed,
     WritingComment,
     WritingPiece,
@@ -420,3 +422,102 @@ class WritingWorkingCopyListSerializer(WritingWorkingCopySerializer):
             f for f in WritingWorkingCopySerializer.Meta.fields
             if f != "body_json"
         ] + ["body_preview"]
+
+
+# ============================================================================
+# Leaf & LeafComment Serializers
+# ============================================================================
+
+class LeafAuthorSerializer(serializers.ModelSerializer):
+    display_name = serializers.SerializerMethodField()
+    avatar_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ["id", "username", "display_name", "avatar_url"]
+
+    def get_display_name(self, obj):
+        return obj.get_full_name() or obj.username
+
+    def get_avatar_url(self, obj):
+        try:
+            return obj.profile.avatar.url
+        except (AttributeError, ValueError):
+            return None
+
+
+class LeafCommentSerializer(serializers.ModelSerializer):
+    author = LeafAuthorSerializer(read_only=True)
+    replies = serializers.SerializerMethodField()
+
+    class Meta:
+        model = LeafComment
+        fields = [
+            "id", "author", "content", "parent",
+            "is_approved", "is_flagged",
+            "created_at", "updated_at", "replies",
+        ]
+        read_only_fields = ["id", "author", "is_approved", "is_flagged", "created_at", "updated_at"]
+
+    def get_replies(self, obj):
+        if hasattr(obj, "replies") and obj.replies.exists():
+            return LeafCommentSerializer(
+                obj.replies.filter(is_approved=True), many=True, context=self.context
+            ).data
+        return []
+
+
+class LeafSerializer(serializers.ModelSerializer):
+    author = LeafAuthorSerializer(read_only=True)
+    is_reference = serializers.BooleanField(read_only=True)
+    comment_count = serializers.SerializerMethodField()
+    source_type = serializers.SerializerMethodField()
+    source_title = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Leaf
+        fields = [
+            "id", "author", "body_text", "body_json", "caption",
+            "kind", "origin_seed", "promoted_to",
+            "audio_file", "image_file", "link_url", "link_preview",
+            "source_content_type", "source_object_id", "source_type", "source_title",
+            "is_reference", "visibility", "published_at",
+            "created_at", "updated_at", "comment_count",
+        ]
+        read_only_fields = [
+            "id", "author", "origin_seed", "promoted_to",
+            "source_content_type", "source_object_id",
+            "is_reference", "published_at", "created_at", "updated_at",
+        ]
+
+    def get_comment_count(self, obj):
+        return obj.comments.filter(is_approved=True, parent__isnull=True).count()
+
+    def get_source_type(self, obj):
+        if obj.source_content_type:
+            return obj.source_content_type.model
+        return None
+
+    def get_source_title(self, obj):
+        if obj.source_content_type_id and obj.source_object_id:
+            try:
+                source_obj = obj.source
+                return getattr(source_obj, "title", str(source_obj))
+            except Exception:
+                return None
+        return None
+
+
+class LeafCreateSerializer(serializers.Serializer):
+    """For quick_post_leaf — direct creation from Composer."""
+    body_text = serializers.CharField(required=False, default="", allow_blank=True)
+    body_json = serializers.JSONField(required=False, default=dict)
+    kind = serializers.ChoiceField(choices=Leaf.LEAF_KIND_CHOICES, default="text")
+    link_url = serializers.URLField(required=False, allow_null=True)
+
+
+class ReferenceLeafCreateSerializer(serializers.Serializer):
+    """For create_reference_leaf — curated card pointing to other content."""
+    source_content_type = serializers.CharField()
+    source_object_id = serializers.UUIDField()
+    caption = serializers.CharField(required=False, default="", allow_blank=True)

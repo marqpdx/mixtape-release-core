@@ -715,6 +715,147 @@ class ImportReceipt(BaseModel):
 
 
 # ============================================================================
+# Leaf — Storyline content unit
+# ============================================================================
+
+class Leaf(BaseModel):
+    """
+    First-class Storyline content unit.
+    Sits between Seed (private capture) and WritingPiece (structured publication).
+
+    Two kinds (one model):
+    - Native Leaf: original content written for Storyline
+    - Reference Leaf: curated card pointing to other content via GFK
+      (source_content_type / source_object_id set)
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="leaves"
+    )
+
+    # Content
+    body_text = models.TextField(blank=True, default="")
+    body_json = models.JSONField(
+        default=dict,
+        help_text="ProseMirror content for rich text + images",
+    )
+    caption = models.TextField(
+        blank=True, default="",
+        help_text="Author's original commentary (especially for reference Leafs)",
+    )
+
+    LEAF_KIND_CHOICES = [
+        ("text", "Text"),
+        ("image", "Image"),
+        ("link", "Link"),
+        ("voice", "Voice"),
+    ]
+    kind = models.CharField(max_length=16, choices=LEAF_KIND_CHOICES, default="text")
+
+    # Provenance
+    origin_seed = models.ForeignKey(
+        "writing.Seed", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="promoted_leaves",
+    )
+    promoted_to = models.OneToOneField(
+        "writing.WorkingDocument", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="leaf_origin",
+    )
+
+    # Media
+    audio_file = models.ForeignKey(
+        "files.StoredFile", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="voice_leaves",
+    )
+    image_file = models.ForeignKey(
+        "files.StoredFile", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="image_leaves",
+    )
+    link_url = models.URLField(null=True, blank=True)
+    link_preview = models.JSONField(
+        default=dict, blank=True,
+        help_text="Cached link preview metadata (title, image, description)",
+    )
+
+    # Reference Leaf — GFK to source content (WritingPiece, Course, etc.)
+    source_content_type = models.ForeignKey(
+        ContentType, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="+",
+    )
+    source_object_id = models.UUIDField(null=True, blank=True)
+    source = GenericForeignKey("source_content_type", "source_object_id")
+
+    # Visibility & publishing
+    VISIBILITY_CHOICES = [
+        ("public", "Public"),
+        ("followers", "Followers"),
+        ("private", "Private"),
+    ]
+    visibility = models.CharField(
+        max_length=16, choices=VISIBILITY_CHOICES, default="public",
+    )
+    published_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(BaseModel.Meta):
+        ordering = ["-published_at", "-created_at"]
+        indexes = [
+            models.Index(fields=["author", "-published_at"]),
+            models.Index(fields=["author", "kind"]),
+        ]
+
+    @property
+    def is_reference(self):
+        return self.source_content_type_id is not None
+
+    @property
+    def is_published(self):
+        return self.published_at is not None
+
+    def __str__(self):
+        ref = " (ref)" if self.is_reference else ""
+        return f"Leaf<{self.kind}{ref}> by {self.author_id}"
+
+
+# ============================================================================
+# LeafComment — Comments on Leaves (Leaf is the social node)
+# ============================================================================
+
+class LeafComment(BaseModel):
+    """
+    Comments on Leaves. One-level threading only.
+    Leaf-only for v1 — WritingPiece discussion is a separate future surface.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="leaf_comments"
+    )
+    leaf = models.ForeignKey(
+        Leaf, on_delete=models.CASCADE, related_name="comments",
+    )
+    content = models.TextField()
+    parent = models.ForeignKey(
+        "self", null=True, blank=True,
+        on_delete=models.CASCADE, related_name="replies",
+    )
+    is_approved = models.BooleanField(default=True)
+    is_flagged = models.BooleanField(default=False)
+
+    class Meta(BaseModel.Meta):
+        ordering = ["created_at"]
+
+    def clean(self):
+        if self.parent and self.parent.parent_id is not None:
+            raise ValidationError("Only one level of threading is allowed.")
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"LeafComment<{self.id}> on Leaf<{self.leaf_id}>"
+
+
+# ============================================================================
 # Backwards Compatibility Alias
 # ============================================================================
 
