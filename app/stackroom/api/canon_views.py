@@ -140,7 +140,7 @@ class CheckoutView(APIView):
             SourceFile.objects.select_related("checked_out_by"),
             id=source_file_id,
         )
-        checkout_status = canon_service.get_checkout_status(source_file)
+        checkout_status = canon_service.get_checkout_status(source_file, request_user=request.user)
         return Response({"checkout": checkout_status})
 
     def post(self, request, source_file_id):

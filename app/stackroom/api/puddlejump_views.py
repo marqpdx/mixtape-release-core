@@ -126,6 +126,15 @@ class PersonalPuddlejumpView(APIView):
                     item_data["size_bytes"] = content.file_size
                     total_size += content.file_size or 0
 
+                # Include source_file_id for Canon governance UI
+                if item.content_type.model == 'sourcefile':
+                    item_data["source_file_id"] = str(content.id)
+                    # Include latest version ID if versions exist
+                    if hasattr(content, 'versions'):
+                        latest = content.versions.order_by('-version_number').values_list('id', flat=True).first()
+                        if latest:
+                            item_data["latest_version_id"] = str(latest)
+
             items_data.append(item_data)
 
         return Response({

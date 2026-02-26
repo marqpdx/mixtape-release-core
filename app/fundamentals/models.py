@@ -360,6 +360,45 @@ class LayoutParent(models.Model):
 # ============================================================================
 
 # ============================================================================
+# Follow — User-to-user follow relationships (for Streams)
+# ============================================================================
+
+class Follow(BaseModel):
+    """
+    Explicit user-to-user follow. Streams query = Leaves from followed users.
+    No algorithmic suggestions — pure chronological from explicit follows.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    follower = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="following",
+        help_text="The user who follows",
+    )
+    following = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="followers",
+        help_text="The user being followed",
+    )
+
+    class Meta(BaseModel.Meta):
+        unique_together = [("follower", "following")]
+        indexes = [
+            models.Index(fields=["follower", "created_at"]),
+            models.Index(fields=["following", "created_at"]),
+        ]
+
+    def clean(self):
+        if self.follower_id == self.following_id:
+            from django.core.exceptions import ValidationError
+            raise ValidationError("Cannot follow yourself.")
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Follow: {self.follower_id} → {self.following_id}"
+
+
+# ============================================================================
 # Phase 4 Workbench Authoring Models
 # ============================================================================
 from .models_milldraft import (

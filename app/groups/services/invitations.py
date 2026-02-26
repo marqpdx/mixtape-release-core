@@ -140,10 +140,6 @@ class InvitationService:
         return membership
 
 
-
-
-
-
     @staticmethod
     def send_batch_invitations(invitations_data, group, invited_by, message):
         """

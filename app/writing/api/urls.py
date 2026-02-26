@@ -8,6 +8,16 @@ from .sponsor_views import (
     SponsorDraftsListView,
     SponsorPlacementsListView,
 )
+from .leaf_views import (
+    LeafCommentDetailView,
+    LeafCommentListCreateView,
+    LeafDetailView,
+    LeafListCreateView,
+    LeafPromoteView,
+    LeafReferenceCreateView,
+    SeedToLeafPromoteView,
+)
+from .streams_views import StreamsView
 from .views import (
     DocxImportView,
     DocxPreviewView,
@@ -99,5 +109,21 @@ urlpatterns = [
     # DOCX Import
     path("import/preview", DocxPreviewView.as_view(), name="docx-preview"),
     path("import/confirm", DocxImportView.as_view(), name="docx-import"),
+
+    # Leaves (Storyline)
+    path("leaves", LeafListCreateView.as_view(), name="leaf-list-create"),
+    path("leaves/reference", LeafReferenceCreateView.as_view(), name="leaf-reference-create"),
+    path("leaves/<uuid:pk>", LeafDetailView.as_view(), name="leaf-detail"),
+    path("leaves/<uuid:pk>/promote", LeafPromoteView.as_view(), name="leaf-promote"),
+    path("leaves/<uuid:leaf_id>/comments", LeafCommentListCreateView.as_view(), name="leaf-comments"),
+
+    # Leaf Comments
+    path("comments/<uuid:pk>", LeafCommentDetailView.as_view(), name="leaf-comment-detail"),
+
+    # Seed → Leaf promotion (Draftroom curation)
+    path("seeds/<uuid:pk>/promote-to-leaf", SeedToLeafPromoteView.as_view(), name="seed-promote-to-leaf"),
+
+    # Streams (chronological feed from followed users)
+    path("streams", StreamsView.as_view(), name="streams"),
 
 ]

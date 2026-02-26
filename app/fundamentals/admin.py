@@ -1,3 +1,11 @@
 # fundamentals/admin.py
-# Phase 1: No models to register (only using BaseModel from bases.py)
-# Will add back when we implement CollectionItem and other content models
+
+from django.contrib import admin
+
+from fundamentals.models import Follow
+
+
+@admin.register(Follow)
+class FollowAdmin(admin.ModelAdmin):
+    list_display = ["id", "follower", "following", "created_at"]
+    raw_id_fields = ["follower", "following"]
