@@ -71,6 +71,7 @@ urlpatterns = [
     path("api/inkwell/", include("inkwell.api.urls")),
     path("api/lanternmail/", include("lanternmail.api.urls")),  # Global lanternmail endpoints
     path("api/lists/", include("lists.api.urls")),
+    path("api/mindmaps/", include("mindmap.api.urls")),
     path("api/livewire/", include("livewire.api.urls")),
     path("api/ops/", include("ops.api.urls")),
     path("api/projects/", include("projects.api.urls")),

@@ -97,6 +97,7 @@ INSTALLED_APPS = [
     "inkwell",         # AI services, RAG, synopsis generation
     "lanternmail",     # Newsletter and email campaigns
     "lists",           # Lightweight text-first lists for Mill/Grist
+    "mindmap",         # Spatial graph mind maps
     "ops",             # SysAdmin / Ops dashboard backend
     "profiles",        # UserProfile, Member API
     "publishing",      # Universal publishing system (BaseVersion, ContentPlacement)
@@ -319,15 +320,26 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "oauth2_provider.contrib.rest_framework.OAuth2Authentication",  # OAuth2 first — returns None gracefully if token isn't OAuth
         "rest_framework_simplejwt.authentication.JWTAuthentication",    # JWT second — raises exception on invalid tokens
-        "rest_framework.authentication.SessionAuthentication",          # Session for Django admin/browsable API
+        # "rest_framework.authentication.SessionAuthentication",          # Session for Django admin/browsable API
     ),
 
     "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.AllowAny",  # This allows public access by default
+        "rest_framework.permissions.IsAuthenticated",
     ],
 
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
     "PAGE_SIZE": 10,
+
+
+    # why one might want SessionAuth (see above)
+
+    # Why you might enable SessionAuthentication
+    # 1) “I want to hit the API from the browser without wiring JWT everywhere”
+    # You log into /admin/ (or Django’s login) and now your browser has a session cookie.
+    # With SessionAuthentication, API requests from that same browser session “just work” (no Bearer token needed).
+    # Super convenient when you’re iterating fast.
+    # etc.
+
 
     # ============================================================================
     # DEFERRED: Filtering and Throttling (Phase 2+)
