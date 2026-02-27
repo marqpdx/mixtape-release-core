@@ -11,4 +11,5 @@ Update this file only for test areas that were run.
 | `projects.tests` | 2026-02-21 04:59:35 UTC | PASS | `app/run_tests_quiet.sh projects.tests` (includes non-mocked regression checks for issues #1 and #2). |
 | `groups.tests.test_join_api_integration` | 2026-02-21 04:59:35 UTC | PASS | `app/run_tests_quiet.sh groups.tests.test_join_api_integration` (non-mocked regression checks for issue #3). |
 | `dispatch.test_comments` | 2026-02-21 04:05:06 UTC | FAIL | `app/run_tests_quiet.sh dispatch.test_comments` -> all comment endpoint routes currently return `404` (not implemented/wired yet). |
-| `writing.tests` | 2026-02-21 04:17:48 UTC | PASS | `app/run_tests_quiet.sh writing.tests` (includes new Voice Seeds v1 backend tests). |
+| `writing.tests` | 2026-02-27 05:42:33 UTC | PASS | `app/run_tests_quiet.sh` default suite rerun; voice seed transcription mock contract updated for backend/model fields. |
+| `mindmap.tests` | 2026-02-27 05:42:33 UTC | PASS | `app/run_tests_quiet.sh` default suite rerun; mindmap API tests now passing with current backend contract. |

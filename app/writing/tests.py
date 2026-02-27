@@ -272,7 +272,14 @@ class VoiceSeedsV1Tests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Unsupported audio type", response.data.get("detail", ""))
 
-    @patch("writing.tasks.transcribe_audio", return_value=SimpleNamespace(text="hello transcript"))
+    @patch(
+        "writing.tasks.transcribe_audio",
+        return_value=SimpleNamespace(
+            text="hello transcript",
+            backend="whisper",
+            model_name="mock-whisper-model",
+        ),
+    )
     @patch("writing.api.views.transcribe_seed_task.delay")
     @patch("writing.api.views.default_storage.save", return_value="seeds/audio/test/ready.webm")
     def test_transcription_processing_to_ready(self, _save_mock, _delay_mock, _transcribe_mock):
