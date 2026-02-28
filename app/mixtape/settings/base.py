@@ -85,12 +85,12 @@ INSTALLED_APPS = [
     "bazaar",          # E-commerce and payments
     "chat",            # Chat app, socket.io
     "classifications", # Tags and categories system
-    "feedback",        # Beacon + feedback system
-    "files",           # Canonical stored files
     "concord",         # Audio transcription and interpretation (Whisper, EchoLine)
     "contexts",        # Context management
     "dispatch",        # Collaborative writing (yjs-based real-time editing)
-    "feedback",        # Beacon and other feedback tools
+    "earthlab",        # EarthLab learning/course system
+    "feedback",        # Beacon + feedback system
+    "files",           # Canonical stored files
     "fundamentals",    # BaseModel (timestamps, soft delete)
     "gristmill",       # Import and Promotion system
     "groups",          # Group model, GroupMembership, Invitations (Phase 2)
@@ -101,15 +101,14 @@ INSTALLED_APPS = [
     "mindmap",         # Spatial graph mind maps
     "ops",             # SysAdmin / Ops dashboard backend
     "profiles",        # UserProfile, Member API
+    "projects",        # Project boards and tasks
     "publishing",      # Universal publishing system (BaseVersion, ContentPlacement)
     "spellbook",       # Shared spell dictionary for writing tools
-    "projects",        # Project boards and tasks
     "stackroom.apps.StackroomConfig",  # Stackroom integration
     "threadworks",     # Threadworks forums and discussions
     "users",           # CustomUser, Role models
     "utils",           # Utility functions and helpers
     "writing",         # Writing app
-    "earthlab",        # EarthLab learning/course system
 ]
 
 INSTALLED_APPS += ["rest_framework_simplejwt.token_blacklist"]
