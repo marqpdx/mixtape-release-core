@@ -12,8 +12,10 @@ from .leaf_views import (
     LeafCommentDetailView,
     LeafCommentListCreateView,
     LeafDetailView,
+    LeafImageUploadView,
     LeafListCreateView,
     LeafPromoteView,
+    LeafPublishView,
     LeafReferenceCreateView,
     SeedToLeafPromoteView,
 )
@@ -113,8 +115,10 @@ urlpatterns = [
     # Leaves (Storyline)
     path("leaves", LeafListCreateView.as_view(), name="leaf-list-create"),
     path("leaves/reference", LeafReferenceCreateView.as_view(), name="leaf-reference-create"),
+    path("leaves/upload-image", LeafImageUploadView.as_view(), name="leaf-image-upload"),
     path("leaves/<uuid:pk>", LeafDetailView.as_view(), name="leaf-detail"),
     path("leaves/<uuid:pk>/promote", LeafPromoteView.as_view(), name="leaf-promote"),
+    path("leaves/<uuid:pk>/publish", LeafPublishView.as_view(), name="leaf-publish"),
     path("leaves/<uuid:leaf_id>/comments", LeafCommentListCreateView.as_view(), name="leaf-comments"),
 
     # Leaf Comments

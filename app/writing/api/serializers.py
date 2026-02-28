@@ -514,6 +514,8 @@ class LeafCreateSerializer(serializers.Serializer):
     body_json = serializers.JSONField(required=False, default=dict)
     kind = serializers.ChoiceField(choices=Leaf.LEAF_KIND_CHOICES, default="text")
     link_url = serializers.URLField(required=False, allow_null=True)
+    image_file = serializers.UUIDField(required=False, allow_null=True)
+    publish = serializers.BooleanField(required=False, default=True)
 
 
 class ReferenceLeafCreateSerializer(serializers.Serializer):

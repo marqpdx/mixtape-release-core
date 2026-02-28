@@ -1,10 +1,17 @@
 # writing/api/leaf_views.py
 
+import uuid as uuid_mod
+
+from django.core.files.storage import default_storage
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from django.utils.text import get_valid_filename
 from rest_framework import generics, permissions, status
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from files.models import StoredFile
 from utils.shared.contenttypes import resolve_content_type
 from writing.api.permissions import IsAuthorOrStaff
 from writing.models import Leaf, LeafComment, Seed
@@ -23,6 +30,9 @@ from .serializers import (
     ReferenceLeafCreateSerializer,
 )
 
+ALLOWED_IMAGE_MIME = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+MAX_LEAF_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB
+
 
 class LeafListCreateView(generics.ListCreateAPIView):
     """
@@ -38,22 +48,29 @@ class LeafListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         user = self.request.user
+        drafts = self.request.query_params.get("drafts") == "true"
         qs = Leaf.objects.filter(
             author=user,
             deleted_at__isnull=True,
-            published_at__isnull=False,
+            published_at__isnull=drafts,
         ).select_related("author", "author__profile", "source_content_type")
 
         kind = self.request.query_params.get("kind")
         if kind:
             qs = qs.filter(kind=kind)
 
-        return qs.order_by("-published_at")
+        return qs.order_by("-updated_at" if drafts else "-published_at")
 
     def create(self, request, *args, **kwargs):
         serializer = LeafCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+
+        # Resolve image_file UUID to StoredFile instance
+        image_file = None
+        image_file_id = data.get("image_file")
+        if image_file_id:
+            image_file = get_object_or_404(StoredFile, pk=image_file_id)
 
         leaf = quick_post_leaf(
             author=request.user,
@@ -61,6 +78,8 @@ class LeafListCreateView(generics.ListCreateAPIView):
             body_json=data.get("body_json"),
             kind=data.get("kind", "text"),
             link_url=data.get("link_url"),
+            image_file=image_file,
+            publish=data.get("publish", True),
         )
 
         return Response(
@@ -143,6 +162,84 @@ class LeafPromoteView(APIView):
             {"id": str(wc.id), "title": getattr(wc, "title", "Untitled")},
             status=status.HTTP_201_CREATED,
         )
+
+
+# ============================================================================
+# Leaf Image Upload
+# ============================================================================
+
+class LeafImageUploadView(APIView):
+    """
+    POST /api/writing/leaves/upload-image
+    Upload an image file for use in a Leaf. Returns StoredFile id + url.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [FormParser, MultiPartParser]
+
+    def post(self, request):
+        image = request.FILES.get("image")
+        if not image:
+            return Response(
+                {"detail": "No image file provided."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if image.size > MAX_LEAF_IMAGE_BYTES:
+            return Response(
+                {"detail": f"Image too large (max {MAX_LEAF_IMAGE_BYTES // (1024 * 1024)}MB)."},
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+
+        content_type = (image.content_type or "").lower()
+        if content_type not in ALLOWED_IMAGE_MIME:
+            return Response(
+                {"detail": f"Unsupported image type: {content_type or 'unknown'}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        base = get_valid_filename(image.name or "")
+        ext = base.rsplit(".", 1)[-1].lower() if "." in base else ""
+        unique = f"{uuid_mod.uuid4()}.{ext}" if ext else str(uuid_mod.uuid4())
+        s3_key = f"leaves/images/{request.user.id}/{unique}"
+
+        image.seek(0)
+        saved_key = default_storage.save(s3_key, image)
+
+        stored = StoredFile.objects.create(
+            file_path=saved_key,
+            file_name=image.name or "",
+            file_type=image.content_type or "",
+            file_size=image.size or 0,
+            uploaded_by=request.user,
+            source="web",
+        )
+
+        return Response(
+            {"id": str(stored.pk), "url": stored.url},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+# ============================================================================
+# Leaf Publish (draft → published)
+# ============================================================================
+
+class LeafPublishView(APIView):
+    """
+    POST /api/writing/leaves/<uuid:pk>/publish → publish a draft leaf
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        leaf = get_object_or_404(Leaf, pk=pk, author=request.user, deleted_at__isnull=True)
+        if leaf.published_at:
+            return Response(
+                {"detail": "Leaf is already published."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        leaf.published_at = timezone.now()
+        leaf.save(update_fields=["published_at", "updated_at"])
+        return Response(LeafSerializer(leaf).data)
 
 
 # ============================================================================

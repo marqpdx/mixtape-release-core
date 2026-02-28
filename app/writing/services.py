@@ -74,10 +74,12 @@ def promote_seed_to_leaf(*, seed: Seed, author):
 
 @transaction.atomic
 def quick_post_leaf(*, author, body_text="", body_json=None, kind="text",
-                    audio_file=None, image_file=None, link_url=None):
+                    audio_file=None, image_file=None, link_url=None,
+                    publish=True):
     """
-    Create a Leaf directly from the Composer — one-click post.
-    Creates a Seed for provenance, then immediately creates a Leaf.
+    Create a Leaf directly from the Composer.
+    Creates a Seed for provenance, then creates a Leaf.
+    If publish=False, the Leaf is saved as a draft (published_at=None).
     """
     from .models import Leaf
 
@@ -101,7 +103,7 @@ def quick_post_leaf(*, author, body_text="", body_json=None, kind="text",
         audio_file=audio_file,
         image_file=image_file,
         link_url=link_url,
-        published_at=timezone.now(),
+        published_at=timezone.now() if publish else None,
     )
     return leaf
 
