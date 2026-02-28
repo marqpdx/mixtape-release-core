@@ -148,7 +148,7 @@ def feedback_summary(request) -> Response:
     return Response({"data": {"new": new_count, "total": total_count}})
 
 
-@api_view(["PATCH"])
+@api_view(["PATCH", "DELETE"])
 @permission_classes([IsAuthenticated])
 @authentication_classes([OAuth2Authentication, JWTAuthentication])
 def update_feedback_item(request, item_id: str) -> Response:
@@ -158,6 +158,10 @@ def update_feedback_item(request, item_id: str) -> Response:
     item = FeedbackItem.objects.filter(id=item_id).first()
     if not item:
         return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == "DELETE":
+        item.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     next_status = request.data.get("status")
     allowed_statuses = {choice for choice, _ in FeedbackItem.Status.choices}
