@@ -34,6 +34,7 @@ class FeedbackItem(models.Model):
 
     class Status(models.TextChoices):
         NEW = "new", "New"
+        SENT_TO_AGENT = "sent_to_agent", "Sent To Agent"
         TRIAGED = "triaged", "Triaged"
         PLANNED = "planned", "Planned"
         SHIPPED = "shipped", "Shipped"

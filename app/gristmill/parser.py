@@ -9,6 +9,22 @@ from datetime import datetime
 from .schemas import SCHEMA_REGISTRY
 
 
+def resolve_block_type(block_type: str) -> str:
+    """Resolve block type, allowing short unique prefixes like /is -> /issue."""
+    normalized = (block_type or "").strip().lower()
+    if not normalized:
+        return normalized
+    if normalized in SCHEMA_REGISTRY:
+        return normalized
+    if len(normalized) < 2:
+        return normalized
+
+    matches = [key for key in SCHEMA_REGISTRY.keys() if key.startswith(normalized)]
+    if len(matches) == 1:
+        return matches[0]
+    return normalized
+
+
 def parse_grist(grist_text):
     """
     Parse Grist text into AST.
@@ -31,7 +47,7 @@ def parse_grist(grist_text):
             # Split on first space to get type and title
             # "/event Weekly Meditation" → type="event", title="Weekly Meditation"
             parts = stripped[1:].split(None, 1)  # split on whitespace, max 1 split
-            block_type = parts[0] if parts else ''
+            block_type = resolve_block_type(parts[0] if parts else '')
             title = parts[1].strip() if len(parts) > 1 else ''
 
             current_block = {
