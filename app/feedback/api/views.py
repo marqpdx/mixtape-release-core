@@ -9,7 +9,11 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from oauth2_provider.contrib.rest_framework import OAuth2Authentication
 
 from feedback.models import FeedbackBeacon, FeedbackItem
-from feedback.api.serializers import FeedbackBeaconSerializer, FeedbackItemCreateSerializer
+from feedback.api.serializers import (
+    FeedbackBeaconSerializer,
+    FeedbackItemCreateSerializer,
+    FeedbackItemListSerializer,
+)
 from feedback.api.throttles import FeedbackIPThrottle
 
 
@@ -56,6 +60,81 @@ def create_feedback_item(request) -> Response:
     )
 
     return Response({"message": "Feedback received"}, status=status.HTTP_201_CREATED)
+
+
+@api_view(["GET", "POST"])
+@permission_classes([AllowAny])
+@authentication_classes([OAuth2Authentication, JWTAuthentication])
+@throttle_classes([FeedbackIPThrottle])
+def feedback_items(request) -> Response:
+    if request.method == "POST":
+        return create_feedback_item(request)
+
+    if not request.user or not request.user.is_authenticated:
+        return Response({"error": "Authentication required"}, status=status.HTTP_401_UNAUTHORIZED)
+
+    try:
+        page = max(int(request.query_params.get("page", 1)), 1)
+        page_size = min(max(int(request.query_params.get("page_size", 20)), 1), 100)
+    except (TypeError, ValueError):
+        return Response({"error": "Invalid pagination parameters"}, status=status.HTTP_400_BAD_REQUEST)
+
+    queryset = (
+        FeedbackItem.objects.select_related("beacon", "user")
+        .order_by("-created_at")
+    )
+    kind = request.query_params.get("kind")
+    status_filter = request.query_params.get("status")
+    if kind:
+        queryset = queryset.filter(kind=kind)
+    if status_filter:
+        queryset = queryset.filter(status=status_filter)
+
+    total = queryset.count()
+    start = (page - 1) * page_size
+    end = start + page_size
+    results = queryset[start:end]
+
+    return Response({
+        "count": total,
+        "page": page,
+        "page_size": page_size,
+        "results": FeedbackItemListSerializer(results, many=True).data,
+    })
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+@authentication_classes([OAuth2Authentication, JWTAuthentication])
+def feedback_checklist(request) -> Response:
+    try:
+        page = max(int(request.query_params.get("page", 1)), 1)
+        page_size = min(max(int(request.query_params.get("page_size", 50)), 1), 100)
+    except (TypeError, ValueError):
+        return Response({"error": "Invalid pagination parameters"}, status=status.HTTP_400_BAD_REQUEST)
+
+    queryset = (
+        FeedbackItem.objects.select_related("beacon", "user")
+        .order_by("-created_at")
+    )
+    kind = request.query_params.get("kind")
+    status_filter = request.query_params.get("status")
+    if kind:
+        queryset = queryset.filter(kind=kind)
+    if status_filter:
+        queryset = queryset.filter(status=status_filter)
+
+    total = queryset.count()
+    start = (page - 1) * page_size
+    end = start + page_size
+    results = queryset[start:end]
+
+    return Response({
+        "count": total,
+        "page": page,
+        "page_size": page_size,
+        "results": FeedbackItemListSerializer(results, many=True).data,
+    })
 
 
 @api_view(["GET"])

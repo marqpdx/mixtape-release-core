@@ -90,6 +90,7 @@ INSTALLED_APPS = [
     "concord",         # Audio transcription and interpretation (Whisper, EchoLine)
     "contexts",        # Context management
     "dispatch",        # Collaborative writing (yjs-based real-time editing)
+    "feedback",        # Beacon and other feedback tools
     "fundamentals",    # BaseModel (timestamps, soft delete)
     "gristmill",       # Import and Promotion system
     "groups",          # Group model, GroupMembership, Invitations (Phase 2)
