@@ -2,7 +2,7 @@
 
 from rest_framework import serializers
 
-from spellbook.models import SpellCorrection, SpellSuggestion
+from spellbook.models import SpellCorrection, SpellSuggestion, UserDictionaryEntry
 
 
 class SpellCorrectionSerializer(serializers.ModelSerializer):
@@ -102,4 +102,24 @@ class SpellSuggestionCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"wrong_word": "A correction for this word already exists."}
             )
+        return attrs
+
+
+class UserDictionaryEntryCreateSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=UserDictionaryEntry.Kind.choices)
+    token = serializers.CharField(max_length=100)
+    display = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    replacement = serializers.CharField(max_length=100, required=False, allow_blank=True)
+
+    def validate_token(self, value):
+        return value.lower().strip()
+
+    def validate_replacement(self, value):
+        return value.strip()
+
+    def validate(self, attrs):
+        kind = attrs.get("kind")
+        replacement = attrs.get("replacement", "")
+        if kind == UserDictionaryEntry.Kind.REPLACE and not replacement:
+            raise serializers.ValidationError({"replacement": "Replacement is required for replace entries."})
         return attrs
