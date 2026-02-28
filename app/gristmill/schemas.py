@@ -101,8 +101,46 @@ LESSON_SCHEMA = {
     }
 }
 
+ISSUE_SCHEMA = {
+    'type': 'issue',
+    'model': 'feedback.FeedbackItem',
+    'required_fields': ['title'],
+    'fields': {
+        'title': {
+            'type': 'string',
+            'max_length': 120,
+            'source': 'declaration',
+        },
+        'severity': {
+            'type': 'string',
+            'max_length': 40,
+        },
+        'area': {
+            'type': 'string',
+            'max_length': 120,
+        },
+        'steps': {
+            'type': 'markdown',
+            'multiline': True,
+        },
+        'expected': {
+            'type': 'markdown',
+            'multiline': True,
+        },
+        'actual': {
+            'type': 'markdown',
+            'multiline': True,
+        },
+        'body': {
+            'type': 'markdown',
+            'multiline': True,
+        },
+    }
+}
+
 SCHEMA_REGISTRY = {
     'event': EVENT_SCHEMA,
     'course': COURSE_SCHEMA,
     'lesson': LESSON_SCHEMA,
+    'issue': ISSUE_SCHEMA,
 }

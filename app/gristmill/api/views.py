@@ -1,6 +1,6 @@
 # gristmill/api/views.py
 from rest_framework import status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
@@ -12,7 +12,16 @@ from almanac.models import Event
 from dateutil import parser as date_parser
 
 
+def _with_first_block_warning(result):
+    blocks = result.get('blocks') or []
+    warning = None
+    if len(blocks) > 1:
+        warning = "Only the first block will be saved/promoted. Use full Grist Mill for multi-block input."
+    return blocks, warning
+
+
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def parse_view(request):
     """
     Parse Grist without saving.
@@ -21,10 +30,20 @@ def parse_view(request):
     """
     grist = request.data.get('grist', '')
     result = parse_grist(grist)
+    _, warning = _with_first_block_warning(result)
+    if warning:
+        result['warning'] = warning
     return Response(result)
 
 
-@api_view(['POST'])
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def drafts_view(request):
+    if request.method == 'GET':
+        return list_drafts_view(request)
+    return save_draft_view(request)
+
+
 def save_draft_view(request):
     """
     Parse and save MillDraft.
@@ -33,12 +52,13 @@ def save_draft_view(request):
     """
     grist = request.data.get('grist', '')
     result = parse_grist(grist)
+    blocks, warning = _with_first_block_warning(result)
 
     # Save first block only (multi-block is future)
-    if not result['blocks']:
+    if not blocks:
         return Response({'error': 'No blocks parsed'}, status=400)
 
-    block = result['blocks'][0]
+    block = blocks[0]
 
     draft = MillDraft.objects.create(
         created_by=request.user,
@@ -53,10 +73,10 @@ def save_draft_view(request):
         'block_type': draft.block_type,
         'ast': block,
         'status': draft.status,
+        'warning': warning,
     })
 
 
-@api_view(['GET'])
 def list_drafts_view(request):
     """
     List user's MillDrafts.
@@ -74,6 +94,7 @@ def list_drafts_view(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def promote_draft_view(request, draft_id):
     """
     Promote MillDraft to domain object.
@@ -86,7 +107,10 @@ def promote_draft_view(request, draft_id):
     """
     from groups.models import Group
 
-    draft = MillDraft.objects.get(id=draft_id, created_by=request.user)
+    try:
+        draft = MillDraft.objects.get(id=draft_id, created_by=request.user)
+    except MillDraft.DoesNotExist:
+        return Response({'error': 'Draft not found'}, status=404)
 
     if draft.status == 'promoted':
         return Response({'error': 'Already promoted'}, status=400)
@@ -154,6 +178,22 @@ def promote_draft_view(request, draft_id):
             'draft_id': str(draft.id),
             'lesson_id': str(lesson.id),
             'lesson_slug': lesson.slug,
+        })
+
+    elif ast['type'] == 'issue':
+        feedback_item = _promote_issue(ast, request.user, request.data.get('page_url', ''))
+
+        from feedback.models import FeedbackItem
+        draft.promoted_content_type = ContentType.objects.get_for_model(FeedbackItem)
+        draft.promoted_object_id = feedback_item.id
+        draft.status = 'promoted'
+        draft.promoted_at = timezone.now()
+        draft.save()
+
+        return Response({
+            'draft_id': str(draft.id),
+            'feedback_item_id': str(feedback_item.id),
+            'kind': feedback_item.kind,
         })
 
     return Response({'error': 'Unknown block type'}, status=400)
@@ -254,3 +294,49 @@ def _promote_event(ast, user, sponsor, timezone_name=None):
     )
 
     return event
+
+
+def _promote_issue(ast, user, page_url=''):
+    """
+    Create FeedbackItem(kind=issue) from AST and attach to grist_issue_v1 beacon.
+    """
+    from feedback.models import FeedbackBeacon, FeedbackItem
+
+    fields = ast.get('fields', {})
+    lines = [ast.get('title', '').strip()]
+
+    if fields.get('severity'):
+        lines.append(f"Severity: {fields['severity']}")
+    if fields.get('area'):
+        lines.append(f"Area: {fields['area']}")
+    if fields.get('steps'):
+        lines.append(f"Steps:\n{fields['steps']}")
+    if fields.get('expected'):
+        lines.append(f"Expected:\n{fields['expected']}")
+    if fields.get('actual'):
+        lines.append(f"Actual:\n{fields['actual']}")
+    if fields.get('body'):
+        lines.append(f"Notes:\n{fields['body']}")
+
+    message = "\n\n".join([line for line in lines if line])
+
+    beacon, _ = FeedbackBeacon.objects.get_or_create(
+        key="grist_issue_v1",
+        defaults={
+            "title": "Grist Issues",
+            "body_markdown": "Issues created from Grist popup and Grist Mill.",
+            "feature_context": "Use /issue for concise implementation-ready issue capture.",
+            "is_active": True,
+        },
+    )
+    if not beacon.is_active:
+        beacon.is_active = True
+        beacon.save(update_fields=["is_active"])
+
+    return FeedbackItem.objects.create(
+        beacon=beacon,
+        kind=FeedbackItem.Kind.ISSUE,
+        message=message,
+        page_url=page_url or "",
+        user=user,
+    )

@@ -30,6 +30,7 @@ class FeedbackItem(models.Model):
         BUG = "bug", "Bug"
         REQUEST = "request", "Request"
         IDEA = "idea", "Idea"
+        ISSUE = "issue", "Issue"
 
     class Status(models.TextChoices):
         NEW = "new", "New"
