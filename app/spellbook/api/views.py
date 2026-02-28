@@ -11,8 +11,9 @@ from spellbook.api.serializers import (
     SpellCorrectionSerializer,
     SpellSuggestionCreateSerializer,
     SpellSuggestionSerializer,
+    UserDictionaryEntryCreateSerializer,
 )
-from spellbook.models import SpellCorrection, SpellSuggestion
+from spellbook.models import SpellCorrection, SpellSuggestion, UserDictionaryEntry
 
 
 class IsSuperUser(permissions.BasePermission):
@@ -191,3 +192,67 @@ class SpellSuggestionRejectView(APIView):
         suggestion.save()
 
         return Response(SpellSuggestionSerializer(suggestion).data)
+
+
+class UserDictionaryView(APIView):
+    """
+    GET /api/spellbook/dictionary - Get effective user dictionary.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        entries = UserDictionaryEntry.objects.filter(owner_user=request.user, is_active=True)
+        ignores = sorted(
+            entry.token for entry in entries if entry.kind == UserDictionaryEntry.Kind.IGNORE
+        )
+        replacements = {
+            entry.token: entry.replacement
+            for entry in entries
+            if entry.kind == UserDictionaryEntry.Kind.REPLACE and entry.replacement
+        }
+        return Response({
+            "ignores": ignores,
+            "replacements": replacements,
+        })
+
+
+class UserDictionaryEntryListCreateView(APIView):
+    """
+    POST /api/spellbook/dictionary/entries - Upsert a user dictionary entry.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = UserDictionaryEntryCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        kind = serializer.validated_data["kind"]
+        token = serializer.validated_data["token"]
+        display = serializer.validated_data.get("display") or token
+        replacement = serializer.validated_data.get("replacement", "")
+
+        entry, _ = UserDictionaryEntry.objects.update_or_create(
+            owner_user=request.user,
+            kind=kind,
+            token=token,
+            defaults={
+                "display": display,
+                "replacement": replacement if kind == UserDictionaryEntry.Kind.REPLACE else "",
+                "created_by": request.user,
+                "is_active": True,
+            },
+        )
+
+        return Response(
+            {
+                "id": str(entry.id),
+                "kind": entry.kind,
+                "token": entry.token,
+                "display": entry.display,
+                "replacement": entry.replacement,
+                "is_active": entry.is_active,
+            },
+            status=status.HTTP_201_CREATED,
+        )
