@@ -164,10 +164,24 @@ def update_feedback_item(request, item_id: str) -> Response:
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     next_status = request.data.get("status")
-    allowed_statuses = {choice for choice, _ in FeedbackItem.Status.choices}
-    if next_status not in allowed_statuses:
-        return Response({"error": "Invalid status"}, status=status.HTTP_400_BAD_REQUEST)
+    next_message = request.data.get("message")
+    if next_status is None and next_message is None:
+        return Response({"error": "No changes supplied"}, status=status.HTTP_400_BAD_REQUEST)
 
-    item.status = next_status
-    item.save(update_fields=["status"])
+    update_fields: list[str] = []
+    if next_status is not None:
+        allowed_statuses = {choice for choice, _ in FeedbackItem.Status.choices}
+        if next_status not in allowed_statuses:
+            return Response({"error": "Invalid status"}, status=status.HTTP_400_BAD_REQUEST)
+        item.status = next_status
+        update_fields.append("status")
+
+    if next_message is not None:
+        normalized = str(next_message).strip()
+        if not normalized:
+            return Response({"error": "Message cannot be empty"}, status=status.HTTP_400_BAD_REQUEST)
+        item.message = normalized
+        update_fields.append("message")
+
+    item.save(update_fields=update_fields)
     return Response({"data": FeedbackItemListSerializer(item).data})
