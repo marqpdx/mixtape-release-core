@@ -146,3 +146,24 @@ def feedback_summary(request) -> Response:
     new_count = FeedbackItem.objects.filter(status=FeedbackItem.Status.NEW).count()
     total_count = FeedbackItem.objects.count()
     return Response({"data": {"new": new_count, "total": total_count}})
+
+
+@api_view(["PATCH"])
+@permission_classes([IsAuthenticated])
+@authentication_classes([OAuth2Authentication, JWTAuthentication])
+def update_feedback_item(request, item_id: str) -> Response:
+    if not request.user.is_superuser:
+        return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+    item = FeedbackItem.objects.filter(id=item_id).first()
+    if not item:
+        return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    next_status = request.data.get("status")
+    allowed_statuses = {choice for choice, _ in FeedbackItem.Status.choices}
+    if next_status not in allowed_statuses:
+        return Response({"error": "Invalid status"}, status=status.HTTP_400_BAD_REQUEST)
+
+    item.status = next_status
+    item.save(update_fields=["status"])
+    return Response({"data": FeedbackItemListSerializer(item).data})
