@@ -53,7 +53,7 @@ class LeafListCreateView(generics.ListCreateAPIView):
             author=user,
             deleted_at__isnull=True,
             published_at__isnull=drafts,
-        ).select_related("author", "author__profile", "source_content_type")
+        ).select_related("author", "author__profile", "source_content_type", "image_file", "audio_file")
 
         kind = self.request.query_params.get("kind")
         if kind:
@@ -96,7 +96,9 @@ class LeafDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [permissions.IsAuthenticated, IsAuthorOrStaff]
 
     def get_queryset(self):
-        return Leaf.objects.filter(deleted_at__isnull=True)
+        return Leaf.objects.filter(deleted_at__isnull=True).select_related(
+            "author", "author__profile", "source_content_type", "image_file", "audio_file",
+        )
 
 
 class LeafReferenceCreateView(APIView):

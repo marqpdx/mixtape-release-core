@@ -24,5 +24,5 @@ class StreamsView(generics.ListAPIView):
             published_at__isnull=False,
             deleted_at__isnull=True,
         ).select_related(
-            "author", "author__profile", "source_content_type",
+            "author", "author__profile", "source_content_type", "image_file", "audio_file",
         ).order_by("-published_at")
