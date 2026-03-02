@@ -144,6 +144,16 @@ def validate_block(block):
     for field_name, value in list(block['fields'].items()):
         field_schema = schema['fields'].get(field_name)
         if not field_schema:
+            # For /issue blocks, allow freeform "key: value" lines and fold them
+            # into body notes instead of rejecting the block.
+            if block_type == 'issue':
+                existing_body = block['fields'].get('body', '')
+                extra_line = f"{field_name}: {value}"
+                block['fields']['body'] = (
+                    f"{existing_body}\n{extra_line}".strip() if existing_body else extra_line
+                )
+                continue
+
             block['errors'].append({
                 'field': field_name,
                 'type': 'unknown_field',
