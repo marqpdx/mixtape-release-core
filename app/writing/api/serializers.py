@@ -473,6 +473,8 @@ class LeafSerializer(serializers.ModelSerializer):
     comment_count = serializers.SerializerMethodField()
     source_type = serializers.SerializerMethodField()
     source_title = serializers.SerializerMethodField()
+    image_file = serializers.SerializerMethodField()
+    audio_file = serializers.SerializerMethodField()
 
     class Meta:
         model = Leaf
@@ -489,6 +491,16 @@ class LeafSerializer(serializers.ModelSerializer):
             "source_content_type", "source_object_id",
             "is_reference", "published_at", "created_at", "updated_at",
         ]
+
+    def get_image_file(self, obj):
+        if obj.image_file:
+            return obj.image_file.url
+        return None
+
+    def get_audio_file(self, obj):
+        if obj.audio_file:
+            return obj.audio_file.url
+        return None
 
     def get_comment_count(self, obj):
         return obj.comments.filter(is_approved=True, parent__isnull=True).count()
