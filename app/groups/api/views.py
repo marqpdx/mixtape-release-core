@@ -53,6 +53,7 @@ from groups.permissions import IsGroupAdminOrSteward, canUserModerateGroupUser
 from groups.services.groups import GroupService
 from identity.models import EmblemAvatar
 from groups.services.invitations import InvitationService
+from groups.services.memberships import ensure_user_membership
 
 # from identity.models import EmblemAvatar  # PHASE 3: Deferred
 from users.models import CustomUser
@@ -823,6 +824,8 @@ def invite_to_group(request, slug):
     invited_emails = request.data.get("invited_emails", [])
     invited_usernames = request.data.get("invited_usernames", [])
     message = request.data.get("message", "")
+    silent_add_raw = request.data.get("silent_add", False)
+    silent_add = str(silent_add_raw).lower() in {"1", "true", "yes", "on"}
 
     if not invited_emails and request.data.get("invited_email"):
         invited_emails = [request.data.get("invited_email")]
@@ -836,22 +839,41 @@ def invite_to_group(request, slug):
         )
 
     invitations_created = []
+    memberships_added = []
     errors = []
 
     # Process usernames
-    for username in invited_usernames:
-        try:
-            user = CustomUser.objects.get(username=username, is_active=True)
-            invitation, is_existing_user = InvitationService.create_invitation(group, user, user.email, request.user, message)
-            invitations_created.append((invitation, is_existing_user))
-        except CustomUser.DoesNotExist:
-            errors.append({"username": username, "error": "User not found"})
-        except ValidationError as e:
-            errors.append({"username": username, "error": str(e)})
-        except Exception as e:
-            debug_ts(print(f"[ERROR] create_invitation failed for username {username}: {e}"))
-            traceback.print_exc()
-            errors.append({"username": username, "error": str(e)})
+    if silent_add:
+        # Silent mode applies only to @username entries. Email invites still run normally below.
+        for username in invited_usernames:
+            try:
+                user = CustomUser.objects.get(username=username, is_active=True)
+                membership = ensure_user_membership(group, user, role="member", is_active=True)
+                memberships_added.append(
+                    {
+                        "user_id": str(user.id),
+                        "username": user.username,
+                        "membership_id": str(membership.id),
+                    }
+                )
+            except CustomUser.DoesNotExist:
+                errors.append({"username": username, "error": "Active user not found"})
+            except Exception as e:
+                errors.append({"username": username, "error": str(e)})
+    else:
+        for username in invited_usernames:
+            try:
+                user = CustomUser.objects.get(username=username, is_active=True)
+                invitation, is_existing_user = InvitationService.create_invitation(group, user, user.email, request.user, message)
+                invitations_created.append((invitation, is_existing_user))
+            except CustomUser.DoesNotExist:
+                errors.append({"username": username, "error": "User not found"})
+            except ValidationError as e:
+                errors.append({"username": username, "error": str(e)})
+            except Exception as e:
+                debug_ts(print(f"[ERROR] create_invitation failed for username {username}: {e}"))
+                traceback.print_exc()
+                errors.append({"username": username, "error": str(e)})
 
     # Process emails
     for email in invited_emails:
@@ -888,13 +910,19 @@ def invite_to_group(request, slug):
             errors.append({"batch_error": str(e)})
 
     response_data = {
+        "silent_add": silent_add,
+        "memberships_added": len(memberships_added),
+        "members": memberships_added,
         "invitations_created": len(invitations_created),
         "invitations": [{"id": inv[0].id, "email": inv[0].invited_email} for inv in invitations_created],
     }
 
     if errors:
         response_data["errors"] = errors
-        response_data["detail"] = f"Created {len(invitations_created)} invitations with {len(errors)} errors"
+        response_data["detail"] = (
+            f"Added {len(memberships_added)} member(s), created {len(invitations_created)} invitation(s), "
+            f"with {len(errors)} error(s)"
+        )
         return Response(response_data, status=status.HTTP_207_MULTI_STATUS)
 
     return Response(response_data, status=status.HTTP_201_CREATED)
