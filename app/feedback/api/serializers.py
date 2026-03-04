@@ -38,6 +38,7 @@ class FeedbackItemListSerializer(serializers.ModelSerializer):
     beacon_key = serializers.CharField(source="beacon.key", read_only=True)
     beacon_title = serializers.CharField(source="beacon.title", read_only=True)
     user_username = serializers.CharField(source="user.username", read_only=True)
+    user_first_name = serializers.CharField(source="user.first_name", read_only=True)
 
     class Meta:
         model = FeedbackItem
@@ -51,4 +52,5 @@ class FeedbackItemListSerializer(serializers.ModelSerializer):
             "status",
             "created_at",
             "user_username",
+            "user_first_name",
         )
