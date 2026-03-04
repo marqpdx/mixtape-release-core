@@ -438,7 +438,13 @@ class GroupMembershipListSerializer(serializers.ModelSerializer):
 
     def get_profile_image(self, obj):
         member = obj.member_object
-        return getattr(member, "profile_image", None)
+        # Profile image is on the Profile model, not the User model
+        profile = getattr(member, "profile", None)
+        if profile:
+            image_key = getattr(profile, "profile_image", None)
+            if image_key:
+                return key_to_url(image_key)
+        return None
 
     def get_roles(self, obj):
         """
