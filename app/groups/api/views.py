@@ -623,6 +623,63 @@ class GroupCirclesListCreateView(generics.ListCreateAPIView):
         return circle
 
 
+class GroupMemberRemoveView(generics.GenericAPIView):
+    """
+    DELETE /api/groups/<slug>/members/<uuid:membership_id>
+    Remove a member from a group (soft-delete: sets is_evicted=True, is_active=False).
+    Requires admin or steward role in the group.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, slug, membership_id):
+        group = get_object_or_404(Group, slug=slug, is_active=True)
+
+        # Check requesting user is admin or steward
+        requester_membership = GroupService.get_user_membership(group, request.user)
+        if not requester_membership or not (requester_membership.is_admin() or requester_membership.is_steward()):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        # Find the target membership by member_object_id (user UUID)
+        target_membership = get_object_or_404(
+            GroupMembership,
+            group=group,
+            member_object_id=membership_id,
+            is_active=True,
+        )
+
+        # Prevent removing owners
+        if target_membership.is_owner():
+            return Response(
+                {"detail": "Cannot remove the group owner."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Stewards cannot remove admins
+        if target_membership.is_admin() and not requester_membership.is_admin():
+            return Response(
+                {"detail": "Only admins can remove other admins."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Prevent removing yourself
+        user_ct = ContentType.objects.get_for_model(User)
+        if (
+            target_membership.member_content_type == user_ct
+            and target_membership.member_object_id == request.user.id
+        ):
+            return Response(
+                {"detail": "Cannot remove yourself from the group."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Soft-delete: mark as evicted and inactive
+        target_membership.is_evicted = True
+        target_membership.is_active = False
+        target_membership.save(update_fields=["is_evicted", "is_active"])
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class GroupMemberSearchView(generics.ListAPIView):
     """
     GET /api/groups/<slug>/members/search?q=term - Search group members for autocomplete
