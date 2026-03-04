@@ -17,6 +17,7 @@ from .views import (
     GroupInvitationDetailView,
     GroupInvitationsListView,
     GroupListCreateView,
+    GroupMemberRemoveView,
     GroupMemberSearchView,
     GroupMembersView,
     GroupWelcomePinView,
@@ -83,6 +84,7 @@ urlpatterns = [
     # Group membership - consolidated single endpoint
     path("<slug:slug>/members", GroupMembersView.as_view(), name="group-members"),
     path("<slug:slug>/members/search", GroupMemberSearchView.as_view(), name="group-member-search"),
+    path("<slug:slug>/members/<uuid:membership_id>", GroupMemberRemoveView.as_view(), name="group-member-remove"),
 
     path("<slug:slug>/circles", GroupCirclesListCreateView.as_view(), name="group-circles-list-create"),
 
