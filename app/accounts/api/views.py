@@ -1,7 +1,9 @@
 # accounts/api/views.py
 
 from http import HTTPStatus
+import logging
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 
@@ -9,11 +11,13 @@ from django.core.cache import cache
 from django.db.models import Prefetch
 from django.http import JsonResponse
 from django.middleware.csrf import get_token
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from profiles.models import UserProfile
 from users.models import Role
@@ -24,6 +28,64 @@ from .serializers import UserCreateSerializer, UserSerializer
 # from .serializers import GroupSerializer  # Deferred to Phase 3
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
+
+IMPERSONATION_ORIGINAL_USER_ID_KEY = "impersonation_original_user_id"
+IMPERSONATION_TARGET_USER_ID_KEY = "impersonation_target_user_id"
+IMPERSONATION_STARTED_AT_KEY = "impersonation_started_at"
+
+
+def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
+    response.set_cookie(
+        settings.JWT_COOKIE_NAME,
+        refresh_token,
+        secure=settings.JWT_COOKIE_SECURE,
+        httponly=True,
+        samesite=settings.JWT_COOKIE_SAMESITE,
+        path="/",
+        domain=getattr(settings, "SESSION_COOKIE_DOMAIN", None),
+    )
+
+
+def _build_auth_payload(user):
+    refresh = RefreshToken.for_user(user)
+    access = refresh.access_token
+    access["username"] = user.username
+
+    return {
+        "success": True,
+        "access": str(access),
+        "access_expires": access["exp"],
+        "refresh": str(refresh),
+        "refresh_expires": refresh["exp"],
+        "user": {
+            "id": str(user.id),
+            "username": user.username,
+            "email": user.email,
+        },
+    }
+
+
+def _build_impersonation_payload(request, user):
+    impersonation_original_id = request.session.get(IMPERSONATION_ORIGINAL_USER_ID_KEY)
+    impersonation_target_id = request.session.get(IMPERSONATION_TARGET_USER_ID_KEY)
+    if impersonation_original_id and impersonation_target_id and str(user.id) == str(impersonation_target_id):
+        original_user = User.objects.filter(id=impersonation_original_id).first()
+        return {
+            "is_impersonating": True,
+            "started_at": request.session.get(IMPERSONATION_STARTED_AT_KEY),
+            "impersonated_by": {
+                "id": str(original_user.id),
+                "username": original_user.username,
+                "first_name": original_user.first_name,
+                "is_superuser": original_user.is_superuser,
+            } if original_user else None,
+        }
+    return {
+        "is_impersonating": False,
+        "started_at": None,
+        "impersonated_by": None,
+    }
 
 
 def csrf(request):
@@ -100,7 +162,9 @@ class CurrentUserIdentity(APIView):
         cache_key = f"user_identity:{user.id}"
         cached = cache.get(cache_key)
         if cached:
-            return Response(cached, status=status.HTTP_200_OK)
+            response_data = dict(cached)
+            response_data["impersonation"] = _build_impersonation_payload(request, user)
+            return Response(response_data, status=status.HTTP_200_OK)
 
         try:
             # Get profile
@@ -153,8 +217,12 @@ class CurrentUserIdentity(APIView):
                 "permissions": permissions_data,
             }
 
+            response_data["impersonation"] = _build_impersonation_payload(request, user)
+
             # Cache for 5 minutes
-            cache.set(cache_key, response_data, 300)
+            cache_payload = dict(response_data)
+            cache_payload.pop("impersonation", None)
+            cache.set(cache_key, cache_payload, 300)
 
             return Response(response_data, status=status.HTTP_200_OK)
 
@@ -164,6 +232,93 @@ class CurrentUserIdentity(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+
+
+class AssumeUserView(APIView):
+    """
+    POST /api/auth/assume
+    Superuser-only: start impersonating another user by username.
+    Returns JWTs for assumed user and stores original/target in session.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        actor = request.user
+        if not actor.is_superuser:
+            return Response({"detail": "Superuser access required."}, status=status.HTTP_403_FORBIDDEN)
+
+        username = str(request.data.get("username", "")).strip()
+        if not username:
+            return Response({"detail": "username is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        target = User.objects.filter(username=username, is_active=True).first()
+        if not target:
+            return Response({"detail": "Target user not found."}, status=status.HTTP_404_NOT_FOUND)
+        if target.id == actor.id:
+            return Response({"detail": "Cannot assume yourself."}, status=status.HTTP_400_BAD_REQUEST)
+
+        request.session[IMPERSONATION_ORIGINAL_USER_ID_KEY] = str(actor.id)
+        request.session[IMPERSONATION_TARGET_USER_ID_KEY] = str(target.id)
+        request.session[IMPERSONATION_STARTED_AT_KEY] = timezone.now().isoformat()
+        request.session.modified = True
+
+        cache.delete(f"user_identity:{actor.id}")
+        cache.delete(f"user_identity:{target.id}")
+
+        logger.info(
+            "Impersonation started: actor=%s target=%s ip=%s",
+            actor.username,
+            target.username,
+            request.META.get("REMOTE_ADDR"),
+        )
+
+        payload = _build_auth_payload(target)
+        response = Response(payload, status=status.HTTP_200_OK)
+        _set_refresh_cookie(response, payload["refresh"])
+        return response
+
+
+class ExitAssumeUserView(APIView):
+    """
+    POST /api/auth/assume/exit
+    End impersonation and restore original user tokens.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        original_user_id = request.session.get(IMPERSONATION_ORIGINAL_USER_ID_KEY)
+        target_user_id = request.session.get(IMPERSONATION_TARGET_USER_ID_KEY)
+
+        if not original_user_id or not target_user_id:
+            return Response({"detail": "Not currently impersonating."}, status=status.HTTP_400_BAD_REQUEST)
+
+        original_user = User.objects.filter(id=original_user_id, is_active=True).first()
+        if not original_user:
+            return Response({"detail": "Original user not found."}, status=status.HTTP_404_NOT_FOUND)
+        if not original_user.is_superuser:
+            return Response({"detail": "Original user is not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        request.session.pop(IMPERSONATION_ORIGINAL_USER_ID_KEY, None)
+        request.session.pop(IMPERSONATION_TARGET_USER_ID_KEY, None)
+        request.session.pop(IMPERSONATION_STARTED_AT_KEY, None)
+        request.session.modified = True
+
+        cache.delete(f"user_identity:{original_user.id}")
+        cache.delete(f"user_identity:{target_user_id}")
+
+        logger.info(
+            "Impersonation ended: actor=%s target_id=%s ip=%s",
+            original_user.username,
+            target_user_id,
+            request.META.get("REMOTE_ADDR"),
+        )
+
+        payload = _build_auth_payload(original_user)
+        response = Response(payload, status=status.HTTP_200_OK)
+        _set_refresh_cookie(response, payload["refresh"])
+        return response
 
 
 @api_view(["GET"])

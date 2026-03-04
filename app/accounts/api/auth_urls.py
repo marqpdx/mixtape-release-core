@@ -17,6 +17,8 @@ urlpatterns = [
 
     # User identity - THIS IS THE KEY ENDPOINT
     path("me", views.CurrentUserIdentity.as_view(), name="current-user-identity"),
+    path("assume", views.AssumeUserView.as_view(), name="assume-user"),
+    path("assume/exit", views.ExitAssumeUserView.as_view(), name="assume-user-exit"),
     # Returns: {
     #   id, username, email, is_superuser, is_staff,
     #   roles: ["member", "steward"],
