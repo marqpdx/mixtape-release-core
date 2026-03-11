@@ -79,6 +79,7 @@ urlpatterns = [
     path("api/stackroom/", include("stackroom.api.urls")),
 
     path("api/threadworks/", include("threadworks.api.urls")),
+    path("api/work-sessions/", include("worksessions.api.urls")),
     path("api/writing/", include("writing.api.urls")),
     path("api/concord/", include("concord.api.urls")),  # Audio transcription/interpretation
     path("api/earthlab/", include("earthlab.api.urls")),  # EarthLab courses/lessons
