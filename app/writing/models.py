@@ -509,8 +509,6 @@ class CommentLike(BaseModel):
         unique_together = ["user", "comment"]
 
 
-
-
 class Seed(BaseModel):
     """
     Lowest-friction capture. Plain text only (v1), autosaves, can be promoted to WorkingCopy later.

@@ -108,6 +108,7 @@ INSTALLED_APPS = [
     "threadworks",     # Threadworks forums and discussions
     "users",           # CustomUser, Role models
     "utils",           # Utility functions and helpers
+    "worksessions",    # Work Sessions (Artifact Stream Authoring)
     "writing",         # Writing app
 ]
 
