@@ -331,12 +331,14 @@ class GroupWelcomePinView(generics.GenericAPIView):
                             "slug": piece.slug,
                             "title": metadata.get("title") or piece.title,
                             "excerpt": metadata.get("excerpt") or piece.excerpt,
+                            "body_json": metadata.get("body_json") or piece.body_json,
                             "published_at": piece.published_at,
                             "author_name": author_name,
                         },
                         "display": {
                             "title": metadata.get("title"),
                             "excerpt": metadata.get("excerpt"),
+                            "body_json": metadata.get("body_json"),
                         },
                     }
                 )

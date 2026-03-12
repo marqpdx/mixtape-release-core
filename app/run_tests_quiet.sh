@@ -44,6 +44,7 @@ tests=(
   "stackroom.tests.test_puddlejump_phase2_api"
   "stackroom.tests.test_library_publish_shelves"
   "stackroom.tests.test_puddlejump_utilities_api"
+  "stackroom.tests.test_puddlejump_security_fixes_api"
   "concord.tests.test_recording_api concord.tests.test_recording_models concord.tests.test_session_models concord.tests.test_speaker_anchor_models concord.tests.test_transcription_models"
   "groups.tests"
   "lists"

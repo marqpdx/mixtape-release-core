@@ -2,6 +2,7 @@
 
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
+from django.http import Http404
 from rest_framework import permissions
 
 from groups.services.permissions import PermissionService
@@ -49,12 +50,15 @@ class ProjectPermissionBase(permissions.BasePermission):
 
     def has_object_permission(self, request, view, obj):
         project = getattr(obj, "project", obj)
-        return can_user_access_sponsor(
+        has_access = can_user_access_sponsor(
             request.user,
             project.sponsor_content_type,
             project.sponsor_object_id,
             self.required_permission,
         )
+        if not has_access:
+            raise Http404
+        return True
 
 
 class CanViewProject(ProjectPermissionBase):

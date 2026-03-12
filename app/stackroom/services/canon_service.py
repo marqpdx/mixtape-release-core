@@ -38,9 +38,11 @@ def submit_version(
     After canonization, every edit creates a version entry (§5).
     Also usable pre-canon for initial version tracking.
     """
-    # Auto-increment version number
+    # Auto-increment version number — select_for_update locks the latest row
+    # to prevent two concurrent submissions racing to the same version number
     last_version = (
         SourceFileVersion.objects
+        .select_for_update()
         .filter(source_file=source_file)
         .order_by('-version_number')
         .first()
@@ -79,23 +81,17 @@ def get_version_history(source_file: SourceFile):
         .order_by("-version_number")
     )
 
-    # Get all approved version IDs for this file
-    approved_version_ids = set(
-        CanonApproval.objects
+    # Fetch all approvals for this file in one query, keyed by version_id
+    approvals_by_version = {
+        a.version_id: a
+        for a in CanonApproval.objects
         .filter(source_file=source_file)
-        .values_list("version_id", flat=True)
-    )
+        .select_related("approved_by")
+    }
 
     result = []
     for v in versions:
-        approval = None
-        if v.id in approved_version_ids:
-            approval = (
-                CanonApproval.objects
-                .filter(version=v)
-                .select_related("approved_by")
-                .first()
-            )
+        approval = approvals_by_version.get(v.id)
 
         result.append({
             "id": str(v.id),
@@ -110,7 +106,7 @@ def get_version_history(source_file: SourceFile):
             "ai_assisted": v.ai_assisted,
             "ai_agent": v.ai_agent or None,
             "ai_summary": v.ai_summary or None,
-            "is_approved": v.id in approved_version_ids,
+            "is_approved": v.id in approvals_by_version,
             "approved_by": {
                 "username": approval.approved_by.username,
                 "display_name": getattr(approval.approved_by, "display_name", approval.approved_by.username),
