@@ -31,6 +31,34 @@ from stackroom.models import Library, LibraryItem
 logger = logging.getLogger(__name__)
 
 
+def _get_or_create_personal_puddlejump(user):
+    """Return the user's personal Puddlejump Library, creating it if absent."""
+    user_ct = ContentType.objects.get_for_model(user)
+    puddlejump = Library.objects.filter(
+        sponsor_content_type=user_ct,
+        sponsor_object_id=str(user.pk),
+        is_personal_puddlejump=True,
+    ).first()
+    if not puddlejump:
+        puddlejump = Library(
+            title="My Puddlejump",
+            summary="Your canonical archive. The things you stand behind.",
+            body=(
+                "Puddlejump is intentionally small, intentionally portable, "
+                "intentionally human-governed. Files here sync with your filesystem, "
+                "can be versioned in git, and are always exportable. Nothing is trapped."
+            ),
+            is_personal_puddlejump=True,
+            puddlejump_origin='created',
+        )
+        puddlejump.set_sponsor(user)
+        puddlejump.author = user
+        puddlejump.submitted_by = user
+        puddlejump.save()
+        logger.info(f"Created personal Puddlejump for user {user.id}: {puddlejump.id}")
+    return puddlejump
+
+
 class PersonalPuddlejumpView(APIView):
     """
     Get or create the user's personal Puddlejump library.
@@ -57,36 +85,7 @@ class PersonalPuddlejumpView(APIView):
     def get(self, request):
         """Get or create the user's personal Puddlejump"""
         user = request.user
-
-        # Get ContentType for User model
-        user_ct = ContentType.objects.get_for_model(user)
-
-        # Try to find existing personal Puddlejump
-        personal_puddlejump = Library.objects.filter(
-            sponsor_content_type=user_ct,
-            sponsor_object_id=str(user.pk),
-            is_personal_puddlejump=True
-        ).first()
-
-        # Create if doesn't exist
-        if not personal_puddlejump:
-            personal_puddlejump = Library(
-                title="My Puddlejump",
-                summary="Your canonical archive. The things you stand behind.",
-                body=(
-                    "Puddlejump is intentionally small, intentionally portable, "
-                    "intentionally human-governed. Files here sync with your filesystem, "
-                    "can be versioned in git, and are always exportable. Nothing is trapped."
-                ),
-                is_personal_puddlejump=True,
-                puddlejump_origin='created',
-            )
-            personal_puddlejump.set_sponsor(user)
-            personal_puddlejump.author = user
-            personal_puddlejump.submitted_by = user
-            personal_puddlejump.save()
-
-            logger.info(f"Created personal Puddlejump for user {user.id}: {personal_puddlejump.id}")
+        personal_puddlejump = _get_or_create_personal_puddlejump(user)
 
         # Get items with their content
         items = LibraryItem.objects.filter(
@@ -408,11 +407,26 @@ class PuddlejumpImportView(APIView):
                     })
                     return {"valid": False, "errors": errors}
 
-                # Calculate total size
-                total_size = sum(
-                    zip_ref.getinfo(f).file_size
-                    for f in markdown_files
-                )
+                # Check 9: Total size ≤ 50MB — measured by streaming, not zip metadata
+                # zip header file_size is attacker-controlled and cannot be trusted (zip bomb vector)
+                max_size_bytes = 50 * 1024 * 1024
+                total_size = 0
+                for f in markdown_files:
+                    with zip_ref.open(f) as fh:
+                        while True:
+                            chunk = fh.read(65536)
+                            if not chunk:
+                                break
+                            total_size += len(chunk)
+                            if total_size > max_size_bytes:
+                                return {
+                                    "valid": False,
+                                    "errors": [{
+                                        "field": "total_size",
+                                        "max": max_size_bytes,
+                                        "message": "Bundle exceeds maximum size of 50MB"
+                                    }]
+                                }
 
                 # Success
                 result = {
@@ -460,27 +474,7 @@ class PuddlejumpSyncStatusView(APIView):
 
     def get(self, request):
         user = request.user
-        user_ct = ContentType.objects.get_for_model(user)
-
-        # Get or create personal Puddlejump
-        puddlejump = Library.objects.filter(
-            sponsor_content_type=user_ct,
-            sponsor_object_id=str(user.pk),
-            is_personal_puddlejump=True
-        ).first()
-
-        if not puddlejump:
-            # Create empty Puddlejump
-            puddlejump = Library(
-                title="My Puddlejump",
-                summary="Your canonical archive.",
-                is_personal_puddlejump=True,
-                puddlejump_origin='created',
-            )
-            puddlejump.set_sponsor(user)
-            puddlejump.author = user
-            puddlejump.submitted_by = user
-            puddlejump.save()
+        puddlejump = _get_or_create_personal_puddlejump(user)
 
         # Get all files (not folders)
         from stackroom.models import SourceFile
@@ -543,7 +537,6 @@ class PuddlejumpSyncUploadView(APIView):
         from stackroom.models import SourceFile
 
         user = request.user
-        user_ct = ContentType.objects.get_for_model(user)
 
         # Get file and metadata
         uploaded_file = request.FILES.get('file')
@@ -556,6 +549,27 @@ class PuddlejumpSyncUploadView(APIView):
                 status=drf_status.HTTP_400_BAD_REQUEST
             )
 
+        # Enforce per-file size limit (5MB — single files should be well under this)
+        max_file_bytes = 5 * 1024 * 1024
+        if uploaded_file.size > max_file_bytes:
+            return Response(
+                {"error": "File exceeds maximum size of 5MB"},
+                status=drf_status.HTTP_400_BAD_REQUEST
+            )
+
+        # Sanitize path: reject traversal sequences and absolute paths
+        normalized = Path(file_path).as_posix()
+        if (
+            not file_path
+            or normalized.startswith('/')
+            or any(part == '..' for part in Path(normalized).parts)
+        ):
+            return Response(
+                {"error": "Invalid file path"},
+                status=drf_status.HTTP_400_BAD_REQUEST
+            )
+        file_path = normalized
+
         # Validate file is markdown
         if not file_path.endswith('.md'):
             return Response(
@@ -563,24 +577,7 @@ class PuddlejumpSyncUploadView(APIView):
                 status=drf_status.HTTP_400_BAD_REQUEST
             )
 
-        # Get or create personal Puddlejump
-        puddlejump = Library.objects.filter(
-            sponsor_content_type=user_ct,
-            sponsor_object_id=str(user.pk),
-            is_personal_puddlejump=True
-        ).first()
-
-        if not puddlejump:
-            puddlejump = Library(
-                title="My Puddlejump",
-                summary="Your canonical archive.",
-                is_personal_puddlejump=True,
-                puddlejump_origin='created',
-            )
-            puddlejump.set_sponsor(user)
-            puddlejump.author = user
-            puddlejump.submitted_by = user
-            puddlejump.save()
+        puddlejump = _get_or_create_personal_puddlejump(user)
 
         # Read file content and compute hash
         content = uploaded_file.read()
@@ -845,58 +842,62 @@ class PuddlejumpHealthView(APIView):
         )
 
 
-class PuddlejumpAuthDebugView(APIView):
-    """Temporary debug view — test OAuth2 token validation in isolation."""
-    authentication_classes = [OAuth2Authentication]
-    permission_classes = []  # Skip permission check, just test auth
+# COMMENTED OUT — PuddlejumpAuthDebugView
+# This view was a development-only tool for testing OAuth2 token validation.
+# It had permission_classes = [] (fully open, no auth required) and exposed
+# OAuth token counts, token previews, and internal DOT verification results —
+# a security risk in any non-local environment.
+#
+# It is not called by any frontend code or tests.
+# If OAuth debugging is needed, use the Django shell or a management command:
+#
+#   python manage.py shell
+#   >>> from oauth2_provider.models import AccessToken
+#   >>> AccessToken.objects.filter(token="...").first()
+#
+# Do not re-register this as a live endpoint.
+#
+# class PuddlejumpAuthDebugView(APIView):
+#     """Temporary debug view — test OAuth2 token validation in isolation."""
+#     authentication_classes = [OAuth2Authentication]
+#     permission_classes = []  # Skip permission check, just test auth
 
-    def get(self, request):
-        from oauth2_provider.models import AccessToken as OAuthAccessToken
-        from django.utils import timezone as tz
-
-        # Check what auth resolved
-        auth_header = request.META.get("HTTP_AUTHORIZATION", "none")
-        token_str = auth_header.replace("Bearer ", "") if auth_header.startswith("Bearer ") else ""
-
-        # Check token in DB
-        token_count = OAuthAccessToken.objects.count()
-        token_obj = None
-        if token_str:
-            token_obj = OAuthAccessToken.objects.filter(token=token_str).first()
-
-        # Token details
-        token_info = None
-        if token_obj:
-            token_info = {
-                "user": str(token_obj.user),
-                "application": str(token_obj.application),
-                "expires": str(token_obj.expires),
-                "is_expired": token_obj.expires < tz.now() if token_obj.expires else "no_expiry",
-                "scope": token_obj.scope,
-                "created": str(token_obj.created) if hasattr(token_obj, 'created') else "n/a",
-            }
-
-        # Try DOT validation directly
-        dot_error = None
-        try:
-            from oauth2_provider.oauth2_backends import get_oauthlib_core
-            oauthlib_core = get_oauthlib_core()
-            valid, r = oauthlib_core.verify_request(request, scopes=[])
-            dot_result = {
-                "valid": valid,
-                "oauth2_error": getattr(r, "oauth2_error", {}),
-            }
-            if valid:
-                dot_result["verified_user"] = str(r.user)
-        except Exception as e:
-            dot_result = {"error": str(e)}
-
-        return Response({
-            "user": str(request.user),
-            "is_authenticated": request.user.is_authenticated if hasattr(request.user, 'is_authenticated') else False,
-            "auth_header_present": auth_header != "none",
-            "token_preview": token_str[:20] + "..." if len(token_str) > 20 else token_str,
-            "total_oauth_tokens_in_db": token_count,
-            "token_in_db": token_info,
-            "dot_verify_request": dot_result,
-        })
+#     def get(self, request):
+#         from oauth2_provider.models import AccessToken as OAuthAccessToken
+#         from django.utils import timezone as tz
+#
+#         auth_header = request.META.get("HTTP_AUTHORIZATION", "none")
+#         token_str = auth_header.replace("Bearer ", "") if auth_header.startswith("Bearer ") else ""
+#         token_count = OAuthAccessToken.objects.count()
+#         token_obj = None
+#         if token_str:
+#             token_obj = OAuthAccessToken.objects.filter(token=token_str).first()
+#         token_info = None
+#         if token_obj:
+#             token_info = {
+#                 "user": str(token_obj.user),
+#                 "application": str(token_obj.application),
+#                 "expires": str(token_obj.expires),
+#                 "is_expired": token_obj.expires < tz.now() if token_obj.expires else "no_expiry",
+#                 "scope": token_obj.scope,
+#                 "created": str(token_obj.created) if hasattr(token_obj, 'created') else "n/a",
+#             }
+#         dot_error = None
+#         try:
+#             from oauth2_provider.oauth2_backends import get_oauthlib_core
+#             oauthlib_core = get_oauthlib_core()
+#             valid, r = oauthlib_core.verify_request(request, scopes=[])
+#             dot_result = {"valid": valid, "oauth2_error": getattr(r, "oauth2_error", {})}
+#             if valid:
+#                 dot_result["verified_user"] = str(r.user)
+#         except Exception as e:
+#             dot_result = {"error": str(e)}
+#         return Response({
+#             "user": str(request.user),
+#             "is_authenticated": request.user.is_authenticated if hasattr(request.user, 'is_authenticated') else False,
+#             "auth_header_present": auth_header != "none",
+#             "token_preview": token_str[:20] + "..." if len(token_str) > 20 else token_str,
+#             "total_oauth_tokens_in_db": token_count,
+#             "token_in_db": token_info,
+#             "dot_verify_request": dot_result,
+#         })

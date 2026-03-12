@@ -23,7 +23,7 @@ from stackroom.api.activity_views import LibraryActivityView
 from stackroom.api.puddlejump_views import (
     PuddlejumpImportView,
     PuddlejumpHealthView,
-    PuddlejumpAuthDebugView,
+    # PuddlejumpAuthDebugView,  # Commented out — exposes OAuth token internals with no auth. Use Django shell or management command for auth debugging instead.
     PersonalPuddlejumpView,
     PuddlejumpSyncStatusView,
     PuddlejumpSyncUploadView,
@@ -38,6 +38,7 @@ from stackroom.api.canon_views import (
     CheckoutView,
     CheckinView,
     LibraryExportView,
+    LibraryStatusView,
 )
 from stackroom.api.puddlejump_utility_views import (
     LibraryHealthView,
@@ -74,13 +75,14 @@ urlpatterns = [
     path("source-files/<uuid:source_file_id>/checkout", CheckoutView.as_view(), name="source-file-checkout"),
     path("source-files/<uuid:source_file_id>/checkin", CheckinView.as_view(), name="source-file-checkin"),
     path("libraries/<uuid:library_id>/export", LibraryExportView.as_view(), name="library-export"),
+    path("libraries/<uuid:library_id>/status", LibraryStatusView.as_view(), name="library-status"),
     path("shards/bulk", ShardBulkUpsertView.as_view()),
     path("chunks/bulk", ChunkBulkUpsertView.as_view()),
     path("ingestion/complete", IngestionCompleteView.as_view()),
     path("retrieve", RetrieveView.as_view()),
     # Puddlejump endpoints
     path("puddlejump/health", PuddlejumpHealthView.as_view(), name="puddlejump-health"),
-    path("puddlejump/auth-debug", PuddlejumpAuthDebugView.as_view(), name="puddlejump-auth-debug"),
+    # path("puddlejump/auth-debug", PuddlejumpAuthDebugView.as_view(), name="puddlejump-auth-debug"),  # Commented out — see import above.
     path("puddlejump/personal", PersonalPuddlejumpView.as_view(), name="puddlejump-personal"),
     path("puddlejump/import", PuddlejumpImportView.as_view(), name="puddlejump-import"),
     # Puddlejump sync endpoints (for desktop client)

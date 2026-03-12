@@ -81,9 +81,7 @@ class EventListCreateMixin:
     @transaction.atomic
     def perform_create(self, serializer):
         """Create event with sponsor context"""
-        print(f"DEBUG: perform_create() called")
         sponsor = self.get_sponsor()
-        print(f"DEBUG: perform_create sponsor = {sponsor}")
         author = self.request.user
         data = serializer.validated_data
         event_type = data['event_type']
@@ -286,7 +284,7 @@ class EventPublishView(generics.CreateAPIView):
     serializer_class = EventDetailSerializer
 
     def create(self, request, *args, **kwargs):
-        event = get_object_or_404(Event, slug=kwargs['event_slug'])
+        event = get_object_or_404(Event, id=kwargs['event_id'])
 
         # Check permissions
         if event.author != request.user and not event.followers.filter(
@@ -313,7 +311,7 @@ class EventUnpublishView(generics.CreateAPIView):
     serializer_class = EventDetailSerializer
 
     def create(self, request, *args, **kwargs):
-        event = get_object_or_404(Event, slug=kwargs['event_slug'])
+        event = get_object_or_404(Event, id=kwargs['event_id'])
 
         if event.author != request.user and not event.followers.filter(
             user=request.user, follow_type='organizer'
@@ -332,7 +330,7 @@ class EventRSVPView(generics.CreateAPIView):
     serializer_class = EventRSVPSerializer
 
     def create(self, request, *args, **kwargs):
-        event = get_object_or_404(Event, slug=kwargs['event_slug'])
+        event = get_object_or_404(Event, id=kwargs['event_id'])
         serializer = self.get_serializer(
             data=request.data,
             context={'event': event, 'user': request.user}
@@ -347,7 +345,7 @@ class EventFollowView(generics.CreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
-        event = get_object_or_404(Event, slug=kwargs['event_slug'])
+        event = get_object_or_404(Event, id=kwargs['event_id'])
 
         follower, created = EventFollower.objects.get_or_create(
             event=event,
@@ -364,7 +362,7 @@ class EventFollowView(generics.CreateAPIView):
         return Response(serializer.data, status=response_status)
 
     def delete(self, request, *args, **kwargs):
-        event = get_object_or_404(Event, slug=kwargs['event_slug'])
+        event = get_object_or_404(Event, id=kwargs['event_id'])
 
         try:
             follower = EventFollower.objects.get(event=event, user=request.user)
@@ -377,25 +375,12 @@ class EventFollowView(generics.CreateAPIView):
             )
 
 
-class EventAttendeesView(generics.ListAPIView):
-    """Get all attendees for an event"""
-    permission_classes = [permissions.IsAuthenticated]
-    serializer_class = OccurrenceAttendeeSerializer
-
-    def get_queryset(self):
-        event = get_object_or_404(Event, slug=self.kwargs['event_slug'])
-        return OccurrenceAttendee.objects.filter(
-            occurrence__series=event.series,
-            status__in=['going', 'maybe', 'attended']
-        ).select_related('user', 'occurrence').order_by('created_at')
-
-
 class EventSyncRsvpsView(generics.CreateAPIView):
     """Sync RSVPs after occurrence changes"""
     permission_classes = [permissions.IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
-        event = get_object_or_404(Event, slug=kwargs['event_slug'])
+        event = get_object_or_404(Event, id=kwargs['event_id'])
 
         # Check permissions
         if event.author != request.user and not event.followers.filter(
@@ -406,9 +391,9 @@ class EventSyncRsvpsView(generics.CreateAPIView):
         try:
             sync_series_rsvps(event)
             return Response({'status': 'RSVPs synced successfully'}, status=status.HTTP_200_OK)
-        except Exception as e:
+        except Exception:
             return Response(
-                {'error': f'Sync failed: {str(e)}'},
+                {'error': 'Sync failed'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -418,7 +403,7 @@ class EventAnalyticsView(generics.RetrieveAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def retrieve(self, request, *args, **kwargs):
-        event = get_object_or_404(Event, slug=kwargs['event_slug'])
+        event = get_object_or_404(Event, id=kwargs['event_id'])
 
         # Check permissions
         if event.author != request.user and not event.followers.filter(
@@ -491,15 +476,10 @@ class GroupEventListCreateView(EventListCreateMixin, generics.ListCreateAPIView)
     """
 
     def get_sponsor(self):
-        print(f"DEBUG: get_sponsor() called")
-        print(f"DEBUG: self.kwargs = {self.kwargs}")
         slug = self.kwargs.get('slug')
-        print(f"DEBUG: slug = {slug}")
         if not slug:
             raise ValidationError("Group slug not found in URL")
-        group = get_object_or_404(Group, slug=slug)
-        print(f"DEBUG: group = {group}")
-        return group
+        return get_object_or_404(Group, slug=slug)
 
     def list(self, request, *args, **kwargs):
         """Override to show draft events if user is author/organizer"""
@@ -698,9 +678,9 @@ class GroupEventSyncRsvpsView(generics.CreateAPIView):
         try:
             sync_series_rsvps(event)
             return Response({'status': 'RSVPs synced successfully'}, status=status.HTTP_200_OK)
-        except Exception as e:
+        except Exception:
             return Response(
-                {'error': f'Sync failed: {str(e)}'},
+                {'error': 'Sync failed'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -1386,8 +1366,8 @@ class BulkRSVPView(generics.CreateAPIView):
 
                 return Response({'results': results}, status=status.HTTP_200_OK)
 
-        except Exception as e:
+        except Exception:
             return Response(
-                {'error': f'Bulk RSVP failed: {str(e)}'},
+                {'error': 'Bulk RSVP failed'},
                 status=status.HTTP_400_BAD_REQUEST
             )

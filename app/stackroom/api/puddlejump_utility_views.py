@@ -39,21 +39,40 @@ def _verify_library_access(request, library_id: str) -> Library | None:
     """
     Verify the requesting user has access to the library.
 
-    For now: user must be the sponsor of the library.
-    Returns the library or None if access denied.
+    - Personal library (sponsor = User): only the sponsoring user.
+    - Group library (sponsor = Group): any active, non-pending member.
+
+    Returns the library or None if not found / access denied.
     """
+    from django.contrib.auth import get_user_model
     from django.contrib.contenttypes.models import ContentType
 
     user = request.user
-    user_ct = ContentType.objects.get_for_model(user)
+    User = get_user_model()
+    user_ct = ContentType.objects.get_for_model(User)
 
-    library = Library.objects.filter(
-        id=library_id,
-        sponsor_content_type=user_ct,
-        sponsor_object_id=str(user.pk),
-    ).first()
+    library = Library.objects.select_related("sponsor_content_type").filter(id=library_id).first()
+    if not library or not library.sponsor_content_type:
+        return None
 
-    return library
+    # Personal library
+    if library.sponsor_content_type == user_ct:
+        return library if str(user.pk) == str(library.sponsor_object_id) else None
+
+    # Group library — check active membership
+    from groups.models import GroupMembership
+    member_ct = ContentType.objects.get_for_model(User)
+    has_access = GroupMembership.objects.filter(
+        group_id=library.sponsor_object_id,
+        member_content_type=member_ct,
+        member_object_id=user.pk,
+        is_active=True,
+        is_pending=False,
+        is_banned=False,
+        is_evicted=False,
+    ).exists()
+
+    return library if has_access else None
 
 
 class LibraryHealthView(APIView):
@@ -83,7 +102,7 @@ class LibraryHealthView(APIView):
         except Exception as e:
             logger.error(f"Library health check failed for {library_id}: {e}", exc_info=True)
             return Response(
-                {"error": f"Health check failed: {str(e)}"},
+                {"error": "Health check failed. See server logs for details."},
                 status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -142,7 +161,7 @@ class DuplicateDetectionView(APIView):
         except Exception as e:
             logger.error(f"Duplicate detection failed for {library_id}: {e}", exc_info=True)
             return Response(
-                {"error": f"Duplicate detection failed: {str(e)}"},
+                {"error": "Duplicate detection failed. See server logs for details."},
                 status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -201,7 +220,7 @@ class GlossaryExtractionView(APIView):
         except Exception as e:
             logger.error(f"Glossary extraction failed for {library_id}: {e}", exc_info=True)
             return Response(
-                {"error": f"Glossary extraction failed: {str(e)}"},
+                {"error": "Glossary extraction failed. See server logs for details."},
                 status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -242,11 +261,11 @@ class CanonicalCandidatesView(APIView):
         top_n = request.data.get("top_n", 10)
         try:
             top_n = int(top_n)
-            if top_n < 1:
+            if not (1 <= top_n <= 100):
                 raise ValueError
         except (TypeError, ValueError):
             return Response(
-                {"error": "top_n must be a positive integer"},
+                {"error": "top_n must be an integer between 1 and 100"},
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
 
@@ -270,7 +289,7 @@ class CanonicalCandidatesView(APIView):
         except Exception as e:
             logger.error(f"Canonical suggestion failed for {library_id}: {e}", exc_info=True)
             return Response(
-                {"error": f"Canonical suggestion failed: {str(e)}"},
+                {"error": "Canonical suggestion failed. See server logs for details."},
                 status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -318,7 +337,7 @@ class SuggestSummariesView(APIView):
         except Exception as e:
             logger.error(f"Summary suggestion failed for {library_id}: {e}", exc_info=True)
             return Response(
-                {"error": f"Summary suggestion failed: {str(e)}"},
+                {"error": "Summary suggestion failed. See server logs for details."},
                 status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -381,6 +400,6 @@ class RestructureView(APIView):
         except Exception as e:
             logger.error(f"Restructure analysis failed for {library_id}: {e}", exc_info=True)
             return Response(
-                {"error": f"Restructure analysis failed: {str(e)}"},
+                {"error": "Restructure analysis failed. See server logs for details."},
                 status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
             )

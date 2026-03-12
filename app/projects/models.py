@@ -146,7 +146,8 @@ class Task(BaseData):
     @classmethod
     def next_position_for_column(cls, column):
         last = (
-            cls.objects.filter(column=column, archived_at__isnull=True)
+            cls.objects.select_for_update()
+            .filter(column=column, archived_at__isnull=True)
             .order_by("-position")
             .first()
         )
@@ -154,19 +155,20 @@ class Task(BaseData):
 
     @classmethod
     def create_in_column(cls, project, column, title, summary="", **kwargs):
-        position = cls.next_position_for_column(column)
-        task = cls.objects.create(
-            project=project,
-            column=column,
-            position=position,
-            title=title,
-            summary=summary,
-            **kwargs,
-        )
-        if column.semantic_type == ProjectColumnSemanticType.DONE:
-            task.completed_at = timezone.now()
-            task.save(update_fields=["completed_at"])
-        return task
+        with transaction.atomic():
+            position = cls.next_position_for_column(column)
+            task = cls.objects.create(
+                project=project,
+                column=column,
+                position=position,
+                title=title,
+                summary=summary,
+                **kwargs,
+            )
+            if column.semantic_type == ProjectColumnSemanticType.DONE:
+                task.completed_at = timezone.now()
+                task.save(update_fields=["completed_at"])
+            return task
 
     @classmethod
     def _reindex(cls, tasks):
