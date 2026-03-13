@@ -196,7 +196,66 @@ def promote_draft_view(request, draft_id):
             'kind': feedback_item.kind,
         })
 
+    elif ast['type'] == 'commons':
+        commons_item = _promote_commons(ast, request.user, sponsor)
+
+        from commons.models import CommonsItem
+        draft.promoted_content_type = ContentType.objects.get_for_model(CommonsItem)
+        draft.promoted_object_id = commons_item.id
+        draft.status = 'promoted'
+        draft.promoted_at = timezone.now()
+        draft.save()
+
+        return Response({
+            'draft_id': str(draft.id),
+            'commons_item_id': str(commons_item.id),
+            'commons_item_slug': commons_item.slug,
+        })
+
     return Response({'error': 'Unknown block type'}, status=400)
+
+
+def _promote_commons(ast, user, sponsor):
+    """
+    Create CommonsItem from AST.
+    Declaration line may be a URL or a title.
+    """
+    from commons import services as commons_service
+
+    fields = ast['fields']
+    declaration = ast['title']
+
+    # If declaration looks like a URL, treat it as source_url
+    source_url = ""
+    title = declaration
+    if declaration.startswith("http://") or declaration.startswith("https://"):
+        source_url = declaration
+        title = fields.get('title', declaration)
+
+    # Also check explicit url field
+    if fields.get('url'):
+        source_url = fields['url']
+
+    item = commons_service.capture_item(
+        user=user,
+        source_url=source_url,
+        title=title,
+        why_recommended=fields.get('why', ''),
+        sponsor=sponsor,
+    )
+
+    # Apply optional fields
+    if fields.get('location'):
+        item.location_name = fields['location']
+    if fields.get('type'):
+        item.item_type = fields['type']
+    if fields.get('body'):
+        item.body = fields['body']
+
+    if any(fields.get(k) for k in ('location', 'type', 'body')):
+        item.save()
+
+    return item
 
 
 def _promote_course(ast, user, sponsor):
