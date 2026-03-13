@@ -138,9 +138,43 @@ ISSUE_SCHEMA = {
     }
 }
 
+COMMONS_SCHEMA = {
+    'type': 'commons',
+    'model': 'commons.CommonsItem',
+    'required_fields': ['title'],
+    'fields': {
+        'title': {
+            'type': 'string',
+            'max_length': 255,
+            'source': 'declaration',  # /commons <url-or-title>
+        },
+        'url': {
+            'type': 'string',
+            'max_length': 500,
+            'maps_to': 'source_url',
+        },
+        'why': {
+            'type': 'markdown',
+            'multiline': True,
+            'maps_to': 'why_recommended',
+        },
+        'location': {
+            'type': 'string',
+            'max_length': 255,
+            'maps_to': 'location_name',
+        },
+        'type': {
+            'type': 'choice',
+            'choices': ['person', 'organization', 'group', 'project', 'place', 'event'],
+            'maps_to': 'item_type',
+        },
+    }
+}
+
 SCHEMA_REGISTRY = {
     'event': EVENT_SCHEMA,
     'course': COURSE_SCHEMA,
     'lesson': LESSON_SCHEMA,
     'issue': ISSUE_SCHEMA,
+    'commons': COMMONS_SCHEMA,
 }

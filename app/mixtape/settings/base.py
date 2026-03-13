@@ -85,6 +85,7 @@ INSTALLED_APPS = [
     "bazaar",          # E-commerce and payments
     "chat",            # Chat app, socket.io
     "classifications", # Tags and categories system
+    "commons",         # Crossroads Commons atlas (curated initiatives)
     "concord",         # Audio transcription and interpretation (Whisper, EchoLine)
     "contexts",        # Context management
     "dispatch",        # Collaborative writing (yjs-based real-time editing)

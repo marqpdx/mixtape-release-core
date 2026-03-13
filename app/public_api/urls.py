@@ -2,6 +2,7 @@
 
 from django.urls import path
 from . import views
+from . import views_commons
 
 urlpatterns = [
     path(
@@ -43,5 +44,16 @@ urlpatterns = [
         "writing/<slug:slug>",
         views.PublicWritingPieceView.as_view(),
         name="public-writing-piece",
+    ),
+    # Commons
+    path(
+        "commons",
+        views_commons.PublicCommonsListView.as_view(),
+        name="public-commons-list",
+    ),
+    path(
+        "commons/<slug:slug>",
+        views_commons.PublicCommonsDetailView.as_view(),
+        name="public-commons-detail",
     ),
 ]
