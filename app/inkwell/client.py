@@ -107,6 +107,74 @@ def analyze(current_text: str, previous_text: str = None) -> dict:
     return resp.json()
 
 
+def extract_commons(url: str) -> dict:
+    """
+    POST /v1/extract/commons → structured entity data.
+
+    Returns a dict with keys: name, item_type, description, location, founder,
+    website, instagram, youtube, contact_email, tags, additional_data,
+    extraction_method, extraction_error, raw_text_length, source_url.
+
+    Raises InkwellUnavailableError if the service is unreachable.
+    """
+    try:
+        resp = requests.post(
+            f"{_base_url()}/v1/extract/commons",
+            json={"url": url},
+            timeout=TIMEOUT_SECONDS,
+        )
+    except requests.exceptions.ReadTimeout:
+        raise InkwellUnavailableError("Inkwell /v1/extract/commons timed out")
+    except requests.RequestException as e:
+        raise InkwellUnavailableError(f"Inkwell unreachable: {e}")
+
+    if resp.status_code != 200:
+        logger.error(
+            "Inkwell /v1/extract/commons error %s: %s",
+            resp.status_code,
+            resp.text[:500],
+        )
+        raise InkwellUnavailableError(
+            f"Inkwell /v1/extract/commons returned {resp.status_code}"
+        )
+
+    return resp.json()
+
+
+def extract_research(url: str) -> dict:
+    """
+    POST /v1/extract/research → structured article/research data.
+
+    Returns a dict with keys: title, author, publication, published_date,
+    summary, key_themes, excerpt, additional_data, extraction_method,
+    extraction_error, raw_text_length, source_url.
+
+    Raises InkwellUnavailableError if the service is unreachable.
+    """
+    try:
+        resp = requests.post(
+            f"{_base_url()}/v1/extract/research",
+            json={"url": url},
+            timeout=TIMEOUT_SECONDS,
+        )
+    except requests.exceptions.ReadTimeout:
+        raise InkwellUnavailableError("Inkwell /v1/extract/research timed out")
+    except requests.RequestException as e:
+        raise InkwellUnavailableError(f"Inkwell unreachable: {e}")
+
+    if resp.status_code != 200:
+        logger.error(
+            "Inkwell /v1/extract/research error %s: %s",
+            resp.status_code,
+            resp.text[:500],
+        )
+        raise InkwellUnavailableError(
+            f"Inkwell /v1/extract/research returned {resp.status_code}"
+        )
+
+    return resp.json()
+
+
 def generate_metadata(text: str, max_tags: int = 5, candidate_tags: list = None) -> dict:
     """
     POST /v1/metadata → {tags, category, title, dek, blurb_140, email_snippet, explanations}

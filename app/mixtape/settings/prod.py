@@ -72,6 +72,8 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [
     "https://www.crossroads.place",
     "https://crossroads.place",
+    "https://www.mindfulbrilliance.com"
+    "https://mindfulbrilliance.com"
 ]
 
 # CSRF - Production domains

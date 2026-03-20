@@ -114,13 +114,6 @@ class WritingPiece(BaseContent, PublishableContentMixin):
     view_count = models.PositiveIntegerField(default=0)
     comment_count = models.PositiveIntegerField(default=0)  # denormalized
 
-    status = models.CharField(
-        max_length=20,
-        choices=ContentStatus.choices,
-        default=ContentStatus.DRAFT,
-        db_index=True,
-    )
-
     # Manager
     objects = WritingPieceManager()
 

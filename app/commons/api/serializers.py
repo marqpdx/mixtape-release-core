@@ -58,6 +58,8 @@ class CommonsItemDetailSerializer(CommonsItemListSerializer):
             "curated_by_name",
             "approved_by_name",
             "published_at",
+            "filaments_out",
+            "filaments_in",
         ]
 
     def get_curated_by_name(self, obj):

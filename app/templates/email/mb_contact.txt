@@ -1,0 +1,12 @@
+New contact inquiry — Mindful Brilliance
+-----------------------------------------
+From:         {{ name }}
+Email:        {{ email }}
+{% if organization %}Organization: {{ organization }}
+{% endif %}{% if interest %}Interest:     {{ interest }}
+{% endif %}
+Message:
+{{ message }}
+
+-----------------------------------------
+Reply directly to this email to respond.

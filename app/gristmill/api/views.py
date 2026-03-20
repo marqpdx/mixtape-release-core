@@ -255,6 +255,15 @@ def _promote_commons(ast, user, sponsor):
     if any(fields.get(k) for k in ('location', 'type', 'body')):
         item.save()
 
+    # Trigger async extraction if a source URL was submitted.
+    # Runs in the background — failure is silent, curator fills in manually.
+    if item.source_url:
+        try:
+            from commons.tasks import extract_commons_item_task
+            extract_commons_item_task.delay(str(item.id))
+        except Exception:
+            pass  # Celery unavailable — item is still captured, no data loss
+
     return item
 
 

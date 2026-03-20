@@ -301,6 +301,11 @@ class CollectionCreateSerializer(serializers.Serializer):
     sponsor_type = serializers.ChoiceField(choices=['group', 'user'], required=True)
     sponsor_id = serializers.UUIDField(required=True)
     author_name = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
+    visibility = serializers.ChoiceField(
+        choices=['public', 'members', 'unlisted', 'private'],
+        required=False,
+        default='private',
+    )
 
 
 class CollectionUpdateSerializer(serializers.Serializer):
@@ -312,6 +317,10 @@ class CollectionUpdateSerializer(serializers.Serializer):
     summary = serializers.CharField(required=False, allow_blank=True)
     body = serializers.CharField(required=False, allow_blank=True)
     author_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    visibility = serializers.ChoiceField(
+        choices=['public', 'members', 'unlisted', 'private'],
+        required=False,
+    )
 
 
 class SourceFileMinimalSerializer(serializers.Serializer):

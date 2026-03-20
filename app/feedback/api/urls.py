@@ -1,3 +1,5 @@
+# feedback/api/urls.py
+
 from django.urls import path
 
 from . import views
@@ -8,4 +10,6 @@ urlpatterns = [
     path("items/<str:item_id>", views.update_feedback_item, name="feedback-item-update"),
     path("checklist", views.feedback_checklist, name="feedback-checklist"),
     path("items/summary", views.feedback_summary, name="feedback-item-summary"),
+
+    path("mindful-brilliance/contact", views.mindful_brilliance_contact, name="mb-contact"),
 ]

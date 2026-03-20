@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New contact — Mindful Brilliance</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #1c2628;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #F4F1EC;
+        }
+        .header {
+            background-color: #72A5AD;
+            color: white;
+            padding: 24px 28px;
+            border-radius: 8px 8px 0 0;
+        }
+        .header h1 { margin: 0; font-size: 20px; font-weight: 500; letter-spacing: 0.02em; }
+        .header p { margin: 4px 0 0; font-size: 13px; opacity: 0.85; }
+        .content {
+            background-color: #ffffff;
+            padding: 28px;
+            border-radius: 0 0 8px 8px;
+            border: 1px solid #e4ddd3;
+            border-top: none;
+        }
+        .meta-row { display: flex; gap: 8px; margin-bottom: 8px; font-size: 14px; }
+        .meta-label {
+            color: #6a787e;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            font-size: 11px;
+            padding-top: 2px;
+            min-width: 90px;
+            flex-shrink: 0;
+        }
+        .meta-value { color: #1c2628; font-weight: 500; }
+        .message-box {
+            background-color: #F9F7F4;
+            border-left: 3px solid #72A5AD;
+            padding: 16px 18px;
+            margin: 20px 0 0;
+            border-radius: 0 4px 4px 0;
+            font-size: 15px;
+            color: #2a3540;
+            white-space: pre-wrap;
+        }
+        .footer { text-align: center; color: #8099a3; font-size: 12px; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>New contact inquiry</h1>
+        <p>Mindful Brilliance website</p>
+    </div>
+    <div class="content">
+        <div class="meta-row">
+            <span class="meta-label">From</span>
+            <span class="meta-value">{{ name }}</span>
+        </div>
+        <div class="meta-row">
+            <span class="meta-label">Email</span>
+            <span class="meta-value"><a href="mailto:{{ email }}" style="color: #72A5AD;">{{ email }}</a></span>
+        </div>
+        {% if organization %}
+        <div class="meta-row">
+            <span class="meta-label">Organization</span>
+            <span class="meta-value">{{ organization }}</span>
+        </div>
+        {% endif %}
+        {% if interest %}
+        <div class="meta-row">
+            <span class="meta-label">Interest</span>
+            <span class="meta-value">{{ interest }}</span>
+        </div>
+        {% endif %}
+        <div class="message-box">{{ message }}</div>
+    </div>
+    <div class="footer">
+        <p>Reply directly to this email to respond to {{ name }}.</p>
+    </div>
+</body>
+</html>

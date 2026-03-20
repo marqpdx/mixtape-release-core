@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 
 from almanac.services import sync_series_rsvps
 from groups.models.group import Group
+from groups.models.membership import GroupMembership
 
 from ..models import (
     Event, EventOccurrence, Decorator, OccurrenceAttendee,
@@ -265,6 +266,10 @@ class EventDetailView(generics.RetrieveUpdateDestroyAPIView):
     GET    /api/almanac/events/{id}
     PUT    /api/almanac/events/{id}
     DELETE /api/almanac/events/{id}
+
+    Access is restricted to members of the sponsoring group.
+    For user-sponsored events, only the author or an organizer follower can access.
+    Returns 404 (not 403) on denial to avoid leaking event existence.
     """
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = EventDetailSerializer
@@ -276,6 +281,38 @@ class EventDetailView(generics.RetrieveUpdateDestroyAPIView):
             'decorator_assignments__decorator',
             'gathering_extension'
         )
+
+    def get_object(self):
+        from django.http import Http404
+        obj = super().get_object()
+        user = self.request.user
+
+        if user.is_staff or user.is_superuser:
+            return obj
+
+        group_ct = ContentType.objects.get_for_model(Group)
+        if obj.sponsor_content_type == group_ct:
+            try:
+                group = Group.objects.get(id=obj.sponsor_object_id, is_active=True)
+            except Group.DoesNotExist:
+                raise Http404
+            user_ct = ContentType.objects.get_for_model(user.__class__)
+            is_member = GroupMembership.objects.filter(
+                group=group,
+                member_content_type=user_ct,
+                member_object_id=user.id,
+                is_active=True,
+                is_pending=False,
+            ).exists()
+            if not is_member:
+                raise Http404
+        else:
+            if obj.author != user and not obj.followers.filter(
+                user=user, follow_type='organizer'
+            ).exists():
+                raise Http404
+
+        return obj
 
 
 class EventPublishView(generics.CreateAPIView):

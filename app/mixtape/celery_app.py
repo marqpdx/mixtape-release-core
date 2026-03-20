@@ -33,6 +33,7 @@ app.conf.task_default_queue = default_q
 task_queues = [
     Queue(default_q, routing_key=default_q),
     Queue("synopsis_results", routing_key="synopsis_results"),  # For FastAPI → Django synopsis communication
+    Queue("commons", routing_key="commons"),  # Commons URL extraction via Inkwell
 ]
 
 # Dev-only: isolate transcription tasks to avoid prefork + torch issues
@@ -48,6 +49,9 @@ task_routes = {
     },
     "inkwell.tasks.synopsis.process_synopsis_result": {
         "queue": "synopsis_results", "routing_key": "synopsis_results"
+    },
+    "commons.tasks.extract_commons_item_task": {
+        "queue": "commons", "routing_key": "commons"
     },
 }
 

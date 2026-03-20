@@ -239,6 +239,17 @@ class MillDraftActionSerializer(serializers.Serializer):
         choices=['discard', 'approve', 'open', 'promote', 'archive', 'reactivate'],
         help_text="Action to perform"
     )
+    publish = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="For 'promote' action: if True, attempt publish (subject to PSC rules)"
+    )
+    notes = serializers.CharField(
+        required=False,
+        default="",
+        allow_blank=True,
+        help_text="Optional rationale recorded in the Review Queue audit log"
+    )
 
     def validate(self, data):
         """Validate action is allowed for current state"""
