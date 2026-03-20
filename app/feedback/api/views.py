@@ -148,6 +148,61 @@ def feedback_summary(request) -> Response:
     return Response({"data": {"new": new_count, "total": total_count}})
 
 
+@api_view(["POST"])
+@permission_classes([AllowAny])
+@authentication_classes([])
+@throttle_classes([FeedbackIPThrottle])
+def mindful_brilliance_contact(request) -> Response:
+    """
+    Pass-through contact form for the Mindful Brilliance website.
+    No DB persistence — sends email to connect@crossroads.place.
+    """
+    import logging
+    from utils.email.send_transactional_email import send_transactional_email
+
+    logger = logging.getLogger(__name__)
+
+    name = str(request.data.get("name", "")).strip()
+    email = str(request.data.get("email", "")).strip()
+    organization = str(request.data.get("organization", "")).strip()
+    interest = str(request.data.get("interest", "")).strip()
+    message = str(request.data.get("message", "")).strip()
+
+    if not name:
+        return Response({"error": "Name is required."}, status=status.HTTP_400_BAD_REQUEST)
+    if not email:
+        return Response({"error": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
+    if "@" not in email or "." not in email.split("@")[-1]:
+        return Response({"error": "Invalid email address."}, status=status.HTTP_400_BAD_REQUEST)
+    if not message:
+        return Response({"error": "Message is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    CONTACT_EMAIL = "connect@crossroads.place"
+
+    try:
+        send_transactional_email(
+            subject=f"MB contact: {name}",
+            to_emails=[CONTACT_EMAIL],
+            template_base="email/mb_contact",
+            context={
+                "name": name,
+                "email": email,
+                "organization": organization,
+                "interest": interest,
+                "message": message,
+            },
+            reply_to=email,
+        )
+    except Exception as e:
+        logger.error("mb_contact email failed: %s", e)
+        return Response(
+            {"error": "Failed to send message. Please try again."},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return Response({"message": "Message received."}, status=status.HTTP_200_OK)
+
+
 @api_view(["PATCH", "DELETE"])
 @permission_classes([IsAuthenticated])
 @authentication_classes([OAuth2Authentication, JWTAuthentication])

@@ -234,6 +234,10 @@ def process_pending_uploads() -> dict[str, int]:
                 provider="sentence-transformers",
             )
 
+            # Queue MillDraft candidate creation (surfaces artifact in Review Queue)
+            from stackroom.tasks.milldraft import create_milldraft_from_artifact_task
+            create_milldraft_from_artifact_task.delay(artifact_id=str(artifact.id))
+
             logger.info(f"Successfully queued processing for {source_file.filename}")
             processed_count += 1
 

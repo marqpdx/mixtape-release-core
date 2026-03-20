@@ -21,7 +21,7 @@ def _check_group_permission(user, sponsor_object_id, permission):
     try:
         sponsor = Group.objects.get(id=sponsor_object_id, is_active=True)
     except Group.DoesNotExist:
-        return False
+        raise Http404
     return PermissionService.can_user_perform_action(
         user,
         permission,

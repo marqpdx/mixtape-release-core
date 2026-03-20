@@ -1,0 +1,37 @@
+[Unit]
+Description=Crossroads Celery Worker (commons)
+After=network.target rabbitmq-server.service
+Requires=rabbitmq-server.service
+
+[Service]
+Type=simple
+User=crossroads
+Group=crossroads
+WorkingDirectory=/var/www/crossroads/app/app
+EnvironmentFile=/var/www/crossroads/.env
+
+Environment=CELERY_POOL=prefork
+Environment=CELERY_CONCURRENCY=2
+Environment=OMP_NUM_THREADS=4
+Environment=CUDA_VISIBLE_DEVICES=
+Environment=PYTORCH_ENABLE_MPS_FALLBACK=0
+
+ExecStart=/var/www/crossroads/app/venv/bin/celery -A mixtape.celery_app worker \
+  --loglevel=INFO \
+  --concurrency=2 \
+  -P prefork \
+  --prefetch-multiplier=1 \
+  -Q commons \
+  -n commons-worker@%%h
+
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=true
+PrivateTmp=true
+ReadWritePaths=/var/www/crossroads
+
+[Install]
+WantedBy=multi-user.target

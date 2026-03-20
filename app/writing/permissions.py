@@ -30,12 +30,9 @@ class CanEditWritingPiece(BasePermission):
             from groups.models import Group
             try:
                 sponsor = Group.objects.get(id=obj.sponsor_object_id, is_active=True)
-                # Use PermissionService to check if user can edit writing in this group
-                # Phase 1: Using 'edit_course' as proxy until 'edit_writing' is added to ROLE_PERMISSIONS
-                # TODO Phase 2: Add 'edit_writing' and 'publish_writing' to groups/services/permissions.py
                 return PermissionService.can_user_perform_action(
                     user,
-                    "edit_course",  # Temporary: admin/steward can edit
+                    "edit_writing",
                     group_slug=sponsor.slug
                 )
             except Group.DoesNotExist:
@@ -64,12 +61,9 @@ class CanPublishWritingPiece(BasePermission):
             from groups.models import Group
             try:
                 sponsor = Group.objects.get(id=obj.sponsor_object_id, is_active=True)
-                # Use PermissionService to check if user can publish in this group
-                # Phase 1: Using 'publish_course' as proxy until 'publish_writing' is added
-                # TODO Phase 2: Add 'publish_writing' to groups/services/permissions.py
                 return PermissionService.can_user_perform_action(
                     user,
-                    "publish_course",  # Temporary: admin/steward can publish
+                    "publish_writing",
                     group_slug=sponsor.slug
                 )
             except Group.DoesNotExist:

@@ -698,3 +698,201 @@ class ContentProfileConfig(BaseModel):
                     'message': f'{field} is required'
                 })
         return errors
+
+
+# ============================================================================
+# ReviewQueueEntry — D-3
+# ============================================================================
+
+class ReviewQueueDecision(models.TextChoices):
+    """
+    Formal decisions that can be recorded against a Review Queue entry.
+    Aligns with Phase 4 Review Queue action set.
+    """
+    DISCARD = 'discard', 'Discarded'
+    APPROVE = 'approve', 'Approved for Consideration'
+    PROMOTE = 'promote', 'Promoted (draft canonical)'
+    PROMOTE_AND_PUBLISH = 'promote_and_publish', 'Promoted + Published'
+    ARCHIVE = 'archive', 'Archived'
+
+
+class ReviewQueueEntry(BaseModel):
+    """
+    Audit log for Review Queue decisions.
+
+    One entry is created each time a steward takes a formal action on a
+    MillDraft from the Review Queue surface. This preserves the decision
+    trail independently of the MillDraft's own status transitions.
+
+    Key properties:
+    - One entry per decision event (not one per draft — drafts may have
+      multiple entries if reopened/re-triaged)
+    - Immutable after creation (decisions are facts, not editable state)
+    - Notes are optional but encouraged for non-trivial decisions
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    draft = models.ForeignKey(
+        MillDraft,
+        on_delete=models.CASCADE,
+        related_name='queue_entries',
+        help_text="The MillDraft this decision was made on"
+    )
+
+    decision = models.CharField(
+        max_length=30,
+        choices=ReviewQueueDecision.choices,
+        db_index=True,
+        help_text="The formal action taken"
+    )
+
+    decided_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='review_queue_decisions',
+        help_text="User who made this decision"
+    )
+
+    decided_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="When the decision was recorded"
+    )
+
+    notes = models.TextField(
+        blank=True,
+        default="",
+        help_text="Optional rationale or context for this decision"
+    )
+
+    class Meta:
+        db_table = 'fundamentals_review_queue_entry'
+        verbose_name = 'Review Queue Entry'
+        verbose_name_plural = 'Review Queue Entries'
+        ordering = ['-decided_at']
+        indexes = [
+            models.Index(fields=['draft', '-decided_at']),
+            models.Index(fields=['decided_by', '-decided_at']),
+            models.Index(fields=['decision', '-decided_at']),
+        ]
+
+    def __str__(self):
+        return (
+            f"ReviewQueueEntry: {self.get_decision_display()} "
+            f"on {self.draft_id} by {self.decided_by_id}"
+        )
+
+
+# ============================================================================
+# MillDraftSuggestion — D-2
+# ============================================================================
+
+class SuggestionSource(models.TextChoices):
+    """
+    Source systems that can produce MillDraft suggestions.
+    All suggestions converge into the Review Queue as candidates.
+    """
+    STACKROOM = 'stackroom', 'Stackroom'
+    CONCORD = 'concord', 'Concord'
+    GRISTMILL = 'gristmill', 'Grist Mill'
+    COPYDESK = 'copydesk', 'Copy Desk'
+    IN_EDITOR = 'in_editor', 'In-Editor (Inkwell / Beryl)'
+    MANUAL = 'manual', 'Manual'
+
+
+class MillDraftSuggestion(BaseModel):
+    """
+    Tracks the source-system provenance of a MillDraft suggestion.
+
+    When a source system (Stackroom, Concord, Grist-Mill, etc.) produces
+    a candidate, a MillDraftSuggestion record is created alongside the
+    MillDraft. This preserves the full connector context — what system
+    produced it, what reference ID it has in that system, the raw payload,
+    and a confidence score.
+
+    One MillDraft may have multiple suggestions if the same candidate was
+    surfaced by multiple systems (convergence case).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    draft = models.ForeignKey(
+        MillDraft,
+        on_delete=models.CASCADE,
+        related_name='suggestions',
+        help_text="The MillDraft this suggestion contributed to"
+    )
+
+    source_system = models.CharField(
+        max_length=20,
+        choices=SuggestionSource.choices,
+        db_index=True,
+        help_text="Which source system produced this suggestion"
+    )
+
+    source_ref = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text="ID in the source system (artifact_id, recording_id, session_id, etc.)"
+    )
+
+    raw_payload = models.JSONField(
+        blank=True,
+        default=dict,
+        help_text="Full raw payload from the source connector (preserved for provenance)"
+    )
+
+    score = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Relevance / confidence score from the source system (0.0–1.0)"
+    )
+
+    accepted = models.BooleanField(
+        default=False,
+        help_text="True if this suggestion was accepted into the active draft"
+    )
+
+    accepted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this suggestion was accepted"
+    )
+
+    accepted_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='accepted_suggestions',
+        help_text="User who accepted this suggestion"
+    )
+
+    class Meta:
+        db_table = 'fundamentals_milldraft_suggestion'
+        verbose_name = 'MillDraft Suggestion'
+        verbose_name_plural = 'MillDraft Suggestions'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['draft', 'source_system']),
+            models.Index(fields=['source_system', 'source_ref']),
+            models.Index(fields=['draft', 'accepted']),
+        ]
+
+    def __str__(self):
+        return (
+            f"MillDraftSuggestion: {self.get_source_system_display()} "
+            f"ref={self.source_ref or '—'} "
+            f"({'accepted' if self.accepted else 'pending'})"
+        )
+
+    def accept(self, user: Optional[User] = None) -> None:
+        """Mark this suggestion as accepted."""
+        self.accepted = True
+        self.accepted_at = timezone.now()
+        self.accepted_by = user
+        self.save(update_fields=['accepted', 'accepted_at', 'accepted_by', 'updated_at'])

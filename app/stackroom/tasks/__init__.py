@@ -19,6 +19,10 @@ from .metadata import (
     backfill_artifact_metadata,
 )
 
+from .milldraft import (
+    create_milldraft_from_artifact_task,
+)
+
 __all__ = [
     "embed_library",
     "embed_chunk_embedding",
@@ -27,4 +31,5 @@ __all__ = [
     "process_artifact",
     "extract_artifact_metadata_task",
     "backfill_artifact_metadata",
+    "create_milldraft_from_artifact_task",
 ]

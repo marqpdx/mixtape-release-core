@@ -32,7 +32,7 @@ from publishing.models import ContentPlacement
 from publishing.services.content_access import can_view_placement
 from publishing.services.content_display import get_display_payload
 from writing.models import WritingPiece
-from groups.models import Group
+from groups.models import Group, GroupMembership
 from stackroom.api.auth import ServiceJWTAuthentication
 from stackroom.api.permissions import HasStackroomIRScope
 from stackroom.api.serializers import (
@@ -1414,6 +1414,34 @@ class LibraryPlacementsView(APIView):
         return Response(results, status=drf_status.HTTP_200_OK)
 
 
+def _user_can_edit_library(user, library: Library) -> bool:
+    """
+    Return True if user may add/remove/reorder placements on this library.
+
+    - User-sponsored: must be the sponsor.
+    - Group-sponsored: must have an active GroupMembership with steward, admin, or owner role.
+    """
+    sponsor = library.sponsor
+    if sponsor is None:
+        return False
+    if isinstance(sponsor, user.__class__):
+        return sponsor == user
+    if isinstance(sponsor, Group):
+        user_ct = ContentType.objects.get_for_model(user.__class__)
+        membership = GroupMembership.objects.filter(
+            member_content_type=user_ct,
+            member_object_id=user.id,
+            group=sponsor,
+            is_active=True,
+            deleted_at__isnull=True,
+        ).first()
+        if membership is None:
+            return False
+        write_roles = {"steward", "admin", "owner"}
+        return bool(set(membership.roles or []) & write_roles)
+    return False
+
+
 class LibraryPlacementsManageView(APIView):
     """
     Manage shelf placements (author-facing).
@@ -1426,15 +1454,7 @@ class LibraryPlacementsManageView(APIView):
     permission_classes = [IsAuthenticated]
 
     def _can_edit_library(self, request, library: Library) -> bool:
-        sponsor = library.sponsor
-        if sponsor is None:
-            return False
-        if isinstance(sponsor, request.user.__class__):
-            return sponsor == request.user
-        if isinstance(sponsor, Group):
-            if hasattr(sponsor, "can_user_post"):
-                return sponsor.can_user_post(request.user)
-        return False
+        return _user_can_edit_library(request.user, library)
 
     def post(self, request, library_id):
         library = get_object_or_404(Library, id=library_id)
@@ -1493,15 +1513,7 @@ class LibraryPlacementsReorderView(APIView):
     permission_classes = [IsAuthenticated]
 
     def _can_edit_library(self, request, library: Library) -> bool:
-        sponsor = library.sponsor
-        if sponsor is None:
-            return False
-        if isinstance(sponsor, request.user.__class__):
-            return sponsor == request.user
-        if isinstance(sponsor, Group):
-            if hasattr(sponsor, "can_user_post"):
-                return sponsor.can_user_post(request.user)
-        return False
+        return _user_can_edit_library(request.user, library)
 
     def post(self, request, library_id):
         library = get_object_or_404(Library, id=library_id)

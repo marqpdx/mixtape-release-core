@@ -88,6 +88,9 @@ urlpatterns = [
 
     # === PHASE 4 ENDPOINTS ===
 
+    # Push token registration
+    path("api/push/", include("users.api.urls")),
+
     # Workbench (Review Queue, MillDrafts)
     path("api/workbench/", include("fundamentals.api.urls")),
 

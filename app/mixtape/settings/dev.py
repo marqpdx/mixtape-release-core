@@ -96,6 +96,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:3011",  # Next.js frontend (alternate port)
     "http://127.0.0.1:3010",
     "http://127.0.0.1:3011",
+    "http://127.0.0.1:3020",
 ]
 CORS_ALLOW_CREDENTIALS = True
 

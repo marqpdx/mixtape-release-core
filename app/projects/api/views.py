@@ -7,7 +7,6 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.generics import CreateAPIView
 
-from groups.services.permissions import PermissionService
 from projects.api.serializers import (
     ProjectSerializer,
     ProjectColumnSerializer,
@@ -17,7 +16,7 @@ from projects.api.serializers import (
     TaskUpdateSerializer,
 )
 from projects.models import Project, ProjectColumn, Task
-from projects.permissions import CanArchiveTask, CanCreateTask, CanEditProject, CanEditTask, CanMoveTask, CanViewProject
+from projects.permissions import CanArchiveTask, CanCreateTask, CanEditProject, CanEditTask, CanMoveTask, CanViewProject, can_user_access_sponsor
 from utils.shared.contenttypes import resolve_content_type
 
 
@@ -34,27 +33,11 @@ class ProjectCreateView(CreateAPIView):
             sponsor_content_type = ContentType.objects.get_for_model(user.__class__)
             sponsor_object_id = user.id
 
-        if not (user.is_staff or user.is_superuser):
-            if sponsor_content_type.model == "group":
-                from groups.models import Group
-                sponsor = get_object_or_404(Group, id=sponsor_object_id, is_active=True)
-                allowed = PermissionService.can_user_perform_action(
-                    user,
-                    "can_edit_project",
-                    group_slug=sponsor.slug,
-                )
-                if not allowed:
-                    self.permission_denied(
-                        self.request,
-                        message="You don't have permission to create a project for this group.",
-                    )
-            else:
-                user_ct = ContentType.objects.get_for_model(user.__class__)
-                if sponsor_content_type != user_ct or str(sponsor_object_id) != str(user.id):
-                    self.permission_denied(
-                        self.request,
-                        message="You can only create projects for yourself.",
-                    )
+        if not can_user_access_sponsor(user, sponsor_content_type, sponsor_object_id, "can_edit_project"):
+            self.permission_denied(
+                self.request,
+                message="You don't have permission to create a project for this sponsor.",
+            )
 
         serializer.save(
             submitted_by=user,
@@ -79,27 +62,11 @@ class ProjectListView(APIView):
         sponsor_content_type = resolve_content_type(raw_ct)
         user = request.user
 
-        if not (user.is_staff or user.is_superuser):
-            if sponsor_content_type.model == "group":
-                from groups.models import Group
-                sponsor = get_object_or_404(Group, id=sponsor_object_id, is_active=True)
-                allowed = PermissionService.can_user_perform_action(
-                    user,
-                    "can_view_project",
-                    group_slug=sponsor.slug,
-                )
-                if not allowed:
-                    self.permission_denied(
-                        request,
-                        message="You don't have permission to view projects for this group.",
-                    )
-            else:
-                user_ct = ContentType.objects.get_for_model(user.__class__)
-                if sponsor_content_type != user_ct or str(sponsor_object_id) != str(user.id):
-                    self.permission_denied(
-                        request,
-                        message="You can only view your own projects.",
-                    )
+        if not can_user_access_sponsor(user, sponsor_content_type, sponsor_object_id, "can_view_project"):
+            self.permission_denied(
+                request,
+                message="You don't have permission to view projects for this sponsor.",
+            )
 
         projects = Project.objects.filter(
             sponsor_content_type=sponsor_content_type,

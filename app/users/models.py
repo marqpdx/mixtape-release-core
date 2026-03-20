@@ -72,3 +72,48 @@ class CustomUser(AbstractUser, BaseModel):
         app_label = "users"
         verbose_name = "Custom User"
         verbose_name_plural = "Custom Users"
+
+
+class PushToken(BaseModel):
+    """
+    Stores a device's Expo push token for a user.
+
+    One user may have multiple devices. Tokens are upserted by (user, token)
+    — registering the same token again updates platform/environment and
+    marks it active. Stale/invalid tokens are pruned by the dispatch task
+    when Expo returns DeviceNotRegistered.
+    """
+
+    class Platform(models.TextChoices):
+        IOS = "ios", "iOS"
+        ANDROID = "android", "Android"
+        WEB = "web", "Web"
+
+    class Environment(models.TextChoices):
+        PRODUCTION = "production", "Production"
+        SANDBOX = "sandbox", "Sandbox"
+        DEVELOPMENT = "development", "Development"
+
+    user = models.ForeignKey(
+        "CustomUser",
+        on_delete=models.CASCADE,
+        related_name="push_tokens",
+    )
+    token = models.TextField(unique=True)
+    platform = models.CharField(max_length=16, choices=Platform.choices, default=Platform.IOS)
+    provider = models.CharField(max_length=16, default="expo")
+    environment = models.CharField(
+        max_length=16, choices=Environment.choices, default=Environment.PRODUCTION
+    )
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        app_label = "users"
+        verbose_name = "Push Token"
+        verbose_name_plural = "Push Tokens"
+        indexes = [
+            models.Index(fields=["user", "is_active"]),
+        ]
+
+    def __str__(self):
+        return f"PushToken({self.platform}/{self.environment}) for {self.user_id}"

@@ -7,10 +7,24 @@ from django.contrib.contenttypes.models import ContentType
 from django.db.models import Q
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
-from fundamentals.models import MillDraft, MillDraftStatus, ContentProfileConfig
+from fundamentals.models import (
+    MillDraft,
+    MillDraftStatus,
+    ContentProfileConfig,
+    ReviewQueueEntry,
+    ReviewQueueDecision,
+)
+from fundamentals.services.draft_promotion import (
+    promote_draft,
+    PromotionError,
+    ValidationError as DraftValidationError,
+    PSCViolation,
+    UnsupportedProfile,
+)
 from .serializers import (
     MillDraftListSerializer,
     MillDraftDetailSerializer,
@@ -38,6 +52,76 @@ class MillDraftViewSet(viewsets.ModelViewSet):
     queryset = MillDraft.objects.all()
     lookup_field = 'pk'
     lookup_value_regex = '[0-9a-fA-F-]+'
+
+    @staticmethod
+    def _user_can_access_sponsor(user, sponsor_ct, sponsor_object_id):
+        """
+        Return True if user has read access to the given sponsor's drafts.
+
+        - User-sponsored: request.user must be the sponsor.
+        - Group-sponsored: request.user must be an active member (any role).
+        """
+        from django.contrib.auth import get_user_model
+        from groups.models import Group, GroupMembership
+
+        User = get_user_model()
+        user_ct = ContentType.objects.get_for_model(User)
+
+        if sponsor_ct == user_ct:
+            return str(user.id) == str(sponsor_object_id)
+
+        group_ct = ContentType.objects.get_for_model(Group)
+        if sponsor_ct == group_ct:
+            return GroupMembership.objects.filter(
+                group_id=sponsor_object_id,
+                member_content_type=user_ct,
+                member_object_id=user.id,
+                deleted_at__isnull=True,
+            ).exists()
+
+        return False
+
+    @staticmethod
+    def _user_has_steward_access(user, sponsor_ct, sponsor_object_id):
+        """
+        Return True if user has steward-level access to the given sponsor.
+
+        Required for all triage actions (open, discard, approve, promote,
+        archive, reactivate). Steward, admin, and owner all qualify.
+
+        - User-sponsored: request.user must be the sponsor (they are the owner).
+        - Group-sponsored: membership must include steward, admin, or owner role.
+        """
+        from django.contrib.auth import get_user_model
+        from groups.models import Group, GroupMembership
+
+        User = get_user_model()
+        user_ct = ContentType.objects.get_for_model(User)
+
+        if sponsor_ct == user_ct:
+            return str(user.id) == str(sponsor_object_id)
+
+        group_ct = ContentType.objects.get_for_model(Group)
+        if sponsor_ct == group_ct:
+            return GroupMembership.objects.filter(
+                group_id=sponsor_object_id,
+                member_content_type=user_ct,
+                member_object_id=user.id,
+                deleted_at__isnull=True,
+                roles__overlap=['steward', 'admin', 'owner'],
+            ).exists()
+
+        return False
+
+    def check_object_permissions(self, request, obj):
+        """Enforce sponsor membership for all detail-level operations."""
+        super().check_object_permissions(request, obj)
+        if not self._user_can_access_sponsor(
+            request.user,
+            obj.sponsor_content_type,
+            obj.sponsor_object_id,
+        ):
+            raise PermissionDenied("You do not have access to this draft.")
 
     def get_serializer_class(self):
         """Return appropriate serializer based on action"""
@@ -93,6 +177,10 @@ class MillDraftViewSet(viewsets.ModelViewSet):
             sponsor_ct = ContentType.objects.get_for_model(Group)
         else:
             return queryset.none()
+
+        # Enforce sponsor membership before returning any data
+        if not self._user_can_access_sponsor(self.request.user, sponsor_ct, sponsor_id):
+            raise PermissionDenied("You do not have access to this sponsor's drafts.")
 
         queryset = queryset.filter(
             sponsor_content_type=sponsor_ct,
@@ -181,6 +269,15 @@ class MillDraftViewSet(viewsets.ModelViewSet):
         Body: {"action": "discard|approve|open|promote|archive|reactivate"}
         """
         draft = self.get_object()
+
+        # Triage actions require steward+ role
+        if not self._user_has_steward_access(
+            request.user,
+            draft.sponsor_content_type,
+            draft.sponsor_object_id,
+        ):
+            raise PermissionDenied("Triage actions require steward role or higher.")
+
         serializer = MillDraftActionSerializer(
             data=request.data,
             context={'draft': draft}
@@ -188,54 +285,69 @@ class MillDraftViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
 
         action_name = serializer.validated_data['action']
+        notes = serializer.validated_data.get('notes', '')
+
+        # Map action names to ReviewQueueDecision values (audit log)
+        _AUDIT_DECISION = {
+            'discard': ReviewQueueDecision.DISCARD,
+            'approve': ReviewQueueDecision.APPROVE,
+            'archive': ReviewQueueDecision.ARCHIVE,
+        }
 
         try:
             if action_name == 'discard':
-                # Discard = soft delete
                 draft.soft_delete(user=request.user)
                 message = 'Draft discarded'
 
             elif action_name == 'approve':
-                # Approve for Consideration (no state change, just a marker)
-                # For now, just return success
-                # TODO: Add approval tracking if needed
+                # Approve for Consideration — no state change, just audit record
                 message = 'Draft approved for consideration'
 
             elif action_name == 'open':
-                # Open for editing (candidate → active)
+                # Open for editing (candidate → active) — intentionally not audited
                 draft.open_for_editing(user=request.user)
                 message = 'Draft opened for editing'
 
             elif action_name == 'promote':
-                # Run hard validation
-                validation_result = draft.run_validation(hard=True)
-                if not draft.is_valid:
+                publish = serializer.validated_data.get('publish', False)
+                try:
+                    result = promote_draft(
+                        draft=draft,
+                        promoted_by=request.user,
+                        publish=publish,
+                    )
+                    draft.refresh_from_db()
+                    message = (
+                        f"Draft promoted to {result.canonical_type}"
+                        + (" and published" if result.was_published else " as draft")
+                    )
+                    ReviewQueueEntry.objects.create(
+                        draft=draft,
+                        decision=(
+                            ReviewQueueDecision.PROMOTE_AND_PUBLISH
+                            if result.was_published
+                            else ReviewQueueDecision.PROMOTE
+                        ),
+                        decided_by=request.user,
+                        notes=notes,
+                    )
+                except DraftValidationError as exc:
                     return Response(
-                        {
-                            'error': 'Draft failed validation',
-                            'validation_errors': draft.validation_errors
-                        },
-                        status=status.HTTP_400_BAD_REQUEST
+                        {'error': str(exc), 'validation_errors': exc.validation_errors},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                except (PSCViolation, UnsupportedProfile, PromotionError) as exc:
+                    return Response(
+                        {'error': str(exc)},
+                        status=status.HTTP_400_BAD_REQUEST,
                     )
 
-                # Mark ready to promote
-                if draft.is_active:
-                    draft.mark_ready_to_promote()
-
-                # Promote
-                draft.promote(user=request.user)
-                message = 'Draft promoted successfully'
-
-                # TODO: Actually create/update canonical object here
-                # For now, just mark as promoted
-
             elif action_name == 'archive':
-                # Archive draft
                 draft.archive(user=request.user)
                 message = 'Draft archived'
 
             elif action_name == 'reactivate':
-                # Reactivate archived draft
+                # Reactivate archived draft — not a queue decision, no audit entry
                 draft.reactivate(user=request.user)
                 message = 'Draft reactivated'
 
@@ -245,7 +357,15 @@ class MillDraftViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            # Return updated draft
+            # Write audit entry for queue-surface decisions (discard/approve/archive)
+            if action_name in _AUDIT_DECISION:
+                ReviewQueueEntry.objects.create(
+                    draft=draft,
+                    decision=_AUDIT_DECISION[action_name],
+                    decided_by=request.user,
+                    notes=notes,
+                )
+
             detail_serializer = MillDraftDetailSerializer(draft)
             return Response({
                 'message': message,

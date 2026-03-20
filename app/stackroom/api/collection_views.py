@@ -19,6 +19,9 @@ from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 from django.db import transaction, models
 
+from django.contrib.contenttypes.models import ContentType
+from django.http import Http404
+
 from stackroom.models import Library, LibraryItem, SourceFile
 from stackroom.api.collection_serializers import (
     CollectionListSerializer,
@@ -34,6 +37,208 @@ from stackroom.api.collection_serializers import (
     CollectionFileUploadSerializer,
     CollectionFileUploadResponseSerializer,
 )
+
+
+# ============================================================================
+# Access Control Helpers (SEC-1 / SEC-2)
+# ============================================================================
+
+# Allowed upload extensions → canonical MIME type (SEC-3)
+_ALLOWED_UPLOAD_TYPES = {
+    '.md': 'text/markdown',
+    '.txt': 'text/plain',
+    '.pdf': 'application/pdf',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    '.csv': 'text/csv',
+    '.json': 'application/json',
+}
+_MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
+
+
+def _get_group_membership(user, group_id):
+    """Return active, non-pending GroupMembership for user in group, or None."""
+    from django.contrib.auth import get_user_model
+    from groups.models import GroupMembership
+    User = get_user_model()
+    user_ct = ContentType.objects.get_for_model(User)
+    return GroupMembership.objects.filter(
+        group_id=group_id,
+        member_content_type=user_ct,
+        member_object_id=user.id,
+        is_active=True,
+        is_pending=False,
+    ).first()
+
+
+def _has_write_role(membership):
+    """True if membership includes steward, admin, or owner role."""
+    if not membership:
+        return False
+    return bool({'owner', 'admin', 'steward'}.intersection(set(membership.roles or [])))
+
+
+def _has_admin_role(membership):
+    """True if membership includes admin or owner role."""
+    if not membership:
+        return False
+    return bool({'owner', 'admin'}.intersection(set(membership.roles or [])))
+
+
+def _check_collection_read(user, library):
+    """
+    Enforce read access. Raises Http404 on denial.
+
+    User-sponsored: only the sponsor user.
+    Group-sponsored:
+      - public / unlisted: any authenticated user
+      - members: active group member required
+      - private: admin or owner required
+    """
+    if user.is_staff or user.is_superuser:
+        return
+
+    from django.contrib.auth import get_user_model
+    from groups.models import Group
+    User = get_user_model()
+    user_ct = ContentType.objects.get_for_model(User)
+    group_ct = ContentType.objects.get_for_model(Group)
+
+    if library.sponsor_content_type == user_ct:
+        if str(library.sponsor_object_id) != str(user.id):
+            raise Http404
+        return
+
+    if library.sponsor_content_type == group_ct:
+        if library.visibility in ('public', 'unlisted'):
+            return
+        membership = _get_group_membership(user, library.sponsor_object_id)
+        if library.visibility == 'members':
+            if not membership:
+                raise Http404
+        elif library.visibility == 'private':
+            if not _has_admin_role(membership):
+                raise Http404
+        return
+
+    raise Http404
+
+
+def _check_collection_write(user, library):
+    """
+    Enforce write access (add items, reorder, upload). Raises Http404 on denial.
+
+    User-sponsored: only the sponsor user.
+    Group-sponsored: steward+ required; admin+ for private libraries.
+    """
+    if user.is_staff or user.is_superuser:
+        return
+
+    from django.contrib.auth import get_user_model
+    from groups.models import Group
+    User = get_user_model()
+    user_ct = ContentType.objects.get_for_model(User)
+    group_ct = ContentType.objects.get_for_model(Group)
+
+    if library.sponsor_content_type == user_ct:
+        if str(library.sponsor_object_id) != str(user.id):
+            raise Http404
+        return
+
+    if library.sponsor_content_type == group_ct:
+        membership = _get_group_membership(user, library.sponsor_object_id)
+        if library.visibility == 'private':
+            if not _has_admin_role(membership):
+                raise Http404
+        else:
+            if not _has_write_role(membership):
+                raise Http404
+        return
+
+    raise Http404
+
+
+def _check_collection_admin(user, library):
+    """
+    Enforce admin access (create collection, update metadata, delete collection).
+    Raises Http404 on denial.
+
+    User-sponsored: only the sponsor user.
+    Group-sponsored: admin or owner required.
+    """
+    if user.is_staff or user.is_superuser:
+        return
+
+    from django.contrib.auth import get_user_model
+    from groups.models import Group
+    User = get_user_model()
+    user_ct = ContentType.objects.get_for_model(User)
+    group_ct = ContentType.objects.get_for_model(Group)
+
+    if library.sponsor_content_type == user_ct:
+        if str(library.sponsor_object_id) != str(user.id):
+            raise Http404
+        return
+
+    if library.sponsor_content_type == group_ct:
+        membership = _get_group_membership(user, library.sponsor_object_id)
+        if not _has_admin_role(membership):
+            raise Http404
+        return
+
+    raise Http404
+
+
+def _filter_visible_libraries(user, qs):
+    """
+    Filter Library queryset to only what the user can see in a list view.
+    `unlisted` libraries are excluded from lists (accessible only via direct link).
+    """
+    from django.db.models import Q
+    from django.contrib.auth import get_user_model
+    from groups.models import Group, GroupMembership
+    User = get_user_model()
+    user_ct = ContentType.objects.get_for_model(User)
+    group_ct = ContentType.objects.get_for_model(Group)
+
+    if user.is_staff or user.is_superuser:
+        return qs
+
+    # User-sponsored: only own libraries
+    user_q = Q(sponsor_content_type=user_ct, sponsor_object_id=user.id)
+
+    # Group-sponsored, public
+    public_q = Q(sponsor_content_type=group_ct, visibility='public')
+
+    # Group-sponsored, members (user must be an active member)
+    member_group_ids = GroupMembership.objects.filter(
+        member_content_type=user_ct,
+        member_object_id=user.id,
+        is_active=True,
+        is_pending=False,
+    ).values_list('group_id', flat=True)
+    members_q = Q(
+        sponsor_content_type=group_ct,
+        visibility='members',
+        sponsor_object_id__in=member_group_ids,
+    )
+
+    # Group-sponsored, private (admin/owner only)
+    admin_group_ids = GroupMembership.objects.filter(
+        member_content_type=user_ct,
+        member_object_id=user.id,
+        is_active=True,
+        is_pending=False,
+        roles__overlap=['owner', 'admin'],
+    ).values_list('group_id', flat=True)
+    private_q = Q(
+        sponsor_content_type=group_ct,
+        visibility='private',
+        sponsor_object_id__in=admin_group_ids,
+    )
+
+    # `unlisted` intentionally excluded from list views
+    return qs.filter(user_q | public_q | members_q | private_q)
 
 
 class CollectionListView(APIView):
@@ -71,7 +276,7 @@ class CollectionListView(APIView):
         if sponsor_id:
             libraries = libraries.filter(sponsor_object_id=sponsor_id)
 
-        # TODO: Filter by user access permissions
+        libraries = _filter_visible_libraries(request.user, libraries)
 
         serializer = CollectionListSerializer(libraries, many=True)
         return Response(serializer.data, status=drf_status.HTTP_200_OK)
@@ -108,7 +313,14 @@ class CollectionListView(APIView):
             sponsor_ct = ContentType.objects.get_for_model(User)
             sponsor_obj = get_object_or_404(User, id=data['sponsor_id'])
 
-        # TODO: Check user has permission to create Collection for this sponsor
+        # Check create permission: must be admin+ for group-sponsored, self for user-sponsored
+        _check_collection_admin(
+            request.user,
+            Library(
+                sponsor_content_type=sponsor_ct,
+                sponsor_object_id=data['sponsor_id'],
+            ),
+        )
 
         # Create Library (Collection)
         library = Library.objects.create(
@@ -118,6 +330,7 @@ class CollectionListView(APIView):
             sponsor_content_type=sponsor_ct,
             sponsor_object_id=data['sponsor_id'],
             author_name=data.get('author_name', ''),
+            visibility=data.get('visibility', 'private'),
             submitted_by=request.user,
         )
 
@@ -141,7 +354,7 @@ class CollectionDetailView(APIView):
         """Get Collection detail"""
         library = get_object_or_404(Library, id=collection_id)
 
-        # TODO: Check user has read access
+        _check_collection_read(request.user, library)
 
         serializer = CollectionDetailSerializer(library)
         return Response(serializer.data, status=drf_status.HTTP_200_OK)
@@ -160,7 +373,7 @@ class CollectionDetailView(APIView):
         """
         library = get_object_or_404(Library, id=collection_id)
 
-        # TODO: Check user has write access
+        _check_collection_admin(request.user, library)
 
         serializer = CollectionUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -176,6 +389,8 @@ class CollectionDetailView(APIView):
             library.body = data['body']
         if 'author_name' in data:
             library.author_name = data['author_name']
+        if 'visibility' in data:
+            library.visibility = data['visibility']
 
         library.save()
 
@@ -191,7 +406,7 @@ class CollectionDetailView(APIView):
         """
         library = get_object_or_404(Library, id=collection_id)
 
-        # TODO: Check user has delete access
+        _check_collection_admin(request.user, library)
 
         library.delete()
 
@@ -212,7 +427,7 @@ class CollectionAvailableFilesView(APIView):
         """List available SourceFiles with usage info"""
         library = get_object_or_404(Library, id=collection_id)
 
-        # TODO: Check user has read access
+        _check_collection_read(request.user, library)
 
         # Get all SourceFiles in this Library
         source_files = library.source_files.all().order_by('-created_at')
@@ -255,7 +470,7 @@ class CollectionAvailableDocumentsView(APIView):
         """List available WritingPieces with usage info"""
         library = get_object_or_404(Library, id=collection_id)
 
-        # TODO: Check user has read access
+        _check_collection_read(request.user, library)
 
         # Get all published WritingPieces with matching sponsor
         from writing.models import WritingPiece
@@ -315,7 +530,7 @@ class CollectionItemListView(APIView):
         """
         library = get_object_or_404(Library, id=collection_id)
 
-        # TODO: Check user has read access
+        _check_collection_read(request.user, library)
 
         items = library.items.select_related('content_type').all()
 
@@ -352,7 +567,7 @@ class CollectionItemListView(APIView):
         """
         library = get_object_or_404(Library, id=collection_id)
 
-        # TODO: Check user has write access
+        _check_collection_write(request.user, library)
 
         serializer = LibraryItemCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -486,7 +701,7 @@ class CollectionItemDetailView(APIView):
         library = get_object_or_404(Library, id=collection_id)
         item = get_object_or_404(LibraryItem, id=item_id, library=library)
 
-        # TODO: Check user has read access
+        _check_collection_read(request.user, library)
 
         serializer = LibraryItemSerializer(item)
         return Response(serializer.data, status=drf_status.HTTP_200_OK)
@@ -508,7 +723,7 @@ class CollectionItemDetailView(APIView):
         library = get_object_or_404(Library, id=collection_id)
         item = get_object_or_404(LibraryItem, id=item_id, library=library)
 
-        # TODO: Check user has write access
+        _check_collection_write(request.user, library)
 
         serializer = LibraryItemUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -544,7 +759,7 @@ class CollectionItemDetailView(APIView):
         library = get_object_or_404(Library, id=collection_id)
         item = get_object_or_404(LibraryItem, id=item_id, library=library)
 
-        # TODO: Check user has write access
+        _check_collection_write(request.user, library)
 
         item.delete()
 
@@ -580,7 +795,7 @@ class CollectionItemReorderView(APIView):
         """
         library = get_object_or_404(Library, id=collection_id)
 
-        # TODO: Check user has write access
+        _check_collection_write(request.user, library)
 
         serializer = LibraryItemBulkReorderSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -678,8 +893,8 @@ class CollectionItemCopyFromView(APIView):
         target_library = get_object_or_404(Library, id=collection_id)
         source_library = get_object_or_404(Library, id=source_collection_id)
 
-        # TODO: Check user has write access to target_library
-        # TODO: Check user has read access to source_library
+        _check_collection_write(request.user, target_library)
+        _check_collection_read(request.user, source_library)
 
         # Verify they're from the same sponsor (same organization/user)
         if (target_library.sponsor_content_type != source_library.sponsor_content_type or
@@ -798,10 +1013,28 @@ class CollectionFileUploadView(APIView):
 
         uploaded_file = serializer.validated_data['file']
 
-        # Verify Collection exists and user has access
+        # Verify Collection exists and user has write access
         library = get_object_or_404(Library, id=collection_id)
+        _check_collection_write(request.user, library)
 
-        # TODO: Add permission check - verify user has write access to Collection
+        # SEC-3: File size check (before read)
+        if uploaded_file.size > _MAX_UPLOAD_BYTES:
+            return Response(
+                {"detail": f"File too large. Maximum size is {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB."},
+                status=drf_status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+
+        # SEC-3: Extension whitelist
+        import os
+        _, ext = os.path.splitext(uploaded_file.name.lower())
+        if ext not in _ALLOWED_UPLOAD_TYPES:
+            return Response(
+                {
+                    "detail": f"File type '{ext}' is not allowed. "
+                              f"Allowed types: {', '.join(sorted(_ALLOWED_UPLOAD_TYPES))}."
+                },
+                status=drf_status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            )
 
         # Compute file hash for deduplication
         file_content = uploaded_file.read()
@@ -839,7 +1072,7 @@ class CollectionFileUploadView(APIView):
             origin="upload",
             path=saved_path,  # Path to file in storage
             filename=uploaded_file.name,
-            content_type=uploaded_file.content_type or 'application/octet-stream',
+            content_type=_ALLOWED_UPLOAD_TYPES[ext],
             size_bytes=uploaded_file.size,
             hash_sha256=file_hash,
             created_by=request.user if request.user.is_authenticated else None,

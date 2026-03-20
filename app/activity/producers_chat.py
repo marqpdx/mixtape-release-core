@@ -103,6 +103,68 @@ def on_chat_mention(*, message, conversation, mentioned_users):
 
 
 # ==================================================================================
+# 1b) on_new_chat_message: new message in any conversation (normal priority)
+#     Fan out to all participants except the sender.
+# ==================================================================================
+def on_new_chat_message(*, message, conversation, recipients):
+    """
+    Called on every new ChatMessage for all participants except the sender.
+
+    - Channel: messages (dedicated inbox tab / navbar badge)
+    - Priority: normal
+    - Suppressible: yes (users can mute conversations)
+    - Dedupe: per message (so each message gets one Notification row per recipient)
+    - Aggregate: per-conversation per-minute (rolling rollup for burst messages)
+
+    `recipients` must exclude the sender — caller is responsible for the filter.
+    """
+    if not recipients:
+        return
+
+    at = _ensure_activity_type(
+        code="chat.message.new",
+        title="New Message",
+        default_channel="messages",
+        default_priority="normal",
+        suppressible_by_user=True,
+    )
+
+    recipient_ids = [str(u.pk) for u in recipients]
+
+    _create_action_and_outbox(
+        actor_content_type=_ct(message.sender),
+        actor_id=_id(message.sender),
+        actor_label="user",
+
+        object_content_type=_ct(message),
+        object_id=_id(message),
+        context_content_type=_ct(conversation),
+        context_id=_id(conversation),
+
+        activity_type=at,
+        verb="sent",
+        activity_code=at.code,
+        channel=at.default_channel,
+        priority=at.default_priority,
+
+        metadata={
+            "message_preview": (getattr(message, "text", "") or "")[:140],
+            "conversation_slug": str(conversation.slug),
+            "conversation_title": str(getattr(conversation, "title", "") or ""),
+        },
+
+        # Dedupe per message so each message gets its own row
+        dedupe_key=f"chat.message.new:{_id(message)}",
+        # Rolling rollup — groups burst messages in the same conversation
+        aggregate_key=f"chat-messages:{_id(conversation)}:{timezone.now():%Y%m%d%H%M}",
+
+        audience={"type": "users", "ids": recipient_ids, "exclude_actor": False},
+
+        occurs_at=timezone.now(),
+    )
+
+
+# ==================================================================================
 # 2) on_conversation_participant_added: user is added to a conversation (SYSTEM-ish)
 # ==================================================================================
 def on_conversation_participant_added(*, conversation, added_user, added_by):

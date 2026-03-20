@@ -183,7 +183,23 @@ def conversation_messages(request, slug):
     if serializer.is_valid():
         message = serializer.save(sender=user, conversation=conversation)
 
-        # Fire activity producer for group-scoped conversations
+        # Fan out new-message notifications to all participants except sender
+        try:
+            from activity.producers_chat import on_new_chat_message
+            recipient_users = list(
+                CustomUser.objects.filter(
+                    conversationparticipant__conversation=conversation
+                ).exclude(pk=user.pk)
+            )
+            on_new_chat_message(
+                message=message,
+                conversation=conversation,
+                recipients=recipient_users,
+            )
+        except Exception:
+            pass  # Never block message creation if notification fails
+
+        # Additional producer for group-scoped conversations
         try:
             cc = conversation.conversation_contexts.select_related(
                 "context__content_type"
@@ -195,7 +211,7 @@ def conversation_messages(request, slug):
                     message=message, conversation=conversation, group=group,
                 )
         except Exception:
-            pass  # Don't block message creation if activity fails
+            pass
 
         return Response(ChatMessageSerializer(message).data, status=status.HTTP_201_CREATED)
 

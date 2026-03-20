@@ -16,6 +16,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from groups.models import Group
+from groups.services.permissions import PermissionService
 from publishing.models import ContentPlacement
 from publishing.services.content_access import can_view_placement
 from publishing.services.content_display import get_display_payload
@@ -182,7 +183,7 @@ class WritingPieceListCreateView(generics.ListCreateAPIView):
 class WritingPieceRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = WritingPieceSerializer
     permission_classes = [permissions.IsAuthenticated, CanEditWritingPiece]
-    lookup_field = "slug"
+    lookup_field = "pk"
 
     def get_queryset(self):
         return WritingPiece.objects.filter(author=self.request.user)
@@ -580,341 +581,34 @@ class WritingPiecePublishAndPlaceView(generics.GenericAPIView):
         self.check_object_permissions(self.request, piece)
         return piece
 
-    def _coerce_bool(self, v, default=False):
-        if isinstance(v, bool): return v
-        if isinstance(v, str): return v.lower() in ("1","true","yes","y","on")
-        return default
-
     def post(self, request, pk=None):
+        from publishing.serializers import ContentPlacementSerializer
+        from writing.publish_service import publish_and_place
+
         piece = self.get_piece(pk)
 
-        # Safety check - don't allow publishing empty pieces
         if piece.is_empty:
-            return Response({
-                "error": "Cannot publish empty content"
-            }, status=400)
-
-        data = request.data or {}
-
-        destinations = data.get("destinations", {}) or {}
-        placement_defaults = data.get("placement_options", {}) or {}
-        group_overrides = data.get("group_overrides", {}) or {}
-        audience = data.get("audience")
-        addressed_to = data.get("addressed_to")
-
-        has_destinations = any(
-            [
-                destinations.get("personal"),
-                destinations.get("lantern"),
-                destinations.get("groups"),
-                destinations.get("shelves"),
-            ]
-        )
-        if not has_destinations and audience != "just_me":
-            return Response(
-                {"error": "At least one destination must be selected."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # parse schedule
-        scheduled_for = None
-        if data.get("scheduled_for"):
-            scheduled_for = dateparse.parse_datetime(data["scheduled_for"])
-            if not scheduled_for:
-                return Response({"error": "scheduled_for must be ISO8601 datetime."},
-                                status=status.HTTP_400_BAD_REQUEST)
-
-        # collect optional edits
-        editable_fields = {}
-        for fld in ("title", "excerpt", "canonical_url", "writing_kind", "body_json", "addressed_to"):
-            if fld in data:
-                editable_fields[fld] = data[fld]
-
-        # derive follow_updates default (v1: locked by default)
-        default_follow_updates = placement_defaults.get("follow_updates")
-        if default_follow_updates is None:
-            default_follow_updates = False
+            return Response({"error": "Cannot publish empty content"}, status=400)
 
         try:
-            with transaction.atomic():
-                # merge payload edits
-                if editable_fields:
-                    if editable_fields.get("title") in (None, ""):
-                        editable_fields["title"] = "Untitled"
-
-                    if "addressed_to" in editable_fields and not editable_fields["addressed_to"]:
-                        editable_fields.pop("addressed_to")
-
-                    piece.__dict__.update({k: v for k, v in editable_fields.items() if v is not None})
-
-                    # ✅ Use single utility function
-                    if "title" in editable_fields and is_provisional_slug(piece.slug):
-                        piece.slug = None
-
-                    piece.save(update_fields=list(editable_fields.keys()) + ["updated_at"])
-
-
-                # merge working copy (if exists)
-                wc = WritingWorkingCopy.objects.filter(piece=piece, user=request.user).first()
-                if wc:
-                    wc.apply_to_piece(piece)
-
-                # tags
-                if hasattr(piece, "tags") and isinstance(data.get("tags"), (list, tuple)):
-                    piece.tags.set(data["tags"])
-
-                # addressed_to default (if not explicitly set)
-                if not piece.addressed_to:
-                    if audience == "just_me":
-                        piece.addressed_to = WritingPiece.AddressedTo.SELF
-                    elif audience == "readers":
-                        piece.addressed_to = WritingPiece.AddressedTo.PUBLIC
-
-                # publish or schedule (v1: create artifact first, then placements)
-                if scheduled_for:
-                    if not (piece.title or "").strip():
-                        raise ValidationError("Please add a title before scheduling.")
-                    piece.status = "scheduled"
-                    piece.scheduled_for = scheduled_for
-                    piece.save(update_fields=["status", "scheduled_for", "slug", "updated_at", "addressed_to"])
-                else:
-                    if not (piece.title or "").strip():
-                        raise ValidationError("Please add a title before publishing.")
-                    piece.status = "published"
-                    piece.published_at = timezone.now()
-                    piece.save(update_fields=["status", "published_at", "slug", "updated_at", "addressed_to"])
-
-                # create immutable artifact (WritingVersion)
-                from writing.models import WritingVersion
-                next_sequence_no = (
-                    WritingVersion.objects.filter(writing_piece=piece)
-                    .aggregate(Max("sequence_no"))
-                    .get("sequence_no__max") or 0
-                ) + 1
-                writing_version = WritingVersion.objects.create(
-                    writing_piece=piece,
-                    sequence_no=next_sequence_no,
-                    version_label=str(next_sequence_no),
-                    body_json=piece.body_json,
-                    title=piece.title,
-                    excerpt=piece.excerpt,
-                    kind="release",
-                    created_by=request.user,
-                )
-                piece.current_version_no = next_sequence_no
-                piece.save(update_fields=["current_version_no", "updated_at"])
-
-                # ==============================================================================
-                # PLACEMENT CREATION (Phase 5)
-                # ==============================================================================
-                from publishing.models import PublicationGroup
-                from publishing.serializers import ContentPlacementSerializer
-
-                ct_piece = ContentType.objects.get_for_model(WritingPiece)
-                pub_group = None
-
-                def ensure_publication_group():
-                    nonlocal pub_group
-                    if pub_group is None:
-                        pub_group = PublicationGroup.objects.create(
-                            created_by=request.user,
-                            source_content_type=ct_piece,
-                            source_object_id=piece.id,
-                            note=data.get("publish_note", ""),
-                        )
-                    return pub_group
-
-                placements_created = 0
-                placements = []
-
-                # Helper to build placement kwargs
-                def build_placement_kwargs(base_opts, override_opts=None):
-                    """Build ContentPlacement defaults from options."""
-                    opts = dict(base_opts or {})
-                    opts.update(override_opts or {})
-
-                    # Normalize booleans
-                    follow_updates = self._coerce_bool(opts.get("follow_updates"), default_follow_updates)
-                    is_excerpt = self._coerce_bool(opts.get("is_excerpt"), False)
-
-                    # Determine visibility
-                    if piece.status == "scheduled":
-                        visibility = "scheduled"
-                    else:
-                        visibility = opts.get("visibility", "public")
-
-                    # Locked artifact handling
-                    locked_artifact_ct = None
-                    locked_artifact_id = None
-                    if not follow_updates:
-                        locked_artifact_ct = ContentType.objects.get_for_model(writing_version.__class__)
-                        locked_artifact_id = writing_version.id
-
-                    return {
-                        "follow_updates": follow_updates,
-                        "locked_artifact_content_type": locked_artifact_ct,
-                        "locked_artifact_object_id": locked_artifact_id,
-                        "visibility": visibility,
-                        "is_excerpt": is_excerpt,
-                        "fragment_selector": opts.get("fragment_selector"),
-                        "overrides": opts.get("overrides", {}),
-                    }
-
-                # PERSONAL FEED
-                if destinations.get("personal"):
-                    ct_user = ContentType.objects.get_for_model(request.user.__class__)
-                    kwargs = build_placement_kwargs(placement_defaults)
-
-                    # Apply excerpt override if provided
-                    if data.get("summary") or piece.excerpt or data.get("excerpt"):
-                        kwargs["overrides"]["excerpt"] = data.get("summary") or piece.excerpt or data.get("excerpt")
-
-                    placement, created = ContentPlacement.objects.update_or_create(
-                        source_content_type=ct_piece,
-                        source_object_id=piece.id,
-                        target_content_type=ct_user,
-                        target_object_id=request.user.id,
-                        channel="feed",
-                        defaults={
-                            "publication_group": ensure_publication_group(),
-                            "placed_by": request.user,
-                            **kwargs,
-                        }
-                    )
-                    if created:
-                        placements_created += 1
-                    placements.append(placement)
-
-                # GROUPS
-                group_idents = destinations.get("groups") or []
-                if group_idents:
-                    from groups.models import Group
-                    ct_group = ContentType.objects.get_for_model(Group)
-
-                    for ident in group_idents:
-                        # Resolve group by slug or id
-                        grp = None
-                        try:
-                            grp = Group.objects.get(slug=ident)
-                        except Group.DoesNotExist:
-                            try:
-                                grp = Group.objects.get(id=ident)
-                            except Group.DoesNotExist:
-                                continue
-
-                        # Permission check
-                        if hasattr(grp, "can_user_post") and not grp.can_user_post(request.user):
-                            continue
-
-                        # Per-group override
-                        g_override = group_overrides.get(str(ident)) or group_overrides.get(str(grp.id)) or {}
-                        kwargs = build_placement_kwargs(placement_defaults, g_override)
-
-                        # Apply excerpt override
-                        if data.get("summary") or piece.excerpt or data.get("excerpt"):
-                            kwargs["overrides"]["excerpt"] = data.get("summary") or piece.excerpt or data.get("excerpt")
-
-                        placement, created = ContentPlacement.objects.update_or_create(
-                            source_content_type=ct_piece,
-                            source_object_id=piece.id,
-                            target_content_type=ct_group,
-                            target_object_id=grp.id,
-                            channel="feed",
-                            defaults={
-                                "publication_group": ensure_publication_group(),
-                                "placed_by": request.user,
-                                **kwargs,
-                            }
-                        )
-                        if created:
-                            placements_created += 1
-                        placements.append(placement)
-
-                # LANTERN (Newsletter)
-                if destinations.get("lantern"):
-                    ct_user = ContentType.objects.get_for_model(request.user.__class__)
-                    kwargs = build_placement_kwargs(placement_defaults)
-
-                    # Set lantern subject
-                    overrides = kwargs.get("overrides", {}).copy()
-                    if not overrides.get("lantern_subject"):
-                        overrides["lantern_subject"] = f"New from {request.user.get_full_name() or request.user.username}: {piece.title}"
-                    kwargs["overrides"] = overrides
-
-                    # Apply excerpt override
-                    if data.get("summary") or piece.excerpt or data.get("excerpt"):
-                        kwargs["overrides"]["excerpt"] = data.get("summary") or piece.excerpt or data.get("excerpt")
-
-                    placement, created = ContentPlacement.objects.update_or_create(
-                        source_content_type=ct_piece,
-                        source_object_id=piece.id,
-                        target_content_type=ct_user,
-                        target_object_id=request.user.id,
-                        channel="lantern",
-                        defaults={
-                            "publication_group": ensure_publication_group(),
-                            "placed_by": request.user,
-                            **kwargs,
-                        }
-                    )
-                    if created:
-                        placements_created += 1
-                    placements.append(placement)
-
-                # SHELVES (Library placements)
-                shelf_ids = destinations.get("shelves") or []
-                if shelf_ids:
-                    from stackroom.models import Library
-                    ct_library = ContentType.objects.get_for_model(Library)
-                    shelves = Library.objects.filter(id__in=shelf_ids)
-                    for shelf in shelves:
-                        next_order = (
-                            ContentPlacement.objects.filter(
-                                target_content_type=ct_library,
-                                target_object_id=shelf.id,
-                                channel="shelf",
-                            ).aggregate(Max("order_index")).get("order_index__max") or 0
-                        ) + 1
-                        kwargs = build_placement_kwargs(placement_defaults)
-                        if piece.status != "scheduled":
-                            kwargs["visibility"] = shelf.visibility
-
-                        if data.get("summary") or piece.excerpt or data.get("excerpt"):
-                            kwargs["overrides"]["excerpt"] = data.get("summary") or piece.excerpt or data.get("excerpt")
-
-                        placement, created = ContentPlacement.objects.update_or_create(
-                            source_content_type=ct_piece,
-                            source_object_id=piece.id,
-                            target_content_type=ct_library,
-                            target_object_id=shelf.id,
-                            channel="shelf",
-                            defaults={
-                                "publication_group": ensure_publication_group(),
-                                "placed_by": request.user,
-                                "order_index": next_order,
-                                **kwargs,
-                            }
-                        )
-                        if created:
-                            placements_created += 1
-                        placements.append(placement)
-
-                # Return response
-                serializer = self.get_serializer(piece, context={"request": request})
-                msg_base = "scheduled" if scheduled_for else "published"
-                return Response({
-                    "id": str(piece.id),
-                    "piece": serializer.data,
-                    "placements_created": placements_created,
-                    "placements": ContentPlacementSerializer(placements, many=True, context={"request": request}).data,
-                    "publication_group_id": str(pub_group.id) if pub_group else None,
-                    "message": f'Successfully {msg_base} "{piece.title}" to {placements_created} destination(s).'
-                }, status=status.HTTP_200_OK)
+            result = publish_and_place(piece, request.user, request.data or {})
         except ValidationError as ve:
             return Response({"error": ve.message}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            # TODO: logger.exception("Publish & place failed", extra={...})
-            return Response({"error": f"Publish & place failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception:
+            logger.exception("Publish & place failed", extra={"piece_id": str(pk), "user_id": str(request.user.id)})
+            return Response({"error": "Publish & place failed. Please try again."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        piece = result["piece"]
+        msg_base = "scheduled" if result["scheduled"] else "published"
+        serializer = self.get_serializer(piece, context={"request": request})
+        return Response({
+            "id": str(piece.id),
+            "piece": serializer.data,
+            "placements_created": result["placements_created"],
+            "placements": ContentPlacementSerializer(result["placements"], many=True, context={"request": request}).data,
+            "publication_group_id": str(result["pub_group"].id) if result["pub_group"] else None,
+            "message": f'Successfully {msg_base} "{piece.title}" to {result["placements_created"]} destination(s).'
+        }, status=status.HTTP_200_OK)
 
 
 class WritingPieceUnpublishView(generics.GenericAPIView):
@@ -995,16 +689,19 @@ logger = logging.getLogger(__name__)
 # New endpoint to clear empty flag
 @api_view(["PATCH"])
 def clear_empty_flag(request, piece_id):
-    logger.info(f"🎯 clear_empty_flag called for piece_id: {piece_id}")
-    piece = get_object_or_404(WritingPiece, id=piece_id)
-    logger.info(f"📝 Found piece {piece.id}, is_empty={piece.is_empty}")
+    if not request.user.is_authenticated:
+        from rest_framework.exceptions import NotAuthenticated
+        raise NotAuthenticated()
+    logger.info(f"clear_empty_flag called for piece_id: {piece_id}")
+    piece = get_object_or_404(WritingPiece, id=piece_id, author=request.user)
+    logger.info(f"Found piece {piece.id}, is_empty={piece.is_empty}")
 
     # Use update() to bypass the save() method which auto-recalculates is_empty
     WritingPiece.objects.filter(id=piece_id).update(is_empty=False)
 
     # Verify it was saved
     piece.refresh_from_db()
-    logger.info(f"✅ After update, is_empty={piece.is_empty}")
+    logger.info(f"After update, is_empty={piece.is_empty}")
 
     return Response({"status": "success", "is_empty": piece.is_empty})
 

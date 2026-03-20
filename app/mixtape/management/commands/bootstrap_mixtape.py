@@ -9,6 +9,7 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.db import IntegrityError, transaction
 
+from feedback.models import FeedbackBeacon
 from groups.services.memberships import ensure_user_membership
 from mixtape.services.defaults import ensure_default_group
 from profiles.services.profiles import ensure_user_profile
@@ -115,5 +116,17 @@ class Command(BaseCommand):
             # 4. Membership
             ensure_user_membership(default_group, su, role="admin", is_active=True)
             self.stdout.write(self.style.SUCCESS("✓ Superuser membership: admin role"))
+
+            # 5. Lighthouse feedback beacon
+            FeedbackBeacon.objects.update_or_create(
+                key="lighthouse",
+                defaults={
+                    "title": "Lighthouse Feedback",
+                    "body_markdown": "Share bugs, ideas, or reactions with the team.",
+                    "scope": FeedbackBeacon.Scope.GLOBAL,
+                    "is_active": True,
+                },
+            )
+            self.stdout.write(self.style.SUCCESS("✓ Lighthouse feedback beacon seeded"))
 
         self.stdout.write(self.style.SUCCESS("\n🎉 Bootstrap complete!"))

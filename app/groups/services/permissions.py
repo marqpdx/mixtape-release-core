@@ -22,6 +22,10 @@ ROLE_PERMISSIONS = {
         "delete_course",
         "publish_course",
         "manage_courses",
+        "edit_writing",
+        "publish_writing",
+        "edit_writing",
+        "publish_writing",
         "manage_members",
         "invite_members",
         "remove_members",
@@ -51,6 +55,10 @@ ROLE_PERMISSIONS = {
         "delete_course",
         "publish_course",
         "manage_courses",
+        "edit_writing",
+        "publish_writing",
+        "edit_writing",
+        "publish_writing",
 
         # Member management
         "manage_members",
@@ -84,6 +92,10 @@ ROLE_PERMISSIONS = {
         "edit_course",
         "publish_course",
         "manage_courses",
+        "edit_writing",
+        "publish_writing",
+        "edit_writing",
+        "publish_writing",
 
         # Member management (limited)
         "invite_members",
@@ -108,6 +120,7 @@ ROLE_PERMISSIONS = {
         # Course management (create only)
         "create_course",
         "edit_course",
+        "edit_writing",
 
         # Content access
         "view_content",
