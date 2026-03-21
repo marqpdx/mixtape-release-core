@@ -107,6 +107,7 @@ INSTALLED_APPS = [
     "spellbook",       # Shared spell dictionary for writing tools
     "stackroom.apps.StackroomConfig",  # Stackroom integration
     "threadworks",     # Threadworks forums and discussions
+    "broadcast",       # GroupBroadcast — steward-authored group notifications
     "users",           # CustomUser, Role models
     "utils",           # Utility functions and helpers
     "worksessions",    # Work Sessions (Artifact Stream Authoring)
@@ -277,6 +278,7 @@ LISTMONK_API_TOKEN = os.environ["LISTMONK_API_TOKEN"]
 LISTMONK_TIMEOUT = int(os.environ.get("LISTMONK_TIMEOUT", "10"))
 LISTMONK_PUBLIC_URL = os.getenv("LISTMONK_PUBLIC_URL", LISTMONK_BASE_URL)
 LISTMONK_INVITE_TEMPLATE_ID = os.getenv("LISTMONK_INVITE_TEMPLATE_ID")
+LISTMONK_BROADCAST_TEMPLATE_ID = os.getenv("LISTMONK_BROADCAST_TEMPLATE_ID")  # required for email broadcasts
 
 
 # Service JWT auth, for Stackroom, ...
@@ -398,6 +400,8 @@ LIVEWIRE_JWT_SECRET = os.getenv("LIVEWIRE_JWT_SECRET")
 LIVEWIRE_JWT_ALG = os.getenv("LIVEWIRE_JWT_ALG", "HS256")
 LIVEWIRE_JWT_ISS = os.getenv("LIVEWIRE_JWT_ISS", "mixtape")
 LIVEWIRE_JWT_AUD = os.getenv("LIVEWIRE_JWT_AUD", "livewire")
+LIVEWIRE_INTERNAL_URL = os.getenv("LIVEWIRE_INTERNAL_URL", "http://127.0.0.1:5001")
+LIVEWIRE_NOTIFY_SECRET = os.getenv("LIVEWIRE_NOTIFY_SECRET", "")  # shared secret for /notify endpoint
 
 # ============================================================================
 # OAUTH2 PROVIDER SETTINGS (django-oauth-toolkit)

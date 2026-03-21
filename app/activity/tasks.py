@@ -86,6 +86,16 @@ def fanout_action_task(self, action_id: str):
                     if notif:
                         dispatch_push_notification_task.delay(str(notif.pk))
 
+            # Enqueue socket emit for activity-channel notifications (broadcasts, etc.)
+            if action.channel == "activity":
+                for user in recipients:
+                    notif = Notification.objects.filter(
+                        recipient=user,
+                        dedupe_key=action.dedupe_key,
+                    ).first()
+                    if notif:
+                        dispatch_socket_notification_task.delay(str(notif.pk))
+
     except Exception as exc:
         ActionOutbox.objects.filter(action=action).update(
             attempts=models.F("attempts") + 1,
@@ -187,3 +197,61 @@ def dispatch_push_notification_task(self, notification_id: str):
                 "push_delivery_issue notification=%s token_prefix=%s status=%s details=%s",
                 notification_id, token_obj.token[:12], status_val, details,
             )
+
+
+@shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, retry_kwargs={"max_retries": 3})
+def dispatch_socket_notification_task(self, notification_id: str):
+    """
+    Emit a real-time socket event to a recipient's connected browser tab(s)
+    by POSTing to livewire's internal /notify endpoint.
+
+    Used for activity-channel notifications (e.g., group broadcasts).
+    """
+    from django.conf import settings
+
+    try:
+        notif = (
+            Notification.objects
+            .select_related("action", "action__activity_type", "recipient")
+            .get(pk=notification_id)
+        )
+    except Notification.DoesNotExist:
+        return
+
+    if notif.level == "mute":
+        return
+
+    username = notif.recipient.username
+    metadata = getattr(notif.action, "metadata", {}) or {}
+    activity_type = getattr(notif.action, "activity_type", None)
+    code = activity_type.code if activity_type else ""
+
+    payload = {
+        "id": str(notif.pk),
+        "code": code,
+        "bucket": notif.bucket,
+        "priority": notif.priority,
+        "title": metadata.get("title", ""),
+        "body": metadata.get("body", ""),
+        "action_url": metadata.get("action_url", ""),
+    }
+
+    livewire_url = getattr(settings, "LIVEWIRE_INTERNAL_URL", "http://127.0.0.1:5001")
+    secret = getattr(settings, "LIVEWIRE_NOTIFY_SECRET", "")
+
+    headers = {"Content-Type": "application/json"}
+    if secret:
+        headers["X-Notify-Secret"] = secret
+
+    try:
+        resp = requests.post(
+            f"{livewire_url}/notify",
+            json={"event": "notification:new", "username": username, "payload": payload},
+            headers=headers,
+            timeout=5,
+        )
+        resp.raise_for_status()
+        logger.info("socket_notification_sent notification=%s user=%s", notification_id, username)
+    except Exception as exc:
+        logger.warning("socket_notification_failed notification=%s error=%s", notification_id, exc)
+        raise

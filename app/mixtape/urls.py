@@ -91,6 +91,9 @@ urlpatterns = [
     # Push token registration
     path("api/push/", include("users.api.urls")),
 
+    # Broadcast (group announcements, steward-authored)
+    path("api/broadcast/", include("broadcast.api.urls")),
+
     # Workbench (Review Queue, MillDrafts)
     path("api/workbench/", include("fundamentals.api.urls")),
 
