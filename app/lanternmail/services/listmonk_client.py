@@ -198,6 +198,30 @@ class ListmonkClient:
         payload = {"status": status}
         return self._req("PUT", f"/api/campaigns/{campaign_id}/status", json=payload)
 
+    # ----------------------------
+    # Transactional email
+    # ----------------------------
+    def send_tx(
+        self,
+        subscriber_email: str,
+        template_id: int,
+        data: Optional[Dict[str, Any]] = None,
+        content_type: str = "html",
+    ) -> Json:
+        """
+        Send a one-off transactional email via Listmonk /api/tx.
+
+        The template referenced by template_id must exist in Listmonk and can
+        reference the keys in `data` using Go template syntax: {{ .Data.key }}.
+        """
+        payload: Json = {
+            "subscriber_email": subscriber_email,
+            "template_id": template_id,
+            "data": data or {},
+            "content_type": content_type,
+        }
+        return self._req("POST", "/api/tx", json=payload)
+
 
 def get_listmonk_client() -> ListmonkClient:
     return ListmonkClient(

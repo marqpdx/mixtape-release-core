@@ -89,6 +89,10 @@ app.conf.beat_schedule = {
         "task": "groups.tasks.execute_due_ownership_requests",
         "schedule": 60.0,  # Every 1 minute
     },
+    "dispatch-scheduled-broadcasts": {
+        "task": "broadcast.tasks.dispatch_scheduled_broadcasts_task",
+        "schedule": 60.0,  # Every 1 minute
+    },
     # "cleanup-empty-drafts": {
     #     "task": "your_app.tasks.cleanup.cleanup_empty_drafts",
     #     "schedule": crontab(hour=2, minute=0),
