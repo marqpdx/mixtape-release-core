@@ -1,5 +1,7 @@
 # chat/api/views.py
 
+import logging
+
 from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
@@ -46,6 +48,8 @@ from users.models import CustomUser
 from utils.chat.notify_socket_server import notify_socket_server
 
 from .serializers import ChatMessageSerializer
+
+logger = logging.getLogger(__name__)
 
 
 class MessagePagination(PageNumberPagination):
@@ -197,7 +201,7 @@ def conversation_messages(request, slug):
                 recipients=recipient_users,
             )
         except Exception:
-            pass  # Never block message creation if notification fails
+            logger.exception("on_new_chat_message failed for conversation=%s", conversation.slug)
 
         # Additional producer for group-scoped conversations
         try:
@@ -211,7 +215,7 @@ def conversation_messages(request, slug):
                     message=message, conversation=conversation, group=group,
                 )
         except Exception:
-            pass
+            logger.exception("on_group_chat_message failed for conversation=%s", conversation.slug)
 
         return Response(ChatMessageSerializer(message).data, status=status.HTTP_201_CREATED)
 
