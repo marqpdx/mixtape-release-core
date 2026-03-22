@@ -141,9 +141,11 @@ def dispatch_push_notification_task(self, notification_id: str):
             .get(pk=notification_id)
         )
     except Notification.DoesNotExist:
+        logger.warning("dispatch_push: notification %s not found", notification_id)
         return
 
     if notif.level == "mute":
+        logger.info("dispatch_push: notification %s is muted — skipping", notification_id)
         return
 
     tokens = list(
@@ -155,6 +157,7 @@ def dispatch_push_notification_task(self, notification_id: str):
     )
 
     if not tokens:
+        logger.info("dispatch_push: no active expo tokens for user %s", notif.recipient_id)
         return
 
     metadata = getattr(notif.action, "metadata", {}) or {}
