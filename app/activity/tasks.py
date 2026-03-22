@@ -101,6 +101,10 @@ def fanout_action_task(self, action_id: str):
                         socket_notif_pks.append(str(notif.pk))
 
         # Transaction committed — safe to enqueue downstream tasks now.
+        logger.info(
+            "fanout_post_commit action=%s channel=%s push_pks=%s socket_pks=%s recipients=%d",
+            action_id, action.channel, push_notif_pks, socket_notif_pks, len(recipients),
+        )
         for pk in push_notif_pks:
             dispatch_push_notification_task.delay(pk)
         for pk in socket_notif_pks:
