@@ -27,6 +27,10 @@ DEFAULT_FROM_EMAIL = "Crossroads <connect@crossroads.place>"
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-unsafe-secret-key")
 
+# AI / Initiatives
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+AI_PROVIDER = os.getenv("AI_PROVIDER", "anthropic")
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/

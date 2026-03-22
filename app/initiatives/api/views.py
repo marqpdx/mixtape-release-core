@@ -2,6 +2,7 @@
 
 import logging
 
+from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import permissions, status
@@ -63,7 +64,7 @@ class InitiativeListCreateView(APIView):
             sponsor_content_type=ct,
             sponsor_object_id=group.pk,
             parent__isnull=True,  # Root initiatives only; threads accessed via /threads/
-        )
+        ).prefetch_related("sessions").select_related("created_by")
 
         include_resolved = request.query_params.get("include_resolved") == "true"
         if not include_resolved:
@@ -296,8 +297,11 @@ class SessionExchangeView(APIView):
     """
     POST a user turn; receive streaming AI response via SSE.
 
-    Full implementation in the AI integration pass (InitiativeAIService + SSE).
-    Currently accepts the turn, appends it to raw_transcript, and returns 501.
+    Response is text/event-stream with delta chunks:
+      data: {"type": "delta", "text": "..."}
+      data: {"type": "done"}
+
+    Falls back to a plain JSON 200 with the full response if streaming fails.
     """
     permission_classes = [permissions.IsAuthenticated]
 
@@ -321,20 +325,43 @@ class SessionExchangeView(APIView):
         session = get_object_or_404(Session, id=session_id, initiative=initiative)
 
         if session.ended_at:
-            return Response({"detail": "Session is already closed."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "Session is already closed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        # Append user turn to transcript
-        session.append_turn(
-            speaker="user",
-            text=message,
-            username=request.user.username,
-        )
-        logger.info("session_turn_appended session=%s user=%s", session_id, request.user.username)
+        try:
+            from initiatives.ai.service import InitiativeAIService
+            ai = InitiativeAIService()
+        except Exception as exc:
+            logger.error("ai_service_init_failed session=%s error=%s", session_id, exc)
+            return Response(
+                {"detail": "AI service is currently unavailable. Please try again later."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
-        # SSE streaming AI response — not yet implemented
-        return Response(
-            {"detail": "AI streaming not yet implemented. User turn recorded."},
-            status=status.HTTP_501_NOT_IMPLEMENTED,
+        logger.info("session_exchange_start session=%s user=%s", session_id, request.user.username)
+
+        def stream():
+            try:
+                for chunk in ai.exchange_stream(initiative, session, message, request.user.username):
+                    yield chunk
+            except Exception:
+                import json as _json
+                logger.exception("session_exchange_stream_error session=%s", session_id)
+                yield (
+                    b"data: "
+                    + _json.dumps({"type": "error", "detail": "An error occurred during the AI exchange."}).encode()
+                    + b"\n\n"
+                )
+
+        return StreamingHttpResponse(
+            stream(),
+            content_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",  # Disable nginx buffering
+            },
         )
 
 
@@ -375,13 +402,21 @@ class ProposeDistillationView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # AI proposal — not yet implemented; set placeholder
-        session.distillation = {
-            "decisions": [],
-            "open_questions": [],
-            "actions": [],
-            "notes": "(AI distillation not yet implemented — please add manually.)",
-        }
+        # Call AI service; fall back to empty scaffold on failure
+        try:
+            from initiatives.ai.service import InitiativeAIService
+            ai = InitiativeAIService()
+            distillation = ai.propose_distillation(initiative, session)
+        except Exception as exc:
+            logger.warning("ai_distillation_unavailable session=%s error=%s", session_id, exc)
+            distillation = {
+                "decisions": [],
+                "open_questions": [],
+                "actions": [],
+                "notes": "(AI unavailable — fill in manually.)",
+            }
+
+        session.distillation = distillation
         session.distillation_state = DistillationState.PROPOSED
         session.save(update_fields=["distillation", "distillation_state", "updated_at"])
 

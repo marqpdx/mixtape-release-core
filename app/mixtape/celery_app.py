@@ -80,12 +80,19 @@ app.conf.task_routes = {
         "queue": "commons", "routing_key": "commons"
     },
 
-    # --- Default queue (explicit, for documentation clarity) ---
-    # activity.tasks.fanout_action_task
-    # activity.tasks.dispatch_push_notification_task
-    # activity.tasks.dispatch_socket_notification_task
-    # broadcast.tasks.dispatch_broadcast_email_task
-    # utils.tasks.send_transactional_email_task
+    # --- Default queue (explicit routes remove ambiguity in all calling contexts) ---
+    "activity.tasks.fanout_action_task": {
+        "queue": default_q, "routing_key": default_q
+    },
+    "activity.tasks.dispatch_push_notification_task": {
+        "queue": default_q, "routing_key": default_q
+    },
+    "activity.tasks.dispatch_socket_notification_task": {
+        "queue": default_q, "routing_key": default_q
+    },
+    "broadcast.tasks.dispatch_broadcast_email_task": {
+        "queue": default_q, "routing_key": default_q
+    },
     "utils.tasks.send_transactional_email_task": {
         "queue": default_q, "routing_key": default_q
     },
