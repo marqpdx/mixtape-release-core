@@ -76,7 +76,12 @@ def fanout_action_task(self, action_id: str):
             outbox.last_error = ""
             outbox.save(update_fields=["dispatched_at", "attempts", "last_error"])
 
-            # Enqueue push dispatch for message-channel notifications
+            # Collect notification PKs for post-commit dispatch.
+            # .delay() must NOT be called inside the transaction — the worker can
+            # pick up the task before the commit lands, causing DoesNotExist on lookup.
+            push_notif_pks = []
+            socket_notif_pks = []
+
             if action.channel == "messages":
                 for user in recipients:
                     notif = Notification.objects.filter(
@@ -84,9 +89,8 @@ def fanout_action_task(self, action_id: str):
                         dedupe_key=action.dedupe_key,
                     ).first()
                     if notif:
-                        dispatch_push_notification_task.delay(str(notif.pk))
+                        push_notif_pks.append(str(notif.pk))
 
-            # Enqueue socket emit for activity-channel notifications (broadcasts, etc.)
             if action.channel == "activity":
                 for user in recipients:
                     notif = Notification.objects.filter(
@@ -94,7 +98,13 @@ def fanout_action_task(self, action_id: str):
                         dedupe_key=action.dedupe_key,
                     ).first()
                     if notif:
-                        dispatch_socket_notification_task.delay(str(notif.pk))
+                        socket_notif_pks.append(str(notif.pk))
+
+        # Transaction committed — safe to enqueue downstream tasks now.
+        for pk in push_notif_pks:
+            dispatch_push_notification_task.delay(pk)
+        for pk in socket_notif_pks:
+            dispatch_socket_notification_task.delay(pk)
 
     except Exception as exc:
         ActionOutbox.objects.filter(action=action).update(
