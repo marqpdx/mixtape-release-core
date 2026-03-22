@@ -59,8 +59,8 @@ echo "🐰 Broker:                 ${CELERY_BROKER_URL:-<not set>}"
 # --- worker tuning (local overrides) ---
 # For transcription workers on macOS, run with: CELERY_POOL=solo CELERY_CONCURRENCY=1
 CELERY_POOL="${CELERY_POOL:-prefork}"
-CELERY_CONCURRENCY="${CELERY_CONCURRENCY:-5}"
-CELERY_PREFETCH_MULTIPLIER="${CELERY_PREFETCH_MULTIPLIER:-5}"
+CELERY_CONCURRENCY="${CELERY_CONCURRENCY:-4}"
+CELERY_PREFETCH_MULTIPLIER="${CELERY_PREFETCH_MULTIPLIER:-1}"
 CELERY_NODE_NAME="${CELERY_NODE_NAME:-local-worker@%h}"
 
 # --- run worker ---

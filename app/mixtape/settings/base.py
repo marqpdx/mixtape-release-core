@@ -112,6 +112,7 @@ INSTALLED_APPS = [
     "utils",           # Utility functions and helpers
     "worksessions",    # Work Sessions (Artifact Stream Authoring)
     "writing",         # Writing app
+    "initiatives",     # Initiatives — group-scoped AI-assisted inquiry sessions
 ]
 
 INSTALLED_APPS += ["rest_framework_simplejwt.token_blacklist"]
