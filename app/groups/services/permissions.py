@@ -42,6 +42,10 @@ ROLE_PERMISSIONS = {
         "can_edit_task",
         "can_archive_task",
 
+        # Initiatives
+        "manage_initiatives",
+        "manage_puddlejump",
+
         # Owner-only permissions
         "manage_ownership",
         "set_escrow_owner",
@@ -84,6 +88,10 @@ ROLE_PERMISSIONS = {
         "can_move_task",
         "can_edit_task",
         "can_archive_task",
+
+        # Initiatives
+        "manage_initiatives",
+        "manage_puddlejump",
     ],
 
     "steward": [
@@ -114,6 +122,10 @@ ROLE_PERMISSIONS = {
         "can_move_task",
         "can_edit_task",
         "can_archive_task",
+
+        # Initiatives
+        "manage_initiatives",
+        "manage_puddlejump",
     ],
 
     "coordinator": [

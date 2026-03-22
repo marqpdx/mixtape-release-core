@@ -1,0 +1,420 @@
+# initiatives/models.py
+
+import uuid
+
+from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
+from django.db import models
+from django.utils import timezone
+
+from fundamentals.bases import BaseModel
+
+
+User = get_user_model()
+
+
+# ---------------------------------------------------------------------------
+# Choices
+# ---------------------------------------------------------------------------
+
+class InitiativeStatus(models.TextChoices):
+    ACTIVE = "active", "Active"
+    SIMMERING = "simmering", "Simmering"
+    PAUSED = "paused", "Paused"
+    RESOLVED = "resolved", "Resolved"
+
+
+class SessionIntent(models.TextChoices):
+    EXPLORING = "exploring", "Exploring"
+    DECIDING = "deciding", "Deciding"
+    REVIEWING = "reviewing", "Reviewing"
+    CLOSING = "closing", "Closing"
+
+
+class CaptureMode(models.TextChoices):
+    TEXT = "text", "Text"
+    VOICE = "voice", "Voice"
+    IMPORTED = "imported", "Imported"  # v2: retroactive ingestion
+
+
+class DistillationState(models.TextChoices):
+    PENDING = "pending", "Pending"
+    PROPOSED = "proposed", "Proposed"
+    CURATED = "curated", "Curated"
+
+
+class ArtifactKind(models.TextChoices):
+    DOCUMENT = "document", "Document"
+    DECISION = "decision", "Decision"
+    QUESTION = "question", "Question"
+    ACTION = "action", "Action"
+    ANNOTATION = "annotation", "Annotation"
+
+
+class QualityScanState(models.TextChoices):
+    PENDING = "pending", "Pending"
+    COMPLETE = "complete", "Complete"
+    SKIPPED = "skipped", "Skipped"
+
+
+# ---------------------------------------------------------------------------
+# Initiative
+# ---------------------------------------------------------------------------
+
+class Initiative(BaseModel):
+    """
+    A Group's living inquiry — a named direction of thinking that unfolds
+    over time through AI-assisted sessions.
+
+    v2-readiness:
+    - parent: nullable self-FK for Thread support (v2)
+    - rolling_summary: JSONField with four structured sections
+    - sponsor: GFK to any model (Group in v0)
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # --- Core fields ---
+    title = models.CharField(max_length=255)
+    direction = models.TextField(
+        blank=True,
+        default="",
+        help_text="Compass heading — not a scope statement. Optional.",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=InitiativeStatus.choices,
+        default=InitiativeStatus.ACTIVE,
+    )
+
+    # --- Polymorphic sponsor (Group in v0) ---
+    sponsor_content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE,
+        related_name="sponsored_initiatives",
+    )
+    sponsor_object_id = models.UUIDField()
+    sponsor = GenericForeignKey("sponsor_content_type", "sponsor_object_id")
+
+    # --- Thread support (v2-ready, unused in v0) ---
+    parent = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="threads",
+        help_text="Parent Initiative for thread structure (v2). Null = root initiative.",
+    )
+    thread_label = models.CharField(
+        max_length=120,
+        blank=True,
+        default="",
+        help_text="Short label for this thread within its parent (v2).",
+    )
+
+    # --- Rolling summary (structured, AI-generated, human-editable) ---
+    rolling_summary = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Structured synthesis of all prior sessions. "
+            "Schema: {current_direction, key_decisions, open_questions, where_we_are_now}"
+        ),
+    )
+    rolling_summary_updated_at = models.DateTimeField(null=True, blank=True)
+    rolling_summary_updated_by = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+        help_text="'ai' or username — tracks who last edited the summary.",
+    )
+
+    # --- Authorship ---
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_initiatives",
+    )
+
+    class Meta(BaseModel.Meta):
+        ordering = ["-updated_at"]
+        indexes = [
+            models.Index(fields=["sponsor_content_type", "sponsor_object_id", "-updated_at"]),
+            models.Index(fields=["status", "-updated_at"]),
+        ]
+
+    def __str__(self):
+        return self.title or f"Initiative {self.pk}"
+
+    @property
+    def rolling_summary_display(self):
+        """Return rolling_summary with defaults for all four sections."""
+        defaults = {
+            "current_direction": "",
+            "key_decisions": [],
+            "open_questions": [],
+            "where_we_are_now": "",
+        }
+        return {**defaults, **(self.rolling_summary or {})}
+
+    def last_session_at(self):
+        session = self.sessions.filter(ended_at__isnull=False).order_by("-ended_at").first()
+        return session.ended_at if session else None
+
+
+# ---------------------------------------------------------------------------
+# Session
+# ---------------------------------------------------------------------------
+
+class Session(BaseModel):
+    """
+    A discrete engagement on an Initiative — voice or text.
+
+    raw_transcript is a JSONField (array of turn objects) for v2-readiness:
+    [{"speaker": "user"|"ai", "username": str|null, "text": str, "timestamp": ISO}]
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    initiative = models.ForeignKey(
+        Initiative,
+        on_delete=models.CASCADE,
+        related_name="sessions",
+    )
+    intent = models.CharField(
+        max_length=20,
+        choices=SessionIntent.choices,
+        default=SessionIntent.EXPLORING,
+    )
+    capture_mode = models.CharField(
+        max_length=20,
+        choices=CaptureMode.choices,
+        default=CaptureMode.TEXT,
+    )
+
+    # --- Transcript ---
+    # JSONField array of turn objects — supports single-speaker (v0) and
+    # multi-speaker (v1) and imported (v2) without a migration.
+    raw_transcript = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Array of turn objects: [{speaker, username, text, timestamp}]",
+    )
+
+    # --- Distillation ---
+    distillation = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Schema: {decisions: [], open_questions: [], actions: [], notes: ''}",
+    )
+    distillation_state = models.CharField(
+        max_length=20,
+        choices=DistillationState.choices,
+        default=DistillationState.PENDING,
+    )
+
+    # --- Authorship + timing ---
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="initiative_sessions",
+    )
+    started_at = models.DateTimeField(default=timezone.now)
+    ended_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(BaseModel.Meta):
+        ordering = ["started_at"]
+        indexes = [
+            models.Index(fields=["initiative", "started_at"]),
+            models.Index(fields=["initiative", "distillation_state"]),
+        ]
+
+    def __str__(self):
+        return f"Session [{self.intent}] on {self.initiative_id} — {self.started_at:%Y-%m-%d}"
+
+    def close(self):
+        """Mark session as ended."""
+        self.ended_at = timezone.now()
+        self.save(update_fields=["ended_at", "updated_at"])
+
+    def append_turn(self, speaker, text, username=None):
+        """Append a turn to raw_transcript."""
+        turn = {
+            "speaker": speaker,
+            "username": username,
+            "text": text,
+            "timestamp": timezone.now().isoformat(),
+        }
+        transcript = list(self.raw_transcript or [])
+        transcript.append(turn)
+        self.raw_transcript = transcript
+        self.save(update_fields=["raw_transcript", "updated_at"])
+        return turn
+
+
+# ---------------------------------------------------------------------------
+# Artifact
+# ---------------------------------------------------------------------------
+
+class Artifact(BaseModel):
+    """
+    A structured output from a session or created directly as an annotation.
+
+    session is nullable — Direct Annotations have no session parent.
+    Direct Annotations receive an async quality scan on creation.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    initiative = models.ForeignKey(
+        Initiative,
+        on_delete=models.CASCADE,
+        related_name="artifacts",
+    )
+    # Nullable — Direct Annotations have no session parent
+    session = models.ForeignKey(
+        Session,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="artifacts",
+    )
+
+    kind = models.CharField(
+        max_length=20,
+        choices=ArtifactKind.choices,
+        default=ArtifactKind.DOCUMENT,
+    )
+    title = models.CharField(max_length=255)
+    body = models.TextField(blank=True, default="")
+    note = models.TextField(
+        blank=True,
+        default="",
+        help_text="Optional human note — e.g. where this came from for Direct Annotations.",
+    )
+
+    # --- Quality scan (async, non-blocking) ---
+    quality_scan_result = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Schema: {assessment: 'ok'|'advisory', note: str}",
+    )
+    quality_scan_state = models.CharField(
+        max_length=20,
+        choices=QualityScanState.choices,
+        default=QualityScanState.PENDING,
+    )
+
+    # --- Puddlejump routing ---
+    puddlejump_routed = models.BooleanField(
+        default=False,
+        help_text="Has this been submitted to Puddlejump as a candidate doc?",
+    )
+    puddlejump_routed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(BaseModel.Meta):
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["initiative", "-created_at"]),
+            models.Index(fields=["initiative", "kind"]),
+            models.Index(fields=["puddlejump_routed"]),
+        ]
+
+    def __str__(self):
+        return f"{self.kind}: {self.title}"
+
+    @property
+    def is_direct_annotation(self):
+        return self.session_id is None
+
+    def route_to_puddlejump(self):
+        """Mark as routed. Caller is responsible for creating the candidate record."""
+        self.puddlejump_routed = True
+        self.puddlejump_routed_at = timezone.now()
+        self.save(update_fields=["puddlejump_routed", "puddlejump_routed_at", "updated_at"])
+
+
+# ---------------------------------------------------------------------------
+# LinkedOutput
+# ---------------------------------------------------------------------------
+
+class LinkedOutput(BaseModel):
+    """
+    A Mixtape artifact (any model) that was produced by this Initiative.
+    The link is explicit and traceable — closing the provenance loop.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    initiative = models.ForeignKey(
+        Initiative,
+        on_delete=models.CASCADE,
+        related_name="linked_outputs",
+    )
+
+    # Polymorphic output (WritingPiece, Event, Project, etc.)
+    output_content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
+    output_object_id = models.UUIDField(null=True, blank=True)
+    output = GenericForeignKey("output_content_type", "output_object_id")
+
+    note = models.TextField(
+        blank=True,
+        default="",
+        help_text="Optional human note about the relationship.",
+    )
+
+    class Meta(BaseModel.Meta):
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"LinkedOutput → {self.output_content_type} {self.output_object_id}"
+
+
+# ---------------------------------------------------------------------------
+# AgentToken — v2-ready stub
+# ---------------------------------------------------------------------------
+
+class AgentToken(BaseModel):
+    """
+    Short-lived, Initiative-scoped token for agent (Claude Code) access.
+
+    Not exposed via API in v0. Designed alongside Initiative so the v2
+    Agent-Facing API doesn't require a new auth subsystem.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    initiative = models.ForeignKey(
+        Initiative,
+        on_delete=models.CASCADE,
+        related_name="agent_tokens",
+    )
+    token = models.CharField(max_length=64, unique=True)
+    issued_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="issued_agent_tokens",
+    )
+    expires_at = models.DateTimeField()
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(BaseModel.Meta):
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"AgentToken for {self.initiative_id} (expires {self.expires_at:%Y-%m-%d})"
+
+    @property
+    def is_valid(self):
+        return self.revoked_at is None and self.expires_at > timezone.now()

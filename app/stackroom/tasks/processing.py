@@ -146,16 +146,16 @@ def process_pending_uploads() -> dict[str, int]:
     from django.core.files.storage import default_storage
     from stackroom.models import SourceFile, IngestionReceipt
 
-    logger.info("Starting process_pending_uploads task")
-
     # Find SourceFiles without IngestionRuns (unprocessed uploads)
     unprocessed_files = SourceFile.objects.filter(
         ingestion_runs__isnull=True
     ).order_by('created_at')[:10]  # Process up to 10 files per run
 
     if not unprocessed_files:
-        logger.info("No pending uploads to process")
+        logger.debug("process_pending_uploads: nothing to do")
         return {"processed_count": 0, "failed_count": 0, "skipped_count": 0}
+
+    logger.info("process_pending_uploads: found %d unprocessed file(s)", len(unprocessed_files))
 
     logger.info(f"Found {len(unprocessed_files)} unprocessed files")
 
@@ -165,7 +165,7 @@ def process_pending_uploads() -> dict[str, int]:
 
     for source_file in unprocessed_files:
         try:
-            logger.info(f"Processing {source_file.filename} (ID: {source_file.id})")
+            logger.debug("process_pending_uploads: processing %s (%s)", source_file.filename, source_file.id)
 
             # Create IngestionRun
             ingestion_run = IngestionRun.objects.create(
@@ -205,7 +205,7 @@ def process_pending_uploads() -> dict[str, int]:
                 text=extracted_text,
             )
 
-            logger.info(f"Created artifact {artifact.id} with {len(extracted_text)} characters")
+            logger.debug("process_pending_uploads: artifact %s created (%d chars)", artifact.id, len(extracted_text))
 
             # Create IngestionReceipt
             IngestionReceipt.objects.create(
@@ -238,7 +238,7 @@ def process_pending_uploads() -> dict[str, int]:
             from stackroom.tasks.milldraft import create_milldraft_from_artifact_task
             create_milldraft_from_artifact_task.delay(artifact_id=str(artifact.id))
 
-            logger.info(f"Successfully queued processing for {source_file.filename}")
+            logger.info("process_pending_uploads: queued %s for ingestion", source_file.filename)
             processed_count += 1
 
         except Exception as e:
@@ -246,8 +246,8 @@ def process_pending_uploads() -> dict[str, int]:
             failed_count += 1
 
     logger.info(
-        f"process_pending_uploads complete: "
-        f"processed={processed_count}, failed={failed_count}, skipped={skipped_count}"
+        "process_pending_uploads complete: processed=%d failed=%d skipped=%d",
+        processed_count, failed_count, skipped_count,
     )
 
     return {

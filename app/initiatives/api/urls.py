@@ -1,0 +1,38 @@
+# initiatives/api/urls.py
+# No trailing slashes — follows project convention.
+
+from django.urls import path
+
+from . import views
+
+# Base path when group-scoped: api/groups/<slug>/initiatives/
+# Included in groups/api/urls.py as:
+#   path("<slug:slug>/initiatives/", include(group_initiatives_patterns))
+
+group_initiatives_patterns = [
+    # Initiative CRUD
+    path("", views.InitiativeListCreateView.as_view(), name="initiative-list-create"),
+    path("<uuid:initiative_id>", views.InitiativeDetailView.as_view(), name="initiative-detail"),
+
+    # Rolling summary
+    path("<uuid:initiative_id>/rolling-summary", views.RollingSummaryView.as_view(), name="initiative-rolling-summary"),
+
+    # Sessions
+    path("<uuid:initiative_id>/sessions", views.SessionListCreateView.as_view(), name="initiative-session-list-create"),
+    path("<uuid:initiative_id>/sessions/<uuid:session_id>", views.SessionDetailView.as_view(), name="initiative-session-detail"),
+
+    # Session exchange (AI streaming — stub in v0)
+    path("<uuid:initiative_id>/sessions/<uuid:session_id>/exchange", views.SessionExchangeView.as_view(), name="initiative-session-exchange"),
+
+    # Distillation
+    path("<uuid:initiative_id>/sessions/<uuid:session_id>/propose-distillation", views.ProposeDistillationView.as_view(), name="initiative-session-propose-distillation"),
+    path("<uuid:initiative_id>/sessions/<uuid:session_id>/commit-distillation", views.CommitDistillationView.as_view(), name="initiative-session-commit-distillation"),
+
+    # Artifacts
+    path("<uuid:initiative_id>/artifacts", views.ArtifactListCreateView.as_view(), name="initiative-artifact-list-create"),
+    path("<uuid:initiative_id>/artifacts/<uuid:artifact_id>", views.ArtifactDetailView.as_view(), name="initiative-artifact-detail"),
+    path("<uuid:initiative_id>/artifacts/<uuid:artifact_id>/route-to-puddlejump", views.ArtifactRouteToPuddlejumpView.as_view(), name="initiative-artifact-route-puddlejump"),
+
+    # Linked outputs
+    path("<uuid:initiative_id>/linked-outputs", views.LinkedOutputListCreateView.as_view(), name="initiative-linked-output-list-create"),
+]
