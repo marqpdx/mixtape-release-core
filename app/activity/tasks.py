@@ -199,9 +199,10 @@ def dispatch_push_notification_task(self, notification_id: str):
         status_val = item.get("status")
         details = item.get("details", {})
         if status_val == "ok":
+            ticket_id = item.get("id", "")
             logger.info(
-                "push_sent notification=%s token_prefix=%s",
-                notification_id, token_obj.token[:12],
+                "push_sent notification=%s token_prefix=%s ticket_id=%s",
+                notification_id, token_obj.token[:12], ticket_id,
             )
         elif details.get("error") == "DeviceNotRegistered":
             logger.warning(
