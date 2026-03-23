@@ -101,9 +101,15 @@ LOGGING = {
             "class": "logging.StreamHandler",
             "stream": sys.stdout,
         },
+        "file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": "/var/log/crossroads/django.log",
+            "maxBytes": 10 * 1024 * 1024,  # 10 MB
+            "backupCount": 5,
+        },
     },
     "root": {
-        "handlers": ["console"],
+        "handlers": ["console", "file"],
         "level": "INFO",
     },
 }
