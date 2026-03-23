@@ -472,3 +472,105 @@ class AgentToken(BaseModel):
     @property
     def is_valid(self):
         return self.revoked_at is None and self.expires_at > timezone.now()
+
+
+# ---------------------------------------------------------------------------
+# Handoff
+# ---------------------------------------------------------------------------
+
+class Handoff(BaseModel):
+    """
+    A cross-thread message — blocking condition, finding, question, or note.
+
+    Always belongs to the root parent Initiative. from_thread / to_thread
+    identify the source and target workstream lanes. to_thread=null means
+    broadcast to all threads.
+
+    Only 'blocking' kind has meaningful status (open → resolved/withdrawn).
+    All other kinds are informational and require no resolution.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    initiative = models.ForeignKey(
+        Initiative,
+        on_delete=models.CASCADE,
+        related_name="handoffs",
+        help_text="Always the root parent Initiative.",
+    )
+    kind = models.CharField(
+        max_length=20,
+        choices=HandoffKind.choices,
+        default=HandoffKind.BLOCKING,
+    )
+    content = models.TextField(
+        help_text="The message — blocking condition, finding, question, or note.",
+    )
+
+    # --- Thread routing ---
+    from_thread = models.ForeignKey(
+        Initiative,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="outgoing_handoffs",
+        help_text="Thread that created this handoff. Null = from root session or human.",
+    )
+    to_thread = models.ForeignKey(
+        Initiative,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="incoming_handoffs",
+        help_text="Directed at a specific thread. Null = broadcast to all threads.",
+    )
+
+    # --- Resolution (meaningful for blocking kind only) ---
+    status = models.CharField(
+        max_length=20,
+        choices=HandoffStatus.choices,
+        default=HandoffStatus.OPEN,
+    )
+    resolution = models.TextField(blank=True, default="")
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolved_by = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+        help_text="Username or 'ai'.",
+    )
+
+    # --- Authorship ---
+    authored_by = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+        help_text="Username or 'ai' — tracks whether human or AI wrote it.",
+    )
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_handoffs",
+        help_text="Null if AI-authored.",
+    )
+
+    class Meta(BaseModel.Meta):
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["initiative", "status"], name="initiatives_initiat_fcf744_idx"),
+            models.Index(fields=["initiative", "kind"], name="initiatives_initiat_363458_idx"),
+            models.Index(fields=["to_thread", "status"], name="initiatives_to_thre_5ac371_idx"),
+        ]
+
+    def __str__(self):
+        return f"Handoff [{self.kind}] on {self.initiative_id}: {self.content[:60]}"
+
+    def resolve(self, resolution, resolved_by):
+        """Resolve a blocking handoff."""
+        self.status = HandoffStatus.RESOLVED
+        self.resolution = resolution
+        self.resolved_by = resolved_by
+        self.resolved_at = timezone.now()
+        self.save(update_fields=["status", "resolution", "resolved_by", "resolved_at", "updated_at"])

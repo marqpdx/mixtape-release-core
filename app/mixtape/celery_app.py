@@ -96,6 +96,9 @@ app.conf.task_routes = {
     "utils.tasks.send_transactional_email_task": {
         "queue": default_q, "routing_key": default_q
     },
+    "activity.tasks.poll_push_receipts_task": {
+        "queue": default_q, "routing_key": default_q
+    },
 }
 
 # ---- Sensible defaults ----

@@ -66,9 +66,10 @@ class InitiativeListCreateView(APIView):
             parent__isnull=True,  # Root initiatives only; threads accessed via /threads/
         ).prefetch_related("sessions").select_related("created_by")
 
+        # Resolved and archived are hidden by default; pass include_resolved=true to show both
         include_resolved = request.query_params.get("include_resolved") == "true"
         if not include_resolved:
-            qs = qs.exclude(status=InitiativeStatus.RESOLVED)
+            qs = qs.exclude(status__in=[InitiativeStatus.RESOLVED, InitiativeStatus.ARCHIVED])
 
         serializer = InitiativeSerializer(qs, many=True)
         return Response(serializer.data)
@@ -101,20 +102,6 @@ class InitiativeListCreateView(APIView):
 
 class InitiativeDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
-
-    def _get_initiative(self, group_slug, initiative_id, user):
-        if not _superuser_required_user(user):
-            return None, Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
-        group = _get_group(group_slug)
-        from django.contrib.contenttypes.models import ContentType
-        ct = ContentType.objects.get_for_model(group)
-        initiative = get_object_or_404(
-            Initiative,
-            id=initiative_id,
-            sponsor_content_type=ct,
-            sponsor_object_id=group.pk,
-        )
-        return initiative, None
 
     def get(self, request, group_slug, initiative_id):
         if not _superuser_required(request):
@@ -163,10 +150,6 @@ class InitiativeDetailView(APIView):
         initiative.deleted_at = timezone.now()
         initiative.save(update_fields=["deleted_at", "updated_at"])
         return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-def _superuser_required_user(user):
-    return user.is_superuser
 
 
 # ---------------------------------------------------------------------------
