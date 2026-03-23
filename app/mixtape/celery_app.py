@@ -108,6 +108,7 @@ app.conf.update(
     worker_prefetch_multiplier=1,  # Hold exactly one task per worker (task_acks_late=True)
     task_acks_late=True,
     result_expires=3600,   # 1 hour
+    worker_hijack_root_logger=False,  # Preserve Django LOGGING config in worker processes
 )
 
 # ---- Beat schedule ----
