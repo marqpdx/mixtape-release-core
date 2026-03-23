@@ -106,7 +106,8 @@ def fanout_action_task(self, action_id: str):
             action_id, action.channel, push_notif_pks, socket_notif_pks, len(recipients),
         )
         for pk in push_notif_pks:
-            dispatch_push_notification_task.delay(pk)
+            result = dispatch_push_notification_task.delay(pk)
+            logger.warning("dispatch_enqueued pk=%s task_id=%s", pk, result.id)
         for pk in socket_notif_pks:
             dispatch_socket_notification_task.delay(pk)
 
@@ -132,6 +133,8 @@ def dispatch_push_notification_task(self, notification_id: str):
     - Prunes tokens that Expo reports as DeviceNotRegistered
     - Logs success and failure
     """
+    import os as _os
+    logger.warning("dispatch_push_ENTER notification_id=%s pid=%s", notification_id, _os.getpid())
     from users.models import PushToken
 
     try:
