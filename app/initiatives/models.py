@@ -23,19 +23,22 @@ class InitiativeStatus(models.TextChoices):
     SIMMERING = "simmering", "Simmering"
     PAUSED = "paused", "Paused"
     RESOLVED = "resolved", "Resolved"
+    ARCHIVED = "archived", "Archived"
 
 
 class SessionIntent(models.TextChoices):
-    EXPLORING = "exploring", "Exploring"
-    DECIDING = "deciding", "Deciding"
-    REVIEWING = "reviewing", "Reviewing"
-    CLOSING = "closing", "Closing"
+    OPEN_INQUIRY = "open_inquiry", "Open Inquiry"
+    FOCUSED_REVIEW = "focused_review", "Focused Review"
+    DECISION_SESSION = "decision_session", "Decision Session"
+    RETROSPECTIVE = "retrospective", "Retrospective"
+    OTHER = "other", "Other"
 
 
 class CaptureMode(models.TextChoices):
-    TEXT = "text", "Text"
+    TYPED = "typed", "Typed"
     VOICE = "voice", "Voice"
-    IMPORTED = "imported", "Imported"  # v2: retroactive ingestion
+    IMPORTED = "imported", "Imported"
+    PASTED = "pasted", "Pasted"
 
 
 class DistillationState(models.TextChoices):
@@ -56,6 +59,19 @@ class QualityScanState(models.TextChoices):
     PENDING = "pending", "Pending"
     COMPLETE = "complete", "Complete"
     SKIPPED = "skipped", "Skipped"
+
+
+class HandoffKind(models.TextChoices):
+    BLOCKING = "blocking", "Blocking"
+    FINDING = "finding", "Finding"
+    QUESTION = "question", "Question"
+    NOTE = "note", "Note"
+
+
+class HandoffStatus(models.TextChoices):
+    OPEN = "open", "Open"
+    RESOLVED = "resolved", "Resolved"
+    WITHDRAWN = "withdrawn", "Withdrawn"
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +103,14 @@ class Initiative(BaseModel):
         choices=InitiativeStatus.choices,
         default=InitiativeStatus.ACTIVE,
     )
+    status_note = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Optional note explaining the current status — e.g. why archived or paused. "
+            "Not auto-cleared on status change; managed manually."
+        ),
+    )
 
     # --- Polymorphic sponsor (Group in v0) ---
     sponsor_content_type = models.ForeignKey(
@@ -111,6 +135,36 @@ class Initiative(BaseModel):
         blank=True,
         default="",
         help_text="Short label for this thread within its parent (v2).",
+    )
+
+    # --- Thread summaries (parent holds summary for each thread lane) ---
+    thread_summaries = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Map of thread_id → summary object. On parent Initiatives only. "
+            "Schema: {<uuid>: {label, current_direction, key_findings, open_questions, last_updated}}"
+        ),
+    )
+
+    # --- Initiative Fork (seeded from another initiative) ---
+    seeded_from = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="forks",
+        help_text="Source Initiative this was forked from. Read-only after creation.",
+    )
+    seeded_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp of the fork.",
+    )
+    seed_context = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Snapshot of the source Initiative's rolling_summary at fork time.",
     )
 
     # --- Rolling summary (structured, AI-generated, human-editable) ---
@@ -187,12 +241,12 @@ class Session(BaseModel):
     intent = models.CharField(
         max_length=20,
         choices=SessionIntent.choices,
-        default=SessionIntent.EXPLORING,
+        default=SessionIntent.OPEN_INQUIRY,
     )
     capture_mode = models.CharField(
         max_length=20,
         choices=CaptureMode.choices,
-        default=CaptureMode.TEXT,
+        default=CaptureMode.TYPED,
     )
 
     # --- Transcript ---
