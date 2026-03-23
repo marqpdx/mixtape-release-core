@@ -106,8 +106,7 @@ def fanout_action_task(self, action_id: str):
             action_id, action.channel, push_notif_pks, socket_notif_pks, len(recipients),
         )
         for pk in push_notif_pks:
-            result = dispatch_push_notification_task.delay(pk)
-            logger.warning("dispatch_enqueued pk=%s task_id=%s", pk, result.id)
+            dispatch_push_notification_task.delay(pk)
         for pk in socket_notif_pks:
             dispatch_socket_notification_task.delay(pk)
 
@@ -120,6 +119,7 @@ def fanout_action_task(self, action_id: str):
 
 
 _EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
+_EXPO_RECEIPTS_URL = "https://exp.host/--/api/v2/push/getReceipts"
 
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, retry_kwargs={"max_retries": 3})
@@ -133,8 +133,6 @@ def dispatch_push_notification_task(self, notification_id: str):
     - Prunes tokens that Expo reports as DeviceNotRegistered
     - Logs success and failure
     """
-    import os as _os
-    logger.warning("dispatch_push_ENTER notification_id=%s pid=%s", notification_id, _os.getpid())
     from users.models import PushToken
 
     try:
@@ -196,8 +194,8 @@ def dispatch_push_notification_task(self, notification_id: str):
         logger.error("push_dispatch_failed notification=%s error=%s", notification_id, exc)
         raise
 
-    # Prune dead tokens
-    token_map = {t.token: t for t in tokens}
+    # Process initial send results; collect ticket→token_pk for async receipt check
+    ticket_to_token_pk = {}
     for item, token_obj in zip(results, tokens):
         status_val = item.get("status")
         details = item.get("details", {})
@@ -207,6 +205,8 @@ def dispatch_push_notification_task(self, notification_id: str):
                 "push_sent notification=%s token_prefix=%s ticket_id=%s",
                 notification_id, token_obj.token[:12], ticket_id,
             )
+            if ticket_id:
+                ticket_to_token_pk[ticket_id] = str(token_obj.pk)
         elif details.get("error") == "DeviceNotRegistered":
             logger.warning(
                 "push_token_stale token_prefix=%s — deactivating",
@@ -218,6 +218,50 @@ def dispatch_push_notification_task(self, notification_id: str):
                 "push_delivery_issue notification=%s token_prefix=%s status=%s details=%s",
                 notification_id, token_obj.token[:12], status_val, details,
             )
+
+    # Schedule async receipt check ~30s later to catch DeviceNotRegistered from FCM
+    if ticket_to_token_pk:
+        poll_push_receipts_task.apply_async(
+            args=[ticket_to_token_pk],
+            countdown=30,
+        )
+        logger.info("push_receipts_scheduled count=%d", len(ticket_to_token_pk))
+
+
+@shared_task(bind=True, max_retries=3, default_retry_delay=60)
+def poll_push_receipts_task(self, ticket_to_token_pk: dict):
+    """
+    Poll Expo push receipts ~30s after initial send to catch FCM delivery failures.
+    Deactivates tokens that FCM reports as DeviceNotRegistered.
+    """
+    from users.models import PushToken
+
+    ticket_ids = list(ticket_to_token_pk.keys())
+    try:
+        resp = requests.post(
+            _EXPO_RECEIPTS_URL,
+            json={"ids": ticket_ids},
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data", {})
+    except Exception as exc:
+        logger.error("poll_push_receipts_failed error=%s", exc)
+        raise self.retry(exc=exc)
+
+    for ticket_id, receipt in data.items():
+        status = receipt.get("status")
+        token_pk = ticket_to_token_pk.get(ticket_id)
+        if status == "ok":
+            logger.info("push_receipt_ok ticket_id=%s", ticket_id)
+        elif status == "error":
+            details = receipt.get("details", {})
+            error = details.get("error", "")
+            logger.warning("push_receipt_error ticket_id=%s error=%s", ticket_id, error)
+            if error == "DeviceNotRegistered" and token_pk:
+                PushToken.objects.filter(pk=token_pk).update(is_active=False)
+                logger.warning("push_token_deactivated token_pk=%s", token_pk)
 
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, retry_kwargs={"max_retries": 3})

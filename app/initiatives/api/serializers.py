@@ -1,8 +1,13 @@
 # initiatives/api/serializers.py
 
+import datetime
+
+from django.utils import timezone
 from rest_framework import serializers
 
-from initiatives.models import Artifact, Initiative, LinkedOutput, Session
+from initiatives.models import Artifact, DistillationState, Initiative, LinkedOutput, Session
+
+_MOMENTUM_WINDOW_DAYS = 14
 
 
 class InitiativeSerializer(serializers.ModelSerializer):
@@ -10,6 +15,7 @@ class InitiativeSerializer(serializers.ModelSerializer):
     last_session_at = serializers.SerializerMethodField()
     created_by_username = serializers.SerializerMethodField()
     thread_count = serializers.SerializerMethodField()
+    momentum_score = serializers.SerializerMethodField()
 
     class Meta:
         model = Initiative
@@ -18,9 +24,12 @@ class InitiativeSerializer(serializers.ModelSerializer):
             "title",
             "direction",
             "status",
+            "status_note",
             "rolling_summary",
             "rolling_summary_updated_at",
             "rolling_summary_updated_by",
+            "thread_summaries",
+            "seeded_from",
             "parent",
             "thread_label",
             "created_by",
@@ -29,11 +38,14 @@ class InitiativeSerializer(serializers.ModelSerializer):
             "updated_at",
             "last_session_at",
             "thread_count",
+            "momentum_score",
         ]
         read_only_fields = [
             "id",
             "rolling_summary_updated_at",
             "rolling_summary_updated_by",
+            "thread_summaries",
+            "seeded_from",
             "created_by",
             "created_at",
             "updated_at",
@@ -51,6 +63,45 @@ class InitiativeSerializer(serializers.ModelSerializer):
 
     def get_thread_count(self, obj):
         return obj.threads.count()
+
+    def get_momentum_score(self, obj):
+        """
+        Momentum = Mass × Velocity
+
+        Mass  — total accumulated material (sessions + distillation items + artifacts + linked outputs)
+        Velocity — new material in the trailing 14-day window
+
+        Uses prefetched sessions when available (list view); falls back to
+        DB queries (detail view). Artifacts and linked outputs always query
+        the DB — add prefetch_related("artifacts", "linked_outputs") to the
+        list queryset when scale requires it.
+        """
+        cutoff = timezone.now() - datetime.timedelta(days=_MOMENTUM_WINDOW_DAYS)
+
+        # Sessions — use prefetch cache if present to avoid N+1
+        sessions = list(obj.sessions.all())
+        session_count = len(sessions)
+
+        distillation_items = sum(
+            len(s.distillation.get("decisions", [])) +
+            len(s.distillation.get("open_questions", [])) +
+            len(s.distillation.get("actions", []))
+            for s in sessions
+            if s.distillation_state == DistillationState.CURATED and s.distillation
+        )
+
+        artifact_count = obj.artifacts.count()
+        linked_output_count = obj.linked_outputs.count()
+
+        mass = session_count + distillation_items + artifact_count + linked_output_count
+
+        recent_sessions = sum(1 for s in sessions if s.started_at >= cutoff)
+        recent_artifacts = obj.artifacts.filter(created_at__gte=cutoff).count()
+        velocity = recent_sessions + recent_artifacts
+
+        if mass == 0 or velocity == 0:
+            return 0.0
+        return round(float(mass * velocity), 2)
 
 
 class SessionSerializer(serializers.ModelSerializer):
