@@ -145,6 +145,9 @@ def dispatch_push_notification_task(self, notification_id: str):
         logger.warning("dispatch_push: notification %s not found", notification_id)
         return
 
+    # DEBUG: stamp is_seen so we can confirm this task ran even without visible logs
+    Notification.objects.filter(pk=notification_id).update(is_seen=True)
+
     if notif.level == "mute":
         logger.info("dispatch_push: notification %s is muted — skipping", notification_id)
         return
