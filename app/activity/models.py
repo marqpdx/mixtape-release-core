@@ -164,6 +164,9 @@ class Notification(BaseModel):
     toast_shown_at = models.DateTimeField(null=True, blank=True)
     rolled_up_at = models.DateTimeField(null=True, blank=True)
 
+    # push dispatch tracking (set when Expo accepts the push)
+    push_sent_at = models.DateTimeField(null=True, blank=True)
+
     # ---- COPIED THROUGH (for fast queries) ----
     bucket = models.CharField(
         max_length=24,
