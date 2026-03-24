@@ -133,14 +133,6 @@ def dispatch_push_notification_task(self, notification_id: str):
     - Prunes tokens that Expo reports as DeviceNotRegistered
     - Logs success and failure
     """
-    # DEBUG: raw SQL stamp — first thing, before any ORM/import that could fail
-    from django.db import connection
-    with connection.cursor() as _cur:
-        _cur.execute(
-            "UPDATE activity_notification SET is_seen = TRUE WHERE id = %s",
-            [notification_id],
-        )
-
     from users.models import PushToken
 
     try:
