@@ -37,6 +37,11 @@ app.conf.task_queues = (
     # ---- Time-sensitive: event-driven tasks ----
     Queue(default_q, routing_key=default_q),
 
+    # ---- Push notifications: isolated so uvicorn/Livewire cannot consume them ----
+    # Uvicorn consumes from default_q for real-time events; push tasks must live
+    # on a separate queue that only the Celery default-worker knows about.
+    Queue("push", routing_key="push"),
+
     # ---- Low-frequency polling: beat-scheduled maintenance tasks ----
     # Isolated so they don't flood default worker logs or starve push tasks.
     Queue("polling", routing_key="polling"),
@@ -85,7 +90,7 @@ app.conf.task_routes = {
         "queue": default_q, "routing_key": default_q
     },
     "activity.tasks.dispatch_push_notification_task": {
-        "queue": default_q, "routing_key": default_q
+        "queue": "push", "routing_key": "push"
     },
     "activity.tasks.dispatch_socket_notification_task": {
         "queue": default_q, "routing_key": default_q
@@ -97,7 +102,7 @@ app.conf.task_routes = {
         "queue": default_q, "routing_key": default_q
     },
     "activity.tasks.poll_push_receipts_task": {
-        "queue": default_q, "routing_key": default_q
+        "queue": "push", "routing_key": "push"
     },
 }
 
