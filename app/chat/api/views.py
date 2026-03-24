@@ -150,7 +150,7 @@ def conversation_messages(request, slug):
     if request.method == "GET":
         messages = ChatMessage.objects.filter(
             conversation=conversation
-        ).select_related("sender").prefetch_related("reactions__user", "mentions").order_by("created_at")
+        ).select_related("sender").prefetch_related("reactions__user", "mentions").order_by("-created_at")
 
         # Apply pagination
         paginator = MessagePagination()
