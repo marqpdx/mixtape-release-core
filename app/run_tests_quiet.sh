@@ -53,6 +53,7 @@ tests=(
   "projects.tests"
   "public_api.tests"
   "publishing.tests"
+  "workbench.tests"
   "writing.tests"
 )
 

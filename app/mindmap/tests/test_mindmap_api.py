@@ -45,25 +45,25 @@ class MindMapAPITests(TestCase):
         self.client.force_authenticate(self.other)
 
     def _map_url(self, mindmap):
-        return f"/api/mindmaps/{mindmap.id}/"
+        return f"/api/mindmaps/{mindmap.id}"
 
     def _nodes_url(self, mindmap):
-        return f"/api/mindmaps/{mindmap.id}/nodes/"
+        return f"/api/mindmaps/{mindmap.id}/nodes"
 
     def _node_url(self, mindmap, node):
-        return f"/api/mindmaps/{mindmap.id}/nodes/{node.id}/"
+        return f"/api/mindmaps/{mindmap.id}/nodes/{node.id}"
 
     def _edges_url(self, mindmap):
-        return f"/api/mindmaps/{mindmap.id}/edges/"
+        return f"/api/mindmaps/{mindmap.id}/edges"
 
     def _edge_url(self, mindmap, edge):
-        return f"/api/mindmaps/{mindmap.id}/edges/{edge.id}/"
+        return f"/api/mindmaps/{mindmap.id}/edges/{edge.id}"
 
     def _attachments_url(self, mindmap, node):
-        return f"/api/mindmaps/{mindmap.id}/nodes/{node.id}/attachments/"
+        return f"/api/mindmaps/{mindmap.id}/nodes/{node.id}/attachments"
 
     def _attachment_url(self, mindmap, node, attachment):
-        return f"/api/mindmaps/{mindmap.id}/nodes/{node.id}/attachments/{attachment.id}/"
+        return f"/api/mindmaps/{mindmap.id}/nodes/{node.id}/attachments/{attachment.id}"
 
     def _create_node(self, mindmap=None, **overrides):
         if mindmap is None:
@@ -291,7 +291,7 @@ class MindMapAPITests(TestCase):
         node = self._create_node(title="before")
         before = self.owner_map.version
         response = self.client.post(
-            f"/api/mindmaps/{self.owner_map.id}/nodes/bulk_upsert/",
+            f"/api/mindmaps/{self.owner_map.id}/nodes/bulk_upsert",
             {
                 "items": [
                     {"id": str(node.id), "title": "after"},
@@ -312,7 +312,7 @@ class MindMapAPITests(TestCase):
         node = self._create_node()
         before = self.owner_map.version
         response = self.client.post(
-            f"/api/mindmaps/{self.owner_map.id}/nodes/bulk_upsert/",
+            f"/api/mindmaps/{self.owner_map.id}/nodes/bulk_upsert",
             {"items": [{"id": str(node.id), "pos_x": 200, "pos_y": 300}]},
             format="json",
         )
@@ -323,7 +323,7 @@ class MindMapAPITests(TestCase):
     def test_bulk_upsert_not_found_returns_error(self):
         self._auth_owner()
         response = self.client.post(
-            f"/api/mindmaps/{self.owner_map.id}/nodes/bulk_upsert/",
+            f"/api/mindmaps/{self.owner_map.id}/nodes/bulk_upsert",
             {"items": [{"id": 999999, "title": "missing"}]},
             format="json",
         )
@@ -333,7 +333,7 @@ class MindMapAPITests(TestCase):
     def test_bulk_upsert_empty_items_rejected(self):
         self._auth_owner()
         response = self.client.post(
-            f"/api/mindmaps/{self.owner_map.id}/nodes/bulk_upsert/", {"items": []}, format="json"
+            f"/api/mindmaps/{self.owner_map.id}/nodes/bulk_upsert", {"items": []}, format="json"
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -342,7 +342,7 @@ class MindMapAPITests(TestCase):
         node = self._create_node()
         before = self.owner_map.version
         response = self.client.post(
-            f"/api/mindmaps/{self.owner_map.id}/nodes/bulk_delete/",
+            f"/api/mindmaps/{self.owner_map.id}/nodes/bulk_delete",
             {"ids": [str(node.id)]},
             format="json",
         )
@@ -354,7 +354,7 @@ class MindMapAPITests(TestCase):
     def test_bulk_delete_empty_ids_rejected(self):
         self._auth_owner()
         response = self.client.post(
-            f"/api/mindmaps/{self.owner_map.id}/nodes/bulk_delete/", {"ids": []}, format="json"
+            f"/api/mindmaps/{self.owner_map.id}/nodes/bulk_delete", {"ids": []}, format="json"
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -440,7 +440,7 @@ class MindMapAPITests(TestCase):
         s = self._create_node(title="s")
         t = self._create_node(title="t")
         create_response = self.client.post(
-            f"/api/mindmaps/{self.owner_map.id}/edges/bulk_upsert/",
+            f"/api/mindmaps/{self.owner_map.id}/edges/bulk_upsert",
             {"items": [{"source_node": str(s.id), "target_node": str(t.id), "edge_type": "supports"}]},
             format="json",
         )
@@ -448,14 +448,14 @@ class MindMapAPITests(TestCase):
         edge_id = create_response.data["results"][0]["id"]
 
         update_response = self.client.post(
-            f"/api/mindmaps/{self.owner_map.id}/edges/bulk_upsert/",
+            f"/api/mindmaps/{self.owner_map.id}/edges/bulk_upsert",
             {"items": [{"id": edge_id, "label": "updated"}]},
             format="json",
         )
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
         delete_response = self.client.post(
-            f"/api/mindmaps/{self.owner_map.id}/edges/bulk_delete/",
+            f"/api/mindmaps/{self.owner_map.id}/edges/bulk_delete",
             {"ids": [edge_id]},
             format="json",
         )
@@ -465,11 +465,11 @@ class MindMapAPITests(TestCase):
     def test_bulk_edge_empty_payloads_rejected(self):
         self._auth_owner()
         upsert = self.client.post(
-            f"/api/mindmaps/{self.owner_map.id}/edges/bulk_upsert/", {"items": []}, format="json"
+            f"/api/mindmaps/{self.owner_map.id}/edges/bulk_upsert", {"items": []}, format="json"
         )
         self.assertEqual(upsert.status_code, status.HTTP_400_BAD_REQUEST)
         delete = self.client.post(
-            f"/api/mindmaps/{self.owner_map.id}/edges/bulk_delete/", {"ids": []}, format="json"
+            f"/api/mindmaps/{self.owner_map.id}/edges/bulk_delete", {"ids": []}, format="json"
         )
         self.assertEqual(delete.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -577,14 +577,14 @@ class MindMapAPITests(TestCase):
             ("post", self._nodes_url(self.owner_map), {"node_type": "note", "pos_x": 1, "pos_y": 1}),
             ("patch", self._node_url(self.owner_map, node), {"title": "x"}),
             ("delete", self._node_url(self.owner_map, node), None),
-            ("post", f"/api/mindmaps/{self.owner_map.id}/nodes/bulk_upsert/", {"items": [{"node_type": "note", "pos_x": 1, "pos_y": 1}]}),
-            ("post", f"/api/mindmaps/{self.owner_map.id}/nodes/bulk_delete/", {"ids": [str(node.id)]}),
+            ("post", f"/api/mindmaps/{self.owner_map.id}/nodes/bulk_upsert", {"items": [{"node_type": "note", "pos_x": 1, "pos_y": 1}]}),
+            ("post", f"/api/mindmaps/{self.owner_map.id}/nodes/bulk_delete", {"ids": [str(node.id)]}),
             ("get", self._edges_url(self.owner_map), None),
             ("post", self._edges_url(self.owner_map), {"source_node": str(node.id), "target_node": str(node.id), "edge_type": "r"}),
             ("patch", self._edge_url(self.owner_map, edge), {"label": "x"}),
             ("delete", self._edge_url(self.owner_map, edge), None),
-            ("post", f"/api/mindmaps/{self.owner_map.id}/edges/bulk_upsert/", {"items": [{"source_node": str(node.id), "target_node": str(node.id), "edge_type": "r"}]}),
-            ("post", f"/api/mindmaps/{self.owner_map.id}/edges/bulk_delete/", {"ids": [str(edge.id)]}),
+            ("post", f"/api/mindmaps/{self.owner_map.id}/edges/bulk_upsert", {"items": [{"source_node": str(node.id), "target_node": str(node.id), "edge_type": "r"}]}),
+            ("post", f"/api/mindmaps/{self.owner_map.id}/edges/bulk_delete", {"ids": [str(edge.id)]}),
             ("get", self._attachments_url(self.owner_map, node), None),
             ("post", self._attachments_url(self.owner_map, node), {"kind": "url", "title": "x"}),
             ("patch", self._attachment_url(self.owner_map, node, att), {"title": "x"}),

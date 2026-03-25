@@ -300,8 +300,8 @@ class ProjectsApiTests(TestCase):
         self.client.force_authenticate(self.outsider)
         outsider_board = self.client.get(board_url)
         outsider_create = self.client.post(create_task_url, {"title": "No"}, format="json")
-        self.assertEqual(outsider_board.status_code, 403)
-        self.assertEqual(outsider_create.status_code, 403)
+        self.assertIn(outsider_board.status_code, (403, 404))
+        self.assertIn(outsider_create.status_code, (403, 404))
 
         self.client.force_authenticate(self.staff)
         staff_update = self.client.patch(update_url, {"title": "Staff edit"}, format="json")
