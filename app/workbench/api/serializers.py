@@ -97,3 +97,12 @@ class AutosaveSerializer(serializers.Serializer):
     """Payload for the autosave endpoint."""
     body_json = serializers.JSONField(required=False)
     title = serializers.CharField(required=False, allow_blank=True, max_length=100)
+    mark_body_editing_started = serializers.BooleanField(required=False, default=True)
+
+
+class MembershipReorderSerializer(serializers.Serializer):
+    """Payload for reordering WorkingItem memberships."""
+    membership_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+    )
