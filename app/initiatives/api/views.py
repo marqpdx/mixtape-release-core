@@ -52,11 +52,11 @@ def _get_group(slug):
 class InitiativeListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
-    def get(self, request, group_slug):
+    def get(self, request, slug):
         if not _superuser_required(request):
             return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
 
-        group = _get_group(group_slug)
+        group = _get_group(slug)
         from django.contrib.contenttypes.models import ContentType
         ct = ContentType.objects.get_for_model(group)
 
@@ -74,11 +74,11 @@ class InitiativeListCreateView(APIView):
         serializer = InitiativeSerializer(qs, many=True)
         return Response(serializer.data)
 
-    def post(self, request, group_slug):
+    def post(self, request, slug):
         if not _superuser_required(request):
             return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
 
-        group = _get_group(group_slug)
+        group = _get_group(slug)
         from django.contrib.contenttypes.models import ContentType
         ct = ContentType.objects.get_for_model(group)
 
@@ -103,10 +103,10 @@ class InitiativeListCreateView(APIView):
 class InitiativeDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
-    def get(self, request, group_slug, initiative_id):
+    def get(self, request, slug, initiative_id):
         if not _superuser_required(request):
             return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
-        group = _get_group(group_slug)
+        group = _get_group(slug)
         from django.contrib.contenttypes.models import ContentType
         ct = ContentType.objects.get_for_model(group)
         initiative = get_object_or_404(
@@ -117,10 +117,10 @@ class InitiativeDetailView(APIView):
         )
         return Response(InitiativeSerializer(initiative).data)
 
-    def patch(self, request, group_slug, initiative_id):
+    def patch(self, request, slug, initiative_id):
         if not _superuser_required(request):
             return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
-        group = _get_group(group_slug)
+        group = _get_group(slug)
         from django.contrib.contenttypes.models import ContentType
         ct = ContentType.objects.get_for_model(group)
         initiative = get_object_or_404(
@@ -135,10 +135,10 @@ class InitiativeDetailView(APIView):
         serializer.save()
         return Response(serializer.data)
 
-    def delete(self, request, group_slug, initiative_id):
+    def delete(self, request, slug, initiative_id):
         if not _superuser_required(request):
             return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
-        group = _get_group(group_slug)
+        group = _get_group(slug)
         from django.contrib.contenttypes.models import ContentType
         ct = ContentType.objects.get_for_model(group)
         initiative = get_object_or_404(
@@ -160,11 +160,11 @@ class RollingSummaryView(APIView):
     """PATCH to update specific fields of the rolling summary."""
     permission_classes = [permissions.IsAuthenticated]
 
-    def patch(self, request, group_slug, initiative_id):
+    def patch(self, request, slug, initiative_id):
         if not _superuser_required(request):
             return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
 
-        group = _get_group(group_slug)
+        group = _get_group(slug)
         from django.contrib.contenttypes.models import ContentType
         ct = ContentType.objects.get_for_model(group)
         initiative = get_object_or_404(
@@ -199,8 +199,8 @@ class RollingSummaryView(APIView):
 class SessionListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
-    def _get_initiative(self, group_slug, initiative_id):
-        group = _get_group(group_slug)
+    def _get_initiative(self, slug, initiative_id):
+        group = _get_group(slug)
         from django.contrib.contenttypes.models import ContentType
         ct = ContentType.objects.get_for_model(group)
         return get_object_or_404(
@@ -210,17 +210,17 @@ class SessionListCreateView(APIView):
             sponsor_object_id=group.pk,
         )
 
-    def get(self, request, group_slug, initiative_id):
+    def get(self, request, slug, initiative_id):
         if not _superuser_required(request):
             return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
-        initiative = self._get_initiative(group_slug, initiative_id)
+        initiative = self._get_initiative(slug, initiative_id)
         sessions = initiative.sessions.all()
         return Response(SessionSerializer(sessions, many=True).data)
 
-    def post(self, request, group_slug, initiative_id):
+    def post(self, request, slug, initiative_id):
         if not _superuser_required(request):
             return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
-        initiative = self._get_initiative(group_slug, initiative_id)
+        initiative = self._get_initiative(slug, initiative_id)
 
         serializer = SessionSerializer(data=request.data)
         if not serializer.is_valid():
@@ -238,8 +238,8 @@ class SessionListCreateView(APIView):
 class SessionDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
-    def _get_session(self, group_slug, initiative_id, session_id):
-        group = _get_group(group_slug)
+    def _get_session(self, slug, initiative_id, session_id):
+        group = _get_group(slug)
         from django.contrib.contenttypes.models import ContentType
         ct = ContentType.objects.get_for_model(group)
         initiative = get_object_or_404(
@@ -250,16 +250,16 @@ class SessionDetailView(APIView):
         )
         return get_object_or_404(Session, id=session_id, initiative=initiative)
 
-    def get(self, request, group_slug, initiative_id, session_id):
+    def get(self, request, slug, initiative_id, session_id):
         if not _superuser_required(request):
             return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
-        session = self._get_session(group_slug, initiative_id, session_id)
+        session = self._get_session(slug, initiative_id, session_id)
         return Response(SessionSerializer(session).data)
 
-    def patch(self, request, group_slug, initiative_id, session_id):
+    def patch(self, request, slug, initiative_id, session_id):
         if not _superuser_required(request):
             return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
-        session = self._get_session(group_slug, initiative_id, session_id)
+        session = self._get_session(slug, initiative_id, session_id)
 
         # Handle end: true to close the session
         if request.data.get("end") is True and session.ended_at is None:
@@ -288,7 +288,7 @@ class SessionExchangeView(APIView):
     """
     permission_classes = [permissions.IsAuthenticated]
 
-    def post(self, request, group_slug, initiative_id, session_id):
+    def post(self, request, slug, initiative_id, session_id):
         if not _superuser_required(request):
             return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
 
@@ -296,7 +296,7 @@ class SessionExchangeView(APIView):
         if not message:
             return Response({"detail": "message is required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        group = _get_group(group_slug)
+        group = _get_group(slug)
         from django.contrib.contenttypes.models import ContentType
         ct = ContentType.objects.get_for_model(group)
         initiative = get_object_or_404(
@@ -359,11 +359,11 @@ class ProposeDistillationView(APIView):
     """
     permission_classes = [permissions.IsAuthenticated]
 
-    def post(self, request, group_slug, initiative_id, session_id):
+    def post(self, request, slug, initiative_id, session_id):
         if not _superuser_required(request):
             return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
 
-        group = _get_group(group_slug)
+        group = _get_group(slug)
         from django.contrib.contenttypes.models import ContentType
         ct = ContentType.objects.get_for_model(group)
         initiative = get_object_or_404(
@@ -414,11 +414,11 @@ class CommitDistillationView(APIView):
     """
     permission_classes = [permissions.IsAuthenticated]
 
-    def post(self, request, group_slug, initiative_id, session_id):
+    def post(self, request, slug, initiative_id, session_id):
         if not _superuser_required(request):
             return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
 
-        group = _get_group(group_slug)
+        group = _get_group(slug)
         from django.contrib.contenttypes.models import ContentType
         ct = ContentType.objects.get_for_model(group)
         initiative = get_object_or_404(
@@ -458,8 +458,8 @@ class CommitDistillationView(APIView):
 class ArtifactListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
-    def _get_initiative(self, group_slug, initiative_id):
-        group = _get_group(group_slug)
+    def _get_initiative(self, slug, initiative_id):
+        group = _get_group(slug)
         from django.contrib.contenttypes.models import ContentType
         ct = ContentType.objects.get_for_model(group)
         return get_object_or_404(
@@ -469,20 +469,20 @@ class ArtifactListCreateView(APIView):
             sponsor_object_id=group.pk,
         )
 
-    def get(self, request, group_slug, initiative_id):
+    def get(self, request, slug, initiative_id):
         if not _superuser_required(request):
             return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
-        initiative = self._get_initiative(group_slug, initiative_id)
+        initiative = self._get_initiative(slug, initiative_id)
         artifacts = initiative.artifacts.all()
         kind_filter = request.query_params.get("kind")
         if kind_filter:
             artifacts = artifacts.filter(kind=kind_filter)
         return Response(ArtifactSerializer(artifacts, many=True).data)
 
-    def post(self, request, group_slug, initiative_id):
+    def post(self, request, slug, initiative_id):
         if not _superuser_required(request):
             return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
-        initiative = self._get_initiative(group_slug, initiative_id)
+        initiative = self._get_initiative(slug, initiative_id)
 
         serializer = ArtifactSerializer(data=request.data)
         if not serializer.is_valid():
@@ -504,8 +504,8 @@ class ArtifactListCreateView(APIView):
 class ArtifactDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
-    def _get_artifact(self, group_slug, initiative_id, artifact_id):
-        group = _get_group(group_slug)
+    def _get_artifact(self, slug, initiative_id, artifact_id):
+        group = _get_group(slug)
         from django.contrib.contenttypes.models import ContentType
         ct = ContentType.objects.get_for_model(group)
         initiative = get_object_or_404(
@@ -516,10 +516,10 @@ class ArtifactDetailView(APIView):
         )
         return get_object_or_404(Artifact, id=artifact_id, initiative=initiative)
 
-    def patch(self, request, group_slug, initiative_id, artifact_id):
+    def patch(self, request, slug, initiative_id, artifact_id):
         if not _superuser_required(request):
             return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
-        artifact = self._get_artifact(group_slug, initiative_id, artifact_id)
+        artifact = self._get_artifact(slug, initiative_id, artifact_id)
         serializer = ArtifactSerializer(artifact, data=request.data, partial=True)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -534,11 +534,11 @@ class ArtifactRouteToPuddlejumpView(APIView):
     """
     permission_classes = [permissions.IsAuthenticated]
 
-    def post(self, request, group_slug, initiative_id, artifact_id):
+    def post(self, request, slug, initiative_id, artifact_id):
         if not _superuser_required(request):
             return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
 
-        group = _get_group(group_slug)
+        group = _get_group(slug)
         from django.contrib.contenttypes.models import ContentType
         ct = ContentType.objects.get_for_model(group)
         initiative = get_object_or_404(
@@ -597,8 +597,8 @@ def _format_as_puddlejump_doc(artifact, initiative) -> str:
 class LinkedOutputListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
-    def _get_initiative(self, group_slug, initiative_id):
-        group = _get_group(group_slug)
+    def _get_initiative(self, slug, initiative_id):
+        group = _get_group(slug)
         from django.contrib.contenttypes.models import ContentType
         ct = ContentType.objects.get_for_model(group)
         return get_object_or_404(
@@ -608,17 +608,17 @@ class LinkedOutputListCreateView(APIView):
             sponsor_object_id=group.pk,
         )
 
-    def get(self, request, group_slug, initiative_id):
+    def get(self, request, slug, initiative_id):
         if not _superuser_required(request):
             return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
-        initiative = self._get_initiative(group_slug, initiative_id)
+        initiative = self._get_initiative(slug, initiative_id)
         outputs = initiative.linked_outputs.all()
         return Response(LinkedOutputSerializer(outputs, many=True).data)
 
-    def post(self, request, group_slug, initiative_id):
+    def post(self, request, slug, initiative_id):
         if not _superuser_required(request):
             return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
-        initiative = self._get_initiative(group_slug, initiative_id)
+        initiative = self._get_initiative(slug, initiative_id)
 
         serializer = LinkedOutputSerializer(data=request.data)
         if not serializer.is_valid():

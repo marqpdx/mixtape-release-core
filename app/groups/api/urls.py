@@ -58,6 +58,7 @@ from threadworks.api.urls import group_threadworks_patterns
 from almanac.api.urls import group_almanac_patterns
 from lanternmail.api.urls import group_lanternmail_patterns
 from initiatives.api.urls import group_initiatives_patterns
+from workbench.api.urls import group_workbench_patterns
 # from earthlab.api.urls import group_course_patterns
 
 # base path: api/groups/
@@ -71,6 +72,7 @@ urlpatterns = [
     path('<slug:slug>/almanac/', include(group_almanac_patterns)),
     path('<slug:slug>/lanternmail/', include(group_lanternmail_patterns)),
     path('<slug:slug>/initiatives/', include(group_initiatives_patterns)),  # /api/groups/<slug>/initiatives/...
+    path('<slug:slug>/workbench/', include(group_workbench_patterns)),      # /api/groups/<slug>/workbench/...
     # path('/<slug:group_slug>/earthlab', include(group_course_patterns)),
 
     path("", GroupListCreateView.as_view(), name="group-list-create"),

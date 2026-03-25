@@ -4,11 +4,13 @@ import hashlib
 import uuid
 
 from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APITestCase, APIClient
 
 from groups.models.group import Group, GroupType
+from groups.models.membership import GroupMembership
 from stackroom.models import Library, LibraryItem, SourceFile
 
 
@@ -57,6 +59,14 @@ class CollectionAPITestCase(APITestCase):
             sponsor_user=self.user,
             title="Test Group",
             slug="test-group",
+        )
+        user_ct = ContentType.objects.get_for_model(User)
+        GroupMembership.objects.create(
+            group=self.group,
+            member_content_type=user_ct,
+            member_object_id=self.user.id,
+            roles=["admin", "member", "owner"],
+            is_active=True,
         )
 
         self.group_collection = _create_library(
