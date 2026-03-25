@@ -3,6 +3,7 @@
 import logging
 
 from django.contrib.contenttypes.models import ContentType
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import permissions, status
@@ -13,6 +14,7 @@ from groups.models import Group
 from workbench.models import WorkingItem, WorkingItemMembership, WorkingItemStatus
 from workbench.api.serializers import (
     AutosaveSerializer,
+    MembershipReorderSerializer,
     WorkingItemListSerializer,
     WorkingItemMembershipSerializer,
     WorkingItemSerializer,
@@ -219,7 +221,10 @@ class WorkingItemAutosaveView(APIView):
             update_fields.append("body_json")
 
             # Mark fork lock on first body edit
-            if not item.body_editing_started:
+            if (
+                serializer.validated_data.get("mark_body_editing_started", True)
+                and not item.body_editing_started
+            ):
                 item.body_editing_started = True
                 update_fields.append("body_editing_started")
 
@@ -339,6 +344,69 @@ class WorkingItemMembershipView(APIView):
         membership = get_object_or_404(WorkingItemMembership, id=membership_id, working_item=item)
         membership.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class WorkingItemMembershipReorderView(APIView):
+    """
+    POST — reorder memberships for a WorkingItem before body editing begins.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _get_item(self, slug, item_id):
+        group = _get_group(slug)
+        ct = ContentType.objects.get_for_model(group)
+        return get_object_or_404(
+            WorkingItem,
+            id=item_id,
+            sponsor_content_type=ct,
+            sponsor_object_id=group.pk,
+        )
+
+    def post(self, request, slug, item_id):
+        if not _superuser_required(request):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        item = self._get_item(slug, item_id)
+
+        if item.status == WorkingItemStatus.PROMOTED:
+            return Response(
+                {"detail": "Promoted WorkingItems are immutable."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = MembershipReorderSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        membership_ids = [str(value) for value in serializer.validated_data["membership_ids"]]
+        memberships = list(item.memberships.all())
+        existing_ids = [str(m.id) for m in memberships]
+
+        if len(membership_ids) != len(set(membership_ids)):
+            return Response(
+                {"detail": "membership_ids must not contain duplicates."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if set(membership_ids) != set(existing_ids):
+            return Response(
+                {"detail": "membership_ids must exactly match the WorkingItem memberships."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        membership_map = {str(m.id): m for m in memberships}
+
+        with transaction.atomic():
+            for position, membership_id in enumerate(membership_ids):
+                membership = membership_map[membership_id]
+                if membership.position != position:
+                    membership.position = position
+                    membership.save(update_fields=["position"])
+
+        refreshed = item.memberships.all()
+        return Response({
+            "memberships": WorkingItemMembershipSerializer(refreshed, many=True).data
+        })
 
 
 # ---------------------------------------------------------------------------

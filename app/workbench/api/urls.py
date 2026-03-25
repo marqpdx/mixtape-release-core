@@ -26,6 +26,9 @@ group_workbench_patterns = [
     # Membership — add piece
     path("working-items/<uuid:item_id>/pieces", views.WorkingItemMembershipView.as_view(), name="workbench-working-item-membership"),
 
+    # Membership — reorder pieces
+    path("working-items/<uuid:item_id>/pieces/reorder", views.WorkingItemMembershipReorderView.as_view(), name="workbench-working-item-membership-reorder"),
+
     # Membership — remove piece
     path("working-items/<uuid:item_id>/pieces/<uuid:membership_id>", views.WorkingItemMembershipView.as_view(), name="workbench-working-item-membership-detail"),
 
