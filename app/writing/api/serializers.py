@@ -16,7 +16,8 @@ from ..models import (
     WritingPiece,
     # WritingPlacement,  # Replaced by ContentPlacement in app.publishing
     WritingVersion,
-    WritingWorkingCopy,
+    WorkingDocument,
+    WritingSynopsis,
 )
 
 
@@ -131,12 +132,12 @@ class WritingPieceMinimalSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "slug", "status"]
 
 
-class WritingWorkingCopyLightSerializer(serializers.ModelSerializer):
+class WorkingDocumentLightSerializer(serializers.ModelSerializer):
     """Lightweight serializer for autosave operations (no nested data)"""
     piece = WritingPieceMinimalSerializer(read_only=True)
 
     class Meta:
-        model = WritingWorkingCopy
+        model = WorkingDocument
         fields = ["id", "piece", "body_json", "title", "excerpt",
                 "last_saved_at", "auto_save_count", "client_session_id"]
         read_only_fields = ["last_saved_at", "auto_save_count"]
@@ -147,12 +148,6 @@ class WritingWorkingCopyLightSerializer(serializers.ModelSerializer):
 
 
 
-# class WritingWorkingCopyLightSerializer(serializers.ModelSerializer):
-#     """Lightweight serializer for autosave operations (no nested data)"""
-#     class Meta:
-#         model = WritingWorkingCopy
-#         fields = ['body_json', 'title', 'excerpt', 'last_saved_at', 'auto_save_count', 'client_session_id']
-#         read_only_fields = ['last_saved_at', 'auto_save_count']
 
 
 class AuthorSerializer(serializers.ModelSerializer):
@@ -327,9 +322,9 @@ class WritingPieceMinimalSerializer(serializers.ModelSerializer):
         return _get_tag_titles_for_piece(obj)
 
 
-class WritingWorkingCopySerializer(serializers.ModelSerializer):
+class WorkingDocumentSerializer(serializers.ModelSerializer):
     """
-    Serializer for WritingWorkingCopy with nested piece and user info.
+    Serializer for WorkingDocument with nested piece and user info.
     Includes collaboration status and collaborator details.
     """
     piece = WritingPieceMinimalSerializer(read_only=True)
@@ -361,7 +356,7 @@ class WritingWorkingCopySerializer(serializers.ModelSerializer):
         return DispatchCollaboratorMinimalSerializer(collaborators, many=True).data
 
     class Meta:
-        model = WritingWorkingCopy
+        model = WorkingDocument
         fields = [
             "id",
             "piece",
@@ -379,7 +374,7 @@ class WritingWorkingCopySerializer(serializers.ModelSerializer):
         ]
 
 
-class WritingWorkingCopyListSerializer(WritingWorkingCopySerializer):
+class WorkingDocumentListSerializer(WorkingDocumentSerializer):
     """List serializer that excludes body_json, adds a short body_preview instead."""
 
     body_preview = serializers.SerializerMethodField()
@@ -417,9 +412,9 @@ class WritingWorkingCopyListSerializer(WritingWorkingCopySerializer):
 
         return "".join(parts)
 
-    class Meta(WritingWorkingCopySerializer.Meta):
+    class Meta(WorkingDocumentSerializer.Meta):
         fields = [
-            f for f in WritingWorkingCopySerializer.Meta.fields
+            f for f in WorkingDocumentSerializer.Meta.fields
             if f != "body_json"
         ] + ["body_preview"]
 
@@ -535,3 +530,33 @@ class ReferenceLeafCreateSerializer(serializers.Serializer):
     source_content_type = serializers.CharField()
     source_object_id = serializers.UUIDField()
     caption = serializers.CharField(required=False, default="", allow_blank=True)
+
+
+class WritingSynopsisSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WritingSynopsis
+        fields = [
+            "id",
+            "piece",
+            "canonical_url",
+            "title",
+            "teaser",
+            "description",
+            "commentary",
+            "thumbnail_url",
+            "hero_image_url",
+            "author_name",
+            "sponsor_name",
+            "sponsor_type",
+            "published_at",
+            "visibility",
+            "status",
+            "source_version",
+            "generated_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id", "piece", "published_at", "source_version",
+            "generated_by", "created_at", "updated_at",
+        ]

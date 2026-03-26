@@ -17,7 +17,7 @@ from django.utils import dateparse, timezone
 from groups.services.permissions import PermissionService
 from publishing.models import ContentPlacement, PublicationGroup
 
-from .models import WritingPiece, WritingVersion, WritingWorkingCopy, is_provisional_slug
+from .models import WritingPiece, WritingVersion, WorkingDocument, is_provisional_slug
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,7 @@ def publish_and_place(piece: WritingPiece, user, data: dict) -> dict:
         piece.save(update_fields=list(editable_fields.keys()) + ["updated_at"])
 
     # Merge working copy if one exists
-    wc = WritingWorkingCopy.objects.filter(piece=piece, user=user).first()
+    wc = WorkingDocument.objects.filter(piece=piece, user=user).first()
     if wc:
         wc.apply_to_piece(piece)
 
@@ -140,6 +140,14 @@ def publish_and_place(piece: WritingPiece, user, data: dict) -> dict:
     )
     piece.current_version_no = next_sequence_no
     piece.save(update_fields=["current_version_no", "updated_at"])
+
+    # Generate/refresh synopsis (non-blocking — never raises)
+    if piece.status == "published":
+        try:
+            from writing.synopsis_service import SynopsisGenerationService
+            SynopsisGenerationService.generate_for_piece(piece)
+        except Exception:
+            logger.exception("Synopsis generation failed for piece %s — skipping", piece.id)
 
     # --- Placement creation ---
     ct_piece = ContentType.objects.get_for_model(WritingPiece)

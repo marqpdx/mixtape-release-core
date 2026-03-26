@@ -14,8 +14,8 @@ from rest_framework.response import Response
 from django.contrib.contenttypes.models import ContentType
 from rest_framework.views import APIView
 
-from writing.models import WritingWorkingCopy
-from .serializers import WritingWorkingCopySerializer, WritingWorkingCopyListSerializer
+from writing.models import WorkingDocument
+from .serializers import WorkingDocumentSerializer, WorkingDocumentListSerializer
 from publishing.models import ContentPlacement
 from publishing.services.content_access import can_view_placement
 from publishing.services.content_display import get_display_payload
@@ -137,7 +137,7 @@ class SponsorDraftsListView(generics.ListAPIView):
       - sponsor_type: 'group' or 'member'
       - sponsor_slug: slug of the sponsor
     """
-    serializer_class = WritingWorkingCopyListSerializer
+    serializer_class = WorkingDocumentListSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = None  # No pagination for drafts
 
@@ -147,7 +147,7 @@ class SponsorDraftsListView(generics.ListAPIView):
         user = self.request.user
 
         if not sponsor_type or not sponsor_slug:
-            return WritingWorkingCopy.objects.none()
+            return WorkingDocument.objects.none()
 
         # Get the content type for the sponsor model
         try:
@@ -161,15 +161,15 @@ class SponsorDraftsListView(generics.ListAPIView):
                 # Members don't have slugs; sponsor_slug is the username.
                 sponsor = User.objects.get(username=sponsor_slug)
             else:
-                return WritingWorkingCopy.objects.none()
+                return WorkingDocument.objects.none()
         except Exception:
-            return WritingWorkingCopy.objects.none()
+            return WorkingDocument.objects.none()
 
         # Get filter parameter: 'my', 'shared', 'all'
         filter_type = self.request.query_params.get("filter", "my")
 
         # Base queryset for drafts
-        base_qs = WritingWorkingCopy.objects.filter(
+        base_qs = WorkingDocument.objects.filter(
             piece__sponsor_content_type=content_type,
             piece__sponsor_object_id=sponsor.id,
             piece__status="draft",
@@ -214,7 +214,7 @@ class SponsorDraftDeleteView(generics.DestroyAPIView):
     Only the draft owner, the piece author, or staff can delete.
     """
     permission_classes = [permissions.IsAuthenticated]
-    queryset = WritingWorkingCopy.objects.select_related("piece")
+    queryset = WorkingDocument.objects.select_related("piece")
     lookup_field = "pk"
 
     def get_object(self):

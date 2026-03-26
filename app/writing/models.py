@@ -56,7 +56,7 @@ class WritingPieceManager(models.Manager):
 class WritingPiece(BaseContent, PublishableContentMixin):
     """
     Unified writing model (draft|scheduled|published|archived).
-    Canonical entity; autosave lives in WritingWorkingCopy.
+    Canonical entity; autosave lives in WorkingDocument.
     """
     body_json = models.JSONField(
         help_text="TipTap/ProseMirror content",
@@ -846,9 +846,82 @@ class LeafComment(BaseModel):
         return f"LeafComment<{self.id}> on Leaf<{self.leaf_id}>"
 
 
-# ============================================================================
-# Backwards Compatibility Alias
-# ============================================================================
+# ==============================================================================
+# WritingSynopsis — derivative public-facing summary of a published WritingPiece
+# ==============================================================================
 
-# Alias for backwards compatibility with existing code
-WritingWorkingCopy = WorkingDocument
+class SynopsisStatus(models.TextChoices):
+    ACTIVE = "active", "Active"
+    SUPERSEDED = "superseded", "Superseded"
+    WITHDRAWN = "withdrawn", "Withdrawn"
+
+
+class SynopsisGeneratedBy(models.TextChoices):
+    RULE_BASED = "rule_based", "Rule-based"
+    AI = "ai", "AI"
+    HYBRID = "hybrid", "Hybrid"
+
+
+class WritingSynopsis(BaseModel):
+    """
+    Derivative public-facing summary of a published WritingPiece.
+
+    Generated automatically at publish time; editable afterward.
+    Powers homepage cards, feed card display, and external distribution payloads.
+    Never blocks publication — falls back to rule-based fields if anything fails.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    piece = models.OneToOneField(
+        "WritingPiece",
+        on_delete=models.CASCADE,
+        related_name="synopsis",
+    )
+
+    # ---- Content fields ----
+    canonical_url = models.URLField(blank=True)
+    title = models.CharField(max_length=512, blank=True)
+    teaser = models.TextField(blank=True, help_text="140–220 char compact summary line.")
+    description = models.TextField(blank=True, help_text="220–500 char card/preview description.")
+    commentary = models.TextField(blank=True, help_text="Optional: 1–3 paragraphs for LinkedIn/social distribution.")
+    thumbnail_url = models.URLField(blank=True)
+    hero_image_url = models.URLField(blank=True)
+
+    # ---- Attribution ----
+    author_name = models.CharField(max_length=255, blank=True)
+    sponsor_name = models.CharField(max_length=255, blank=True)
+    sponsor_type = models.CharField(
+        max_length=16,
+        blank=True,
+        choices=[("user", "User"), ("group", "Group"), ("organization", "Organization")],
+    )
+
+    # ---- Lifecycle ----
+    published_at = models.DateTimeField(null=True, blank=True)
+    visibility = models.CharField(
+        max_length=16,
+        choices=[("public", "Public"), ("unlisted", "Unlisted"), ("private", "Private")],
+        default="public",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=SynopsisStatus.choices,
+        default=SynopsisStatus.ACTIVE,
+        db_index=True,
+    )
+    source_version = models.PositiveIntegerField(
+        default=1,
+        help_text="WritingPiece.current_version_no at time of generation.",
+    )
+    generated_by = models.CharField(
+        max_length=16,
+        choices=SynopsisGeneratedBy.choices,
+        default=SynopsisGeneratedBy.RULE_BASED,
+    )
+
+    class Meta(BaseModel.Meta):
+        verbose_name = "Writing Synopsis"
+        verbose_name_plural = "Writing Synopses"
+
+    def __str__(self):
+        return f"WritingSynopsis<{self.piece_id}> — {self.title[:60]}"
+

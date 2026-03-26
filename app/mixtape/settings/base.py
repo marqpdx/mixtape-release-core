@@ -118,6 +118,7 @@ INSTALLED_APPS = [
     "writing",         # Writing app
     "initiatives",     # Initiatives — group-scoped AI-assisted inquiry sessions
     "workbench",       # Workbench curation — WorkingItem assembly and promotion
+    "distribution",    # External distribution — Source channels, PublishEvent, ShareRecord
 ]
 
 INSTALLED_APPS += ["rest_framework_simplejwt.token_blacklist"]

@@ -27,7 +27,8 @@ from writing.models import (
     WritingComment,
     WritingPiece,
     # WritingPlacement,  # Deprecated - replaced by ContentPlacement
-    WritingWorkingCopy,
+    WorkingDocument,
+    WritingSynopsis,
 )
 from writing.services import promote_seed_to_working_copy
 from writing.tasks import transcribe_seed_task
@@ -45,16 +46,16 @@ from .serializers import (
     WritingPieceDetailSerializer,
     WritingPieceSerializer,
     # WritingPlacementSerializer,  # Deprecated - replaced by ContentPlacement
-    WritingWorkingCopyLightSerializer,
+    WorkingDocumentLightSerializer,
 )
 
 
-class WritingWorkingCopyUpsertView(generics.GenericAPIView):
+class WorkingDocumentUpsertView(generics.GenericAPIView):
     """
-    PUT: Upsert the working copy for the current user.
-    GET: (optional) Return current working copy if exists.
+    PUT: Upsert the working document for the current user.
+    GET: (optional) Return current working document if exists.
     """
-    serializer_class = WritingWorkingCopyLightSerializer
+    serializer_class = WorkingDocumentLightSerializer
     permission_classes = [permissions.IsAuthenticated, CanEditWritingPiece]
 
     def get_piece(self, pk):
@@ -66,12 +67,12 @@ class WritingWorkingCopyUpsertView(generics.GenericAPIView):
         piece = self.get_piece(pk)
 
         # First try to find user's own working copy
-        wc = WritingWorkingCopy.objects.filter(piece=piece, user=request.user).first()
+        wc = WorkingDocument.objects.filter(piece=piece, user=request.user).first()
 
         # If not found and piece is collaborative, find the author's working copy
         # (collaborators work on the same shared document via Yjs)
         if not wc and piece.author_id != request.user.id:
-            wc = WritingWorkingCopy.objects.filter(piece=piece, user=piece.author).first()
+            wc = WorkingDocument.objects.filter(piece=piece, user=piece.author).first()
 
         if not wc:
             return Response(status=status.HTTP_204_NO_CONTENT)
@@ -81,28 +82,28 @@ class WritingWorkingCopyUpsertView(generics.GenericAPIView):
         piece = self.get_piece(pk)
 
         # Try to find existing working copy for this user
-        wc = WritingWorkingCopy.objects.filter(piece=piece, user=request.user).first()
+        wc = WorkingDocument.objects.filter(piece=piece, user=request.user).first()
 
         # If not found and user is not the author, they're a collaborator
         # Collaborators should update the author's working copy (shared document)
         if not wc and piece.author_id != request.user.id:
-            wc = WritingWorkingCopy.objects.filter(piece=piece, user=piece.author).first()
+            wc = WorkingDocument.objects.filter(piece=piece, user=piece.author).first()
 
         # If still no working copy exists, create one
         if not wc:
-            wc = WritingWorkingCopy.objects.create(piece=piece, user=request.user)
+            wc = WorkingDocument.objects.create(piece=piece, user=request.user)
 
         ser = self.get_serializer(instance=wc, data=request.data, partial=True)
         ser.is_valid(raise_exception=True)
         wc = ser.save()
-        WritingWorkingCopy.objects.filter(pk=wc.pk).update(auto_save_count=F("auto_save_count") + 1)
+        WorkingDocument.objects.filter(pk=wc.pk).update(auto_save_count=F("auto_save_count") + 1)
         wc.refresh_from_db()
         return Response(self.get_serializer(wc).data, status=status.HTTP_200_OK)
 
 
-class WritingWorkingCopyApplyView(generics.GenericAPIView):
+class WorkingDocumentApplyView(generics.GenericAPIView):
     """
-    POST: Merge the user's working copy into the canonical piece and snapshot if published.
+    POST: Merge the user's working document into the canonical piece and snapshot if published.
     """
     serializer_class = WritingPieceSerializer
     permission_classes = [permissions.IsAuthenticated, CanEditWritingPiece]
@@ -111,7 +112,7 @@ class WritingWorkingCopyApplyView(generics.GenericAPIView):
         piece = get_object_or_404(WritingPiece, pk=pk, author=request.user)
         self.check_object_permissions(request, piece)
 
-        wc = get_object_or_404(WritingWorkingCopy, piece=piece, user=request.user)
+        wc = get_object_or_404(WorkingDocument, piece=piece, user=request.user)
         changed = wc.apply_to_piece(piece)
         if changed and piece.is_published:
             piece.create_version(content_changed=True)
@@ -165,7 +166,7 @@ class WritingPieceListCreateView(generics.ListCreateAPIView):
                 piece = WritingPiece.objects.get(pk=piece_id)
 
                 # Create working copy
-                working_copy = WritingWorkingCopy.objects.create(
+                working_copy = WorkingDocument.objects.create(
                     piece=piece,
                     user=request.user,
                     title=piece.title,
@@ -174,7 +175,7 @@ class WritingPieceListCreateView(generics.ListCreateAPIView):
                 )
 
                 # Add working copy to response
-                working_copy_data = WritingWorkingCopyLightSerializer(working_copy).data
+                working_copy_data = WorkingDocumentLightSerializer(working_copy).data
                 response.data["working_copy"] = working_copy_data
 
         return response
@@ -337,7 +338,7 @@ class WritingPieceScheduleView(generics.GenericAPIView):
         if not dt:
             return Response({"detail": "scheduled_for (ISO8601) is required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        wc = WritingWorkingCopy.objects.filter(piece=piece, user=request.user).first()
+        wc = WorkingDocument.objects.filter(piece=piece, user=request.user).first()
         if wc:
             wc.apply_to_piece(piece)
 
@@ -1327,7 +1328,7 @@ class DocxImportView(APIView):
                     piece.create_version(content_changed=True)
 
                 # Update or create working copy
-                wc, created = WritingWorkingCopy.objects.get_or_create(
+                wc, created = WorkingDocument.objects.get_or_create(
                     piece=piece,
                     user=request.user,
                     defaults={"title": title, "body_json": body_json, "excerpt": ""},
@@ -1425,7 +1426,7 @@ class DocxImportView(APIView):
             piece.save()
 
             # Create working copy so the editor can load it and it appears in drafts
-            WritingWorkingCopy.objects.create(
+            WorkingDocument.objects.create(
                 piece=piece,
                 user=request.user,
                 title=title,
@@ -1463,5 +1464,67 @@ class DocxImportView(APIView):
         return Response({
             "piece": serializer.data,
             "outline_nodes_created": len(outline_specs),
-            "message": f'Successfully imported "{title}"',
+            "message": f'Successfully imported "{title}"',  # noqa: E501
         }, status=status.HTTP_201_CREATED)
+
+
+# ==============================================================================
+# WritingSynopsis views
+# ==============================================================================
+
+class WritingSynopsisView(generics.GenericAPIView):
+    """
+    GET  /api/writing/pieces/<pk>/synopsis  — retrieve (auto-creates if missing)
+    PATCH /api/writing/pieces/<pk>/synopsis — update editable fields
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _get_piece(self, pk, user):
+        piece = get_object_or_404(WritingPiece, pk=pk)
+        if piece.author != user and not user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied
+        return piece
+
+    def get(self, request, pk):
+        from writing.api.serializers import WritingSynopsisSerializer
+        piece = self._get_piece(pk, request.user)
+        synopsis = getattr(piece, "synopsis", None)
+        if synopsis is None:
+            if piece.is_published:
+                from writing.synopsis_service import SynopsisGenerationService
+                synopsis = SynopsisGenerationService.generate_for_piece(piece)
+            if synopsis is None:
+                return Response({"detail": "No synopsis available yet."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(WritingSynopsisSerializer(synopsis).data)
+
+    def patch(self, request, pk):
+        from writing.api.serializers import WritingSynopsisSerializer
+        piece = self._get_piece(pk, request.user)
+        synopsis = getattr(piece, "synopsis", None)
+        if synopsis is None:
+            return Response({"detail": "No synopsis found."}, status=status.HTTP_404_NOT_FOUND)
+        serializer = WritingSynopsisSerializer(synopsis, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+
+class WritingSynopsisRegenerateView(generics.GenericAPIView):
+    """POST /api/writing/pieces/<pk>/synopsis/regenerate"""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        from writing.api.serializers import WritingSynopsisSerializer
+        from writing.synopsis_service import SynopsisGenerationService
+        piece = get_object_or_404(WritingPiece, pk=pk)
+        if piece.author != request.user and not request.user.is_staff:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied
+        synopsis = SynopsisGenerationService.generate_for_piece(piece)
+        if synopsis is None:
+            return Response(
+                {"detail": "Synopsis generation failed."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        return Response(WritingSynopsisSerializer(synopsis).data)

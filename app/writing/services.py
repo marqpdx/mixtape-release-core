@@ -22,12 +22,12 @@ def promote_seed_to_working_copy(*, seed: Seed, requested_by, extra_meta: dict |
         return seed.promoted_to
 
     # Lazy import to avoid circular refs
-    from .models import WritingWorkingCopy
+    from .models import WorkingDocument
 
     title = first_line_as_title(seed.body_text) or "Untitled"
     body_json = plaintext_to_tiptap_json(seed.body_text)
 
-    wc = WritingWorkingCopy.objects.create(
+    wc = WorkingDocument.objects.create(
         author=seed.author,
         title=title,
         body_json=body_json,
@@ -136,7 +136,7 @@ def promote_leaf_to_working_copy(*, leaf, author):
     Promote a Leaf to a WritingPiece draft (WorkingDocument).
     Follows the same pattern as promote_seed_to_working_copy.
     """
-    from .models import Leaf, WritingWorkingCopy
+    from .models import Leaf, WorkingDocument
 
     if leaf.author_id != author.id:
         raise PromotionError("Not allowed to promote this leaf.")
@@ -146,7 +146,7 @@ def promote_leaf_to_working_copy(*, leaf, author):
     title = first_line_as_title(leaf.body_text) or "Untitled"
     body_json = leaf.body_json if leaf.body_json else plaintext_to_tiptap_json(leaf.body_text)
 
-    wc = WritingWorkingCopy.objects.create(
+    wc = WorkingDocument.objects.create(
         author=author,
         title=title,
         body_json=body_json,
