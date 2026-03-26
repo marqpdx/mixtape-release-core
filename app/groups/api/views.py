@@ -12,8 +12,8 @@ from django.core.exceptions import ValidationError
 # ============================================================================
 # PHASE 3+: Writing Integration (Deferred)
 # ============================================================================
-# from writing.api.serializers import WritingPieceSerializer, WritingPlacementSerializer, WritingWorkingCopySerializer
-# from writing.models import WritingPiece, WritingPlacement, WritingWorkingCopy
+# from writing.api.serializers import WritingPieceSerializer, WritingPlacementSerializer, WorkingDocumentSerializer
+# from writing.models import WritingPiece, WritingPlacement, WorkingDocument
 from django.db import transaction
 from django.db.models import Q
 from django.http import JsonResponse

@@ -1,16 +1,24 @@
 from django.contrib import admin
 
-from writing.models import Leaf, LeafComment, WritingPiece, WritingWorkingCopy
+from writing.models import Leaf, LeafComment, WorkingDocument, WritingPiece, WritingSynopsis
 
 
-@admin.register(WritingWorkingCopy)
-class WorkingCopyAdmin(admin.ModelAdmin):
+@admin.register(WorkingDocument)
+class WorkingDocumentAdmin(admin.ModelAdmin):
     list_display = ["id", "piece", "user", "last_saved_at"]
 
 
 @admin.register(WritingPiece)
 class WritingPieceAdmin(admin.ModelAdmin):
     list_display = ["id", "title", "status", "writing_kind", "author"]
+
+
+@admin.register(WritingSynopsis)
+class WritingSynopsisAdmin(admin.ModelAdmin):
+    list_display = ["id", "piece", "title", "status", "generated_by", "published_at"]
+    list_filter = ["status", "generated_by", "sponsor_type"]
+    search_fields = ["title", "teaser"]
+    readonly_fields = ["piece", "generated_by", "source_version", "published_at", "created_at", "updated_at"]
 
 
 @admin.register(Leaf)

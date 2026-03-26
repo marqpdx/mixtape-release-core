@@ -42,8 +42,10 @@ from .views import (
     WritingPieceTagsView,
     WritingPieceUnpublishView,
     WritingPieceUnpinView,
-    WritingWorkingCopyApplyView,
-    WritingWorkingCopyUpsertView,
+    WorkingDocumentApplyView,
+    WorkingDocumentUpsertView,
+    WritingSynopsisView,
+    WritingSynopsisRegenerateView,
     clear_empty_flag,
 )
 
@@ -65,8 +67,8 @@ urlpatterns = [
     path("pieces/view/<slug:slug>", WritingPiecePublicView.as_view(), name="writingpiece-public-view"),
 
     # Working copy (autosave buffer)
-    path("pieces/<uuid:pk>/working-copy", WritingWorkingCopyUpsertView.as_view(), name="writingpiece-workingcopy"),
-    path("pieces/<uuid:pk>/apply-working-copy", WritingWorkingCopyApplyView.as_view(), name="writingpiece-apply-workingcopy"),
+    path("pieces/<uuid:pk>/working-copy", WorkingDocumentUpsertView.as_view(), name="writingpiece-working-document"),
+    path("pieces/<uuid:pk>/apply-working-copy", WorkingDocumentApplyView.as_view(), name="writingpiece-apply-working-document"),
 
     # Collaboration management (on working documents)
     path("working-documents/<uuid:piece_id>/collaboration/status", WorkingDocumentCollaborationStatusView.as_view(),
@@ -80,6 +82,10 @@ urlpatterns = [
 
     # Clear empty flag
     path("pieces/<uuid:piece_id>/clear-empty", clear_empty_flag, name="clear-empty-flag"),
+
+    # Synopsis
+    path("pieces/<uuid:pk>/synopsis", WritingSynopsisView.as_view(), name="writingpiece-synopsis"),
+    path("pieces/<uuid:pk>/synopsis/regenerate", WritingSynopsisRegenerateView.as_view(), name="writingpiece-synopsis-regenerate"),
 
     # Publish & schedule
     path("pieces/<uuid:pk>/publish", WritingPiecePublishAndPlaceView.as_view(), name="writingpiece-publish"),

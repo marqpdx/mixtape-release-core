@@ -8,6 +8,8 @@ Activity producers for Leaf/Storyline events.
 """
 from __future__ import annotations
 
+from django.utils import timezone
+
 from activity.producers import (
     _create_action_and_outbox,
     _ct,
@@ -71,6 +73,36 @@ def on_follow_created(*, follower, target):
         audience_type="users",
         audience_ids=[str(target.id)],
         context={},
+    )
+
+
+def on_writing_published(*, piece, group):
+    """Notify group members when a WritingPiece is published to the group."""
+    at = _ensure_activity_type(
+        code="writing.piece.published",
+        label="New Writing Published",
+        default_channel="in_app",
+        default_priority="normal",
+        suppressible=True,
+    )
+    _create_action_and_outbox(
+        actor_content_type=_ct(piece.author),
+        actor_id=_id(piece.author),
+        actor_label="user",
+        object_content_type=_ct(piece),
+        object_id=_id(piece),
+        context_content_type=_ct(group),
+        context_id=_id(group),
+        activity_type=at,
+        verb="published",
+        activity_code=at.code,
+        channel=at.default_channel,
+        priority=at.default_priority,
+        metadata={"piece_slug": piece.slug, "title": piece.title or ""},
+        dedupe_key=f"{at.code}:{_ct(piece).model}:{_id(piece)}",
+        aggregate_key=f"writing:{_ct(group).pk}:{_id(group)}:{timezone.now():%Y%m%d}",
+        audience={"type": "group_members", "group_id": _id(group), "exclude_actor": True},
+        occurs_at=timezone.now(),
     )
 
 
