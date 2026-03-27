@@ -21,8 +21,11 @@ from .leaf_views import (
 )
 from .streams_views import StreamsView
 from .views import (
+    DocumentImportBatchConfirmView,
+    DocumentImportBatchPreviewView,
     DocxImportView,
     DocxPreviewView,
+    GroupWritingCatalogView,
     SeedDetailView,
     SeedIngestView,
     SeedListCreateView,
@@ -44,6 +47,7 @@ from .views import (
     WritingPieceUnpinView,
     WorkingDocumentApplyView,
     WorkingDocumentUpsertView,
+    WritingSeriesListView,
     WritingSynopsisView,
     WritingSynopsisRegenerateView,
     clear_empty_flag,
@@ -83,6 +87,12 @@ urlpatterns = [
     # Clear empty flag
     path("pieces/<uuid:piece_id>/clear-empty", clear_empty_flag, name="clear-empty-flag"),
 
+    # Series
+    path("series", WritingSeriesListView.as_view(), name="writing-series-list"),
+
+    # Catalog (published pieces for a group, grouped by series)
+    path("catalog", GroupWritingCatalogView.as_view(), name="group-writing-catalog"),
+
     # Synopsis
     path("pieces/<uuid:pk>/synopsis", WritingSynopsisView.as_view(), name="writingpiece-synopsis"),
     path("pieces/<uuid:pk>/synopsis/regenerate", WritingSynopsisRegenerateView.as_view(), name="writingpiece-synopsis-regenerate"),
@@ -117,6 +127,8 @@ urlpatterns = [
     # DOCX Import
     path("import/preview", DocxPreviewView.as_view(), name="docx-preview"),
     path("import/confirm", DocxImportView.as_view(), name="docx-import"),
+    path("import/preview-batch", DocumentImportBatchPreviewView.as_view(), name="document-import-preview-batch"),
+    path("import/confirm-batch", DocumentImportBatchConfirmView.as_view(), name="document-import-confirm-batch"),
 
     # Leaves (Storyline)
     path("leaves", LeafListCreateView.as_view(), name="leaf-list-create"),

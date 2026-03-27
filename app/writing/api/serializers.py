@@ -15,6 +15,7 @@ from ..models import (
     WritingComment,
     WritingPiece,
     # WritingPlacement,  # Replaced by ContentPlacement in app.publishing
+    WritingSeries,
     WritingVersion,
     WorkingDocument,
     WritingSynopsis,
@@ -85,12 +86,20 @@ class WritingPieceSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
+class WritingSeriesSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WritingSeries
+        fields = ["id", "title", "slug", "phase_num", "subtitle", "group"]
+        read_only_fields = ["id"]
+
+
 class WritingPieceDetailSerializer(serializers.ModelSerializer):
     """Detailed serializer for viewing a single piece"""
     author_name = serializers.CharField(source="author.get_full_name", read_only=True)
     author_avatar = serializers.SerializerMethodField()
     sponsor_name = serializers.SerializerMethodField()
     reading_time = serializers.IntegerField(read_only=True)
+    series = WritingSeriesSerializer(read_only=True)
 
     class Meta:
         model = WritingPiece
@@ -110,6 +119,8 @@ class WritingPieceDetailSerializer(serializers.ModelSerializer):
             "view_count",
             "allow_comments",
             "canonical_url",
+            "series",
+            "series_order",
         ]
         read_only_fields = fields
 
@@ -130,6 +141,28 @@ class WritingPieceMinimalSerializer(serializers.ModelSerializer):
         model = WritingPiece
         fields = ["id", "slug", "status", "writing_kind", "is_empty"]
         read_only_fields = ["id", "slug", "status"]
+
+
+class WritingPieceCatalogSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for catalog/list views. No body_json."""
+    author_name = serializers.CharField(source="author.get_full_name", read_only=True)
+    series = WritingSeriesSerializer(read_only=True)
+
+    class Meta:
+        model = WritingPiece
+        fields = [
+            "id",
+            "title",
+            "slug",
+            "excerpt",
+            "writing_kind",
+            "author_name",
+            "published_at",
+            "reading_time",
+            "series",
+            "series_order",
+        ]
+        read_only_fields = fields
 
 
 class WorkingDocumentLightSerializer(serializers.ModelSerializer):

@@ -11,6 +11,7 @@ from django.db.models.functions import Length, Trim
 from django.shortcuts import get_object_or_404
 from django.utils import dateparse, timezone
 from rest_framework import generics, permissions, status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -27,6 +28,7 @@ from writing.models import (
     WritingComment,
     WritingPiece,
     # WritingPlacement,  # Deprecated - replaced by ContentPlacement
+    WritingSeries,
     WorkingDocument,
     WritingSynopsis,
 )
@@ -197,9 +199,12 @@ class WritingPiecePublicView(generics.RetrieveAPIView):
 
     GET /api/writing/pieces/view/{slug}
     """
-    serializer_class = WritingPieceSerializer
     permission_classes = [permissions.AllowAny]  # Visibility checks done in get_queryset
     lookup_field = "slug"
+
+    def get_serializer_class(self):
+        from writing.api.serializers import WritingPieceDetailSerializer
+        return WritingPieceDetailSerializer
 
     def get_queryset(self):
         # Base queryset: published pieces only
@@ -207,7 +212,9 @@ class WritingPiecePublicView(generics.RetrieveAPIView):
             status="published"
         ).select_related(
             "author",
-            "sponsor_content_type"
+            "author__profile",
+            "sponsor_content_type",
+            "series",
         ).prefetch_related(
             "versions"
         )
@@ -1176,6 +1183,367 @@ class WritingPieceCategoriesView(generics.GenericAPIView):
 import hashlib
 
 
+def _normalize_existing_import(receipt):
+    if not receipt:
+        return None
+    return {
+        "piece_id": str(receipt.created_writing_piece_id),
+        "receipt_id": str(receipt.id),
+        "imported_at": receipt.created_at.isoformat(),
+    }
+
+
+def _resolve_import_sponsor(sponsor_type, sponsor_id=None, sponsor_slug=None):
+    sponsor_type_normalized = (sponsor_type or "").lower()
+
+    if sponsor_type_normalized == "group":
+        sponsor = Group.objects.filter(slug=sponsor_slug).first() if sponsor_slug else Group.objects.filter(pk=sponsor_id).first()
+        if not sponsor:
+            raise ValidationError(f"Group sponsor not found: {sponsor_slug or sponsor_id}")
+        return sponsor
+
+    if sponsor_type_normalized in {"member", "user", "customuser"}:
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        sponsor = User.objects.filter(username=sponsor_slug).first() if sponsor_slug else User.objects.filter(pk=sponsor_id).first()
+        if not sponsor:
+            raise ValidationError(f"Member sponsor not found: {sponsor_slug or sponsor_id}")
+        return sponsor
+
+    raise ValidationError(f"Unknown sponsor type: {sponsor_type}")
+
+
+def _user_can_import_to_sponsor(user, sponsor) -> bool:
+    if isinstance(sponsor, Group):
+        return PermissionService.can_user_perform_action(user, "edit_writing", group_slug=sponsor.slug)
+    return sponsor.id == user.id or getattr(user, "is_staff", False)
+
+
+def _receipt_matches_sponsor(receipt, sponsor) -> bool:
+    if not receipt or not sponsor:
+        return False
+    piece = receipt.created_writing_piece
+    sponsor_ct = ContentType.objects.get_for_model(type(sponsor))
+    return (
+        piece.sponsor_content_type_id == sponsor_ct.id
+        and str(piece.sponsor_object_id) == str(sponsor.id)
+    )
+
+
+def _find_existing_receipt_for_sponsor(file_sha256, sponsor):
+    from writing.models import ImportReceipt
+
+    receipts = ImportReceipt.objects.filter(source_sha256=file_sha256).select_related("created_writing_piece")
+    for receipt in receipts:
+        if _receipt_matches_sponsor(receipt, sponsor):
+            return receipt
+    return None
+
+
+def _preview_docx_file(file_bytes, original_filename, file_sha256, sponsor):
+    from writing.models import ImportReceipt
+    from writing.importers.docx_to_tiptap import (
+        docx_to_tiptap,
+        extract_title,
+        count_nodes_by_type,
+    )
+    from writing.importers.docx_comments import extract_docx_comments
+
+    existing = _find_existing_receipt_for_sponsor(file_sha256, sponsor)
+
+    body_json = docx_to_tiptap(file_bytes)
+    title = extract_title(body_json) or original_filename.rsplit(".", 1)[0]
+    node_counts = count_nodes_by_type(body_json)
+
+    import os
+    import tempfile
+
+    comments = []
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
+        comments = extract_docx_comments(tmp_path)
+    except Exception:
+        comments = []
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+    metadata_notes = {}
+    if comments:
+        metadata_notes["docx_comments"] = comments
+
+    warnings = []
+    if existing:
+        warnings.append("This file hash has already been imported.")
+
+    return {
+        "file_type": "docx",
+        "original_filename": original_filename,
+        "file_sha256": file_sha256,
+        "title": title,
+        "excerpt": "",
+        "body_json": body_json,
+        "writing_kind": "dispatch",
+        "addressed_to": "public",
+        "enable_outline": False,
+        "frontmatter": {},
+        "metadata_notes": metadata_notes,
+        "already_imported": bool(existing),
+        "existing_import": _normalize_existing_import(existing),
+        "warnings": warnings,
+        "stats": {
+            "word_count": 0,
+            "heading_count": node_counts.get("heading", 0),
+            "node_counts": node_counts,
+            "comment_count": len(comments),
+        },
+    }
+
+
+def _preview_markdown_file(file_bytes, original_filename, file_sha256, sponsor):
+    from writing.importers.docx_to_tiptap import count_nodes_by_type
+    from writing.importers.markdown_to_tiptap import parse_markdown_file
+
+    parsed = parse_markdown_file(file_bytes, filename=original_filename)
+    existing = _find_existing_receipt_for_sponsor(file_sha256, sponsor)
+    frontmatter = parsed["frontmatter"]
+    node_counts = count_nodes_by_type(parsed["body_json"])
+    heading_count = node_counts.get("heading", 0)
+    word_count = len(parsed["body_markdown"].split())
+
+    warnings = list(parsed["warnings"])
+    if existing:
+        warnings.append("This file hash has already been imported.")
+
+    # stage gate: warn if not "canon" (pre-import check only; not stored)
+    stage = frontmatter.get("stage") or ""
+    if stage and stage != "canon":
+        warnings.append(
+            f"stage is '{stage}' — only 'canon' articles are ready for import. "
+            "Proceeding will create a draft."
+        )
+
+    # Promote series fields from frontmatter to top-level so confirm items carry them
+    phase_num = frontmatter.get("phase")  # `phase: 0` in frontmatter
+    series_order = frontmatter.get("series_order")
+
+    _KNOWN_FRONTMATTER = {
+        "title", "summary", "writing_kind", "addressed_to", "enable_outline",
+        "tags", "slug", "source_url", "excerpt",
+        # series / calendar fields — handled explicitly, not unmapped
+        "phase", "series_order", "article_id", "stage", "synopsis",
+        "created", "updated",
+    }
+
+    return {
+        "file_type": "md",
+        "original_filename": original_filename,
+        "file_sha256": file_sha256,
+        "title": parsed["title"],
+        "excerpt": parsed["excerpt"],
+        "body_json": parsed["body_json"],
+        "writing_kind": frontmatter.get("writing_kind") or "article",
+        "addressed_to": frontmatter.get("addressed_to") or "public",
+        "enable_outline": bool(frontmatter.get("enable_outline", True)),
+        "source_url": frontmatter.get("source_url") or "",
+        "phase_num": phase_num,
+        "series_order": series_order,
+        "frontmatter": frontmatter,
+        "metadata_notes": {
+            "article_id": frontmatter.get("article_id"),  # audit only
+            "stage": stage or None,
+            "unmapped_frontmatter": {
+                key: value
+                for key, value in frontmatter.items()
+                if key not in _KNOWN_FRONTMATTER
+            },
+        },
+        "already_imported": bool(existing),
+        "existing_import": _normalize_existing_import(existing),
+        "warnings": warnings,
+        "stats": {
+            "word_count": word_count,
+            "heading_count": heading_count,
+            "node_counts": node_counts,
+            "comment_count": 0,
+        },
+    }
+
+
+def _resolve_series(series_id, phase_num, sponsor):
+    """
+    Resolve a WritingSeries by UUID or phase_num.
+    sponsor is used to scope phase_num lookups to the right group.
+    Returns None if nothing matches (not found, not an error by itself).
+    """
+    if series_id:
+        try:
+            return WritingSeries.objects.get(pk=series_id)
+        except WritingSeries.DoesNotExist:
+            return None
+    if phase_num is not None:
+        group = sponsor if hasattr(sponsor, "writing_series") else None
+        qs = WritingSeries.objects.filter(phase_num=int(phase_num))
+        if group:
+            qs = qs.filter(group=group)
+        return qs.first()
+    return None
+
+
+def _create_or_replace_imported_piece(
+    *,
+    request,
+    sponsor,
+    source_type,
+    body_json,
+    title,
+    excerpt,
+    writing_kind,
+    addressed_to,
+    enable_outline,
+    source_url,
+    file_sha256,
+    original_filename,
+    import_notes,
+    replace_existing=False,
+    series=None,
+    series_order=None,
+):
+    from writing.importers.docx_to_tiptap import generate_outline_from_headings
+    from writing.models import ImportReceipt
+
+    outline_specs = generate_outline_from_headings(body_json) if enable_outline else []
+    existing_receipt = _find_existing_receipt_for_sponsor(file_sha256, sponsor) if file_sha256 else None
+
+    if replace_existing and existing_receipt:
+        piece = existing_receipt.created_writing_piece
+        with transaction.atomic():
+            piece.body_json = body_json
+            piece.title = title
+            piece.excerpt = excerpt
+            piece.writing_kind = writing_kind
+            piece.addressed_to = addressed_to
+            piece.enable_outline = enable_outline
+            update_fields = [
+                "body_json", "title", "excerpt", "writing_kind",
+                "addressed_to", "enable_outline", "updated_at",
+            ]
+            if series is not None:
+                piece.series = series
+                piece.series_order = series_order
+                update_fields += ["series", "series_order"]
+            piece.save(update_fields=update_fields)
+
+            if piece.status == "published":
+                piece.create_version(content_changed=True)
+
+            working_document, created = WorkingDocument.objects.get_or_create(
+                piece=piece,
+                user=request.user,
+                defaults={
+                    "title": title,
+                    "excerpt": excerpt,
+                    "body_json": body_json,
+                },
+            )
+            if not created:
+                working_document.title = title
+                working_document.excerpt = excerpt
+                working_document.body_json = body_json
+                working_document.save(update_fields=["title", "excerpt", "body_json", "updated_at"])
+
+            notes = existing_receipt.import_notes or {}
+            replacements = notes.get("replacements", [])
+            replacements.append(
+                {
+                    "replaced_at": timezone.now().isoformat(),
+                    "replaced_by": str(request.user.id),
+                    "source_type": source_type,
+                }
+            )
+            notes["replacements"] = replacements
+            notes.update(import_notes or {})
+            existing_receipt.import_notes = notes
+            existing_receipt.original_filename = original_filename
+            existing_receipt.source_type = source_type
+            existing_receipt.source_url = source_url or existing_receipt.source_url
+            existing_receipt.save(
+                update_fields=["import_notes", "original_filename", "source_type", "source_url", "updated_at"]
+            )
+
+            if outline_specs:
+                from dispatch.models import DispatchOutlineNode
+
+                DispatchOutlineNode.objects.filter(writing_piece=piece).delete()
+                for spec in outline_specs:
+                    DispatchOutlineNode.objects.create(
+                        writing_piece=piece,
+                        title=spec["title"],
+                        order_index=spec["order_index"],
+                        anchor_target=spec["anchor_target"],
+                    )
+
+        return piece, working_document, "replaced", len(outline_specs)
+
+    if existing_receipt and not replace_existing:
+        return existing_receipt.created_writing_piece, None, "skipped_duplicate", 0
+
+    with transaction.atomic():
+        piece = WritingPiece(
+            author=request.user,
+            title=title,
+            excerpt=excerpt,
+            body_json=body_json,
+            writing_kind=writing_kind,
+            addressed_to=addressed_to,
+            enable_outline=enable_outline,
+            series=series,
+            series_order=series_order,
+        )
+        piece.set_sponsor(sponsor)
+        piece.save()
+
+        working_document = WorkingDocument.objects.create(
+            piece=piece,
+            user=request.user,
+            title=title,
+            excerpt=excerpt,
+            body_json=body_json,
+        )
+
+        from writing.models import ImportReceipt
+
+        ImportReceipt.objects.create(
+            source_type=source_type,
+            source_sha256=file_sha256,
+            original_filename=original_filename,
+            source_url=source_url,
+            created_writing_piece=piece,
+            imported_by=request.user,
+            import_notes=import_notes or {},
+        )
+
+        if outline_specs:
+            from dispatch.models import DispatchOutlineNode
+
+            for spec in outline_specs:
+                DispatchOutlineNode.objects.create(
+                    writing_piece=piece,
+                    title=spec["title"],
+                    order_index=spec["order_index"],
+                    anchor_target=spec["anchor_target"],
+                )
+
+    return piece, working_document, "created", len(outline_specs)
+
+
 class DocxPreviewView(APIView):
     """
     POST /api/writing/import/preview
@@ -1468,6 +1836,257 @@ class DocxImportView(APIView):
         }, status=status.HTTP_201_CREATED)
 
 
+class DocumentImportBatchPreviewView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        sponsor_type = request.data.get("sponsor_type")
+        sponsor_id = request.data.get("sponsor_id")
+        sponsor_slug = request.data.get("sponsor_slug")
+
+        if not sponsor_type or (not sponsor_id and not sponsor_slug):
+            return Response(
+                {"error": "sponsor_type and either sponsor_id or sponsor_slug are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            sponsor = _resolve_import_sponsor(sponsor_type, sponsor_id=sponsor_id, sponsor_slug=sponsor_slug)
+        except ValidationError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not _user_can_import_to_sponsor(request.user, sponsor):
+            raise PermissionDenied("You do not have permission to import drafts for this sponsor.")
+
+        uploaded_files = list(request.FILES.getlist("files"))
+        if not uploaded_files:
+            uploaded_files = list(request.FILES.getlist("files[]"))
+
+        if not uploaded_files:
+            return Response(
+                {"error": "No files provided. Send one or more files as 'files'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        items = []
+        for index, uploaded_file in enumerate(uploaded_files):
+            original_filename = uploaded_file.name
+            file_bytes = uploaded_file.read()
+            file_sha256 = hashlib.sha256(file_bytes).hexdigest()
+            temp_id = f"tmp_{index + 1}"
+            lower_name = original_filename.lower()
+
+            try:
+                if lower_name.endswith(".docx"):
+                    preview = _preview_docx_file(file_bytes, original_filename, file_sha256, sponsor)
+                elif lower_name.endswith(".md"):
+                    preview = _preview_markdown_file(file_bytes, original_filename, file_sha256, sponsor)
+                else:
+                    items.append(
+                        {
+                            "temp_id": temp_id,
+                            "original_filename": original_filename,
+                            "file_type": "unknown",
+                            "warnings": [f"Unsupported file type: {original_filename}"],
+                            "error": f"Unsupported file type: {original_filename}",
+                        }
+                    )
+                    continue
+            except Exception as exc:  # noqa: BLE001
+                items.append(
+                    {
+                        "temp_id": temp_id,
+                        "original_filename": original_filename,
+                        "file_type": "unknown",
+                        "warnings": [str(exc)],
+                        "error": f"Failed to parse {original_filename}: {exc}",
+                    }
+                )
+                continue
+
+            preview["temp_id"] = temp_id
+            items.append(preview)
+
+        return Response({"items": items}, status=status.HTTP_200_OK)
+
+
+class DocumentImportBatchConfirmView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        sponsor_type = request.data.get("sponsor_type")
+        sponsor_id = request.data.get("sponsor_id")
+        sponsor_slug = request.data.get("sponsor_slug")
+        items = request.data.get("items") or []
+
+        if not sponsor_type or (not sponsor_id and not sponsor_slug):
+            return Response(
+                {"error": "sponsor_type and either sponsor_id or sponsor_slug are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not isinstance(items, list) or not items:
+            return Response(
+                {"error": "items must be a non-empty list"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            sponsor = _resolve_import_sponsor(sponsor_type, sponsor_id=sponsor_id, sponsor_slug=sponsor_slug)
+        except ValidationError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not _user_can_import_to_sponsor(request.user, sponsor):
+            raise PermissionDenied("You do not have permission to import drafts for this sponsor.")
+
+        # Optional batch-level series resolution: by UUID (series_id) or phase number (phase_num)
+        # Items can also carry their own phase_num (from frontmatter), which overrides the batch default.
+        batch_series_obj = _resolve_series(
+            request.data.get("series_id"),
+            request.data.get("phase_num"),
+            sponsor,
+        )
+        if request.data.get("series_id") and batch_series_obj is None:
+            return Response(
+                {"error": f"series_id '{request.data.get('series_id')}' not found"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        results = []
+        for item_index, item in enumerate(items):
+            temp_id = item.get("temp_id")
+            body_json = item.get("body_json")
+            title = (item.get("title") or "").strip()
+            excerpt = (item.get("excerpt") or "").strip()
+            writing_kind = item.get("writing_kind") or "article"
+            addressed_to = item.get("addressed_to") or "public"
+            enable_outline = bool(item.get("enable_outline", False))
+            source_url = item.get("source_url") or None
+            file_sha256 = item.get("file_sha256") or ""
+            original_filename = item.get("original_filename") or ""
+            source_type = item.get("file_type") or ("md" if original_filename.lower().endswith(".md") else "docx")
+            replace_existing = bool(item.get("replace_existing", False))
+            import_notes = item.get("import_notes") or {}
+
+            # Per-item series: phase_num (from frontmatter) or series_id, falls back to batch default
+            item_phase_num = item.get("phase_num")
+            item_series_id = item.get("series_id")
+            if item_phase_num is not None or item_series_id:
+                series_obj = _resolve_series(item_series_id, item_phase_num, sponsor)
+                if series_obj is None:
+                    results.append({
+                        "temp_id": temp_id,
+                        "status": "error",
+                        "error": (
+                            f"No WritingSeries found for phase_num={item_phase_num!r} "
+                            f"in group '{getattr(sponsor, 'slug', sponsor)}'. "
+                            "Run seed_writing_series before importing."
+                        ),
+                    })
+                    continue
+            else:
+                series_obj = batch_series_obj
+            series_order = item.get("series_order")
+            if series_order is None and series_obj is not None:
+                series_order = item_index  # auto-assign position within batch
+
+            if not body_json or not title:
+                results.append(
+                    {
+                        "temp_id": temp_id,
+                        "status": "error",
+                        "error": "title and body_json are required for each item",
+                    }
+                )
+                continue
+
+            try:
+                piece, working_document, result_status, outline_count = _create_or_replace_imported_piece(
+                    request=request,
+                    sponsor=sponsor,
+                    source_type=source_type,
+                    body_json=body_json,
+                    title=title,
+                    excerpt=excerpt,
+                    writing_kind=writing_kind,
+                    addressed_to=addressed_to,
+                    enable_outline=enable_outline,
+                    source_url=source_url,
+                    file_sha256=file_sha256,
+                    original_filename=original_filename,
+                    import_notes=import_notes,
+                    replace_existing=replace_existing,
+                    series=series_obj,
+                    series_order=series_order,
+                )
+                result = {
+                    "temp_id": temp_id,
+                    "status": result_status,
+                    "piece": {
+                        "id": str(piece.id),
+                        "slug": piece.slug,
+                        "status": piece.status,
+                        "title": piece.title,
+                    },
+                    "outline_nodes_created": outline_count,
+                }
+                if working_document:
+                    result["working_document"] = {"id": str(working_document.id)}
+                results.append(result)
+            except Exception as exc:  # noqa: BLE001
+                results.append(
+                    {
+                        "temp_id": temp_id,
+                        "status": "error",
+                        "error": str(exc),
+                    }
+                )
+
+        return Response({"results": results}, status=status.HTTP_200_OK)
+
+
+# ==============================================================================
+# Group writing catalog
+# ==============================================================================
+
+class GroupWritingCatalogView(generics.GenericAPIView):
+    """
+    GET /api/writing/catalog?group=<slug>
+
+    Returns all published pieces for a group, ordered by series (phase_num)
+    then series_order, for catalog rendering. No body_json — use the detail
+    endpoint when opening a piece.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        from writing.api.serializers import WritingPieceCatalogSerializer
+        group_slug = request.query_params.get("group")
+        if not group_slug:
+            return Response({"error": "group query param required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        group = get_object_or_404(Group, slug=group_slug)
+        ct = ContentType.objects.get_for_model(group)
+
+        pieces = (
+            WritingPiece.objects
+            .filter(
+                status="published",
+                sponsor_content_type=ct,
+                sponsor_object_id=group.id,
+            )
+            .select_related("author", "series")
+            .order_by(
+                "series__phase_num",
+                "series_order",
+                "-published_at",
+            )
+        )
+
+        return Response(WritingPieceCatalogSerializer(pieces, many=True).data)
+
+
 # ==============================================================================
 # WritingSynopsis views
 # ==============================================================================
@@ -1528,3 +2147,36 @@ class WritingSynopsisRegenerateView(generics.GenericAPIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
         return Response(WritingSynopsisSerializer(synopsis).data)
+
+
+# ==============================================================================
+# WritingSeries views
+# ==============================================================================
+
+class WritingSeriesListView(generics.GenericAPIView):
+    """
+    GET /api/writing/series?group=<slug>  — list series for a group
+    POST /api/writing/series              — create a new series (admin/owner only)
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        from writing.api.serializers import WritingSeriesSerializer
+        group_slug = request.query_params.get("group")
+        if group_slug:
+            group = get_object_or_404(Group, slug=group_slug)
+            qs = WritingSeries.objects.filter(group=group)
+        else:
+            qs = WritingSeries.objects.filter(group__isnull=True)
+        return Response(WritingSeriesSerializer(qs, many=True).data)
+
+    def post(self, request):
+        from writing.api.serializers import WritingSeriesSerializer
+        serializer = WritingSeriesSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        group = serializer.validated_data.get("group")
+        if group:
+            if not PermissionService.user_has_role(request.user, group, ["owner", "admin"]):
+                raise PermissionDenied("Only group owners/admins can create series.")
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
