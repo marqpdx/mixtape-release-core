@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from writing.models import Leaf, LeafComment, WorkingDocument, WritingPiece, WritingSynopsis
+from writing.models import Leaf, LeafComment, WorkingDocument, WritingPiece, WritingSeries, WritingSynopsis
 
 
 @admin.register(WorkingDocument)
@@ -8,9 +8,17 @@ class WorkingDocumentAdmin(admin.ModelAdmin):
     list_display = ["id", "piece", "user", "last_saved_at"]
 
 
+@admin.register(WritingSeries)
+class WritingSeriesAdmin(admin.ModelAdmin):
+    list_display = ["id", "title", "slug", "phase_num", "group"]
+    list_filter = ["group"]
+    search_fields = ["title", "slug"]
+    ordering = ["group", "phase_num"]
+
+
 @admin.register(WritingPiece)
 class WritingPieceAdmin(admin.ModelAdmin):
-    list_display = ["id", "title", "status", "writing_kind", "author"]
+    list_display = ["id", "title", "status", "writing_kind", "author", "series"]
 
 
 @admin.register(WritingSynopsis)

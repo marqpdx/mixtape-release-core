@@ -41,6 +41,47 @@ class PublishableContentMixin(models.Model):
         abstract = True
 
 
+class WritingSeries(BaseModel):
+    """
+    Ordered collection grouping WritingPieces under a named series (e.g., a Phase).
+    Seeded before import runs; never derived from article content or frontmatter.
+
+    phase_num is the canonical lookup key: frontmatter `phase: 0` resolves to
+    the WritingSeries where phase_num=0. Import fails if no match is found.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    title = models.CharField(max_length=255, help_text="Section header, e.g. 'Welcome'")
+    slug = models.SlugField(max_length=255)
+    phase_num = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Sort order and lookup key; matches `phase:` frontmatter field",
+    )
+    subtitle = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Optional tagline from calendar description",
+    )
+    group = models.ForeignKey(
+        "groups.Group",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="writing_series",
+    )
+
+    class Meta(BaseModel.Meta):
+        ordering = ["phase_num", "title"]
+        unique_together = [("group", "slug")]
+        verbose_name = "Writing Series"
+        verbose_name_plural = "Writing Series"
+
+    def __str__(self):
+        prefix = f"{self.group.slug}/" if self.group_id else ""
+        num = f"[{self.phase_num}] " if self.phase_num is not None else ""
+        return f"{prefix}{num}{self.title}"
+
+
 class WritingPieceManager(models.Manager):
     def drafts(self): return self.filter(status="draft")
     def published(self): return self.filter(status="published")
@@ -108,6 +149,20 @@ class WritingPiece(BaseContent, PublishableContentMixin):
     # Group pinning (rank optional for manual order)
     pinned_at = models.DateTimeField(null=True, blank=True)
     pinned_rank = models.IntegerField(null=True, blank=True)
+
+    # Series membership (optional; assigned at import or manually)
+    series = models.ForeignKey(
+        "writing.WritingSeries",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="pieces",
+    )
+    series_order = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Position within the series; lower = earlier",
+    )
 
     # Discussion & lightweight analytics
     allow_comments = models.BooleanField(default=True)
