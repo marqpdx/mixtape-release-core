@@ -2176,7 +2176,8 @@ class WritingSeriesListView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
         group = serializer.validated_data.get("group")
         if group:
-            if not PermissionService.user_has_role(request.user, group, ["owner", "admin"]):
+            roles = PermissionService.get_user_roles_in_group(request.user, group.slug)
+            if not any(r in roles for r in ["owner", "admin"]):
                 raise PermissionDenied("Only group owners/admins can create series.")
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
