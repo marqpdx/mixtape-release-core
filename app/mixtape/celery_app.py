@@ -71,6 +71,9 @@ app.conf.task_routes = {
     "distribution.tasks.recover_missed_publish_events": {
         "queue": "polling", "routing_key": "polling"
     },
+    "writing.tasks.publish_scheduled_pieces": {
+        "queue": "polling", "routing_key": "polling"
+    },
 
     # --- Transcription → dedicated solo-pool worker (all environments) ---
     "concord.tasks.transcription.transcribe_recording_task": {
@@ -141,6 +144,10 @@ app.conf.beat_schedule = {
     "recover-missed-publish-events": {
         "task": "distribution.tasks.recover_missed_publish_events",
         "schedule": 300.0,  # every 5 minutes
+    },
+    "publish-scheduled-pieces": {
+        "task": "writing.tasks.publish_scheduled_pieces",
+        "schedule": 60.0,
     },
 }
 

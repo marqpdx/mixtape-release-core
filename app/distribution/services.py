@@ -134,6 +134,59 @@ def execute_publish_event(event_id: str) -> None:
     event.executed_at = now()
     event.save(update_fields=["status", "executed_at", "updated_at"])
 
+    _notify_linkedin_ready(event)
+
+
+def _notify_linkedin_ready(event) -> None:
+    """
+    After a PublishEvent completes, email the author if LinkedIn succeeded.
+    The email includes the share URL and post copy so they can share in one click.
+    Non-fatal: any exception is caught and logged.
+    """
+    try:
+        from .models import ShareRecord
+
+        record = ShareRecord.objects.filter(
+            publish_event=event,
+            source__kind="linkedin",
+            status="success",
+        ).select_related("publish_event__writing_piece__author").first()
+
+        if not record:
+            return
+
+        piece = event.writing_piece
+        author = piece.author
+        if not getattr(author, "email", None):
+            return
+
+        share_url = record.channel_response.get("linkedin_share_url", "")
+        post_copy = record.channel_response.get("post_copy", "")
+        if not share_url:
+            return
+
+        from django.conf import settings
+        from utils.tasks import send_transactional_email_task
+
+        site_base = getattr(settings, "SITE_BASE_URL", "https://mixtape.social")
+        piece_url = piece.canonical_url or ""
+        if not piece_url and piece.group:
+            piece_url = f"{site_base}/groups/{piece.group.slug}/writing/{piece.slug}"
+
+        send_transactional_email_task.delay(
+            subject=f'"{piece.title}" is live — share on LinkedIn',
+            to_emails=[author.email],
+            template_base="email/linkedin_share_ready",
+            context={
+                "piece_title": piece.title,
+                "piece_url": piece_url,
+                "post_copy": post_copy,
+                "linkedin_share_url": share_url,
+            },
+        )
+    except Exception as exc:
+        logger.warning("_notify_linkedin_ready failed: %s", exc)
+
 
 def schedule_publish_event(event) -> None:
     """
