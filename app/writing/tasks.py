@@ -11,6 +11,33 @@ from writing.models import Seed
 logger = logging.getLogger(__name__)
 
 
+@shared_task(queue="polling")
+def publish_scheduled_pieces():
+    """
+    Beat task: flip WritingPieces from status='scheduled' to 'published'
+    when their scheduled_for time has arrived.
+    Runs every 60s.
+    """
+    from django.utils.timezone import now
+    from writing.models import WritingPiece
+
+    due = WritingPiece.objects.filter(
+        status="scheduled",
+        scheduled_for__lte=now(),
+    ).select_related("author")
+
+    count = 0
+    for piece in due:
+        try:
+            piece.publish()
+            count += 1
+            logger.info("[scheduler] Published piece %s (%s)", piece.id, piece.slug)
+        except Exception as exc:
+            logger.error("[scheduler] Failed to publish piece %s: %s", piece.id, exc, exc_info=True)
+
+    return {"published": count}
+
+
 @shared_task(bind=True, max_retries=3, default_retry_delay=10, queue="transcription")
 def transcribe_seed_task(self, seed_id: str):
     """

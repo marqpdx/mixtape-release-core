@@ -1,0 +1,17 @@
+Your article is live: {{ piece_title }}
+
+{% if post_copy %}
+Your LinkedIn post copy:
+
+{{ post_copy }}
+
+{% endif %}
+Share on LinkedIn:
+{{ linkedin_share_url }}
+
+{% if piece_url %}
+View article:
+{{ piece_url }}
+{% endif %}
+
+— Mixtape
