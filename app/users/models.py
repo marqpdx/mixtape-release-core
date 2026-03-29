@@ -20,6 +20,7 @@ class Role(BaseModel):
         ("admin", "Admin"),
         ("steward", "Steward"),
         ("member", "Member"),
+        ("helper", "Helper"),
     ]
 
     name = models.CharField(max_length=50, choices=ROLE_CHOICES, unique=True)
