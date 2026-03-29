@@ -102,6 +102,11 @@ class Group(LayoutParent, BaseContent):
         help_text="Controls how new members can join this group"
     )
 
+    is_helper_group = models.BooleanField(
+        default=False,
+        help_text="Members of this group automatically receive Beacon (helper) access."
+    )
+
     # ============================================================================
     # PHASE 1: Permissions System - Decorators and Additional Permissions
     # ============================================================================

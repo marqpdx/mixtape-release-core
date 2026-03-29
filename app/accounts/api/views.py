@@ -192,10 +192,8 @@ class CurrentUserIdentity(APIView):
             from groups.services.permissions import PermissionService
             permissions_data = PermissionService.compute_user_permissions(user)
 
-            is_helper = (
-                hasattr(user, "roles") and
-                user.roles.filter(name="helper").exists()
-            )
+            from accounts.services import user_has_helper_access
+            can_use_beacon = user_has_helper_access(user)
 
             response_data = {
                 "id": str(user.id),
@@ -203,7 +201,8 @@ class CurrentUserIdentity(APIView):
                 "email": user.email,
                 "is_superuser": user.is_superuser,
                 "is_staff": user.is_staff,
-                "can_use_lighthouse": user.is_superuser or is_helper,
+                "can_use_beacon": can_use_beacon,
+                "can_use_lighthouse": can_use_beacon,  # backward compat alias
                 "roles": list(set(roles)),  # Unique list
                 "profile": {
                     "id": str(profile.id),
