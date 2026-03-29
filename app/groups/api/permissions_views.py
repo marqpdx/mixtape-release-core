@@ -260,13 +260,15 @@ class MemberRoleManageView(generics.GenericAPIView):
     """
     POST /api/groups/{slug}/members/{user_id}/roles
     Body: { "role": "admin" | "steward" }
+
+    DELETE /api/groups/{slug}/members/{user_id}/roles
+    Body: { "role": "admin" | "steward" }
     """
     permission_classes = [permissions.IsAuthenticated]
 
-    def post(self, request, slug, user_id):
+    def _get_memberships(self, request, slug, user_id):
         group = get_object_or_404(Group, slug=slug)
 
-        # Verify requester is an admin
         requester_membership = GroupMembership.objects.filter(
             group=group,
             member_object_id=request.user.id,
@@ -279,15 +281,6 @@ class MemberRoleManageView(generics.GenericAPIView):
                 status=403
             )
 
-        role = (request.data or {}).get("role")
-        if role == "owner":
-            return Response(
-                {"error": "Owner role can only be assigned via ownership change request"},
-                status=403
-            )
-        if role not in ("admin", "steward"):
-            return Response({"error": "Invalid role"}, status=400)
-
         user_ct = ContentType.objects.get_for_model(User)
         membership = GroupMembership.objects.filter(
             group=group,
@@ -297,19 +290,54 @@ class MemberRoleManageView(generics.GenericAPIView):
         ).first()
 
         if not membership:
-            return Response(
+            return None, None, Response(
                 {"error": "User is not a member of this group"},
                 status=404
             )
 
-        # Block modifying owner roles — owners are protected
         if membership.is_owner():
-            return Response(
+            return None, None, Response(
                 {"error": "Cannot modify owner roles"},
                 status=403
             )
 
+        return group, membership, None
+
+    def post(self, request, slug, user_id):
+        _, membership, error_response = self._get_memberships(request, slug, user_id)
+        if error_response:
+            return error_response
+
+        role = (request.data or {}).get("role")
+        if role == "owner":
+            return Response(
+                {"error": "Owner role can only be assigned via ownership change request"},
+                status=403
+            )
+        if role not in ("admin", "steward"):
+            return Response({"error": "Invalid role"}, status=400)
+
         membership.grant_role(role)
+
+        response_serializer = MemberPermissionsSerializer(membership)
+        return Response(response_serializer.data)
+
+    def delete(self, request, slug, user_id):
+        _, membership, error_response = self._get_memberships(request, slug, user_id)
+        if error_response:
+            return error_response
+
+        role = (request.data or {}).get("role")
+        if role not in ("admin", "steward"):
+            return Response({"error": "Invalid role"}, status=400)
+
+        if str(user_id) == str(request.user.id) and role == "admin":
+            return Response(
+                {"error": "You cannot remove your own admin role here"},
+                status=403
+            )
+
+        membership.revoke_role(role)
 
         response_serializer = MemberPermissionsSerializer(membership)
         return Response(response_serializer.data)
