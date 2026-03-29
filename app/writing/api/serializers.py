@@ -67,11 +67,14 @@ class WritingPieceSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         data = super().validate(attrs)
+        is_create = self.instance is None
         raw_ct = self.initial_data.get("sponsor_content_type")
-        if not raw_ct:
-            raise serializers.ValidationError({"sponsor": "Sponsor is required (content_type + object_id)."})
-
-        data["sponsor_content_type"] = resolve_content_type(raw_ct)
+        if is_create:
+            if not raw_ct:
+                raise serializers.ValidationError({"sponsor": "Sponsor is required (content_type + object_id)."})
+            data["sponsor_content_type"] = resolve_content_type(raw_ct)
+        elif raw_ct:
+            data["sponsor_content_type"] = resolve_content_type(raw_ct)
 
         status_ = data.get("status") or "draft"
         if status_ in ("scheduled", "published") and not (data.get("title") or "").strip():
@@ -344,11 +347,16 @@ class UserMinimalSerializer(serializers.ModelSerializer):
 class WritingPieceMinimalSerializer(serializers.ModelSerializer):
     """Minimal piece info for working copy context."""
     tags_list = serializers.SerializerMethodField()
+    series_id = serializers.UUIDField(source="series.id", read_only=True, allow_null=True, default=None)
+    series_title = serializers.CharField(source="series.title", read_only=True, allow_null=True, default=None)
+    series_phase_num = serializers.IntegerField(source="series.phase_num", read_only=True, allow_null=True, default=None)
+
     class Meta:
         model = WritingPiece
         fields = [
             "id", "slug", "title", "writing_kind",
-            "status", "created_at", "updated_at", "excerpt", "tags_list", "enable_outline"
+            "status", "created_at", "updated_at", "excerpt", "tags_list", "enable_outline",
+            "series_id", "series_title", "series_phase_num", "series_order",
         ]
 
     def get_tags_list(self, obj):

@@ -98,6 +98,7 @@ class SponsorPlacementsListView(APIView):
             if not author_name and getattr(piece, "author", None):
                 author_name = piece.author.get_full_name() or piece.author.username
 
+            series = getattr(piece, "series", None)
             results.append(
                 {
                     "id": str(placement.id),
@@ -116,6 +117,10 @@ class SponsorPlacementsListView(APIView):
                     "tags": _get_tag_titles_for_piece(piece),
                     "created_at": placement.created_at,
                     "updated_at": placement.updated_at,
+                    "series_id": str(series.id) if series else None,
+                    "series_title": series.title if series else None,
+                    "series_phase_num": series.phase_num if series else None,
+                    "series_order": piece.series_order,
                     "display": {
                         "title": metadata.get("title"),
                         "excerpt": metadata.get("excerpt"),
@@ -178,6 +183,7 @@ class SponsorDraftsListView(generics.ListAPIView):
         ).select_related(
             "piece",
             "piece__author",
+            "piece__series",
             "user",
             "user__profile",
             "dispatch_content"
