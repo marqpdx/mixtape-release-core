@@ -39,7 +39,7 @@ class MemberSerializer(serializers.ModelSerializer):
             "id", "username", "email", "first_name", "last_name",
             "is_active", "date_joined", "roles",
             # From Profile
-            "slug", "display_name", "quick_intro", "avatar_url",
+            "slug", "display_name", "quick_intro", "right_now", "avatar_url",
             "profile_image", "background_image", "bio_json", "bio_markdown",
             "profile_image_url", "background_image_url",
             "created_at", "updated_at",
@@ -69,6 +69,7 @@ class MemberUpdateSerializer(serializers.ModelSerializer):
         fields = [
             "display_name",
             "quick_intro",
+            "right_now",
             "avatar_url",
             "profile_image",
             "background_image",
