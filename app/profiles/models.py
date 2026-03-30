@@ -26,6 +26,7 @@ class UserProfile(BaseModel):
     slug = models.SlugField(unique=True, max_length=99)
     display_name = models.CharField(max_length=48, help_text="Your public facing screen name.")
     quick_intro = models.TextField(max_length=300, default="", blank=True, help_text="A quick bit about yourself.")
+    right_now = models.TextField(max_length=200, default="", blank=True, help_text="A few words how you are right now (totally optional).")
 
     # Placeholder for avatar/images (next phase - will use actual file storage)
     avatar_url = models.CharField(max_length=512, default="", blank=True, help_text="Avatar image URL")
