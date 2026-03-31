@@ -626,3 +626,242 @@ class LinkedOutputListCreateView(APIView):
 
         output = serializer.save(initiative=initiative)
         return Response(LinkedOutputSerializer(output).data, status=status.HTTP_201_CREATED)
+
+
+# ---------------------------------------------------------------------------
+# Session Import — Preview
+# ---------------------------------------------------------------------------
+
+class ImportSessionPreviewView(APIView):
+    """
+    POST a JSON file (multipart or raw JSON body) to get a preview of what
+    will be imported: parsed turns + heuristically detected artifacts.
+
+    Nothing is written to the database at this stage.
+
+    Accepts:
+      multipart/form-data  with field "file" (application/json)
+      application/json     with the raw export payload as the body
+                           (useful for testing; large exports should use multipart)
+
+    Query param:
+      ?format=claude|chatgpt|freeform   (optional — auto-detected if omitted)
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, slug, initiative_id):
+        if not _superuser_required(request):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        group = _get_group(slug)
+        from django.contrib.contenttypes.models import ContentType
+        ct = ContentType.objects.get_for_model(group)
+        get_object_or_404(
+            Initiative,
+            id=initiative_id,
+            sponsor_content_type=ct,
+            sponsor_object_id=group.pk,
+        )
+
+        import json as _json
+        from initiatives.importers.freeform_parser import auto_parse
+        from initiatives.importers.base import ImportParseError
+
+        # --- Load JSON data ---
+        fmt = request.query_params.get("format", "").lower()
+        try:
+            data = _load_json_from_request(request)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # --- Parse ---
+        try:
+            if fmt == "claude":
+                from initiatives.importers.claude_parser import parse
+                parsed = parse(data)
+            elif fmt == "chatgpt":
+                from initiatives.importers.chatgpt_parser import parse
+                parsed = parse(data)
+            else:
+                parsed = auto_parse(data)
+        except ImportParseError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+        except Exception:
+            logger.exception("import_preview_failed initiative=%s", initiative_id)
+            return Response(
+                {"detail": "Failed to parse the JSON file. Check the format and try again."},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        return Response(parsed.to_preview_dict())
+
+
+# ---------------------------------------------------------------------------
+# Session Import — Confirm
+# ---------------------------------------------------------------------------
+
+class ImportSessionConfirmView(APIView):
+    """
+    POST to create a Session from a previously previewed import.
+
+    Body:
+    {
+      "title":          string (optional — overrides parsed title),
+      "session_intent": "open_inquiry" | ... (optional, default open_inquiry),
+      "turns":          [...],   // from preview response — written as raw_transcript
+      "artifacts":      [        // user-reviewed list from preview
+        {"kind": "decision"|"question"|"action"|"annotation"|"document",
+         "title": "...",
+         "body":  "..."}
+      ]
+    }
+
+    Creates:
+      - Session (capture_mode=imported, distillation_state=curated)
+      - Artifact rows linked to the session
+      - Fires update_rolling_summary task (async)
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, slug, initiative_id):
+        if not _superuser_required(request):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        group = _get_group(slug)
+        from django.contrib.contenttypes.models import ContentType
+        ct = ContentType.objects.get_for_model(group)
+        initiative = get_object_or_404(
+            Initiative,
+            id=initiative_id,
+            sponsor_content_type=ct,
+            sponsor_object_id=group.pk,
+        )
+
+        turns = request.data.get("turns") or []
+        artifact_specs = request.data.get("artifacts") or []
+        session_intent = request.data.get("session_intent", "open_inquiry")
+
+        if not isinstance(turns, list):
+            return Response({"detail": "turns must be a list."}, status=status.HTTP_400_BAD_REQUEST)
+
+        valid_intents = [c[0] for c in Session._meta.get_field("intent").choices]
+        if session_intent not in valid_intents:
+            session_intent = "open_inquiry"
+
+        from initiatives.models import CaptureMode, DistillationState
+
+        # --- Build distillation from confirmed artifacts ---
+        distillation = _artifacts_to_distillation(artifact_specs)
+
+        # --- Create Session ---
+        session = Session.objects.create(
+            initiative=initiative,
+            intent=session_intent,
+            capture_mode=CaptureMode.IMPORTED,
+            raw_transcript=turns,
+            distillation=distillation,
+            distillation_state=DistillationState.CURATED,
+            created_by=request.user,
+            ended_at=timezone.now(),
+        )
+
+        # --- Create Artifacts ---
+        created_artifacts = []
+        valid_kinds = {c[0] for c in Artifact._meta.get_field("kind").choices}
+        for spec in artifact_specs:
+            kind = spec.get("kind") or "annotation"
+            if kind not in valid_kinds:
+                kind = "annotation"
+            title = (spec.get("title") or "").strip()
+            if not title:
+                continue
+            artifact = Artifact.objects.create(
+                initiative=initiative,
+                session=session,
+                kind=kind,
+                title=title,
+                body=(spec.get("body") or "").strip(),
+                quality_scan_state=QualityScanState.SKIPPED,
+            )
+            created_artifacts.append(artifact)
+
+        # --- Fire async rolling summary update ---
+        from initiatives.tasks import update_rolling_summary
+        update_rolling_summary.delay(str(initiative.id), str(session.id))
+
+        logger.info(
+            "import_session_confirmed initiative=%s session=%s turns=%d artifacts=%d",
+            initiative_id, session.id, len(turns), len(created_artifacts),
+        )
+
+        return Response({
+            "session": SessionSerializer(session).data,
+            "artifacts_created": len(created_artifacts),
+            "rolling_summary_queued": True,
+        }, status=status.HTTP_201_CREATED)
+
+
+# ---------------------------------------------------------------------------
+# Import helpers
+# ---------------------------------------------------------------------------
+
+def _load_json_from_request(request) -> list | dict:
+    """Extract and decode JSON from multipart file upload or raw JSON body."""
+    import json as _json
+
+    file = request.FILES.get("file")
+    if file:
+        try:
+            raw = file.read()
+            return _json.loads(raw)
+        except Exception as exc:
+            raise ValueError(f"Could not parse uploaded file as JSON: {exc}") from exc
+
+    # Raw JSON body (content_type application/json handled by DRF)
+    if request.data and not isinstance(request.data, dict):
+        return request.data  # already parsed by DRF parser
+
+    # request.data is a dict — could be the JSON body itself if it passes DRF parsing
+    if isinstance(request.data, (dict, list)):
+        if request.data:
+            return request.data
+
+    # Last resort: re-parse request.body
+    try:
+        return _json.loads(request.body)
+    except Exception as exc:
+        raise ValueError("No JSON file or body found in request.") from exc
+
+
+def _artifacts_to_distillation(artifact_specs: list[dict]) -> dict:
+    """
+    Derive a Session.distillation dict from the confirmed artifact list.
+    The distillation drives the async rolling summary update.
+    """
+    decisions = []
+    open_questions = []
+    actions = []
+    notes_parts = []
+
+    for spec in artifact_specs:
+        kind = spec.get("kind") or ""
+        title = (spec.get("title") or "").strip()
+        body = (spec.get("body") or "").strip()
+        if not title:
+            continue
+
+        if kind == "decision":
+            decisions.append(title)
+        elif kind == "question":
+            open_questions.append(title)
+        elif kind == "action":
+            actions.append(title)
+        elif kind in ("annotation", "document"):
+            notes_parts.append(body or title)
+
+    return {
+        "decisions": decisions,
+        "open_questions": open_questions,
+        "actions": actions,
+        "notes": "\n\n".join(notes_parts),
+    }

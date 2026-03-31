@@ -35,4 +35,8 @@ group_initiatives_patterns = [
 
     # Linked outputs
     path("<uuid:initiative_id>/linked-outputs", views.LinkedOutputListCreateView.as_view(), name="initiative-linked-output-list-create"),
+
+    # Session import (two-stage: preview → confirm)
+    path("<uuid:initiative_id>/import-session/preview", views.ImportSessionPreviewView.as_view(), name="initiative-import-session-preview"),
+    path("<uuid:initiative_id>/import-session/confirm", views.ImportSessionConfirmView.as_view(), name="initiative-import-session-confirm"),
 ]
