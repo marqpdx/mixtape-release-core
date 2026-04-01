@@ -22,7 +22,7 @@ from groups.permissions import canUserModerateGroupUser
 from profiles.models import UserProfile
 from users.models import Role
 from utils.email.shortcode import generate_shortcode
-from utils.tasks import send_transactional_email_task
+from utils.tasks import send_transactional_email_task  # kept for non-invitation transactional mail
 
 
 # from invitations.models import InviteLink
@@ -66,15 +66,43 @@ class InvitationService:
         # Determine invitation type based on user status
         is_existing_user = user.is_active
 
-        # Check for pending invitation
+        # If a pending invitation already exists, resend it rather than blocking.
         pending_invitation = GroupInvitation.objects.filter(
             group=group,
             invited_email=email,
             invitation_status="pending"
-        ).first()
+        ).select_related().first()
 
         if pending_invitation:
-            raise ValidationError(f"An invitation is already pending for {email}")
+            invite_link = InviteLink.objects.filter(
+                user=pending_invitation.invited_user,
+                group=group,
+            ).order_by("-id").first()
+
+            if invite_link:
+                if is_existing_user:
+                    pending_invitation.invite_url = f"{settings.FRONTEND_URL}/app/invitations/accept/{invite_link.shortcode}"
+                else:
+                    pending_invitation.invite_url = f"{settings.FRONTEND_URL}/app/invitations/accept/{invite_link.shortcode}/new"
+            else:
+                # No invite link found — create a fresh one
+                token = default_token_generator.make_token(user)
+                invite_link = InviteLink.objects.create(
+                    user=user,
+                    group=group,
+                    token=token,
+                    shortcode=generate_shortcode(),
+                )
+                if is_existing_user:
+                    pending_invitation.invite_url = f"{settings.FRONTEND_URL}/app/invitations/accept/{invite_link.shortcode}"
+                else:
+                    pending_invitation.invite_url = f"{settings.FRONTEND_URL}/app/invitations/accept/{invite_link.shortcode}/new"
+
+            pending_invitation.invited_by = invited_by
+            pending_invitation.message = message
+            pending_invitation.email_status = "sending"
+            pending_invitation.save()
+            return pending_invitation, is_existing_user
 
         # Create token and invite link
         token = default_token_generator.make_token(user)
@@ -143,46 +171,35 @@ class InvitationService:
     @staticmethod
     def send_batch_invitations(invitations_data, group, invited_by, message):
         """
-        Send invitation emails via Celery task.
+        Enqueue invitation emails via the dedicated send_invitation_email Celery task.
 
-        Note: In-app notifications (Activity system) will be added in a future phase.
-        Currently only sends email invitations.
+        Each invitation is sent through the Mailjet HTTP API (not SMTP) so we get
+        a real provider_message_id back and can observe delivery state per invitation.
 
         Args:
             invitations_data: List of tuples (invitation, is_existing_user)
-            group: Group instance
-            invited_by: User who sent the invitation
-            message: Optional personal message
+            group: Group instance (unused here but kept for API consistency)
+            invited_by: User who sent the invitation (unused here but kept for API consistency)
+            message: Optional personal message (unused here but kept for API consistency)
         """
         import traceback
 
-        def debug_ts(message: str) -> None:
-            print(f"[{dj_timezone.now().isoformat()}] {message}")
+        from groups.tasks import send_invitation_email
 
-        for invitation, is_existing_user in invitations_data:
+        for invitation, _is_existing_user in invitations_data:
             try:
-                context = {
-                    "group_name": group.title,
-                    "invited_by_name": invited_by.get_full_name() if invited_by else "",
-                    "message": message,
-                    "invite_url": invitation.invite_url,
-                    "is_existing_user": is_existing_user,
-                }
-
-                template = "email/invite_to_group"
-
-                debug_ts(f"[DEBUG] Sending invitation email to {invitation.invited_email}")
-
-                # Send email via Celery
-                send_transactional_email_task.delay(
-                    subject=f"You're invited to join {group.title}",
-                    to_emails=[invitation.invited_email],
-                    template_base=template,
-                    context=context,
-                    invitation_id=invitation.id,
+                result = send_invitation_email.apply_async(
+                    kwargs={"invitation_id": invitation.id},
                 )
+                invitation.last_task_id = result.id
+                invitation.last_queued_at = dj_timezone.now()
+                invitation.save(update_fields=["last_task_id", "last_queued_at"])
 
-                debug_ts(f"[DEBUG] Email task queued for {invitation.invited_email}")
+                print(
+                    f"[{dj_timezone.now().isoformat()}] [invite-service] queued"
+                    f" invitation={invitation.id} email={invitation.invited_email}"
+                    f" task={result.id}"
+                )
 
             except Exception as e:
                 print(f"[ERROR] send_batch_invitations failed for {invitation.invited_email}: {e}")

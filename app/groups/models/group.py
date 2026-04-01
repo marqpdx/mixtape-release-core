@@ -259,6 +259,15 @@ class GroupInvitation(BaseModel):
     )
 
     expires_at = models.DateTimeField(null=True, blank=True)
+
+    # Delivery tracking (populated by send_invitation_email task)
+    provider = models.CharField(max_length=50, default="mailjet")
+    provider_message_id = models.CharField(max_length=255, null=True, blank=True)
+    last_send_error = models.TextField(null=True, blank=True)
+    last_task_id = models.CharField(max_length=255, null=True, blank=True)
+    last_queued_at = models.DateTimeField(null=True, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         constraints = []
 
