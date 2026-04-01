@@ -55,8 +55,19 @@ app.conf.task_queues = (
 )
 
 # ---- Task routing ----
-# Rules: beat-scheduled polling → "polling"; transcription → "transcription";
-# everything else (activity, push, email, etc.) falls to default_q.
+# RULE: Every task MUST have an explicit route here. Never rely on default_q fallback.
+#
+# default_q (mixtape_shared_rabbit_chat_queue) is shared with Uvicorn/Livewire.
+# Any task that falls through to default_q without an explicit route risks being
+# silently consumed by Uvicorn and dropped — no error, no retry, no log.
+# This has caused real bugs twice. Do not skip this step when adding a new task.
+#
+# Queue guide:
+#   polling  → beat-scheduled, low-frequency maintenance tasks
+#   push     → Celery-only; email, push notifications, anything Uvicorn must not touch
+#   transcription → solo pool, torch-safe (audio only)
+#   commons  → external integrations (Inkwell URL extraction)
+#   default_q → Livewire real-time events only (activity fanout, socket notifications)
 app.conf.task_routes = {
     # --- Beat-scheduled polling tasks → isolated polling worker ---
     "stackroom.tasks.processing.process_pending_uploads": {
@@ -105,10 +116,10 @@ app.conf.task_routes = {
         "queue": default_q, "routing_key": default_q
     },
     "utils.tasks.send_transactional_email_task": {
-        "queue": default_q, "routing_key": default_q
+        "queue": "push", "routing_key": "push"
     },
     "groups.tasks.send_invitation_email": {
-        "queue": default_q, "routing_key": default_q
+        "queue": "push", "routing_key": "push"
     },
     "activity.tasks.poll_push_receipts_task": {
         "queue": "push", "routing_key": "push"
