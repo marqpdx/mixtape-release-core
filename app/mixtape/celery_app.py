@@ -94,34 +94,120 @@ app.conf.task_routes = {
         "queue": "transcription", "routing_key": "transcription"
     },
 
-    # --- External integrations ---
+    # --- External integrations / AI / Inkwell ---
     "inkwell.tasks.synopsis.process_synopsis_result": {
         "queue": "synopsis_results", "routing_key": "synopsis_results"
+    },
+    "inkwell.tasks.synopsis.generate_synopsis_task": {
+        "queue": "commons", "routing_key": "commons"
+    },
+    "inkwell.tasks.rabbitmq_tasks.send_task_to_fastapi": {
+        "queue": "commons", "routing_key": "commons"
+    },
+    "inkwell.tasks.rabbitmq_tasks.start_rabbitmq_polling": {
+        "queue": "commons", "routing_key": "commons"
+    },
+    "inkwell.tasks.rabbitmq_tasks.poll_rabbitmq_results": {
+        "queue": "commons", "routing_key": "commons"
+    },
+    "inkwell.tasks.rabbitmq_tasks.process_task_result": {
+        "queue": "commons", "routing_key": "commons"
+    },
+    "inkwell.tasks.rabbitmq_tasks.manual_stop_polling": {
+        "queue": "commons", "routing_key": "commons"
+    },
+    "ai.tasks.ingest.ingest_approved_asset_task": {
+        "queue": "commons", "routing_key": "commons"
     },
     "commons.tasks.extract_commons_item_task": {
         "queue": "commons", "routing_key": "commons"
     },
 
-    # --- Default queue (explicit routes remove ambiguity in all calling contexts) ---
+    # --- Stackroom: processing, embeddings, metadata, milldraft ---
+    "stackroom.tasks.processing.process_artifact": {
+        "queue": "commons", "routing_key": "commons"
+    },
+    "stackroom.tasks.embeddings.embed_library": {
+        "queue": "commons", "routing_key": "commons"
+    },
+    "stackroom.tasks.embeddings.embed_chunk_embedding": {
+        "queue": "commons", "routing_key": "commons"
+    },
+    "stackroom.tasks.embeddings.embed_pending_batch": {
+        "queue": "commons", "routing_key": "commons"
+    },
+    "stackroom.tasks.metadata.extract_artifact_metadata_task": {
+        "queue": "commons", "routing_key": "commons"
+    },
+    "stackroom.tasks.metadata.backfill_artifact_metadata": {
+        "queue": "polling", "routing_key": "polling"
+    },
+    "stackroom.tasks.milldraft.create_milldraft_from_artifact_task": {
+        "queue": "commons", "routing_key": "commons"
+    },
+    "stackroom.tasks.retrieval.log_query_async": {
+        "queue": "polling", "routing_key": "polling"
+    },
+
+    # --- Initiatives: AI-backed quality scan and rolling summary ---
+    "initiatives.tasks.run_artifact_quality_scan": {
+        "queue": "commons", "routing_key": "commons"
+    },
+    "initiatives.tasks.update_rolling_summary": {
+        "queue": "commons", "routing_key": "commons"
+    },
+
+    # --- Assets: upload and cleanup ---
+    "assets.tasks.upload_group_asset_task": {
+        "queue": "push", "routing_key": "push"
+    },
+    "assets.tasks.delete_image_async": {
+        "queue": "push", "routing_key": "push"
+    },
+
+    # --- Distribution: event-triggered publish ---
+    "distribution.tasks.execute_scheduled_publish_event": {
+        "queue": "push", "routing_key": "push"
+    },
+
+    # --- Writing: cleanup and transcription ---
+    "writing.tasks.transcribe_seed_task": {
+        "queue": "transcription", "routing_key": "transcription"
+    },
+    "writing.tasks.cleanup_empty_drafts": {
+        "queue": "polling", "routing_key": "polling"
+    },
+    "writing.tasks.cleanup_old_working_copies": {
+        "queue": "polling", "routing_key": "polling"
+    },
+
+    # --- Concord: audio interpretation ---
+    "concord.tasks.interpretation.interpret_recording_task": {
+        "queue": "transcription", "routing_key": "transcription"
+    },
+
+    # --- Livewire real-time events (default_q intentional — Uvicorn also consumes) ---
     "activity.tasks.fanout_action_task": {
         "queue": default_q, "routing_key": default_q
-    },
-    "activity.tasks.dispatch_push_notification_task": {
-        "queue": "push", "routing_key": "push"
     },
     "activity.tasks.dispatch_socket_notification_task": {
         "queue": default_q, "routing_key": default_q
     },
+
+    # --- Email and push notifications (push queue = Celery-only) ---
+    "activity.tasks.dispatch_push_notification_task": {
+        "queue": "push", "routing_key": "push"
+    },
+    "activity.tasks.poll_push_receipts_task": {
+        "queue": "push", "routing_key": "push"
+    },
     "broadcast.tasks.dispatch_broadcast_email_task": {
-        "queue": default_q, "routing_key": default_q
+        "queue": "push", "routing_key": "push"
     },
     "utils.tasks.send_transactional_email_task": {
         "queue": "push", "routing_key": "push"
     },
     "groups.tasks.send_invitation_email": {
-        "queue": "push", "routing_key": "push"
-    },
-    "activity.tasks.poll_push_receipts_task": {
         "queue": "push", "routing_key": "push"
     },
 }
