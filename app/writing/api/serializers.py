@@ -19,6 +19,7 @@ from ..models import (
     WritingVersion,
     WorkingDocument,
     WritingSynopsis,
+    SplitSuggestion,
 )
 
 
@@ -142,7 +143,7 @@ class WritingPieceDetailSerializer(serializers.ModelSerializer):
 class WritingPieceMinimalSerializer(serializers.ModelSerializer):
     class Meta:
         model = WritingPiece
-        fields = ["id", "slug", "status", "writing_kind", "is_empty"]
+        fields = ["id", "slug", "status", "writing_kind", "is_empty", "target_wordcount", "suggest_splits"]
         read_only_fields = ["id", "slug", "status"]
 
 
@@ -165,6 +166,13 @@ class WritingPieceCatalogSerializer(serializers.ModelSerializer):
             "series",
             "series_order",
         ]
+        read_only_fields = fields
+
+
+class SplitSuggestionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SplitSuggestion
+        fields = ["id", "status", "suggestions", "word_count_at_suggestion", "generated_at"]
         read_only_fields = fields
 
 

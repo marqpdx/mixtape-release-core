@@ -164,6 +164,17 @@ class WritingPiece(BaseContent, PublishableContentMixin):
         help_text="Position within the series; lower = earlier",
     )
 
+    # Copy Desk — word count goal and split suggestion opt-in
+    target_wordcount = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Writer's soft word count goal for this piece. Null = no target set.",
+    )
+    suggest_splits = models.BooleanField(
+        default=False,
+        help_text="If true and word count exceeds target by ≥15%, trigger AI split suggestion.",
+    )
+
     # Discussion & lightweight analytics
     allow_comments = models.BooleanField(default=True)
     view_count = models.PositiveIntegerField(default=0)
@@ -530,6 +541,51 @@ class WritingVersion(BaseVersion):
 
 # WritingPlacement has been replaced by universal ContentPlacement
 # See app.publishing.models.ContentPlacement
+
+
+class SplitSuggestion(BaseModel):
+    """
+    AI-generated proposal for splitting a WritingPiece at one or more points.
+    Created as 'pending' when the task fires; updated to 'ready' when AI responds.
+    Non-destructive: piece is unchanged until writer accepts and executes (Phase 3).
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    piece = models.ForeignKey(
+        "WritingPiece",
+        on_delete=models.CASCADE,
+        related_name="split_suggestions",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=[
+            ("pending", "Pending"),
+            ("ready", "Ready"),
+            ("shown", "Shown"),
+            ("accepted", "Accepted"),
+            ("dismissed", "Dismissed"),
+            ("declined", "Declined"),
+            ("superseded", "Superseded"),
+            ("executed", "Executed"),
+        ],
+        default="pending",
+        db_index=True,
+    )
+    suggestions = models.JSONField(
+        default=list,
+        help_text="List of {after_paragraph_index, rationale} objects from AI",
+    )
+    word_count_at_suggestion = models.PositiveIntegerField(
+        help_text="Word count at the time this suggestion was generated.",
+    )
+    generated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(BaseModel.Meta):
+        ordering = ["-created_at"]
+        verbose_name = "Split Suggestion"
+        verbose_name_plural = "Split Suggestions"
+
+    def __str__(self):
+        return f"SplitSuggestion<{self.piece_id}> [{self.status}]"
 
 
 class WritingComment(BaseModel):

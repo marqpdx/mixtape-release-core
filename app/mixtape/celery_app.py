@@ -170,7 +170,10 @@ app.conf.task_routes = {
         "queue": "push", "routing_key": "push"
     },
 
-    # --- Writing: cleanup and transcription ---
+    # --- Writing: cleanup, transcription, and AI split suggestion ---
+    "writing.tasks.generate_split_suggestion_task": {
+        "queue": "commons", "routing_key": "commons"
+    },
     "writing.tasks.transcribe_seed_task": {
         "queue": "transcription", "routing_key": "transcription"
     },
@@ -184,6 +187,14 @@ app.conf.task_routes = {
     # --- Concord: audio interpretation ---
     "concord.tasks.interpretation.interpret_recording_task": {
         "queue": "transcription", "routing_key": "transcription"
+    },
+
+    # --- Chat: voice message transcription ---
+    "chat.tasks.transcribe_chat_message_task": {
+        "queue": "transcription", "routing_key": "transcription"
+    },
+    "chat.tasks.emit_transcript_ready_task": {
+        "queue": default_q, "routing_key": default_q
     },
 
     # --- Livewire real-time events (default_q intentional — Uvicorn also consumes) ---

@@ -366,6 +366,106 @@ def get_mentionable_objects_for_conversation(conversation, query=""):
 
 
 
+MAX_VOICE_BYTES = 10 * 1024 * 1024  # 10 MB
+ALLOWED_AUDIO_MIMES = {"audio/m4a", "audio/mp4", "audio/webm", "audio/ogg", "audio/mpeg", "audio/wav", "audio/aac"}
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def conversation_voice_upload(request, slug):
+    """
+    POST /api/chat/conversations/<slug>/voice-upload/
+    Multipart fields: audio (file), duration (float, seconds)
+
+    Access: authenticated + conversation participant only.
+    Returns 404 for non-participants to avoid leaking conversation existence.
+    """
+    # 404 for non-participants (per access control pattern — no info leak)
+    conversation = get_object_or_404(
+        Conversation,
+        slug=slug,
+        participants__user=request.user,
+    )
+
+    audio_file = request.FILES.get("audio")
+    if not audio_file:
+        return Response({"error": "audio file is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    # MIME validation
+    content_type = (audio_file.content_type or "").lower().split(";")[0].strip()
+    if content_type not in ALLOWED_AUDIO_MIMES:
+        return Response(
+            {"error": f"Unsupported audio type: {content_type}. Use M4A, WebM, or OGG."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Size cap
+    if audio_file.size > MAX_VOICE_BYTES:
+        return Response(
+            {"error": "Audio file exceeds 10 MB limit."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    duration_seconds = None
+    try:
+        raw_duration = request.data.get("duration")
+        if raw_duration is not None:
+            duration_seconds = float(raw_duration)
+    except (TypeError, ValueError):
+        pass
+
+    # Store via default_storage (same pattern as seed voice notes)
+    import uuid as _uuid
+    import os as _os
+    from django.core.files.storage import default_storage
+    from files.models import StoredFile
+
+    ext = _os.path.splitext(audio_file.name or "voice.m4a")[1] or ".m4a"
+    storage_key = f"chat/voice/{request.user.id}/{_uuid.uuid4()}{ext}"
+    saved_path = default_storage.save(storage_key, audio_file)
+
+    stored_file = StoredFile.objects.create(
+        file_path=saved_path,
+        file_name=audio_file.name or f"voice{ext}",
+        file_type=content_type,
+        file_size=audio_file.size,
+        uploaded_by=request.user,
+        source="chat_voice",
+    )
+
+    message = ChatMessage.objects.create(
+        conversation=conversation,
+        sender=request.user,
+        text="",  # voice messages have no text body
+        message_type="voice",
+        audio_file=stored_file,
+        audio_duration_seconds=duration_seconds,
+        transcript_status="pending",
+    )
+
+    # Enqueue transcription
+    from chat.tasks import transcribe_chat_message_task
+    transcribe_chat_message_task.delay(str(message.id))
+
+    # Notify other participants via activity pipeline
+    try:
+        from activity.producers_chat import on_new_chat_message
+        recipient_users = list(
+            CustomUser.objects.filter(
+                conversationparticipant__conversation=conversation
+            ).exclude(pk=request.user.pk)
+        )
+        on_new_chat_message(
+            message=message,
+            conversation=conversation,
+            recipients=recipient_users,
+        )
+    except Exception:
+        logger.exception("on_new_chat_message failed for voice message in conversation=%s", slug)
+
+    return Response(ChatMessageSerializer(message).data, status=status.HTTP_201_CREATED)
+
+
 from rest_framework.decorators import action
 
 

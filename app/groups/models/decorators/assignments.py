@@ -144,6 +144,15 @@ class MembershipHasDecorator(models.Model):
         help_text="Profile that assigned this decorator (if source=profile)"
     )
 
+    source_group_permission_profile = models.ForeignKey(
+        "groups.GroupPermissionProfile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="decorator_assignments",
+        help_text="Group-owned permission profile that assigned this decorator (if source=profile)",
+    )
+
     assigned_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

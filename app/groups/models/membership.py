@@ -86,6 +86,13 @@ class GroupMembership(BaseModel):
         blank=True,
         help_text="Semantic decorators applied to this membership (e.g., moderator)"
     )
+    permission_profile = models.ForeignKey(
+        "groups.GroupPermissionProfile",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="memberships",
+    )
     additional_permissions = models.JSONField(
         default=list,
         blank=True,

@@ -99,6 +99,13 @@ class ConversationContext(BaseData):
 
 
 class ChatMessage(BaseModel):
+    MESSAGE_TYPE_CHOICES = [("text", "Text"), ("voice", "Voice")]
+    TRANSCRIPT_STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("done", "Done"),
+        ("failed", "Failed"),
+    ]
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     conversation = models.ForeignKey(
         Conversation,
@@ -113,6 +120,27 @@ class ChatMessage(BaseModel):
     )
     text = models.TextField()
     # Note: processed_text removed - not currently used
+
+    # Voice message fields
+    message_type = models.CharField(
+        max_length=20, choices=MESSAGE_TYPE_CHOICES, default="text"
+    )
+    audio_file = models.ForeignKey(
+        "files.StoredFile",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="chat_messages",
+    )
+    audio_duration_seconds = models.FloatField(null=True, blank=True)
+    transcript_text = models.TextField(null=True, blank=True)
+    transcript_status = models.CharField(
+        max_length=20, choices=TRANSCRIPT_STATUS_CHOICES, null=True, blank=True
+    )
+    transcript_error = models.TextField(null=True, blank=True)
+    transcript_provider = models.CharField(max_length=32, null=True, blank=True)
+    transcript_model = models.CharField(max_length=64, null=True, blank=True)
+    transcript_backend = models.CharField(max_length=32, null=True, blank=True)
+    transcript_created_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         indexes = [

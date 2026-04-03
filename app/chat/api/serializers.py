@@ -120,11 +120,23 @@ class ChatMessageSerializer(serializers.ModelSerializer):
     mentions = MessageMentionSerializer(many=True, read_only=True)
 
     reaction_summary = serializers.SerializerMethodField()
+    audio_file_url = serializers.SerializerMethodField()
 
     class Meta:
         model = ChatMessage
-        fields = ["id", "text", "created_at", "sender", "reactions", "mentions", "reaction_summary"]
-        read_only_fields = ["sender", "created_at", "reactions", "mentions"]
+        fields = [
+            "id", "text", "created_at", "sender", "reactions", "mentions",
+            "reaction_summary",
+            # Voice fields
+            "message_type", "audio_file_url", "audio_duration_seconds",
+            "transcript_text", "transcript_status",
+        ]
+        read_only_fields = ["sender", "created_at", "reactions", "mentions", "message_type"]
+
+    def get_audio_file_url(self, obj):
+        if obj.audio_file:
+            return obj.audio_file.url  # StoredFile.url uses default_storage.url(file_path)
+        return None
 
     def get_reaction_summary(self, obj):
         """Return reaction_name counts grouped by reaction_name type"""

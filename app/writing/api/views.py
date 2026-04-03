@@ -1,5 +1,7 @@
 # writing/api/views.py
 
+import logging
+
 from django.contrib.contenttypes.models import ContentType
 import uuid
 from django.core.exceptions import ValidationError
@@ -25,6 +27,7 @@ from writing.api.permissions import IsAuthorOrStaff
 from files.models import StoredFile
 from writing.models import (
     Seed,
+    SplitSuggestion,
     WritingComment,
     WritingPiece,
     # WritingPlacement,  # Deprecated - replaced by ContentPlacement
@@ -35,6 +38,8 @@ from writing.models import (
 from writing.services import promote_seed_to_working_copy
 from writing.tasks import transcribe_seed_task
 
+logger = logging.getLogger(__name__)
+
 MAX_SEED_AUDIO_BYTES = 20 * 1024 * 1024  # 20MB
 ALLOWED_AUDIO_PREFIXES = ("audio/",)
 ALLOWED_AUDIO_MIME = ("video/webm",)
@@ -44,6 +49,7 @@ from ..permissions import CanEditWritingPiece, CanPublishWritingPiece
 from .serializers import (
     SeedSerializer,
     SeedUpdateSerializer,
+    SplitSuggestionSerializer,
     WritingCommentSerializer,
     WritingPieceDetailSerializer,
     WritingPieceSerializer,
@@ -100,7 +106,121 @@ class WorkingDocumentUpsertView(generics.GenericAPIView):
         wc = ser.save()
         WorkingDocument.objects.filter(pk=wc.pk).update(auto_save_count=F("auto_save_count") + 1)
         wc.refresh_from_db()
-        return Response(self.get_serializer(wc).data, status=status.HTTP_200_OK)
+
+        response_data = self.get_serializer(wc).data
+        response_data["split_suggestion_status"] = _check_and_trigger_split_suggestion(piece, wc)
+        return Response(response_data, status=status.HTTP_200_OK)
+
+
+def _check_and_trigger_split_suggestion(piece, wc) -> str | None:
+    """
+    Check split suggestion conditions on autosave. Returns the current suggestion status
+    (or None). Supersedes stale suggestions and queues a new task when conditions are met.
+    """
+    from utils.writing.writing_utils import count_words_in_prosemirror
+    from writing.tasks import generate_split_suggestion_task
+
+    # Return current active suggestion status regardless of conditions
+    active = (
+        SplitSuggestion.objects
+        .filter(piece=piece)
+        .exclude(status__in=["executed", "superseded", "declined"])
+        .order_by("-created_at")
+        .first()
+    )
+
+    if not piece.suggest_splits or not piece.target_wordcount:
+        return active.status if active else None
+
+    word_count = count_words_in_prosemirror(wc.body_json or {})
+    if word_count < piece.target_wordcount * 1.15:
+        return active.status if active else None
+
+    # Already have a pending or accepted suggestion — don't queue another
+    if active and active.status in ("pending", "accepted"):
+        return active.status
+
+    # Supersede any ready/shown suggestion (stale split points)
+    SplitSuggestion.objects.filter(
+        piece=piece,
+        status__in=("ready", "shown"),
+    ).update(status="superseded", updated_at=timezone.now())
+
+    suggestion = SplitSuggestion.objects.create(
+        piece=piece,
+        word_count_at_suggestion=word_count,
+    )
+    generate_split_suggestion_task.apply_async(
+        kwargs={"suggestion_id": str(suggestion.id)},
+    )
+    logger.info("[split] Queued suggestion %s for piece %s (wc=%d)", suggestion.id, piece.id, word_count)
+    return "pending"
+
+
+class WritingPieceSplitSuggestionView(generics.GenericAPIView):
+    """
+    GET  /api/writing/pieces/<pk>/split-suggestion  — current non-terminal suggestion
+    POST /api/writing/pieces/<pk>/split-suggestion  — act on it
+
+    POST body: {"action": "view" | "dismiss" | "decline"}
+      view    → transitions to 'shown' (writer sees rationale; markers come in Phase 3)
+      dismiss → 'dismissed'; suggest_splits stays True; will fire again at next threshold
+      decline → 'declined' + sets piece.suggest_splits=False ("sets it in stone")
+    """
+    permission_classes = [permissions.IsAuthenticated, CanEditWritingPiece]
+
+    def _get_piece(self, pk):
+        piece = get_object_or_404(WritingPiece, pk=pk)
+        self.check_object_permissions(self.request, piece)
+        return piece
+
+    def _get_active_suggestion(self, piece):
+        return (
+            SplitSuggestion.objects
+            .filter(piece=piece)
+            .exclude(status__in=["executed", "superseded", "declined"])
+            .order_by("-created_at")
+            .first()
+        )
+
+    def get(self, request, pk):
+        piece = self._get_piece(pk)
+        suggestion = self._get_active_suggestion(piece)
+        if not suggestion:
+            return Response({"status": None, "suggestions": []})
+        return Response(SplitSuggestionSerializer(suggestion).data)
+
+    def post(self, request, pk):
+        piece = self._get_piece(pk)
+        action = request.data.get("action")
+
+        if action not in ("view", "dismiss", "decline"):
+            return Response(
+                {"detail": "action must be one of: view, dismiss, decline"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        suggestion = self._get_active_suggestion(piece)
+        if not suggestion or suggestion.status not in ("ready", "shown"):
+            return Response(
+                {"detail": "No actionable suggestion found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if action == "view":
+            suggestion.status = "shown"
+            suggestion.save(update_fields=["status", "updated_at"])
+
+        elif action == "dismiss":
+            suggestion.status = "dismissed"
+            suggestion.save(update_fields=["status", "updated_at"])
+
+        elif action == "decline":
+            suggestion.status = "declined"
+            suggestion.save(update_fields=["status", "updated_at"])
+            WritingPiece.objects.filter(pk=piece.pk).update(suggest_splits=False)
+
+        return Response(SplitSuggestionSerializer(suggestion).data)
 
 
 class WorkingDocumentApplyView(generics.GenericAPIView):
@@ -2181,3 +2301,46 @@ class WritingSeriesListView(generics.GenericAPIView):
                 raise PermissionDenied("Only group owners/admins can create series.")
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class WritingPieceExecuteSplitView(generics.GenericAPIView):
+    """
+    POST /api/writing/pieces/<pk>/execute-split
+
+    Reads confirmed splitMarker nodes from the user's WorkingDocument,
+    creates new WritingPiece(s), and opens a WorkSession ready for
+    stream authoring. No AI involved — purely deterministic.
+
+    Response:
+      {
+        "session_id": "<uuid>",
+        "surface_body_json": { ...TipTap doc with segmentBoundary nodes... },
+        "new_piece_ids": ["<uuid>", ...]
+      }
+    """
+    permission_classes = [permissions.IsAuthenticated, CanEditWritingPiece]
+
+    def post(self, request, pk):
+        from writing.split_service import SplitError, execute_split
+
+        piece = get_object_or_404(WritingPiece, pk=pk)
+        self.check_object_permissions(request, piece)
+
+        try:
+            session = execute_split(piece, request.user)
+        except SplitError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        new_piece_ids = [
+            str(item.object_id)
+            for item in session.items.order_by("sequence")
+        ]
+
+        return Response(
+            {
+                "session_id": str(session.pk),
+                "surface_body_json": session.surface_document.body_json,
+                "new_piece_ids": new_piece_ids,
+            },
+            status=status.HTTP_201_CREATED,
+        )

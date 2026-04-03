@@ -47,6 +47,8 @@ from .views import (
     WritingPieceUnpinView,
     WorkingDocumentApplyView,
     WorkingDocumentUpsertView,
+    WritingPieceSplitSuggestionView,
+    WritingPieceExecuteSplitView,
     WritingSeriesListView,
     WritingSynopsisView,
     WritingSynopsisRegenerateView,
@@ -73,6 +75,12 @@ urlpatterns = [
     # Working copy (autosave buffer)
     path("pieces/<uuid:pk>/working-copy", WorkingDocumentUpsertView.as_view(), name="writingpiece-working-document"),
     path("pieces/<uuid:pk>/apply-working-copy", WorkingDocumentApplyView.as_view(), name="writingpiece-apply-working-document"),
+
+    # Split suggestion
+    path("pieces/<uuid:pk>/split-suggestion", WritingPieceSplitSuggestionView.as_view(), name="writingpiece-split-suggestion"),
+
+    # Split execution (Phase 4 — deterministic, no AI)
+    path("pieces/<uuid:pk>/execute-split", WritingPieceExecuteSplitView.as_view(), name="writingpiece-execute-split"),
 
     # Collaboration management (on working documents)
     path("working-documents/<uuid:piece_id>/collaboration/status", WorkingDocumentCollaborationStatusView.as_view(),

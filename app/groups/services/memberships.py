@@ -8,6 +8,7 @@ from django.contrib.contenttypes.models import ContentType
 
 from groups.models import GroupMembership
 from groups.models.group import Group
+from groups.services.permission_profiles import assign_default_permission_profile
 
 
 def ensure_user_membership(group, user, *, role="member", is_active=True):
@@ -69,6 +70,8 @@ def ensure_user_membership(group, user, *, role="member", is_active=True):
 
         if updated:
             m.save(update_fields=["roles", "is_active"])
+    else:
+        assign_default_permission_profile(m, assigned_by=user)
 
     return m
 
@@ -121,7 +124,6 @@ def ensure_group_membership(group, member_group, *, role="member", is_active=Tru
             updated = True
         if updated:
             m.save(update_fields=["roles", "is_active", "is_pending"])
-
     return m
 
 
