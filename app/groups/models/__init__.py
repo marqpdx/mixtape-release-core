@@ -15,6 +15,9 @@ from .overview_layout import *
 # 3. Membership (depends on Group)
 from .membership import *
 
+# 3.5. Group-owned permission profiles
+from .permission_profiles import *
+
 # 4. Types (depends on Group)
 from .types import *
 

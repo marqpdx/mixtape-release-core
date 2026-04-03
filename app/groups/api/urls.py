@@ -34,7 +34,12 @@ from .views import (
 
 from .permissions_views import (
     AvailablePermissionsView,
+    GroupPermissionProfileCloneView,
+    GroupPermissionProfileDetailView,
+    GroupPermissionProfileListView,
+    GroupPermissionProfileSetDefaultView,
     MemberPermissionsListView,
+    MemberPermissionProfileManageView,
     MemberPermissionManageView,
     MemberRoleManageView,
     MyPermissionsView,
@@ -94,7 +99,12 @@ urlpatterns = [
 
     # Permissions management
     path("<slug:slug>/permissions/available", AvailablePermissionsView.as_view(), name="group-permissions-available"),
+    path("<slug:slug>/permission-profiles", GroupPermissionProfileListView.as_view(), name="group-permission-profile-list"),
+    path("<slug:slug>/permission-profiles/<int:profile_id>", GroupPermissionProfileDetailView.as_view(), name="group-permission-profile-detail"),
+    path("<slug:slug>/permission-profiles/<int:profile_id>/clone", GroupPermissionProfileCloneView.as_view(), name="group-permission-profile-clone"),
+    path("<slug:slug>/permission-profiles/<int:profile_id>/set-default", GroupPermissionProfileSetDefaultView.as_view(), name="group-permission-profile-set-default"),
     path("<slug:slug>/members/permissions", MemberPermissionsListView.as_view(), name="group-member-permissions-list"),
+    path("<slug:slug>/members/<uuid:user_id>/permission-profile", MemberPermissionProfileManageView.as_view(), name="group-member-permission-profile"),
     path("<slug:slug>/members/<uuid:user_id>/permissions", MemberPermissionManageView.as_view(), name="group-member-permission-grant"),
     path("<slug:slug>/members/<uuid:user_id>/permissions/<str:decorator>", MemberPermissionManageView.as_view(), name="group-member-permission-revoke"),
     path("<slug:slug>/members/<uuid:user_id>/roles", MemberRoleManageView.as_view(), name="group-member-role-grant"),

@@ -5,6 +5,12 @@ Decorator definitions for group permissions
 
 # Available membership decorators
 MEMBERSHIP_DECORATORS = {
+    'can__PostToStoryline': {
+        'code': 'can__PostToStoryline',
+        'name': 'Post to Storyline',
+        'description': 'Create Storyline posts in this group',
+        'category': 'capability',
+    },
     'can__ManageWriting': {
         'code': 'can__ManageWriting',
         'name': 'Manage Writing',

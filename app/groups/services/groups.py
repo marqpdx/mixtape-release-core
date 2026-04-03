@@ -11,6 +11,11 @@ from django.db import transaction
 
 from groups.models import CommunityGroup, Group, GroupMembership
 from groups.models.dec_enums import GroupType
+from groups.services.permission_profiles import (
+    assign_permission_profile_to_membership,
+    seed_group_permission_profiles,
+    MODERATOR_PROFILE_CODE,
+)
 
 
 class GroupService:
@@ -69,13 +74,23 @@ class GroupService:
         # Add creator as admin member with both member and admin roles
         if add_creator_membership:
             user_content_type = ContentType.objects.get_for_model(get_user_model())
-            GroupMembership.objects.create(
+            membership = GroupMembership.objects.create(
                 group=group,
                 member_content_type=user_content_type,
                 member_object_id=created_by.pk,
                 roles=["member", "admin", "owner"],
                 is_active=True,
                 is_pending=False,
+            )
+        else:
+            membership = None
+
+        profiles = seed_group_permission_profiles(group)
+        if membership:
+            assign_permission_profile_to_membership(
+                membership,
+                profiles[MODERATOR_PROFILE_CODE],
+                assigned_by=created_by,
             )
 
         # TODO Phase 3: Apply decorator profile if provided

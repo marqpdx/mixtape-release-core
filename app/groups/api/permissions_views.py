@@ -13,12 +13,30 @@ from django.contrib.contenttypes.models import ContentType
 from groups.models import Group, GroupMembership
 from groups.permissions.decorators import get_available_decorators
 from groups.api.permissions_serializers import (
+    AssignPermissionProfileSerializer,
+    GroupPermissionProfileSerializer,
     PermissionSerializer,
     MemberPermissionsSerializer,
     GrantPermissionSerializer,
+    UpsertGroupPermissionProfileSerializer,
+)
+from groups.services.permission_profiles import (
+    assign_permission_profile_to_membership,
+    clone_permission_profile,
+    create_permission_profile,
+    set_default_permission_profile,
+    update_permission_profile,
 )
 
 User = get_user_model()
+
+
+def _get_admin_membership(group, user):
+    return GroupMembership.objects.filter(
+        group=group,
+        member_object_id=user.id,
+        is_active=True,
+    ).first()
 
 
 class AvailablePermissionsView(generics.GenericAPIView):
@@ -80,10 +98,181 @@ class MemberPermissionsListView(generics.GenericAPIView):
             is_banned=False,
             is_evicted=False,
             member_content_type=user_ct
-        ).select_related('member_content_type').order_by('created_at')
+        ).select_related('member_content_type', 'permission_profile').order_by('created_at')
 
         serializer = MemberPermissionsSerializer(memberships, many=True)
         return Response(serializer.data)
+
+
+class GroupPermissionProfileListView(generics.GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, slug):
+        group = get_object_or_404(Group, slug=slug)
+
+        requester_membership = _get_admin_membership(group, request.user)
+
+        if not requester_membership or not requester_membership.is_admin():
+            return Response(
+                {"error": "Only admins can view permission profiles"},
+                status=403,
+            )
+
+        profiles = group.permission_profiles.prefetch_related("items__decorator").all()
+        serializer = GroupPermissionProfileSerializer(profiles, many=True)
+        return Response(serializer.data)
+
+    def post(self, request, slug):
+        group = get_object_or_404(Group, slug=slug)
+
+        requester_membership = _get_admin_membership(group, request.user)
+
+        if not requester_membership or not requester_membership.is_admin():
+            return Response(
+                {"error": "Only admins can create permission profiles"},
+                status=403,
+            )
+
+        serializer = UpsertGroupPermissionProfileSerializer(data=request.data or {})
+        serializer.is_valid(raise_exception=True)
+
+        profile = create_permission_profile(
+            group,
+            name=serializer.validated_data["name"],
+            description=serializer.validated_data.get("description", ""),
+            decorator_codes=serializer.validated_data.get("decorators", []),
+        )
+
+        response_serializer = GroupPermissionProfileSerializer(profile)
+        return Response(response_serializer.data, status=201)
+
+
+class GroupPermissionProfileDetailView(generics.GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, slug, profile_id):
+        group = get_object_or_404(Group, slug=slug)
+
+        requester_membership = _get_admin_membership(group, request.user)
+
+        if not requester_membership or not requester_membership.is_admin():
+            return Response(
+                {"error": "Only admins can update permission profiles"},
+                status=403,
+            )
+
+        profile = get_object_or_404(
+            group.permission_profiles.prefetch_related("items__decorator"),
+            id=profile_id,
+        )
+
+        serializer = UpsertGroupPermissionProfileSerializer(data=request.data or {})
+        serializer.is_valid(raise_exception=True)
+
+        profile = update_permission_profile(
+            profile,
+            name=serializer.validated_data["name"],
+            description=serializer.validated_data.get("description", ""),
+            decorator_codes=serializer.validated_data.get("decorators", []),
+            assigned_by=request.user,
+        )
+
+        response_serializer = GroupPermissionProfileSerializer(profile)
+        return Response(response_serializer.data)
+
+
+class GroupPermissionProfileCloneView(generics.GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, slug, profile_id):
+        group = get_object_or_404(Group, slug=slug)
+
+        requester_membership = _get_admin_membership(group, request.user)
+
+        if not requester_membership or not requester_membership.is_admin():
+            return Response(
+                {"error": "Only admins can clone permission profiles"},
+                status=403,
+            )
+
+        profile = get_object_or_404(
+            group.permission_profiles.prefetch_related("items__decorator"),
+            id=profile_id,
+        )
+        cloned = clone_permission_profile(profile)
+        response_serializer = GroupPermissionProfileSerializer(cloned)
+        return Response(response_serializer.data, status=201)
+
+
+class GroupPermissionProfileSetDefaultView(generics.GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, slug, profile_id):
+        group = get_object_or_404(Group, slug=slug)
+
+        requester_membership = _get_admin_membership(group, request.user)
+
+        if not requester_membership or not requester_membership.is_admin():
+            return Response(
+                {"error": "Only admins can set the default permission profile"},
+                status=403,
+            )
+
+        profile = get_object_or_404(group.permission_profiles, id=profile_id)
+        profile = set_default_permission_profile(profile)
+        response_serializer = GroupPermissionProfileSerializer(profile)
+        return Response(response_serializer.data)
+
+
+class MemberPermissionProfileManageView(generics.GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, slug, user_id):
+        group = get_object_or_404(Group, slug=slug)
+
+        requester_membership = _get_admin_membership(group, request.user)
+
+        if not requester_membership or not requester_membership.is_admin():
+            return Response(
+                {"error": "Only admins can assign permission profiles"},
+                status=403,
+            )
+
+        serializer = AssignPermissionProfileSerializer(data=request.data or {})
+        serializer.is_valid(raise_exception=True)
+        profile_id = serializer.validated_data.get("profile_id")
+
+        user_ct = ContentType.objects.get_for_model(User)
+        membership = GroupMembership.objects.filter(
+            group=group,
+            member_object_id=user_id,
+            member_content_type=user_ct,
+            is_active=True,
+        ).first()
+
+        if not membership:
+            return Response(
+                {"error": "User is not a member of this group"},
+                status=404,
+            )
+
+        profile = None
+        if profile_id:
+            profile = group.permission_profiles.filter(id=profile_id).first()
+            if not profile:
+                return Response(
+                    {"error": "Permission profile not found for this group"},
+                    status=404,
+                )
+
+        assign_permission_profile_to_membership(
+            membership,
+            profile,
+            assigned_by=request.user,
+        )
+
+        response_serializer = MemberPermissionsSerializer(membership)
+        return Response(response_serializer.data)
 
 
 class MemberPermissionManageView(generics.GenericAPIView):
@@ -373,6 +562,16 @@ class MyPermissionsView(generics.GenericAPIView):
             'role': membership.highest_role(),
             'roles': membership.roles,
             'decorators': membership.get_decorator_codes(),
+            'permission_profile': (
+                {
+                    "id": str(membership.permission_profile.id),
+                    "code": membership.permission_profile.code,
+                    "name": membership.permission_profile.name,
+                    "is_default": membership.permission_profile.is_default,
+                }
+                if membership.permission_profile
+                else None
+            ),
             'is_owner': membership.is_owner(),
             'is_admin': membership.is_admin(),
             'is_steward': membership.is_steward(),
