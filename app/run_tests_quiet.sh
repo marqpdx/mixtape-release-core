@@ -54,6 +54,7 @@ tests=(
   "public_api.tests"
   "publishing.tests"
   "workbench.tests"
+  "writing.tests_copy_desk_intelligence"
   "writing.tests"
 )
 
