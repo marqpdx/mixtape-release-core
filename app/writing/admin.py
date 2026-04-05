@@ -37,5 +37,5 @@ class LeafAdmin(admin.ModelAdmin):
 
 @admin.register(LeafComment)
 class LeafCommentAdmin(admin.ModelAdmin):
-    list_display = ["id", "author", "leaf", "is_approved", "is_flagged", "created_at"]
+    list_display = ["id", "author", "placement", "is_approved", "is_flagged", "created_at"]
     list_filter = ["is_approved", "is_flagged"]

@@ -14,7 +14,7 @@ from rest_framework.views import APIView
 from files.models import StoredFile
 from utils.shared.contenttypes import resolve_content_type
 from writing.api.permissions import IsAuthorOrStaff
-from writing.models import Leaf, LeafComment, Seed
+from writing.models import Leaf, Seed
 from writing.services import (
     create_reference_leaf,
     promote_leaf_to_working_copy,
@@ -24,7 +24,6 @@ from writing.services import (
 )
 
 from .serializers import (
-    LeafCommentSerializer,
     LeafCreateSerializer,
     LeafSerializer,
     ReferenceLeafCreateSerializer,
@@ -245,42 +244,9 @@ class LeafPublishView(APIView):
 
 
 # ============================================================================
-# Leaf Comments
+# Leaf Comments — REMOVED
+# Comments are now placement-scoped. See placement_views.PlacementCommentListCreateView.
+# Old endpoints:
+#   GET/POST /api/writing/leaves/<leaf_id>/comments  → REMOVED
+#   PUT/DELETE /api/writing/comments/<pk>            → see placement_views
 # ============================================================================
-
-class LeafCommentListCreateView(generics.ListCreateAPIView):
-    """
-    GET  /api/writing/leaves/<uuid:leaf_id>/comments
-    POST /api/writing/leaves/<uuid:leaf_id>/comments
-    """
-    serializer_class = LeafCommentSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        leaf_id = self.kwargs["leaf_id"]
-        return LeafComment.objects.filter(
-            leaf_id=leaf_id,
-            parent__isnull=True,
-            is_approved=True,
-            deleted_at__isnull=True,
-        ).select_related(
-            "author", "author__profile",
-        ).prefetch_related(
-            "replies__author", "replies__author__profile",
-        )
-
-    def perform_create(self, serializer):
-        leaf_id = self.kwargs["leaf_id"]
-        leaf = get_object_or_404(Leaf, pk=leaf_id)
-        serializer.save(author=self.request.user, leaf=leaf)
-
-
-class LeafCommentDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """
-    PUT/DELETE /api/writing/comments/<uuid:pk>
-    """
-    serializer_class = LeafCommentSerializer
-    permission_classes = [permissions.IsAuthenticated, IsAuthorOrStaff]
-
-    def get_queryset(self):
-        return LeafComment.objects.filter(deleted_at__isnull=True)
