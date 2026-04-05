@@ -671,6 +671,51 @@ class Seed(BaseModel):
         return f"Seed<{self.id}> by {self.author_id}"
 
 
+class SeedDispatch(BaseModel):
+    """
+    Per-dispatch record for a Seed routed to a destination.
+    Provides rich history for the Placement screen ("Sent to @alex · 3 days ago").
+    Supersedes the rejected timestamp approach (dispatched_to_*_at fields on Seed).
+
+    destination_id is nullable — Commons has no specific recipient.
+    """
+    DESTINATION_CHOICES = [
+        ("message", "Message"),
+        ("storyline", "Storyline"),
+        ("commons", "Commons"),
+    ]
+    VERB_CHOICES = [
+        ("copy", "Copy"),
+        ("move", "Move"),
+    ]
+    OUTCOME_CHOICES = [
+        ("delivered", "Delivered"),
+        ("failed", "Failed"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    seed = models.ForeignKey(
+        Seed,
+        on_delete=models.CASCADE,
+        related_name="dispatches",
+    )
+    destination_type = models.CharField(max_length=16, choices=DESTINATION_CHOICES, db_index=True)
+    destination_id = models.UUIDField(
+        null=True, blank=True,
+        help_text="Recipient user/group ID, or null for Commons",
+    )
+    verb = models.CharField(max_length=8, choices=VERB_CHOICES)
+    outcome = models.CharField(max_length=16, choices=OUTCOME_CHOICES, default="delivered")
+    dispatched_at = models.DateTimeField()
+
+    class Meta(BaseModel.Meta):
+        ordering = ["-dispatched_at"]
+        indexes = [
+            models.Index(fields=["seed", "destination_type"]),
+        ]
+
+    def __str__(self):
+        return f"SeedDispatch<{self.seed_id} → {self.destination_type}> [{self.verb}]"
 
 
 
@@ -922,17 +967,62 @@ class Leaf(BaseModel):
 # LeafComment — Comments on Leaves (Leaf is the social node)
 # ============================================================================
 
+class LeafPlacement(BaseModel):
+    """
+    Records a Leaf being placed into a Storyline target (User personal or Group).
+    This is the social node — comments and reactions attach here, not to Leaf.
+    Rescinded placements are soft-deleted (status=rescinded) — no hard deletes.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    leaf = models.ForeignKey(
+        Leaf,
+        on_delete=models.CASCADE,
+        related_name="placements",
+    )
+    placed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="leaf_placements",
+    )
+
+    # Target: User (personal storyline) or Group (group storyline)
+    target_content_type = models.ForeignKey(
+        ContentType, on_delete=models.CASCADE, related_name="+"
+    )
+    target_object_id = models.UUIDField()
+    target = GenericForeignKey("target_content_type", "target_object_id")
+
+    status = models.CharField(
+        max_length=16,
+        choices=[("active", "Active"), ("rescinded", "Rescinded")],
+        default="active",
+        db_index=True,
+    )
+    rescinded_at = models.DateTimeField(null=True, blank=True)
+
+    visibility = models.CharField(max_length=16, default="members")
+
+    class Meta(BaseModel.Meta):
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["target_content_type", "target_object_id", "status"]),
+        ]
+
+    def __str__(self):
+        return f"LeafPlacement<{self.id}> [{self.status}]"
+
+
 class LeafComment(BaseModel):
     """
-    Comments on Leaves. One-level threading only.
-    Leaf-only for v1 — WritingPiece discussion is a separate future surface.
+    Comments on LeafPlacements. One-level threading only.
+    Attaches to placement (not Leaf) so comments are audience-context-aware.
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="leaf_comments"
     )
-    leaf = models.ForeignKey(
-        Leaf, on_delete=models.CASCADE, related_name="comments",
+    placement = models.ForeignKey(
+        "writing.LeafPlacement", on_delete=models.CASCADE, related_name="comments",
     )
     content = models.TextField()
     parent = models.ForeignKey(
@@ -954,7 +1044,29 @@ class LeafComment(BaseModel):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"LeafComment<{self.id}> on Leaf<{self.leaf_id}>"
+        return f"LeafComment<{self.id}> on Placement<{self.placement_id}>"
+
+
+class LeafPlacementReaction(BaseModel):
+    """
+    Emoji/reaction on a LeafPlacement. Mirrors MessageReaction pattern.
+    One reaction per (placement, user, reaction_name) — no duplicates.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    placement = models.ForeignKey(
+        LeafPlacement, on_delete=models.CASCADE, related_name="reactions"
+    )
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    reaction_name = models.CharField(max_length=50)  # 'heart', 'thumbs_up', etc.
+
+    class Meta(BaseModel.Meta):
+        unique_together = ("placement", "user", "reaction_name")
+        indexes = [
+            models.Index(fields=["placement", "reaction_name"]),
+        ]
+
+    def __str__(self):
+        return f"{self.user_id} {self.reaction_name} on Placement<{self.placement_id}>"
 
 
 # ==============================================================================

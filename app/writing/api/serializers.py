@@ -11,6 +11,8 @@ from writing.choices import ContentStatus
 from ..models import (
     Leaf,
     LeafComment,
+    LeafPlacement,
+    LeafPlacementReaction,
     Seed,
     WritingComment,
     WritingPiece,
@@ -497,11 +499,14 @@ class LeafCommentSerializer(serializers.ModelSerializer):
     class Meta:
         model = LeafComment
         fields = [
-            "id", "author", "content", "parent",
+            "id", "author", "content", "parent", "placement",
             "is_approved", "is_flagged",
             "created_at", "updated_at", "replies",
         ]
-        read_only_fields = ["id", "author", "is_approved", "is_flagged", "created_at", "updated_at"]
+        read_only_fields = [
+            "id", "author", "placement", "is_approved", "is_flagged",
+            "created_at", "updated_at",
+        ]
 
     def get_replies(self, obj):
         if hasattr(obj, "replies") and obj.replies.exists():
@@ -579,6 +584,62 @@ class ReferenceLeafCreateSerializer(serializers.Serializer):
     source_content_type = serializers.CharField()
     source_object_id = serializers.UUIDField()
     caption = serializers.CharField(required=False, default="", allow_blank=True)
+
+
+class LeafPlacementReactionSerializer(serializers.ModelSerializer):
+    user_id = serializers.UUIDField(source="user.id", read_only=True)
+
+    class Meta:
+        model = LeafPlacementReaction
+        fields = ["id", "user_id", "reaction_name", "created_at"]
+        read_only_fields = ["id", "user_id", "created_at"]
+
+
+class LeafPlacementSerializer(serializers.ModelSerializer):
+    leaf = LeafSerializer(read_only=True)
+    placed_by = LeafAuthorSerializer(read_only=True)
+    comment_count = serializers.SerializerMethodField()
+    reaction_counts = serializers.SerializerMethodField()
+    viewer_reactions = serializers.SerializerMethodField()
+
+    class Meta:
+        model = LeafPlacement
+        fields = [
+            "id", "leaf", "placed_by",
+            "target_content_type", "target_object_id",
+            "status", "rescinded_at", "visibility",
+            "comment_count", "reaction_counts", "viewer_reactions",
+            "created_at", "updated_at",
+        ]
+        read_only_fields = [
+            "id", "leaf", "placed_by", "rescinded_at",
+            "created_at", "updated_at",
+        ]
+
+    def get_comment_count(self, obj):
+        return obj.comments.filter(is_approved=True, parent__isnull=True).count()
+
+    def get_reaction_counts(self, obj):
+        from django.db.models import Count
+        qs = obj.reactions.values("reaction_name").annotate(count=Count("id"))
+        return {item["reaction_name"]: item["count"] for item in qs}
+
+    def get_viewer_reactions(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return []
+        return list(
+            obj.reactions.filter(user=request.user).values_list("reaction_name", flat=True)
+        )
+
+
+class LeafPlacementCreateSerializer(serializers.Serializer):
+    """Multi-target placement creation."""
+    leaf_id = serializers.UUIDField()
+    targets = serializers.ListField(
+        child=serializers.DictField(),
+        min_length=1,
+    )
 
 
 class WritingSynopsisSerializer(serializers.ModelSerializer):

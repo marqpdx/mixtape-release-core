@@ -9,8 +9,6 @@ from .sponsor_views import (
     SponsorPlacementsListView,
 )
 from .leaf_views import (
-    LeafCommentDetailView,
-    LeafCommentListCreateView,
     LeafDetailView,
     LeafImageUploadView,
     LeafListCreateView,
@@ -18,6 +16,13 @@ from .leaf_views import (
     LeafPublishView,
     LeafReferenceCreateView,
     SeedToLeafPromoteView,
+)
+from .placement_views import (
+    LeafPlacementCreateView,
+    LeafPlacementDetailView,
+    PlacementCommentDetailView,
+    PlacementCommentListCreateView,
+    PlacementReactionView,
 )
 from .streams_views import StreamsView
 from .views import (
@@ -63,7 +68,15 @@ app_name = "writing"
 urlpatterns = [
 
     # Sponsor-based queries (generic for groups and members)
+    # DEPRECATED: SponsorPlacementsListView — to be removed once frontend migrates to /api/storyline/
     path("placements", SponsorPlacementsListView.as_view(), name="sponsor-placements-list"),
+
+    # LeafPlacement — Storyline social placements
+    path("placements/create", LeafPlacementCreateView.as_view(), name="leaf-placement-create"),
+    path("placements/<uuid:pk>", LeafPlacementDetailView.as_view(), name="leaf-placement-detail"),
+    path("placements/<uuid:placement_id>/comments", PlacementCommentListCreateView.as_view(), name="placement-comments"),
+    path("placements/<uuid:placement_id>/reactions", PlacementReactionView.as_view(), name="placement-reactions"),
+    path("placement-comments/<uuid:pk>", PlacementCommentDetailView.as_view(), name="placement-comment-detail"),
     path("drafts", SponsorDraftsListView.as_view(), name="sponsor-drafts-list"),
     path("drafts/<uuid:pk>", SponsorDraftDeleteView.as_view(), name="sponsor-drafts-delete"),
 
@@ -145,10 +158,8 @@ urlpatterns = [
     path("leaves/<uuid:pk>", LeafDetailView.as_view(), name="leaf-detail"),
     path("leaves/<uuid:pk>/promote", LeafPromoteView.as_view(), name="leaf-promote"),
     path("leaves/<uuid:pk>/publish", LeafPublishView.as_view(), name="leaf-publish"),
-    path("leaves/<uuid:leaf_id>/comments", LeafCommentListCreateView.as_view(), name="leaf-comments"),
-
-    # Leaf Comments
-    path("comments/<uuid:pk>", LeafCommentDetailView.as_view(), name="leaf-comment-detail"),
+    # NOTE: leaf-scoped comments removed. Comments are now placement-scoped.
+    # Use /api/writing/placements/<id>/comments instead.
 
     # Seed → Leaf promotion (Draftroom curation)
     path("seeds/<uuid:pk>/promote-to-leaf", SeedToLeafPromoteView.as_view(), name="seed-promote-to-leaf"),
