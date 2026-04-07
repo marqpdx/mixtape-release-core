@@ -29,9 +29,9 @@ def _build_canonical_url(piece) -> str:
     from django.conf import settings
     base = getattr(settings, "SITE_BASE_URL", "https://mixtape.social")
 
-    group = piece.group
-    if group:
-        return f"{base}/groups/{group.slug}/writing/{piece.slug}"
+    # Always use the public /writing/<slug> route.
+    # The group-scoped URL (/groups/<slug>/writing/<slug>) requires authentication
+    # and would present a login wall to LinkedIn readers who aren't Mixtape members.
     return f"{base}/writing/{piece.slug}"
 
 

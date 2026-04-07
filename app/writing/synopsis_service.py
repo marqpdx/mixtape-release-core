@@ -48,9 +48,7 @@ def _derive_canonical_url(piece) -> str:
     if piece.canonical_url:
         return piece.canonical_url
     base = getattr(settings, "SITE_BASE_URL", "https://mixtape.social")
-    group = piece.group
-    if group:
-        return f"{base}/groups/{group.slug}/writing/{piece.slug}"
+    # Use the public route — group-scoped URLs require authentication.
     return f"{base}/writing/{piece.slug}"
 
 
