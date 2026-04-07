@@ -225,9 +225,9 @@ class WritingPiece(BaseContent, PublishableContentMixin):
 
     @property
     def group(self):
-        # If sponsored by a Group, return the sponsor_object
+        # If sponsored by a Group, return the sponsor (GenericForeignKey)
         if self.sponsor_content_type and self.sponsor_content_type.model == "group":
-            return self.sponsor_object
+            return self.sponsor
         return None
 
     # -------- Artifact Resolution (for Publishing) --------
