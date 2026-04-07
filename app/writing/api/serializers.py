@@ -663,6 +663,9 @@ class WritingSynopsisSerializer(serializers.ModelSerializer):
             "status",
             "source_version",
             "generated_by",
+            "linkedin_copy",
+            "linkedin_copy_generated_by",
+            "linkedin_copy_extended",
             "created_at",
             "updated_at",
         ]

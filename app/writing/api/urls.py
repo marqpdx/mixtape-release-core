@@ -57,6 +57,7 @@ from .views import (
     WritingSeriesListView,
     WritingSynopsisView,
     WritingSynopsisRegenerateView,
+    WritingSynopsisLinkedInCopyView,
     clear_empty_flag,
 )
 
@@ -117,6 +118,7 @@ urlpatterns = [
     # Synopsis
     path("pieces/<uuid:pk>/synopsis", WritingSynopsisView.as_view(), name="writingpiece-synopsis"),
     path("pieces/<uuid:pk>/synopsis/regenerate", WritingSynopsisRegenerateView.as_view(), name="writingpiece-synopsis-regenerate"),
+    path("pieces/<uuid:pk>/synopsis/linkedin-copy", WritingSynopsisLinkedInCopyView.as_view(), name="writingpiece-synopsis-linkedin-copy"),
 
     # Publish & schedule
     path("pieces/<uuid:pk>/publish", WritingPiecePublishAndPlaceView.as_view(), name="writingpiece-publish"),

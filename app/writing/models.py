@@ -1141,6 +1141,25 @@ class WritingSynopsis(BaseModel):
         default=SynopsisGeneratedBy.RULE_BASED,
     )
 
+    # ---- LinkedIn copy ----
+    linkedin_copy = models.TextField(
+        blank=True,
+        default="",
+        help_text="AI-generated post copy optimised for LinkedIn (~180–320 chars hook).",
+    )
+    linkedin_copy_generated_by = models.CharField(
+        max_length=16,
+        blank=True,
+        default="",
+        help_text="'ai' once generated; empty until then.",
+    )
+    linkedin_copy_extended = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Full Inkwell result: hook, short_synopsis, one_line_takeaway, alt_hook.",
+    )
+
     class Meta(BaseModel.Meta):
         verbose_name = "Writing Synopsis"
         verbose_name_plural = "Writing Synopses"
