@@ -39,10 +39,12 @@ class SourceListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        from django.db.models import Q
         qs = Source.objects.filter(is_active=True)
         group_slug = self.request.query_params.get("group")
         if group_slug:
-            qs = qs.filter(group__slug=group_slug)
+            # Return group-scoped sources for this group plus global sources (group=None)
+            qs = qs.filter(Q(group__slug=group_slug) | Q(group__isnull=True))
         else:
             qs = qs.filter(group__isnull=True)
         return qs
