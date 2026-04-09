@@ -5,7 +5,10 @@ import datetime
 from django.utils import timezone
 from rest_framework import serializers
 
-from initiatives.models import Artifact, DistillationState, Initiative, LinkedOutput, Session
+from initiatives.models import (
+    Artifact, ApertureLog, ApertureLogEntry, ApertureLogEntryKind,
+    DistillationState, Initiative, LinkedOutput, Session,
+)
 
 _MOMENTUM_WINDOW_DAYS = 14
 
@@ -201,6 +204,57 @@ class RollingSummaryUpdateSerializer(serializers.Serializer):
     key_decisions = serializers.ListField(child=serializers.CharField(), required=False)
     open_questions = serializers.ListField(child=serializers.CharField(), required=False)
     where_we_are_now = serializers.CharField(required=False, allow_blank=True)
+
+
+class ApertureLogEntrySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ApertureLogEntry
+        fields = [
+            "id",
+            "aperture_log",
+            "kind",
+            "body",
+            "emph_note",
+            "ledger_event_type",
+            "ledger_data",
+            "spawned_seed_content_type",
+            "spawned_seed_object_id",
+            "emph_is_summary_candidate",
+            "emph_accepted_to_summary",
+            "is_system_generated",
+            "authored_by",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "aperture_log",
+            "ledger_event_type",
+            "ledger_data",
+            "spawned_seed_content_type",
+            "spawned_seed_object_id",
+            "emph_is_summary_candidate",
+            "is_system_generated",
+            "authored_by",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate_kind(self, value):
+        if value in (ApertureLogEntryKind.LEDGER, ApertureLogEntryKind.SEED_SPAWN):
+            raise serializers.ValidationError("Ledger and seed_spawn entries are system-generated only.")
+        return value
+
+
+class ApertureLogSerializer(serializers.ModelSerializer):
+    entries = ApertureLogEntrySerializer(many=True, read_only=True)
+
+    class Meta:
+        model = ApertureLog
+        fields = ["id", "initiative", "last_handoff_at", "created_at", "updated_at", "entries"]
+        read_only_fields = ["id", "initiative", "last_handoff_at", "created_at", "updated_at"]
 
 
 class DistillationCurateSerializer(serializers.Serializer):

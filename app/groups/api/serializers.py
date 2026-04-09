@@ -380,6 +380,7 @@ class GroupMembershipListSerializer(serializers.ModelSerializer):
     display_name = serializers.SerializerMethodField()
     is_active_user = serializers.SerializerMethodField()
     profile_image = serializers.SerializerMethodField()
+    right_now = serializers.SerializerMethodField()
 
     # Roles - returns all roles as array for frontend
     roles = serializers.SerializerMethodField()
@@ -446,6 +447,11 @@ class GroupMembershipListSerializer(serializers.ModelSerializer):
                 return key_to_url(image_key)
         return None
 
+    def get_right_now(self, obj):
+        member = obj.member_object
+        profile = getattr(member, "profile", None)
+        return getattr(profile, "right_now", "") if profile else ""
+
     def get_roles(self, obj):
         """
         Return all roles as array for frontend.
@@ -476,7 +482,7 @@ class GroupMembershipListSerializer(serializers.ModelSerializer):
             # Member identity
             "member_id", "member_type", "username", "email",
             "first_name", "last_name", "display_name",
-            "is_active_user", "profile_image",
+            "is_active_user", "profile_image", "right_now",
 
             # Membership data
             "roles", "date_joined", "is_active", "is_pending",

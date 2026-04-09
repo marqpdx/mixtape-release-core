@@ -5,6 +5,7 @@ from django.urls import include, path
 from rest_framework import routers
 
 from accounts.api.views import UserViewSet
+from initiatives.api.urls import aperture_patterns
 
 from . import views
 
@@ -56,6 +57,7 @@ urlpatterns = [
 
     # Groups
     path("api/groups/", include("groups.api.urls")),
+    path("api/initiatives/", include(aperture_patterns)),
 
     path("api/activity/", include("activity.api.urls")),
     path("api/almanac/", include("almanac.api.urls")),

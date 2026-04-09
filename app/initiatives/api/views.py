@@ -10,8 +10,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from groups.models import Group
+from django.contrib.contenttypes.models import ContentType
 from initiatives.models import (
     Artifact,
+    ApertureLog,
+    ApertureLogEntry,
+    ApertureLogEntryKind,
     ArtifactKind,
     DistillationState,
     Initiative,
@@ -21,6 +25,8 @@ from initiatives.models import (
     Session,
 )
 from initiatives.api.serializers import (
+    ApertureLogEntrySerializer,
+    ApertureLogSerializer,
     ArtifactSerializer,
     DistillationCurateSerializer,
     InitiativeSerializer,
@@ -865,3 +871,168 @@ def _artifacts_to_distillation(artifact_specs: list[dict]) -> dict:
         "actions": actions,
         "notes": "\n\n".join(notes_parts),
     }
+
+
+# ---------------------------------------------------------------------------
+# ApertureLog views
+# ---------------------------------------------------------------------------
+
+def _get_initiative_for_aperture(request, initiative_id):
+    """Return initiative if user is the sponsor (member ownership check)."""
+    initiative = get_object_or_404(Initiative, pk=initiative_id)
+    user_ct = ContentType.objects.get_for_model(request.user.__class__)
+    is_owner = (
+        initiative.sponsor_content_type_id == user_ct.id
+        and str(initiative.sponsor_object_id) == str(request.user.id)
+    )
+    if not is_owner and not request.user.is_superuser:
+        return None, Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+    return initiative, None
+
+
+class ApertureLogView(APIView):
+    """
+    GET /api/initiatives/<id>/aperture-log
+    Retrieve the full entry stream for an Initiative's ApertureLog.
+    Ordered chronologically. Paginated (50/page).
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, initiative_id):
+        initiative, err = _get_initiative_for_aperture(request, initiative_id)
+        if err:
+            return err
+        aperture_log = get_object_or_404(ApertureLog, initiative=initiative)
+        page = int(request.query_params.get("page", 1))
+        page_size = 50
+        offset = (page - 1) * page_size
+        entries = aperture_log.entries.all()[offset:offset + page_size]
+        serializer = ApertureLogSerializer(aperture_log)
+        data = serializer.data
+        data["entries"] = ApertureLogEntrySerializer(entries, many=True).data
+        return Response(data)
+
+
+class ApertureLogEntryCreateView(APIView):
+    """
+    POST /api/initiatives/<id>/aperture-log/entries
+    Create a new member-authored entry (prose, handoff, emph, seed_spawn).
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, initiative_id):
+        initiative, err = _get_initiative_for_aperture(request, initiative_id)
+        if err:
+            return err
+        aperture_log = get_object_or_404(ApertureLog, initiative=initiative)
+        serializer = ApertureLogEntrySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(
+            aperture_log=aperture_log,
+            authored_by=request.user.username,
+            created_by=request.user,
+            is_system_generated=False,
+        )
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class ApertureLogEntryDetailView(APIView):
+    """
+    PATCH /api/initiatives/<id>/aperture-log/entries/<entry_id>
+    Edit body or emph_note of a member-authored entry.
+    Refused for ledger and seed_spawn entries.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, initiative_id, entry_id):
+        initiative, err = _get_initiative_for_aperture(request, initiative_id)
+        if err:
+            return err
+        aperture_log = get_object_or_404(ApertureLog, initiative=initiative)
+        entry = get_object_or_404(ApertureLogEntry, pk=entry_id, aperture_log=aperture_log)
+        if entry.kind in (ApertureLogEntryKind.LEDGER, ApertureLogEntryKind.SEED_SPAWN):
+            return Response(
+                {"detail": "System-generated entries cannot be edited."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        allowed_fields = {"body", "emph_note", "emph_accepted_to_summary"}
+        data = {k: v for k, v in request.data.items() if k in allowed_fields}
+        serializer = ApertureLogEntrySerializer(entry, data=data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+
+class ApertureLogHandoffsView(APIView):
+    """
+    GET /api/initiatives/<id>/aperture-log/handoffs
+    Return all handoff entries for this Initiative, ordered chronologically.
+    Powers the handoff note sidebar.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, initiative_id):
+        initiative, err = _get_initiative_for_aperture(request, initiative_id)
+        if err:
+            return err
+        aperture_log = get_object_or_404(ApertureLog, initiative=initiative)
+        entries = aperture_log.entries.filter(kind=ApertureLogEntryKind.HANDOFF)
+        return Response(ApertureLogEntrySerializer(entries, many=True).data)
+
+
+class ApertureOrientationView(APIView):
+    """
+    GET /api/members/me/aperture/orientation
+    Return the member's 10 most recent contexts (Initiatives collapsed,
+    standalones listed). Powers the WorkTable // orientation view.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    _RECENCY_DAYS = 14
+    _DEFAULT_LIMIT = 10
+
+    def get(self, request):
+        from django.utils import timezone as tz
+        import datetime
+
+        user = request.user
+        user_ct = ContentType.objects.get_for_model(user.__class__)
+        limit = int(request.query_params.get("limit", self._DEFAULT_LIMIT))
+
+        # Initiatives sponsored by this user — sorted by most recently updated
+        initiatives = (
+            Initiative.objects.filter(
+                sponsor_content_type=user_ct,
+                sponsor_object_id=user.id,
+            )
+            .order_by("-updated_at")[:limit]
+        )
+
+        recency_cutoff = tz.now() - datetime.timedelta(days=self._RECENCY_DAYS)
+
+        results = []
+        for initiative in initiatives:
+            last_handoff = None
+            try:
+                log = initiative.aperture_log
+                last_handoff = (
+                    log.entries.filter(kind=ApertureLogEntryKind.HANDOFF)
+                    .order_by("-created_at")
+                    .values_list("body", "created_at")
+                    .first()
+                )
+            except ApertureLog.DoesNotExist:
+                pass
+
+            results.append({
+                "type": "initiative",
+                "id": str(initiative.id),
+                "title": initiative.title,
+                "status": initiative.status,
+                "is_personal": initiative.is_personal,
+                "updated_at": initiative.updated_at.isoformat() if initiative.updated_at else None,
+                "last_handoff_body": last_handoff[0] if last_handoff else None,
+                "last_handoff_at": last_handoff[1].isoformat() if last_handoff else None,
+            })
+
+        return Response({"contexts": results, "limit": limit})
