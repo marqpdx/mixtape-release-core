@@ -184,6 +184,16 @@ class Initiative(BaseModel):
         help_text="'ai' or username — tracks who last edited the summary.",
     )
 
+    # --- Personal Initiative flag ---
+    is_personal = models.BooleanField(
+        default=False,
+        help_text=(
+            "True for the single Personal Initiative auto-created by MemberStartupService. "
+            "Prevents the fragile sponsor=user + parent=None match from becoming ambiguous "
+            "once users can create their own root Initiatives."
+        ),
+    )
+
     # --- Authorship ---
     created_by = models.ForeignKey(
         User,
@@ -574,3 +584,148 @@ class Handoff(BaseModel):
         self.resolved_by = resolved_by
         self.resolved_at = timezone.now()
         self.save(update_fields=["status", "resolution", "resolved_by", "resolved_at", "updated_at"])
+
+
+# ---------------------------------------------------------------------------
+# ApertureLog + ApertureLogEntry
+# ---------------------------------------------------------------------------
+
+class ApertureLogEntryKind(models.TextChoices):
+    PROSE = "prose", "Prose"
+    LEDGER = "ledger", "Ledger"
+    HANDOFF = "handoff", "Handoff"
+    EMPH = "emph", "Emphasis"
+    SEED_SPAWN = "seed_spawn", "Seed Spawn"
+
+
+class LedgerEventType(models.TextChoices):
+    SESSION_STARTED = "session_started", "Session started"
+    SESSION_ENDED = "session_ended", "Session ended"
+    DOCUMENT_BOUND = "document_bound", "Document bound"
+    SEED_PROMOTED = "seed_promoted", "Seed promoted"
+    STATUS_CHANGED = "status_changed", "Status changed"
+    ARTIFACT_LINKED = "artifact_linked", "Artifact linked"
+    MATERIAL_LATE_BOUND = "material_late_bound", "Material late-bound"
+
+
+class ApertureLog(BaseModel):
+    """
+    The authoritative narrative spine of an Initiative.
+    One per Initiative, created automatically alongside it.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    initiative = models.OneToOneField(
+        Initiative,
+        on_delete=models.CASCADE,
+        related_name="aperture_log",
+    )
+    last_handoff_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Denormalized — updated on every ApertureLogEntry with kind='handoff'.",
+    )
+
+    class Meta(BaseModel.Meta):
+        pass
+
+    def __str__(self):
+        return f"ApertureLog for {self.initiative_id}"
+
+
+class ApertureLogEntry(BaseModel):
+    """
+    Individual entries in an ApertureLog stream. Either human-authored or system-generated.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    aperture_log = models.ForeignKey(
+        ApertureLog,
+        on_delete=models.CASCADE,
+        related_name="entries",
+    )
+    kind = models.CharField(
+        max_length=20,
+        choices=ApertureLogEntryKind.choices,
+        default=ApertureLogEntryKind.PROSE,
+    )
+    body = models.TextField(
+        blank=True,
+        default="",
+        help_text="Human-authored content for prose/handoff entries; system description for ledger entries.",
+    )
+    emph_note = models.TextField(
+        blank=True,
+        default="",
+        help_text="The quoted note from /emph. Blank for all non-emph kinds.",
+    )
+    ledger_event_type = models.CharField(
+        max_length=40,
+        choices=LedgerEventType.choices,
+        blank=True,
+        default="",
+    )
+    ledger_data = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Structured event payload for ledger entries. Schema varies by ledger_event_type.",
+    )
+
+    # GFK for seed_spawn entries
+    spawned_seed_content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    spawned_seed_object_id = models.UUIDField(null=True, blank=True)
+    spawned_seed = GenericForeignKey("spawned_seed_content_type", "spawned_seed_object_id")
+
+    emph_is_summary_candidate = models.BooleanField(
+        default=False,
+        help_text="System has proposed this /emph as a rolling summary candidate.",
+    )
+    emph_accepted_to_summary = models.BooleanField(
+        default=False,
+        help_text="Member accepted this /emph into the rolling summary.",
+    )
+    is_system_generated = models.BooleanField(
+        default=False,
+        help_text="True for ledger entries and system-appended /emph candidates. Not editable by member.",
+    )
+    authored_by = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+        help_text="username for member entries; 'system' for ledger entries.",
+    )
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="aperture_log_entries",
+        help_text="Null for system-generated entries.",
+    )
+
+    class Meta(BaseModel.Meta):
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(fields=["aperture_log", "created_at"]),
+            models.Index(fields=["aperture_log", "kind"]),
+            models.Index(fields=["aperture_log", "kind", "emph_is_summary_candidate"]),
+        ]
+
+    def __str__(self):
+        return f"ApertureLogEntry [{self.kind}] on {self.aperture_log_id}"
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        # Keep ApertureLog.last_handoff_at in sync
+        if self.kind == ApertureLogEntryKind.HANDOFF:
+            ApertureLog.objects.filter(pk=self.aperture_log_id).update(
+                last_handoff_at=self.created_at
+            )

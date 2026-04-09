@@ -19,6 +19,7 @@ from django.utils import timezone as dj_timezone
 from groups.models import GroupInvitation, GroupMembership
 from groups.models.group import Group, InvitationKind, InvitationStatus, InviteLink
 from groups.permissions import canUserModerateGroupUser
+from groups.services.member_startup import MemberStartupService
 from profiles.models import UserProfile
 from users.models import Role
 from utils.email.shortcode import generate_shortcode
@@ -278,11 +279,8 @@ class InvitationService:
             user.roles.add(member_role)
             user.save()
 
-            # Create user profile
-            UserProfile.objects.get_or_create(
-                user=user,
-                defaults={"display_name": username}
-            )
+            # Initialize member: UserProfile, Crossroads membership, Personal Initiative + ApertureLog
+            MemberStartupService.run(user=user)
 
         else:
             # EXISTING USER FLOW: Verify authenticated user

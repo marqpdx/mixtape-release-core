@@ -27,6 +27,8 @@ class UserProfile(BaseModel):
     display_name = models.CharField(max_length=48, help_text="Your public facing screen name.")
     quick_intro = models.TextField(max_length=300, default="", blank=True, help_text="A quick bit about yourself.")
     right_now = models.TextField(max_length=200, default="", blank=True, help_text="A few words how you are right now (totally optional).")
+    practice_area = models.CharField(max_length=120, default="", blank=True, help_text="Primary practice area or discipline (e.g. Product, Engineering, Design).")
+    location = models.CharField(max_length=120, default="", blank=True, help_text="City, region, or remote.")
 
     # Placeholder for avatar/images (next phase - will use actual file storage)
     avatar_url = models.CharField(max_length=512, default="", blank=True, help_text="Avatar image URL")

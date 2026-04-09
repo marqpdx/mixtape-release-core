@@ -5,6 +5,21 @@ from django.urls import path
 
 from . import views
 
+# ---------------------------------------------------------------------------
+# Aperture-log endpoints — included at api/initiatives/
+# ---------------------------------------------------------------------------
+
+aperture_patterns = [
+    path("<uuid:initiative_id>/aperture-log", views.ApertureLogView.as_view(), name="aperture-log"),
+    path("<uuid:initiative_id>/aperture-log/entries", views.ApertureLogEntryCreateView.as_view(), name="aperture-log-entries"),
+    path("<uuid:initiative_id>/aperture-log/entries/<uuid:entry_id>", views.ApertureLogEntryDetailView.as_view(), name="aperture-log-entry-detail"),
+    path("<uuid:initiative_id>/aperture-log/handoffs", views.ApertureLogHandoffsView.as_view(), name="aperture-log-handoffs"),
+]
+
+# ---------------------------------------------------------------------------
+# Group-scoped initiative patterns — included under api/groups/<slug>/initiatives/
+# ---------------------------------------------------------------------------
+
 # Base path when group-scoped: api/groups/<slug>/initiatives/
 # Included in groups/api/urls.py as:
 #   path("<slug:slug>/initiatives/", include(group_initiatives_patterns))
