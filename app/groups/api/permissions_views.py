@@ -9,6 +9,7 @@ from rest_framework.decorators import api_view, permission_classes
 from django.shortcuts import get_object_or_404
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
+from users.models import Role
 
 from groups.models import Group, GroupMembership
 from groups.permissions.decorators import get_available_decorators
@@ -507,6 +508,78 @@ class MemberRoleManageView(generics.GenericAPIView):
             return Response({"error": "Invalid role"}, status=400)
 
         membership.grant_role(role)
+
+        response_serializer = MemberPermissionsSerializer(membership)
+        return Response(response_serializer.data)
+
+
+class MemberHelperManageView(generics.GenericAPIView):
+    """
+    POST /api/groups/{slug}/members/{user_id}/helper
+    DELETE /api/groups/{slug}/members/{user_id}/helper
+
+    Temporary stopgap for granting Beacon/Lighthouse helper access from the
+    group permissions work area.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _get_membership(self, request, slug, user_id):
+        group = get_object_or_404(Group, slug=slug)
+
+        requester_membership = GroupMembership.objects.filter(
+            group=group,
+            member_object_id=request.user.id,
+            is_active=True
+        ).first()
+
+        if not requester_membership or not requester_membership.is_admin():
+            return None, None, Response(
+                {"error": "Only admins can manage helper access"},
+                status=403
+            )
+
+        user_ct = ContentType.objects.get_for_model(User)
+        membership = GroupMembership.objects.filter(
+            group=group,
+            member_object_id=user_id,
+            member_content_type=user_ct,
+            is_active=True
+        ).first()
+
+        if not membership:
+            return None, None, Response(
+                {"error": "User is not a member of this group"},
+                status=404
+            )
+
+        target_user = membership.member_object
+        if not target_user:
+            return None, None, Response(
+                {"error": "Target user not found"},
+                status=404
+            )
+
+        return membership, target_user, None
+
+    def post(self, request, slug, user_id):
+        membership, target_user, error_response = self._get_membership(request, slug, user_id)
+        if error_response:
+            return error_response
+
+        helper_role, _ = Role.objects.get_or_create(name="helper")
+        target_user.roles.add(helper_role)
+
+        response_serializer = MemberPermissionsSerializer(membership)
+        return Response(response_serializer.data)
+
+    def delete(self, request, slug, user_id):
+        membership, target_user, error_response = self._get_membership(request, slug, user_id)
+        if error_response:
+            return error_response
+
+        helper_role = Role.objects.filter(name="helper").first()
+        if helper_role:
+            target_user.roles.remove(helper_role)
 
         response_serializer = MemberPermissionsSerializer(membership)
         return Response(response_serializer.data)
