@@ -28,8 +28,12 @@ class CanEditWritingPiece(BasePermission):
         # Collaborative dispatch documents are edited through the author's shared
         # working document. Once a user is an assigned collaborator, they should
         # be allowed through this gate even if they are not the piece author.
-        dispatch_content = getattr(obj, "dispatch_content", None)
-        if dispatch_content and dispatch_content.collaborators.filter(id=user.id).exists():
+        from writing.models import WorkingDocument
+
+        if WorkingDocument.objects.filter(
+            piece=obj,
+            dispatch_content__collaborators=user,
+        ).exists():
             return True
 
         # Check group permissions if sponsored by a group
