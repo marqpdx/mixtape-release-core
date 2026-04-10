@@ -1070,9 +1070,9 @@ class WorkingDocumentEligibleCollaboratorsView(generics.GenericAPIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # Get all active group members with write permissions
-        # excluding the current user (already a collaborator)
-        # Members with 'admin' or 'steward' roles typically have write permissions
+        # Get all active group members with collaboration-relevant permissions,
+        # excluding the current user. Support both legacy role-based access and
+        # the newer membership-decorator permission model.
         from django.db.models import Q
 
         eligible_memberships = GroupMembership.objects.filter(
@@ -1082,10 +1082,15 @@ class WorkingDocumentEligibleCollaboratorsView(generics.GenericAPIView):
             is_evicted=False,
             is_pending=False
         ).filter(
-            # Filter for members with admin or steward roles
-            # These roles typically have write/dispatch permissions
             Q(roles__contains=['admin']) |
-            Q(roles__contains=['steward'])
+            Q(roles__contains=['steward']) |
+            Q(
+                decorator_links__enabled=True,
+                decorator_links__decorator__code__in=[
+                    'can__ManageWriting',
+                    'can__ManageDispatch',
+                ],
+            )
         ).exclude(
             member_object_id=request.user.id
         ).select_related(
