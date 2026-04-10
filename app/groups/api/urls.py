@@ -41,6 +41,7 @@ from .permissions_views import (
     MemberPermissionsListView,
     MemberPermissionProfileManageView,
     MemberPermissionManageView,
+    MemberHelperManageView,
     MemberRoleManageView,
     MyPermissionsView,
 )
@@ -108,6 +109,7 @@ urlpatterns = [
     path("<slug:slug>/members/<uuid:user_id>/permissions", MemberPermissionManageView.as_view(), name="group-member-permission-grant"),
     path("<slug:slug>/members/<uuid:user_id>/permissions/<str:decorator>", MemberPermissionManageView.as_view(), name="group-member-permission-revoke"),
     path("<slug:slug>/members/<uuid:user_id>/roles", MemberRoleManageView.as_view(), name="group-member-role-grant"),
+    path("<slug:slug>/members/<uuid:user_id>/helper", MemberHelperManageView.as_view(), name="group-member-helper-manage"),
     path("<slug:slug>/my-permissions", MyPermissionsView.as_view(), name="group-my-permissions"),
 
 #     # Invitations

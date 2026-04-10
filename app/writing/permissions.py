@@ -12,7 +12,8 @@ class IsOwner(BasePermission):
 
 class CanEditWritingPiece(BasePermission):
     """
-    Author OR has edit_writing permission in the piece's sponsor group.
+    Author, dispatch collaborator, OR has edit_writing permission in the piece's
+    sponsor group.
     Uses PermissionService for consistent permission checking.
     """
     def has_object_permission(self, request, view, obj):
@@ -22,6 +23,13 @@ class CanEditWritingPiece(BasePermission):
 
         # Author can always edit their own content
         if obj.author_id == user.id:
+            return True
+
+        # Collaborative dispatch documents are edited through the author's shared
+        # working document. Once a user is an assigned collaborator, they should
+        # be allowed through this gate even if they are not the piece author.
+        dispatch_content = getattr(obj, "dispatch_content", None)
+        if dispatch_content and dispatch_content.collaborators.filter(id=user.id).exists():
             return True
 
         # Check group permissions if sponsored by a group

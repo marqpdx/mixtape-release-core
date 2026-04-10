@@ -24,6 +24,7 @@ class MemberPermissionsSerializer(serializers.Serializer):
     roles = serializers.ListField(child=serializers.CharField())
     decorators = serializers.SerializerMethodField()
     permission_profile = serializers.SerializerMethodField()
+    is_helper = serializers.SerializerMethodField()
 
     def get_user(self, membership):
         """Get user info from membership"""
@@ -47,6 +48,12 @@ class MemberPermissionsSerializer(serializers.Serializer):
             "name": profile.name,
             "is_default": profile.is_default,
         }
+
+    def get_is_helper(self, membership):
+        user = membership.member_object
+        if not user or not hasattr(user, "roles"):
+            return False
+        return user.roles.filter(name="helper").exists()
 
 
 class GroupPermissionProfileSerializer(serializers.Serializer):
