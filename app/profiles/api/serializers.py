@@ -40,6 +40,7 @@ class MemberSerializer(serializers.ModelSerializer):
             "is_active", "date_joined", "roles",
             # From Profile
             "slug", "display_name", "quick_intro", "right_now",
+            "skills", "work_areas",
             "practice_area", "location", "avatar_url",
             "profile_image", "background_image", "bio_json", "bio_markdown",
             "profile_image_url", "background_image_url",
@@ -71,6 +72,8 @@ class MemberUpdateSerializer(serializers.ModelSerializer):
             "display_name",
             "quick_intro",
             "right_now",
+            "skills",
+            "work_areas",
             "practice_area",
             "location",
             "avatar_url",
