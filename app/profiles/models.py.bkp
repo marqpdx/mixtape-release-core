@@ -27,8 +27,6 @@ class UserProfile(BaseModel):
     display_name = models.CharField(max_length=48, help_text="Your public facing screen name.")
     quick_intro = models.TextField(max_length=300, default="", blank=True, help_text="A quick bit about yourself.")
     right_now = models.TextField(max_length=200, default="", blank=True, help_text="A few words how you are right now (totally optional).")
-    skills = models.TextField(max_length=400, default="", blank=True, help_text="Skills, capacities, or areas of expertise.")
-    work_areas = models.TextField(max_length=400, default="", blank=True, help_text="Work areas, focus areas, or domains of current activity.")
     practice_area = models.CharField(max_length=120, default="", blank=True, help_text="Primary practice area or discipline (e.g. Product, Engineering, Design).")
     location = models.CharField(max_length=120, default="", blank=True, help_text="City, region, or remote.")
 
