@@ -453,11 +453,11 @@ def transcribe_recording(
     recording = Recording.objects.get(id=recording_id)
 
     # Get audio path
+    # source_file_id is a loose UUID reference — resolving it to a path requires a
+    # Stackroom REST call, wired at CP3+. Fall through to asset and audio_path for now.
     audio_path = recording.audio_path
     if not audio_path:
-        if recording.source_file:
-            audio_path = recording.source_file.path
-        elif recording.asset:
+        if recording.asset:
             audio_path = recording.asset.file_path
         else:
             raise FileNotFoundError(f"No audio file for recording {recording_id}")

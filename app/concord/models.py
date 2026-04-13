@@ -236,13 +236,12 @@ class Recording(BaseContent):
     )
 
     # ---- Storage Reference ----
-    source_file = models.ForeignKey(
-        'stackroom.SourceFile',
-        on_delete=models.SET_NULL,
+    # source_file was a FK to stackroom.SourceFile (CP2-Django: CR-002).
+    # Decoupled to a loose UUID reference — resolved via Stackroom REST at CP3+.
+    source_file_id = models.UUIDField(
         null=True,
         blank=True,
-        related_name='recordings',
-        help_text="Reference to the audio file in Stackroom"
+        help_text="UUID reference to SourceFile in Stackroom (loose — resolved via REST at CP3+)"
     )
     asset = models.ForeignKey(
         'assets.Asset',
@@ -332,10 +331,9 @@ class Recording(BaseContent):
     @property
     def audio_url(self):
         """Generate presigned URL for audio playback."""
-        if self.source_file:
-            from django.core.files.storage import default_storage
-            return default_storage.url(self.source_file.path)
-        elif self.asset:
+        # source_file_id (UUID) cannot be resolved to a URL without a Stackroom REST call.
+        # URL resolution via Stackroom REST is wired at CP3+.
+        if self.asset:
             from django.core.files.storage import default_storage
             return default_storage.url(self.asset.file_path)
         elif self.audio_path:

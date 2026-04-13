@@ -179,7 +179,7 @@ def recording_detail(request, recording_id):
     """
     try:
         recording = Recording.objects.select_related(
-            'submitted_by', 'author', 'source_file', 'asset'
+            'submitted_by', 'author', 'asset'
         ).get(id=recording_id)
     except Recording.DoesNotExist:
         return Response(
@@ -961,7 +961,7 @@ def trigger_transcription(request, recording_id):
         )
 
     # Check if recording has audio
-    if not recording.audio_path and not recording.source_file and not recording.asset:
+    if not recording.audio_path and not recording.source_file_id and not recording.asset:
         return Response(
             {'error': 'Recording has no audio file'},
             status=status.HTTP_400_BAD_REQUEST

@@ -1036,3 +1036,43 @@ class ApertureOrientationView(APIView):
             })
 
         return Response({"contexts": results, "limit": limit})
+
+
+class ApertureInitiativeTypeaheadView(APIView):
+    """
+    GET /api/members/me/aperture/initiatives?q=<query>&limit=10
+    Initiative title prefix search for the // command typeahead.
+    Returns the member's own Initiatives whose titles start with (or contain) q.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    _DEFAULT_LIMIT = 10
+
+    def get(self, request):
+        user = request.user
+        user_ct = ContentType.objects.get_for_model(user.__class__)
+        q = request.query_params.get("q", "").strip()
+        limit = min(int(request.query_params.get("limit", self._DEFAULT_LIMIT)), 20)
+
+        qs = Initiative.objects.filter(
+            sponsor_content_type=user_ct,
+            sponsor_object_id=user.id,
+        ).order_by("-updated_at")
+
+        if q:
+            qs = qs.filter(title__icontains=q)
+
+        qs = qs[:limit]
+
+        results = [
+            {
+                "id": str(initiative.id),
+                "title": initiative.title,
+                "status": initiative.status,
+                "is_personal": initiative.is_personal,
+                "updated_at": initiative.updated_at.isoformat() if initiative.updated_at else None,
+            }
+            for initiative in qs
+        ]
+
+        return Response({"initiatives": results})

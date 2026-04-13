@@ -10,7 +10,10 @@ from earthlab.choices import ProgressStatus
 
 class ModuleProgress(BaseModel):
     """
-    Tracks a learner's progress on a module (Library) within an enrollment.
+    Tracks a learner's progress on a Module within an enrollment.
+
+    CP2-Django (CR-002): `library` FK to stackroom.Library replaced by
+    `module` FK to earthlab.Module (EarthLab's owned concept).
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -21,10 +24,10 @@ class ModuleProgress(BaseModel):
         related_name="module_progress",
     )
 
-    library = models.ForeignKey(
-        "stackroom.Library",
+    module = models.ForeignKey(
+        "earthlab.Module",
         on_delete=models.CASCADE,
-        related_name="earthlab_progress",
+        related_name="progress",
     )
 
     status = models.CharField(
@@ -40,7 +43,7 @@ class ModuleProgress(BaseModel):
         ordering = ["-updated_at"]
         constraints = [
             models.UniqueConstraint(
-                fields=["enrollment", "library"],
+                fields=["enrollment", "module"],
                 name="unique_module_progress_per_enrollment",
             ),
         ]
@@ -49,4 +52,4 @@ class ModuleProgress(BaseModel):
         ]
 
     def __str__(self):
-        return f"{self.enrollment.user} — {self.library} ({self.status})"
+        return f"{self.enrollment.user} — {self.module} ({self.status})"
