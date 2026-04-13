@@ -265,6 +265,8 @@ def publish_and_place(piece: WritingPiece, user, data: dict) -> dict:
     shelf_ids = destinations.get("shelves") or []
     if shelf_ids:
         from stackroom.models import Library
+        from stackroom.django_client.client import shadow_shelf_ids
+        shadow_shelf_ids(shelf_ids)
         ct_library = ContentType.objects.get_for_model(Library)
         for shelf in Library.objects.filter(id__in=shelf_ids):
             next_order = (
