@@ -12,6 +12,7 @@ from earthlab.models import Course, Lesson, CourseItem, CourseRun, Enrollment, L
 from earthlab.choices import ProgressStatus
 from groups.models import Group
 from stackroom.models import Library
+from stackroom.django_client.client import shadow_available_libraries
 
 
 def _group_and_ct(group_slug):
@@ -361,6 +362,7 @@ def list_available_content(request, group_slug):
         sponsor_content_type=ct, sponsor_object_id=group.id,
         deleted_at__isnull=True,
     ).order_by('title')
+    shadow_available_libraries(group.id)
 
     return Response({
         'lessons': [

@@ -22,6 +22,7 @@ from publishing.models import ContentPlacement
 from publishing.services.content_access import can_view_placement
 from publishing.services.content_display import get_display_payload
 from stackroom.models import Library
+from stackroom.django_client.client import shadow_user_shelves
 from writing.models import WritingPiece
 from earthlab.models import Course, CourseItem
 
@@ -168,6 +169,7 @@ class PublicMemberShelvesView(APIView):
             visibility__in=allowed_visibility,
             scope="writing",
         ).order_by("-created_at")
+        shadow_user_shelves(user_obj.id, allowed_visibility)
 
         ct_library = ContentType.objects.get_for_model(Library)
         ct_piece = ContentType.objects.get_for_model(WritingPiece)
