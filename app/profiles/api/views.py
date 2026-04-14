@@ -2,10 +2,12 @@
 
 from rest_framework import generics, status
 from django.utils import timezone
+from django.db import transaction
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from profiles.models import UserProfile
+from stackroom.integration.service import ingest_object_safely, deactivate_object_safely
 
 from .serializers import MemberSerializer, MemberUpdateSerializer
 from .permissions import IsProfileOwnerOrStaff
@@ -69,10 +71,16 @@ class MemberDetailUpdateDeleteView(generics.RetrieveUpdateDestroyAPIView):
         return MemberUpdateSerializer
 
     def perform_update(self, serializer):
-        serializer.save(updated_at=timezone.now())
+        profile = serializer.save(updated_at=timezone.now())
+        transaction.on_commit(
+            lambda: ingest_object_safely(profile, reason="profile_update")
+        )
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         instance.deleted_at = instance.deleted_at or timezone.now()
         instance.save(update_fields=["deleted_at", "updated_at"])
+        transaction.on_commit(
+            lambda: deactivate_object_safely(instance, reason="profile_soft_delete")
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)

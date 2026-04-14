@@ -23,6 +23,9 @@ from .embeddings import (
 from .retrieval import (
     QueryLog,
 )
+from .integration import (
+    StackroomSyncState,
+)
 
 __all__ = [
     "TimeStamped",
@@ -40,4 +43,5 @@ __all__ = [
     "EmbeddingModel",
     "ChunkEmbedding",
     "QueryLog",
+    "StackroomSyncState",
 ]
