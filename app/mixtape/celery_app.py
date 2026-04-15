@@ -123,37 +123,16 @@ app.conf.task_routes = {
         "queue": "commons", "routing_key": "commons"
     },
 
-    # --- Stackroom: processing, embeddings, metadata, milldraft ---
-    "stackroom.tasks.processing.process_artifact": {
-        "queue": "commons", "routing_key": "commons"
-    },
+    # --- Stackroom integration layer (Django-side adapter tasks — stay until CP5) ---
     "stackroom.tasks.integration.ingest_object_task": {
         "queue": "commons", "routing_key": "commons"
     },
     "stackroom.tasks.integration.deactivate_object_task": {
         "queue": "commons", "routing_key": "commons"
     },
-    "stackroom.tasks.embeddings.embed_library": {
-        "queue": "commons", "routing_key": "commons"
-    },
-    "stackroom.tasks.embeddings.embed_chunk_embedding": {
-        "queue": "commons", "routing_key": "commons"
-    },
-    "stackroom.tasks.embeddings.embed_pending_batch": {
-        "queue": "commons", "routing_key": "commons"
-    },
-    "stackroom.tasks.metadata.extract_artifact_metadata_task": {
-        "queue": "commons", "routing_key": "commons"
-    },
-    "stackroom.tasks.metadata.backfill_artifact_metadata": {
-        "queue": "polling", "routing_key": "polling"
-    },
-    "stackroom.tasks.milldraft.create_milldraft_from_artifact_task": {
-        "queue": "commons", "routing_key": "commons"
-    },
-    "stackroom.tasks.retrieval.log_query_async": {
-        "queue": "polling", "routing_key": "polling"
-    },
+    # NOTE: stackroom IR pipeline tasks (processing, embeddings, metadata, milldraft,
+    # retrieval, process_pending_uploads) removed at CP4 — these now run inside the
+    # standalone stackroom service. See stackroom-extraction-adr-cr-003.md.
 
     # --- Initiatives: AI-backed quality scan and rolling summary ---
     "initiatives.tasks.run_artifact_quality_scan": {
@@ -246,10 +225,7 @@ app.conf.update(
 # Beat only schedules; tasks execute on the worker consuming the routed queue.
 # Polling tasks → "polling" worker. See task_routes above.
 app.conf.beat_schedule = {
-    "process-pending-uploads": {
-        "task": "stackroom.tasks.processing.process_pending_uploads",
-        "schedule": 60.0,  # Ingestion lag of up to 60s is acceptable; was 15s (too aggressive)
-    },
+    # process-pending-uploads removed at CP4 — now runs inside standalone stackroom service
     "execute-due-ownership-requests": {
         "task": "groups.tasks.execute_due_ownership_requests",
         "schedule": 60.0,
