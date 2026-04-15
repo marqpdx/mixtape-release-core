@@ -4,10 +4,12 @@ import json
 import logging
 import hashlib
 import os
+from django.db import transaction
 from django.utils import timezone
 from celery import shared_task
 
 from concord.services.whisper import transcribe_audio
+from stackroom.integration.service import ingest_object_safely
 from writing.models import Seed
 
 logger = logging.getLogger(__name__)
@@ -58,11 +60,17 @@ def transcribe_seed_task(self, seed_id: str):
         seed.status = "failed"
         seed.transcript_error = "Missing audio file."
         seed.save(update_fields=["status", "transcript_error", "updated_at"])
+        transaction.on_commit(
+            lambda: ingest_object_safely(seed, reason="seed_transcription_failed")
+        )
         return {"status": "failed", "reason": "missing_audio"}
 
     try:
         seed.status = "processing"
         seed.save(update_fields=["status", "updated_at"])
+        transaction.on_commit(
+            lambda: ingest_object_safely(seed, reason="seed_transcription_processing")
+        )
 
         result = transcribe_audio(seed.audio_file.file_path)
         transcript = (result.text or "").strip()
@@ -93,12 +101,18 @@ def transcribe_seed_task(self, seed_id: str):
             "transcript_error",
             "updated_at",
         ])
+        transaction.on_commit(
+            lambda: ingest_object_safely(seed, reason="seed_transcription_complete")
+        )
         return {"status": "ok", "chars": len(transcript)}
     except Exception as exc:
         logger.error("[seeds] Transcription failed for %s: %s", seed_id, exc, exc_info=True)
         seed.status = "failed"
         seed.transcript_error = str(exc)
         seed.save(update_fields=["status", "transcript_error", "updated_at"])
+        transaction.on_commit(
+            lambda: ingest_object_safely(seed, reason="seed_transcription_failed")
+        )
         raise self.retry(exc=exc)
 
 

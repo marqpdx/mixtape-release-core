@@ -23,6 +23,7 @@ from groups.services.permissions import PermissionService
 from publishing.models import ContentPlacement
 from publishing.services.content_access import can_view_placement
 from publishing.services.content_display import get_display_payload
+from stackroom.integration.service import deactivate_object_safely, ingest_object_safely
 from writing.api.permissions import IsAuthorOrStaff
 from files.models import StoredFile
 from writing.models import (
@@ -564,6 +565,9 @@ class SeedListCreateView(generics.ListCreateAPIView):
                 source=request.data.get("source") or "web",
             )
 
+            transaction.on_commit(
+                lambda: ingest_object_safely(seed, reason="seed_create_voice")
+            )
             transcribe_seed_task.delay(str(seed.id))
 
             data = SeedSerializer(seed).data
@@ -573,7 +577,10 @@ class SeedListCreateView(generics.ListCreateAPIView):
         return super().create(request, *args, **kwargs)
 
     def perform_create(self, serializer):
-        serializer.save(author=self.request.user)
+        seed = serializer.save(author=self.request.user)
+        transaction.on_commit(
+            lambda: ingest_object_safely(seed, reason="seed_create")
+        )
 
 
 class SeedDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -592,6 +599,13 @@ class SeedDetailView(generics.RetrieveUpdateDestroyAPIView):
         if self.request.method in ("PUT", "PATCH"):
             return SeedUpdateSerializer
         return SeedSerializer
+
+    def perform_destroy(self, instance):
+        seed = instance
+        super().perform_destroy(instance)
+        transaction.on_commit(
+            lambda: deactivate_object_safely(seed, reason="seed_delete")
+        )
 
 
 class SeedPromoteView(APIView):
@@ -638,6 +652,9 @@ class SeedIngestView(generics.CreateAPIView):
             body_text=text,
             context_url=context_url,
             source=source,
+        )
+        transaction.on_commit(
+            lambda: ingest_object_safely(seed, reason="seed_ingest_create")
         )
         data = SeedSerializer(seed).data
         headers = self.get_success_headers(data)
