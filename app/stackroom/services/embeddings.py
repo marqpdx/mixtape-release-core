@@ -164,8 +164,9 @@ def backfill_chunk_embeddings(
 
                 created_count += 1
 
+    library_label = library.title or library.slug or str(library.id)
     logger.info(
-        f"Backfill complete for {library.name}: "
+        f"Backfill complete for {library_label}: "
         f"{created_count} created, {existing_count} existing"
     )
 

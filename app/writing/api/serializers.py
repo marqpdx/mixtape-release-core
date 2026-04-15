@@ -6,7 +6,7 @@ from django.db import transaction
 from rest_framework import serializers
 import hashlib
 
-from stackroom.integration.service import ingest_object_safely
+from stackroom.integration.service import enqueue_ingest_object
 from utils.shared.contenttypes import resolve_content_type
 from writing.choices import ContentStatus
 
@@ -321,7 +321,7 @@ class SeedUpdateSerializer(serializers.ModelSerializer):
             instance.edited_after_transcription = body_hash != instance.transcript_hash
         instance.save(update_fields=["body_text", "body_hash", "edited_after_transcription", "updated_at"])
         transaction.on_commit(
-            lambda: ingest_object_safely(instance, reason="seed_update")
+            lambda: enqueue_ingest_object(instance, reason="seed_update")
         )
         return instance
 

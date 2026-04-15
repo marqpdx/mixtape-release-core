@@ -13,6 +13,10 @@ from .retrieval import (
 from .processing import (
     process_artifact,
 )
+from .integration import (
+    ingest_object_task,
+    deactivate_object_task,
+)
 
 from .metadata import (
     extract_artifact_metadata_task,
@@ -29,6 +33,8 @@ __all__ = [
     "embed_pending_batch",
     "log_query_async",
     "process_artifact",
+    "ingest_object_task",
+    "deactivate_object_task",
     "extract_artifact_metadata_task",
     "backfill_artifact_metadata",
     "create_milldraft_from_artifact_task",

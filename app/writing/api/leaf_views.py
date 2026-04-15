@@ -13,7 +13,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from files.models import StoredFile
-from stackroom.integration.service import deactivate_object_safely, ingest_object_safely
+from stackroom.integration.service import enqueue_deactivate_object, enqueue_ingest_object
 from utils.shared.contenttypes import resolve_content_type
 from writing.api.permissions import IsAuthorOrStaff
 from writing.models import Leaf, Seed
@@ -83,7 +83,7 @@ class LeafListCreateView(generics.ListCreateAPIView):
             publish=data.get("publish", True),
         )
         transaction.on_commit(
-            lambda: ingest_object_safely(leaf, reason="leaf_create")
+            lambda: enqueue_ingest_object(leaf, reason="leaf_create")
         )
 
         return Response(
@@ -107,14 +107,14 @@ class LeafDetailView(generics.RetrieveUpdateDestroyAPIView):
     def perform_update(self, serializer):
         leaf = serializer.save()
         transaction.on_commit(
-            lambda: ingest_object_safely(leaf, reason="leaf_update")
+            lambda: enqueue_ingest_object(leaf, reason="leaf_update")
         )
 
     def perform_destroy(self, instance):
         leaf = instance
         super().perform_destroy(instance)
         transaction.on_commit(
-            lambda: deactivate_object_safely(leaf, reason="leaf_delete")
+            lambda: enqueue_deactivate_object(leaf, reason="leaf_delete")
         )
 
 
@@ -139,7 +139,7 @@ class LeafReferenceCreateView(APIView):
             caption=data.get("caption", ""),
         )
         transaction.on_commit(
-            lambda: ingest_object_safely(leaf, reason="leaf_create_reference")
+            lambda: enqueue_ingest_object(leaf, reason="leaf_create_reference")
         )
 
         return Response(
@@ -161,7 +161,7 @@ class SeedToLeafPromoteView(APIView):
         except PromotionError as e:
             return Response({"error": str(e)}, status=status.HTTP_403_FORBIDDEN)
         transaction.on_commit(
-            lambda: ingest_object_safely(leaf, reason="leaf_create_from_seed")
+            lambda: enqueue_ingest_object(leaf, reason="leaf_create_from_seed")
         )
 
         return Response(
@@ -265,7 +265,7 @@ class LeafPublishView(APIView):
         leaf.published_at = timezone.now()
         leaf.save(update_fields=["published_at", "updated_at"])
         transaction.on_commit(
-            lambda: ingest_object_safely(leaf, reason="leaf_publish")
+            lambda: enqueue_ingest_object(leaf, reason="leaf_publish")
         )
         return Response(LeafSerializer(leaf).data)
 

@@ -23,7 +23,7 @@ from groups.services.permissions import PermissionService
 from publishing.models import ContentPlacement
 from publishing.services.content_access import can_view_placement
 from publishing.services.content_display import get_display_payload
-from stackroom.integration.service import deactivate_object_safely, ingest_object_safely
+from stackroom.integration.service import enqueue_deactivate_object, enqueue_ingest_object
 from writing.api.permissions import IsAuthorOrStaff
 from files.models import StoredFile
 from writing.models import (
@@ -566,7 +566,7 @@ class SeedListCreateView(generics.ListCreateAPIView):
             )
 
             transaction.on_commit(
-                lambda: ingest_object_safely(seed, reason="seed_create_voice")
+                lambda: enqueue_ingest_object(seed, reason="seed_create_voice")
             )
             transcribe_seed_task.delay(str(seed.id))
 
@@ -579,7 +579,7 @@ class SeedListCreateView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         seed = serializer.save(author=self.request.user)
         transaction.on_commit(
-            lambda: ingest_object_safely(seed, reason="seed_create")
+            lambda: enqueue_ingest_object(seed, reason="seed_create")
         )
 
 
@@ -604,7 +604,7 @@ class SeedDetailView(generics.RetrieveUpdateDestroyAPIView):
         seed = instance
         super().perform_destroy(instance)
         transaction.on_commit(
-            lambda: deactivate_object_safely(seed, reason="seed_delete")
+            lambda: enqueue_deactivate_object(seed, reason="seed_delete")
         )
 
 
@@ -654,7 +654,7 @@ class SeedIngestView(generics.CreateAPIView):
             source=source,
         )
         transaction.on_commit(
-            lambda: ingest_object_safely(seed, reason="seed_ingest_create")
+            lambda: enqueue_ingest_object(seed, reason="seed_ingest_create")
         )
         data = SeedSerializer(seed).data
         headers = self.get_success_headers(data)
