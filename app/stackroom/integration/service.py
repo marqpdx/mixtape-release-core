@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 
 from django.contrib.contenttypes.models import ContentType
-from django.db import transaction
 from django.utils import timezone
 
 from stackroom.integration.adapters.leaf import LeafStackroomAdapter
@@ -39,20 +38,25 @@ def get_sync_state(obj, adapter_name: str | None = None):
     return queryset.first()
 
 
-def ingest_object(obj, *, reason: str, force: bool = False):
-    adapter = _get_adapter(obj)
+def _get_or_create_sync_state(obj, adapter_name: str, *, mode: str):
     content_type = ContentType.objects.get_for_model(obj, for_concrete_model=False)
-    mode = get_integration_mode()
-
     sync_state, _ = StackroomSyncState.objects.get_or_create(
         content_type=content_type,
         object_id=str(obj.pk),
-        adapter_name=adapter.adapter_name,
+        adapter_name=adapter_name,
         defaults={
             "transport_mode": mode,
             "status": StackroomSyncState.STATUS_PENDING,
         },
     )
+    return sync_state
+
+
+def ingest_object(obj, *, reason: str, force: bool = False):
+    adapter = _get_adapter(obj)
+    mode = get_integration_mode()
+
+    sync_state = _get_or_create_sync_state(obj, adapter.adapter_name, mode=mode)
     sync_state.transport_mode = mode
 
     if not adapter.should_reingest(sync_state, obj, force=force):
@@ -62,6 +66,11 @@ def ingest_object(obj, *, reason: str, force: bool = False):
         return sync_state
 
     try:
+        if sync_state.status != StackroomSyncState.STATUS_PENDING:
+            sync_state.status = StackroomSyncState.STATUS_PENDING
+            sync_state.last_error = ""
+            sync_state.save(update_fields=["status", "last_error", "updated_at"])
+
         if mode != MODE_LOCAL:
             logger.info("Stackroom integration mode %s not implemented yet; falling back to local", mode)
 
@@ -93,6 +102,27 @@ def ingest_object_safely(obj, *, reason: str, force: bool = False):
         return None
 
 
+def enqueue_ingest_object(obj, *, reason: str, force: bool = False):
+    adapter = _get_adapter(obj)
+    mode = get_integration_mode()
+    sync_state = _get_or_create_sync_state(obj, adapter.adapter_name, mode=mode)
+    sync_state.status = StackroomSyncState.STATUS_PENDING
+    sync_state.last_error = ""
+    sync_state.transport_mode = mode
+    sync_state.save(update_fields=["status", "last_error", "transport_mode", "updated_at"])
+
+    from stackroom.tasks.integration import ingest_object_task
+
+    ingest_object_task.delay(
+        content_type_id=sync_state.content_type_id,
+        object_id=sync_state.object_id,
+        adapter_name=adapter.adapter_name,
+        reason=reason,
+        force=force,
+    )
+    return sync_state
+
+
 def deactivate_object(obj, *, reason: str):
     adapter = _get_adapter(obj)
     sync_state = get_sync_state(obj, adapter.adapter_name)
@@ -121,3 +151,23 @@ def deactivate_object_safely(obj, *, reason: str):
         return deactivate_object(obj, reason=reason)
     except Exception:
         return None
+
+
+def enqueue_deactivate_object(obj, *, reason: str):
+    adapter = _get_adapter(obj)
+    mode = get_integration_mode()
+    sync_state = _get_or_create_sync_state(obj, adapter.adapter_name, mode=mode)
+    sync_state.status = StackroomSyncState.STATUS_PENDING
+    sync_state.last_error = ""
+    sync_state.transport_mode = mode
+    sync_state.save(update_fields=["status", "last_error", "transport_mode", "updated_at"])
+
+    from stackroom.tasks.integration import deactivate_object_task
+
+    deactivate_object_task.delay(
+        content_type_id=sync_state.content_type_id,
+        object_id=sync_state.object_id,
+        adapter_name=adapter.adapter_name,
+        reason=reason,
+    )
+    return sync_state

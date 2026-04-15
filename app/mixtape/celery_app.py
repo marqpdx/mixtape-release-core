@@ -127,6 +127,12 @@ app.conf.task_routes = {
     "stackroom.tasks.processing.process_artifact": {
         "queue": "commons", "routing_key": "commons"
     },
+    "stackroom.tasks.integration.ingest_object_task": {
+        "queue": "commons", "routing_key": "commons"
+    },
+    "stackroom.tasks.integration.deactivate_object_task": {
+        "queue": "commons", "routing_key": "commons"
+    },
     "stackroom.tasks.embeddings.embed_library": {
         "queue": "commons", "routing_key": "commons"
     },
