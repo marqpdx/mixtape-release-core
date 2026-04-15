@@ -319,6 +319,10 @@ class SessionExchangeView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # /run command — insert run_boundary ApertureLog entry; do not pass to AI
+        if message == "/run":
+            return self._handle_run_command(initiative, request.user)
+
         try:
             from initiatives.ai.service import InitiativeAIService
             ai = InitiativeAIService()
@@ -350,6 +354,62 @@ class SessionExchangeView(APIView):
             headers={
                 "Cache-Control": "no-cache",
                 "X-Accel-Buffering": "no",  # Disable nginx buffering
+            },
+        )
+
+    def _handle_run_command(self, initiative, user):
+        """
+        Insert a run_boundary ApertureLog entry and return a system SSE response.
+        The entry carries a label with timestamp and entry count since the last boundary.
+        """
+        import json as _json
+        from django.utils import timezone
+        from initiatives.models import ApertureLog, ApertureLogEntry, ApertureLogEntryKind
+
+        aperture_log, _ = ApertureLog.objects.get_or_create(initiative=initiative)
+
+        # Count entries since the last run_boundary (or all entries if none)
+        last_boundary = (
+            ApertureLogEntry.objects
+            .filter(aperture_log=aperture_log, kind=ApertureLogEntryKind.RUN_BOUNDARY)
+            .order_by("-created_at")
+            .first()
+        )
+        if last_boundary:
+            entry_count = ApertureLogEntry.objects.filter(
+                aperture_log=aperture_log,
+                created_at__gt=last_boundary.created_at,
+            ).exclude(kind=ApertureLogEntryKind.RUN_BOUNDARY).count()
+        else:
+            entry_count = ApertureLogEntry.objects.filter(
+                aperture_log=aperture_log,
+            ).exclude(kind=ApertureLogEntryKind.RUN_BOUNDARY).count()
+
+        now = timezone.now()
+        label = f"Run — {now.strftime('%B %-d, %-I:%M%p').lower()} · {entry_count} {'entry' if entry_count == 1 else 'entries'}"
+
+        ApertureLogEntry.objects.create(
+            aperture_log=aperture_log,
+            kind=ApertureLogEntryKind.RUN_BOUNDARY,
+            body=label,
+            is_system_generated=True,
+            authored_by="system",
+        )
+
+        def stream():
+            yield (
+                b"data: "
+                + _json.dumps({"type": "delta", "text": f"— {label} —\n\nRun closed. Start typing to begin a new run."}).encode()
+                + b"\n\n"
+            )
+            yield b"data: " + _json.dumps({"type": "done"}).encode() + b"\n\n"
+
+        return StreamingHttpResponse(
+            stream(),
+            content_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
             },
         )
 
