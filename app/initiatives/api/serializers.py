@@ -131,6 +131,7 @@ class SessionSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "initiative",
             "raw_transcript",
             "distillation_state",
             "created_by",
