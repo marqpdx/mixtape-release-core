@@ -23,7 +23,10 @@ from groups.services.permissions import PermissionService
 from publishing.models import ContentPlacement
 from publishing.services.content_access import can_view_placement
 from publishing.services.content_display import get_display_payload
-from stackroom.integration.service import enqueue_deactivate_object, enqueue_ingest_object
+from stackroom.integration.service import (
+    enqueue_deactivate_object,
+    enqueue_ingest_object,
+)
 from writing.api.permissions import IsAuthorOrStaff
 from files.models import StoredFile
 from writing.models import (
@@ -107,6 +110,9 @@ class WorkingDocumentUpsertView(generics.GenericAPIView):
         wc = ser.save()
         WorkingDocument.objects.filter(pk=wc.pk).update(auto_save_count=F("auto_save_count") + 1)
         wc.refresh_from_db()
+        transaction.on_commit(
+            lambda: enqueue_ingest_object(wc, reason="working_document_autosave")
+        )
 
         response_data = self.get_serializer(wc).data
         response_data["split_suggestion_status"] = _check_and_trigger_split_suggestion(piece, wc)
