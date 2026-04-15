@@ -596,6 +596,7 @@ class ApertureLogEntryKind(models.TextChoices):
     HANDOFF = "handoff", "Handoff"
     EMPH = "emph", "Emphasis"
     SEED_SPAWN = "seed_spawn", "Seed Spawn"
+    RUN_BOUNDARY = "run_boundary", "Run Boundary"
 
 
 class LedgerEventType(models.TextChoices):
@@ -729,3 +730,51 @@ class ApertureLogEntry(BaseModel):
             ApertureLog.objects.filter(pk=self.aperture_log_id).update(
                 last_handoff_at=self.created_at
             )
+
+
+# ---------------------------------------------------------------------------
+# Reminder
+# ---------------------------------------------------------------------------
+
+class ReminderStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    ACKNOWLEDGED = "acknowledged", "Acknowledged"
+    SNOOZED = "snoozed", "Snoozed"
+
+
+class Reminder(BaseModel):
+    """
+    A time-based reminder attached to an Initiative.
+    Model and migration only in v0 — no API endpoint until v1.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    initiative = models.ForeignKey(
+        Initiative,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="reminders",
+    )
+    body = models.TextField()
+    remind_at = models.DateTimeField()
+    status = models.CharField(
+        max_length=20,
+        choices=ReminderStatus.choices,
+        default=ReminderStatus.PENDING,
+    )
+    snoozed_until = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reminders",
+    )
+
+    class Meta(BaseModel.Meta):
+        ordering = ["remind_at"]
+
+    def __str__(self):
+        return f"Reminder [{self.status}] at {self.remind_at} for initiative {self.initiative_id}"

@@ -244,8 +244,8 @@ class ApertureLogEntrySerializer(serializers.ModelSerializer):
         ]
 
     def validate_kind(self, value):
-        if value in (ApertureLogEntryKind.LEDGER, ApertureLogEntryKind.SEED_SPAWN):
-            raise serializers.ValidationError("Ledger and seed_spawn entries are system-generated only.")
+        if value in (ApertureLogEntryKind.LEDGER, ApertureLogEntryKind.SEED_SPAWN, ApertureLogEntryKind.RUN_BOUNDARY):
+            raise serializers.ValidationError("Ledger, seed_spawn, and run_boundary entries are system-generated only.")
         return value
 
 
