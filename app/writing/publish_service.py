@@ -16,6 +16,7 @@ from django.utils import dateparse, timezone
 
 from groups.services.permissions import PermissionService
 from publishing.models import ContentPlacement, PublicationGroup
+from stackroom.integration.service import enqueue_ingest_object
 
 from .models import WritingPiece, WritingVersion, WorkingDocument, is_provisional_slug
 
@@ -294,6 +295,8 @@ def publish_and_place(piece: WritingPiece, user, data: dict) -> dict:
             if created:
                 placements_created += 1
             placements.append(placement)
+
+    transaction.on_commit(lambda: enqueue_ingest_object(piece, reason="published"))
 
     return {
         "piece": piece,
