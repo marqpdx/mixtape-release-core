@@ -79,35 +79,16 @@ class UserProfileStackroomAdapter(BaseStackroomAdapter):
         source_path = f"profiles/{profile.user_id}/profile.txt"
         filename = f"profile-{profile.user.username}.txt"
 
-        source_file = SourceFile.objects.filter(library=library, path=source_path).first()
-        if source_file is None:
-            source_file = SourceFile.objects.create(
-                library=library,
-                origin="external",
-                path=source_path,
-                filename=filename,
-                content_type="text/plain",
-                size_bytes=len(text.encode("utf-8")),
-                hash_sha256=text_hash,
-                created_by=profile.user,
-            )
-        else:
-            if source_file.hash_sha256 != text_hash:
-                source_file.hash_sha256 = text_hash
-                source_file.filename = filename
-                source_file.content_type = "text/plain"
-                source_file.size_bytes = len(text.encode("utf-8"))
-                source_file.created_by = source_file.created_by or profile.user
-                source_file.save(
-                    update_fields=[
-                        "hash_sha256",
-                        "filename",
-                        "content_type",
-                        "size_bytes",
-                        "created_by",
-                        "updated_at",
-                    ]
-                )
+        source_file = self.get_or_reuse_source_file(
+            library=library,
+            source_path=source_path,
+            filename=filename,
+            content_type="text/plain",
+            size_bytes=len(text.encode("utf-8")),
+            hash_sha256=text_hash,
+            created_by=profile.user,
+            origin="external",
+        )
 
         # Profile text is mutable. Clear prior derived artifacts before rebuilding.
         source_file.artifacts.all().delete()

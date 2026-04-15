@@ -3,6 +3,7 @@
 import uuid as uuid_mod
 
 from django.core.files.storage import default_storage
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.text import get_valid_filename
@@ -12,6 +13,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from files.models import StoredFile
+from stackroom.integration.service import deactivate_object_safely, ingest_object_safely
 from utils.shared.contenttypes import resolve_content_type
 from writing.api.permissions import IsAuthorOrStaff
 from writing.models import Leaf, Seed
@@ -80,6 +82,9 @@ class LeafListCreateView(generics.ListCreateAPIView):
             image_file=image_file,
             publish=data.get("publish", True),
         )
+        transaction.on_commit(
+            lambda: ingest_object_safely(leaf, reason="leaf_create")
+        )
 
         return Response(
             LeafSerializer(leaf).data,
@@ -97,6 +102,19 @@ class LeafDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
         return Leaf.objects.filter(deleted_at__isnull=True).select_related(
             "author", "author__profile", "source_content_type", "image_file", "audio_file",
+        )
+
+    def perform_update(self, serializer):
+        leaf = serializer.save()
+        transaction.on_commit(
+            lambda: ingest_object_safely(leaf, reason="leaf_update")
+        )
+
+    def perform_destroy(self, instance):
+        leaf = instance
+        super().perform_destroy(instance)
+        transaction.on_commit(
+            lambda: deactivate_object_safely(leaf, reason="leaf_delete")
         )
 
 
@@ -120,6 +138,9 @@ class LeafReferenceCreateView(APIView):
             source_object=source_obj,
             caption=data.get("caption", ""),
         )
+        transaction.on_commit(
+            lambda: ingest_object_safely(leaf, reason="leaf_create_reference")
+        )
 
         return Response(
             LeafSerializer(leaf).data,
@@ -139,6 +160,9 @@ class SeedToLeafPromoteView(APIView):
             leaf = promote_seed_to_leaf(seed=seed, author=request.user)
         except PromotionError as e:
             return Response({"error": str(e)}, status=status.HTTP_403_FORBIDDEN)
+        transaction.on_commit(
+            lambda: ingest_object_safely(leaf, reason="leaf_create_from_seed")
+        )
 
         return Response(
             LeafSerializer(leaf).data,
@@ -240,6 +264,9 @@ class LeafPublishView(APIView):
             )
         leaf.published_at = timezone.now()
         leaf.save(update_fields=["published_at", "updated_at"])
+        transaction.on_commit(
+            lambda: ingest_object_safely(leaf, reason="leaf_publish")
+        )
         return Response(LeafSerializer(leaf).data)
 
 

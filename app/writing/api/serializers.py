@@ -557,7 +557,10 @@ class LeafSerializer(serializers.ModelSerializer):
         return None
 
     def get_comment_count(self, obj):
-        return obj.comments.filter(is_approved=True, parent__isnull=True).count()
+        return obj.placements.filter(
+            comments__is_approved=True,
+            comments__parent__isnull=True,
+        ).distinct().count()
 
     def get_source_type(self, obj):
         if obj.source_content_type:

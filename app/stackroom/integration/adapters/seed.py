@@ -81,34 +81,16 @@ class SeedStackroomAdapter(BaseStackroomAdapter):
         source_path = f"seeds/{seed.author_id}/{seed.id}.txt"
         filename = f"seed-{seed.id}.txt"
 
-        source_file = SourceFile.objects.filter(library=library, path=source_path).first()
-        if source_file is None:
-            source_file = SourceFile.objects.create(
-                library=library,
-                origin="external",
-                path=source_path,
-                filename=filename,
-                content_type="text/plain",
-                size_bytes=len(text.encode("utf-8")),
-                hash_sha256=text_hash,
-                created_by=seed.author,
-            )
-        elif source_file.hash_sha256 != text_hash:
-            source_file.hash_sha256 = text_hash
-            source_file.filename = filename
-            source_file.content_type = "text/plain"
-            source_file.size_bytes = len(text.encode("utf-8"))
-            source_file.created_by = source_file.created_by or seed.author
-            source_file.save(
-                update_fields=[
-                    "hash_sha256",
-                    "filename",
-                    "content_type",
-                    "size_bytes",
-                    "created_by",
-                    "updated_at",
-                ]
-            )
+        source_file = self.get_or_reuse_source_file(
+            library=library,
+            source_path=source_path,
+            filename=filename,
+            content_type="text/plain",
+            size_bytes=len(text.encode("utf-8")),
+            hash_sha256=text_hash,
+            created_by=seed.author,
+            origin="external",
+        )
 
         source_file.artifacts.all().delete()
 
