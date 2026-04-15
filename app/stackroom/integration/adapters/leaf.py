@@ -8,18 +8,18 @@ from django.utils import timezone
 
 from stackroom.models import Artifact, IngestionReceipt, IngestionRun, Library, SourceFile
 from stackroom.tasks.processing import process_artifact
-from writing.models import Seed
+from writing.models import Leaf
 
 from .base import BaseStackroomAdapter
 
 
-class SeedStackroomAdapter(BaseStackroomAdapter):
-    adapter_name = "seed"
+class LeafStackroomAdapter(BaseStackroomAdapter):
+    adapter_name = "leaf"
 
     def supports(self, obj) -> bool:
-        return isinstance(obj, Seed)
+        return isinstance(obj, Leaf)
 
-    def build_text(self, seed: Seed) -> str:
+    def build_text(self, leaf: Leaf) -> str:
         sections: list[str] = []
 
         def append_section(label: str, value: str | None) -> None:
@@ -27,15 +27,21 @@ class SeedStackroomAdapter(BaseStackroomAdapter):
             if cleaned:
                 sections.append(f"{label}:\n{cleaned}")
 
-        append_section("Seed Kind", seed.kind)
-        append_section("Status", seed.status)
-        append_section("Body", seed.body_text)
-        append_section("Transcript", seed.transcript_text)
-        append_section("Context URL", seed.context_url)
-        append_section("Source", seed.source)
+        append_section("Leaf Kind", leaf.kind)
+        append_section("Visibility", leaf.visibility)
+        append_section("Publish State", "published" if leaf.published_at else "draft")
+        append_section("Body", leaf.body_text)
+        append_section("Caption", leaf.caption)
+        append_section("Link URL", leaf.link_url)
 
-        if seed.audio_file_id:
-            append_section("Audio File", str(seed.audio_file_id))
+        if leaf.is_reference:
+            append_section("Reference Type", leaf.source_content_type.model if leaf.source_content_type else "")
+            append_section("Reference ID", str(leaf.source_object_id) if leaf.source_object_id else "")
+
+        if leaf.audio_file_id:
+            append_section("Audio File", str(leaf.audio_file_id))
+        if leaf.image_file_id:
+            append_section("Image File", str(leaf.image_file_id))
 
         return "\n\n".join(sections).strip()
 
@@ -43,8 +49,8 @@ class SeedStackroomAdapter(BaseStackroomAdapter):
         text = self.build_text(obj)
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-    def _get_or_create_personal_library(self, seed: Seed) -> Library:
-        user = seed.author
+    def _get_or_create_personal_library(self, leaf: Leaf) -> Library:
+        user = leaf.author
         user_ct = ContentType.objects.get_for_model(user)
         library = Library.objects.filter(
             sponsor_content_type=user_ct,
@@ -74,12 +80,12 @@ class SeedStackroomAdapter(BaseStackroomAdapter):
         return library
 
     def ingest_local(self, obj, sync_state, *, reason: str) -> dict[str, Any]:
-        seed = obj
-        library = self._get_or_create_personal_library(seed)
-        text = self.build_text(seed)
-        text_hash = self.current_hash(seed)
-        source_path = f"seeds/{seed.author_id}/{seed.id}.txt"
-        filename = f"seed-{seed.id}.txt"
+        leaf = obj
+        library = self._get_or_create_personal_library(leaf)
+        text = self.build_text(leaf)
+        text_hash = self.current_hash(leaf)
+        source_path = f"leaves/{leaf.author_id}/{leaf.id}.txt"
+        filename = f"leaf-{leaf.id}.txt"
 
         source_file = self.get_or_reuse_source_file(
             library=library,
@@ -88,7 +94,7 @@ class SeedStackroomAdapter(BaseStackroomAdapter):
             content_type="text/plain",
             size_bytes=len(text.encode("utf-8")),
             hash_sha256=text_hash,
-            created_by=seed.author,
+            created_by=leaf.author,
             origin="external",
         )
 
@@ -102,8 +108,8 @@ class SeedStackroomAdapter(BaseStackroomAdapter):
 
         artifact = Artifact.objects.create(
             source_file=source_file,
-            artifact_uid=f"seed_text:{seed.id}",
-            artifact_type="seed_text",
+            artifact_uid=f"leaf_text:{leaf.id}",
+            artifact_type="leaf_text",
             format="text/plain",
             text=text,
         )
@@ -113,11 +119,12 @@ class SeedStackroomAdapter(BaseStackroomAdapter):
             status="success",
             payload={
                 "reason": reason,
-                "content_type": "seed",
-                "seed_id": str(seed.id),
-                "author_id": str(seed.author_id),
-                "kind": seed.kind,
-                "status": seed.status,
+                "content_type": "leaf",
+                "leaf_id": str(leaf.id),
+                "author_id": str(leaf.author_id),
+                "kind": leaf.kind,
+                "visibility": leaf.visibility,
+                "published": bool(leaf.published_at),
                 "artifact_id": str(artifact.id),
             },
         )
@@ -137,10 +144,12 @@ class SeedStackroomAdapter(BaseStackroomAdapter):
             "artifact_id": artifact.id,
             "metadata": {
                 "reason": reason,
-                "seed_id": str(seed.id),
-                "kind": seed.kind,
-                "status": seed.status,
-                "author_id": str(seed.author_id),
+                "leaf_id": str(leaf.id),
+                "kind": leaf.kind,
+                "visibility": leaf.visibility,
+                "published": bool(leaf.published_at),
+                "author_id": str(leaf.author_id),
+                "is_reference": leaf.is_reference,
             },
         }
 

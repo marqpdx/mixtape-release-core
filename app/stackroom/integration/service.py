@@ -6,6 +6,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from django.utils import timezone
 
+from stackroom.integration.adapters.leaf import LeafStackroomAdapter
 from stackroom.integration.adapters.profile import UserProfileStackroomAdapter
 from stackroom.integration.adapters.seed import SeedStackroomAdapter
 from stackroom.integration.modes import MODE_LOCAL, get_integration_mode
@@ -14,6 +15,7 @@ from stackroom.models import StackroomSyncState
 logger = logging.getLogger(__name__)
 
 _ADAPTERS = [
+    LeafStackroomAdapter(),
     UserProfileStackroomAdapter(),
     SeedStackroomAdapter(),
 ]
