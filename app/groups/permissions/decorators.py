@@ -41,6 +41,12 @@ MEMBERSHIP_DECORATORS = {
         'description': 'Create, edit, and manage forums and discussions',
         'category': 'capability',
     },
+    'can__ManageCollections': {
+        'code': 'can__ManageCollections',
+        'name': 'Manage Collections',
+        'description': 'Create and manage collections and exhibitions',
+        'category': 'capability',
+    },
     'can__ManageLanternmail': {
         'code': 'can__ManageLanternmail',
         'name': 'Manage Lanternmail',
