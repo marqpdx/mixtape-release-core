@@ -15,7 +15,6 @@ class Migration(migrations.Migration):
         ('contenttypes', '0002_remove_content_type_name'),
         ('fundamentals', '0001_initial'),
         ('groups', '0002_initial'),
-        ('stackroom', '0012_puddlejump_personal_flags'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

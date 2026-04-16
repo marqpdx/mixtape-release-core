@@ -13,7 +13,6 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from files.models import StoredFile
-from stackroom.integration.service import enqueue_deactivate_object, enqueue_ingest_object
 from utils.shared.contenttypes import resolve_content_type
 from writing.api.permissions import IsAuthorOrStaff
 from writing.models import Leaf, Seed
@@ -82,10 +81,6 @@ class LeafListCreateView(generics.ListCreateAPIView):
             image_file=image_file,
             publish=data.get("publish", True),
         )
-        transaction.on_commit(
-            lambda: enqueue_ingest_object(leaf, reason="leaf_create")
-        )
-
         return Response(
             LeafSerializer(leaf).data,
             status=status.HTTP_201_CREATED,
@@ -105,17 +100,10 @@ class LeafDetailView(generics.RetrieveUpdateDestroyAPIView):
         )
 
     def perform_update(self, serializer):
-        leaf = serializer.save()
-        transaction.on_commit(
-            lambda: enqueue_ingest_object(leaf, reason="leaf_update")
-        )
+        serializer.save()
 
     def perform_destroy(self, instance):
-        leaf = instance
         super().perform_destroy(instance)
-        transaction.on_commit(
-            lambda: enqueue_deactivate_object(leaf, reason="leaf_delete")
-        )
 
 
 class LeafReferenceCreateView(APIView):
@@ -138,10 +126,6 @@ class LeafReferenceCreateView(APIView):
             source_object=source_obj,
             caption=data.get("caption", ""),
         )
-        transaction.on_commit(
-            lambda: enqueue_ingest_object(leaf, reason="leaf_create_reference")
-        )
-
         return Response(
             LeafSerializer(leaf).data,
             status=status.HTTP_201_CREATED,
@@ -160,10 +144,6 @@ class SeedToLeafPromoteView(APIView):
             leaf = promote_seed_to_leaf(seed=seed, author=request.user)
         except PromotionError as e:
             return Response({"error": str(e)}, status=status.HTTP_403_FORBIDDEN)
-        transaction.on_commit(
-            lambda: enqueue_ingest_object(leaf, reason="leaf_create_from_seed")
-        )
-
         return Response(
             LeafSerializer(leaf).data,
             status=status.HTTP_201_CREATED,
@@ -186,13 +166,6 @@ class LeafPromoteView(APIView):
             )
         except PromotionError as e:
             return Response({"error": str(e)}, status=status.HTTP_403_FORBIDDEN)
-        transaction.on_commit(
-            lambda: enqueue_ingest_object(
-                wc,
-                reason="working_document_promote_leaf",
-            )
-        )
-
         return Response(
             {"id": str(wc.id), "title": getattr(wc, "title", "Untitled")},
             status=status.HTTP_201_CREATED,
@@ -274,9 +247,6 @@ class LeafPublishView(APIView):
             )
         leaf.published_at = timezone.now()
         leaf.save(update_fields=["published_at", "updated_at"])
-        transaction.on_commit(
-            lambda: enqueue_ingest_object(leaf, reason="leaf_publish")
-        )
         return Response(LeafSerializer(leaf).data)
 
 

@@ -98,9 +98,6 @@ def interpret_recording_task(
             recording.processing_completed_at = timezone.now()
             recording.save(update_fields=['status', 'processing_completed_at'])
 
-        from stackroom.integration.service import enqueue_ingest_object
-        transaction.on_commit(lambda: enqueue_ingest_object(recording, reason="transcription_ready"))
-
         return {
             "status": "success",
             "recording_id": recording_id,

@@ -14,7 +14,6 @@ class Migration(migrations.Migration):
         ('assets', '0003_initial'),
         ('contenttypes', '0002_remove_content_type_name'),
         ('fundamentals', '0001_initial'),
-        ('stackroom', '0012_puddlejump_personal_flags'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
@@ -42,7 +41,7 @@ class Migration(migrations.Migration):
                 ('asset', models.ForeignKey(blank=True, help_text='Reference to the audio file as an Asset', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='recordings', to='assets.asset')),
                 ('created_by', models.ForeignKey(help_text='User who uploaded/created this recording', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='created_recordings', to=settings.AUTH_USER_MODEL)),
                 ('mill_draft', models.ForeignKey(blank=True, help_text='MillDraft created from this recording', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='source_recordings', to='fundamentals.milldraft')),
-                ('source_file', models.ForeignKey(blank=True, help_text='Reference to the audio file in Stackroom', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='recordings', to='stackroom.sourcefile')),
+                ('source_file_id', models.UUIDField(blank=True, help_text='UUID reference to SourceFile in Stackroom (loose — resolved via REST at CP3+)', null=True)),
                 ('sponsor_content_type', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='sponsored_recordings', to='contenttypes.contenttype')),
             ],
             options={
