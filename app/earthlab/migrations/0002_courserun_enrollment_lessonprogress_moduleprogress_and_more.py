@@ -11,7 +11,6 @@ class Migration(migrations.Migration):
     dependencies = [
         ('contenttypes', '0002_remove_content_type_name'),
         ('earthlab', '0001_initial'),
-        ('stackroom', '0014_library_flow_mode'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
@@ -70,23 +69,6 @@ class Migration(migrations.Migration):
                 'ordering': ['-updated_at'],
             },
         ),
-        migrations.CreateModel(
-            name='ModuleProgress',
-            fields=[
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('deleted_at', models.DateTimeField(blank=True, default=None, null=True)),
-                ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
-                ('status', models.CharField(choices=[('not_started', 'Not Started'), ('in_progress', 'In Progress'), ('completed', 'Completed')], default='not_started', max_length=16)),
-                ('started_at', models.DateTimeField(blank=True, null=True)),
-                ('completed_at', models.DateTimeField(blank=True, null=True)),
-                ('enrollment', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='module_progress', to='earthlab.enrollment')),
-                ('library', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='earthlab_progress', to='stackroom.library')),
-            ],
-            options={
-                'ordering': ['-updated_at'],
-            },
-        ),
         migrations.AddIndex(
             model_name='courserun',
             index=models.Index(fields=['course', 'status'], name='earthlab_co_course__bde346_idx'),
@@ -114,13 +96,5 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name='lessonprogress',
             constraint=models.UniqueConstraint(fields=('enrollment', 'lesson_content_type', 'lesson_object_id'), name='unique_lesson_progress_per_enrollment'),
-        ),
-        migrations.AddIndex(
-            model_name='moduleprogress',
-            index=models.Index(fields=['enrollment', 'status'], name='earthlab_mo_enrollm_8f4d9e_idx'),
-        ),
-        migrations.AddConstraint(
-            model_name='moduleprogress',
-            constraint=models.UniqueConstraint(fields=('enrollment', 'library'), name='unique_module_progress_per_enrollment'),
         ),
     ]

@@ -79,8 +79,6 @@ urlpatterns = [
     path("api/ops/", include("ops.api.urls")),
     path("api/projects/", include("projects.api.urls")),
     path("api/appearance/", include("appearance.api.urls")),
-    path("api/stackroom/", include("stackroom.api.urls")),
-
     path("api/threadworks/", include("threadworks.api.urls")),
     path("api/work-sessions/", include("worksessions.api.urls")),
     path("api/writing/", include("writing.api.urls")),

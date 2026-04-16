@@ -8,9 +8,7 @@
 #
 # Changes:
 #   1. Create earthlab_module table (Module model)
-#   2. Remove ModuleProgress.library FK (stackroom.Library)
-#   3. Add ModuleProgress.module FK (earthlab.Module) — NOT NULL; safe because table is empty
-#   4. Update UniqueConstraint from (enrollment, library) → (enrollment, module)
+#   2. Create ModuleProgress directly against earthlab.Module
 #
 # No data migration required — earthlab tables are empty in production.
 
@@ -57,37 +55,30 @@ class Migration(migrations.Migration):
                 'ordering': ['course', 'order_index'],
             },
         ),
-        # 2. Remove the old UniqueConstraint on (enrollment, library)
-        migrations.RemoveConstraint(
-            model_name='moduleprogress',
-            name='unique_module_progress_per_enrollment',
-        ),
-
-        # 3. Remove the library FK (stackroom.Library)
-        migrations.RemoveField(
-            model_name='moduleprogress',
-            name='library',
-        ),
-
-        # 4. Add the module FK (earthlab.Module)
-        #    No default needed — earthlab_moduleprogress table is empty in production.
-        migrations.AddField(
-            model_name='moduleprogress',
-            name='module',
-            field=models.ForeignKey(
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name='progress',
-                to='earthlab.module',
-            ),
-            preserve_default=False,
-        ),
-
-        # 5. Re-add UniqueConstraint on (enrollment, module)
-        migrations.AddConstraint(
-            model_name='moduleprogress',
-            constraint=models.UniqueConstraint(
-                fields=['enrollment', 'module'],
-                name='unique_module_progress_per_enrollment',
-            ),
+        migrations.CreateModel(
+            name='ModuleProgress',
+            fields=[
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('updated_at', models.DateTimeField(auto_now=True)),
+                ('deleted_at', models.DateTimeField(blank=True, default=None, null=True)),
+                ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
+                ('status', models.CharField(choices=[('not_started', 'Not Started'), ('in_progress', 'In Progress'), ('completed', 'Completed')], default='not_started', max_length=16)),
+                ('started_at', models.DateTimeField(blank=True, null=True)),
+                ('completed_at', models.DateTimeField(blank=True, null=True)),
+                ('enrollment', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='module_progress', to='earthlab.enrollment')),
+                ('module', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='progress', to='earthlab.module')),
+            ],
+            options={
+                'ordering': ['-updated_at'],
+                'constraints': [
+                    models.UniqueConstraint(
+                        fields=['enrollment', 'module'],
+                        name='unique_module_progress_per_enrollment',
+                    ),
+                ],
+                'indexes': [
+                    models.Index(fields=['enrollment', 'status'], name='earthlab_mo_enrollm_8f4d9e_idx'),
+                ],
+            },
         ),
     ]

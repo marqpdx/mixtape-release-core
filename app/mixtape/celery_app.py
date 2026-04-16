@@ -123,17 +123,6 @@ app.conf.task_routes = {
         "queue": "commons", "routing_key": "commons"
     },
 
-    # --- Stackroom integration layer (Django-side adapter tasks — stay until CP5) ---
-    "stackroom.tasks.integration.ingest_object_task": {
-        "queue": "commons", "routing_key": "commons"
-    },
-    "stackroom.tasks.integration.deactivate_object_task": {
-        "queue": "commons", "routing_key": "commons"
-    },
-    # NOTE: stackroom IR pipeline tasks (processing, embeddings, metadata, milldraft,
-    # retrieval, process_pending_uploads) removed at CP4 — these now run inside the
-    # standalone stackroom service. See stackroom-extraction-adr-cr-003.md.
-
     # --- Initiatives: AI-backed quality scan and rolling summary ---
     "initiatives.tasks.run_artifact_quality_scan": {
         "queue": "commons", "routing_key": "commons"

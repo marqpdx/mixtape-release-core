@@ -23,10 +23,6 @@ from groups.services.permissions import PermissionService
 from publishing.models import ContentPlacement
 from publishing.services.content_access import can_view_placement
 from publishing.services.content_display import get_display_payload
-from stackroom.integration.service import (
-    enqueue_deactivate_object,
-    enqueue_ingest_object,
-)
 from writing.api.permissions import IsAuthorOrStaff
 from files.models import StoredFile
 from writing.models import (
@@ -110,10 +106,6 @@ class WorkingDocumentUpsertView(generics.GenericAPIView):
         wc = ser.save()
         WorkingDocument.objects.filter(pk=wc.pk).update(auto_save_count=F("auto_save_count") + 1)
         wc.refresh_from_db()
-        transaction.on_commit(
-            lambda: enqueue_ingest_object(wc, reason="working_document_autosave")
-        )
-
         response_data = self.get_serializer(wc).data
         response_data["split_suggestion_status"] = _check_and_trigger_split_suggestion(piece, wc)
         return Response(response_data, status=status.HTTP_200_OK)
@@ -302,13 +294,6 @@ class WritingPieceListCreateView(generics.ListCreateAPIView):
                     body_json=piece.body_json,
                     excerpt=piece.excerpt,
                 )
-                transaction.on_commit(
-                    lambda: enqueue_ingest_object(
-                        working_copy,
-                        reason="working_document_create_working_copy",
-                    )
-                )
-
                 # Add working copy to response
                 working_copy_data = WorkingDocumentLightSerializer(working_copy).data
                 response.data["working_copy"] = working_copy_data
@@ -577,9 +562,6 @@ class SeedListCreateView(generics.ListCreateAPIView):
                 source=request.data.get("source") or "web",
             )
 
-            transaction.on_commit(
-                lambda: enqueue_ingest_object(seed, reason="seed_create_voice")
-            )
             transcribe_seed_task.delay(str(seed.id))
 
             data = SeedSerializer(seed).data
@@ -589,10 +571,7 @@ class SeedListCreateView(generics.ListCreateAPIView):
         return super().create(request, *args, **kwargs)
 
     def perform_create(self, serializer):
-        seed = serializer.save(author=self.request.user)
-        transaction.on_commit(
-            lambda: enqueue_ingest_object(seed, reason="seed_create")
-        )
+        serializer.save(author=self.request.user)
 
 
 class SeedDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -613,11 +592,7 @@ class SeedDetailView(generics.RetrieveUpdateDestroyAPIView):
         return SeedSerializer
 
     def perform_destroy(self, instance):
-        seed = instance
         super().perform_destroy(instance)
-        transaction.on_commit(
-            lambda: enqueue_deactivate_object(seed, reason="seed_delete")
-        )
 
 
 class SeedPromoteView(APIView):
@@ -628,12 +603,6 @@ class SeedPromoteView(APIView):
         seed = generics.get_object_or_404(Seed, pk=pk)
         self.check_object_permissions(request, seed)
         wc = promote_seed_to_working_copy(seed=seed, requested_by=request.user, extra_meta=request.data or None)
-        transaction.on_commit(
-            lambda: enqueue_ingest_object(
-                wc,
-                reason="working_document_promote_seed",
-            )
-        )
         return Response({"id": str(wc.id), "title": getattr(wc, "title", "Untitled")}, status=status.HTTP_201_CREATED)
 
 
@@ -670,9 +639,6 @@ class SeedIngestView(generics.CreateAPIView):
             body_text=text,
             context_url=context_url,
             source=source,
-        )
-        transaction.on_commit(
-            lambda: enqueue_ingest_object(seed, reason="seed_ingest_create")
         )
         data = SeedSerializer(seed).data
         headers = self.get_success_headers(data)
@@ -1618,13 +1584,6 @@ def _create_or_replace_imported_piece(
                 working_document.excerpt = excerpt
                 working_document.body_json = body_json
                 working_document.save(update_fields=["title", "excerpt", "body_json", "updated_at"])
-            transaction.on_commit(
-                lambda: enqueue_ingest_object(
-                    working_document,
-                    reason="working_document_import_replace",
-                )
-            )
-
             notes = existing_receipt.import_notes or {}
             replacements = notes.get("replacements", [])
             replacements.append(
@@ -1683,13 +1642,6 @@ def _create_or_replace_imported_piece(
             excerpt=excerpt,
             body_json=body_json,
         )
-        transaction.on_commit(
-            lambda: enqueue_ingest_object(
-                working_document,
-                reason="working_document_import_create",
-            )
-        )
-
         from writing.models import ImportReceipt
 
         ImportReceipt.objects.create(

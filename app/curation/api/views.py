@@ -8,7 +8,6 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from curation.models import Collection, CollectionItem
-from stackroom.integration.service import enqueue_deactivate_object, enqueue_ingest_object
 from curation.api.serializers import (
     CollectionCreateSerializer,
     CollectionDetailSerializer,
@@ -226,8 +225,6 @@ class CollectionListView(APIView):
             submitted_by=request.user,
         )
 
-        transaction.on_commit(lambda: enqueue_ingest_object(collection, reason='created'))
-
         return Response(CollectionDetailSerializer(collection).data, status=drf_status.HTTP_201_CREATED)
 
 
@@ -252,15 +249,11 @@ class CollectionDetailView(APIView):
                 setattr(collection, field, data[field])
         collection.save()
 
-        transaction.on_commit(lambda: enqueue_ingest_object(collection, reason='updated'))
-
         return Response(CollectionDetailSerializer(collection).data)
 
     def delete(self, request, collection_id):
         collection = get_object_or_404(Collection, id=collection_id)
         _check_admin(request.user, collection)
-
-        transaction.on_commit(lambda: enqueue_deactivate_object(collection, reason='deleted'))
 
         collection.delete()
         return Response(status=drf_status.HTTP_204_NO_CONTENT)
@@ -402,7 +395,6 @@ class CollectionItemListView(APIView):
             is_featured=data.get('is_featured', False),
         )
 
-        transaction.on_commit(lambda: enqueue_ingest_object(collection, reason='item_added'))
         return Response(CollectionItemSerializer(item).data, status=drf_status.HTTP_201_CREATED)
 
 
@@ -430,7 +422,6 @@ class CollectionItemDetailView(APIView):
                 setattr(item, field, data[field])
         item.save()
 
-        transaction.on_commit(lambda: enqueue_ingest_object(collection, reason='item_updated'))
         return Response(CollectionItemSerializer(item).data)
 
     def delete(self, request, collection_id, item_id):
@@ -438,7 +429,6 @@ class CollectionItemDetailView(APIView):
         item = get_object_or_404(CollectionItem, id=item_id, collection=collection)
         _check_write(request.user, collection)
         item.delete()
-        transaction.on_commit(lambda: enqueue_ingest_object(collection, reason='item_deleted'))
         return Response(status=drf_status.HTTP_204_NO_CONTENT)
 
 
@@ -481,7 +471,6 @@ class CollectionItemReorderView(APIView):
 
                 item.save(update_fields=['order_index', 'parent', 'updated_at'])
 
-        transaction.on_commit(lambda: enqueue_ingest_object(collection, reason='items_reordered'))
         return Response({'detail': f'Updated {len(items_data)} items'})
 
 
@@ -513,5 +502,4 @@ class CollectionItemCopyFromView(APIView):
                 )
                 copied += 1
 
-        transaction.on_commit(lambda: enqueue_ingest_object(collection, reason='items_copied'))
         return Response({'detail': f'Copied {copied} items'})

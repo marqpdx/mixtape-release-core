@@ -7,7 +7,6 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from profiles.models import UserProfile
-from stackroom.integration.service import enqueue_deactivate_object, enqueue_ingest_object
 
 from .serializers import MemberSerializer, MemberUpdateSerializer
 from .permissions import IsProfileOwnerOrStaff
@@ -71,16 +70,10 @@ class MemberDetailUpdateDeleteView(generics.RetrieveUpdateDestroyAPIView):
         return MemberUpdateSerializer
 
     def perform_update(self, serializer):
-        profile = serializer.save(updated_at=timezone.now())
-        transaction.on_commit(
-            lambda: enqueue_ingest_object(profile, reason="profile_update")
-        )
+        serializer.save(updated_at=timezone.now())
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         instance.deleted_at = instance.deleted_at or timezone.now()
         instance.save(update_fields=["deleted_at", "updated_at"])
-        transaction.on_commit(
-            lambda: enqueue_deactivate_object(instance, reason="profile_soft_delete")
-        )
         return Response(status=status.HTTP_204_NO_CONTENT)
