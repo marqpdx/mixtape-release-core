@@ -628,6 +628,12 @@ class SeedPromoteView(APIView):
         seed = generics.get_object_or_404(Seed, pk=pk)
         self.check_object_permissions(request, seed)
         wc = promote_seed_to_working_copy(seed=seed, requested_by=request.user, extra_meta=request.data or None)
+        transaction.on_commit(
+            lambda: enqueue_ingest_object(
+                wc,
+                reason="working_document_promote_seed",
+            )
+        )
         return Response({"id": str(wc.id), "title": getattr(wc, "title", "Untitled")}, status=status.HTTP_201_CREATED)
 
 

@@ -182,6 +182,12 @@ class LeafPromoteView(APIView):
             wc = promote_leaf_to_working_copy(leaf=leaf, author=request.user)
         except PromotionError as e:
             return Response({"error": str(e)}, status=status.HTTP_403_FORBIDDEN)
+        transaction.on_commit(
+            lambda: enqueue_ingest_object(
+                wc,
+                reason="working_document_promote_leaf",
+            )
+        )
 
         return Response(
             {"id": str(wc.id), "title": getattr(wc, "title", "Untitled")},

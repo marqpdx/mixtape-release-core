@@ -118,6 +118,7 @@ INSTALLED_APPS = [
     "writing",         # Writing app
     "initiatives",     # Initiatives — group-scoped AI-assisted inquiry sessions
     "workbench",       # Workbench curation — WorkingItem assembly and promotion
+    "curation",        # Django-native Collection curation layer (CP5)
     "distribution",    # External distribution — Source channels, PublishEvent, ShareRecord
 ]
 
