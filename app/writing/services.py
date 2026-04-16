@@ -3,7 +3,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Seed
+from .models import Seed, WritingPiece
 from .utils import first_line_as_title, plaintext_to_tiptap_json
 
 
@@ -26,12 +26,26 @@ def promote_seed_to_working_copy(*, seed: Seed, requested_by, extra_meta: dict |
 
     title = first_line_as_title(seed.body_text) or "Untitled"
     body_json = plaintext_to_tiptap_json(seed.body_text)
+    excerpt = (seed.body_text or "").strip()[:280]
 
-    wc = WorkingDocument.objects.create(
+    piece = WritingPiece(
         author=seed.author,
         title=title,
+        excerpt=excerpt,
         body_json=body_json,
-        **(extra_meta or {})
+        writing_kind="post",
+        status="draft",
+    )
+    if seed.author_id:
+        piece.set_submitted_by(seed.author)
+    piece.save()
+
+    wc = WorkingDocument.objects.create(
+        piece=piece,
+        user=requested_by,
+        title=title,
+        excerpt=excerpt,
+        body_json=body_json,
     )
     seed.promoted_to = wc
     seed.save(update_fields=["promoted_to", "updated_at"])
@@ -145,10 +159,24 @@ def promote_leaf_to_working_copy(*, leaf, author):
 
     title = first_line_as_title(leaf.body_text) or "Untitled"
     body_json = leaf.body_json if leaf.body_json else plaintext_to_tiptap_json(leaf.body_text)
+    excerpt = (leaf.caption or leaf.body_text or "").strip()[:280]
 
-    wc = WorkingDocument.objects.create(
+    piece = WritingPiece(
         author=author,
         title=title,
+        excerpt=excerpt,
+        body_json=body_json,
+        writing_kind="post",
+        status="draft",
+    )
+    piece.set_submitted_by(author)
+    piece.save()
+
+    wc = WorkingDocument.objects.create(
+        piece=piece,
+        user=author,
+        title=title,
+        excerpt=excerpt,
         body_json=body_json,
     )
     leaf.promoted_to = wc
