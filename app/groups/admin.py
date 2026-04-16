@@ -8,6 +8,7 @@ class CircleAdmin(admin.ModelAdmin):
     list_display = ["title", "group_type", "is_helper_group", "created_at"]
     search_fields = ["title", "description"]
     list_filter = ["group_type", "is_helper_group"]
+    readonly_fields = ["slug"]
     fieldsets = [
         (None, {"fields": ["title", "description", "group_type", "slug"]}),
         ("Helper / Beacon access", {"fields": ["is_helper_group"]}),
