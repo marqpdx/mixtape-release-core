@@ -109,7 +109,7 @@ INSTALLED_APPS = [
     "projects",        # Project boards and tasks
     "publishing",      # Universal publishing system (BaseVersion, ContentPlacement)
     "spellbook",       # Shared spell dictionary for writing tools
-    "stackroom.apps.StackroomConfig",  # Stackroom integration
+    # "stackroom.apps.StackroomConfig",  # Stackroom integration
     "threadworks",     # Threadworks forums and discussions
     "broadcast",       # GroupBroadcast — steward-authored group notifications
     "users",           # CustomUser, Role models
