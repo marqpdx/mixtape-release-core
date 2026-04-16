@@ -1,10 +1,10 @@
 # apps/writing/services.py
-from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from django.utils import timezone
 
 from .models import Seed, WritingPiece
 from .utils import first_line_as_title, plaintext_to_tiptap_json
+from utils.shared.contenttypes import resolve_content_type
 
 
 class PromotionError(Exception):
@@ -36,6 +36,15 @@ def promote_seed_to_working_copy(*, seed: Seed, requested_by, extra_meta: dict |
         writing_kind="post",
         status="draft",
     )
+    sponsor_ct_raw = (extra_meta or {}).get("sponsor_content_type")
+    sponsor_object_id = (extra_meta or {}).get("sponsor_object_id")
+    if sponsor_ct_raw and sponsor_object_id:
+        piece.sponsor_content_type = resolve_content_type(sponsor_ct_raw)
+        piece.sponsor_object_id = sponsor_object_id
+    else:
+        # Temporary rule: promoted personal drafts sponsor to the user until
+        # group storyline sponsorship is defined.
+        piece.set_sponsor(seed.author)
     if seed.author_id:
         piece.set_submitted_by(seed.author)
     piece.save()
@@ -145,7 +154,7 @@ def create_reference_leaf(*, author, source_object, caption="", image_file=None)
 
 
 @transaction.atomic
-def promote_leaf_to_working_copy(*, leaf, author):
+def promote_leaf_to_working_copy(*, leaf, author, extra_meta: dict | None = None):
     """
     Promote a Leaf to a WritingPiece draft (WorkingDocument).
     Follows the same pattern as promote_seed_to_working_copy.
@@ -169,6 +178,15 @@ def promote_leaf_to_working_copy(*, leaf, author):
         writing_kind="post",
         status="draft",
     )
+    sponsor_ct_raw = (extra_meta or {}).get("sponsor_content_type")
+    sponsor_object_id = (extra_meta or {}).get("sponsor_object_id")
+    if sponsor_ct_raw and sponsor_object_id:
+        piece.sponsor_content_type = resolve_content_type(sponsor_ct_raw)
+        piece.sponsor_object_id = sponsor_object_id
+    else:
+        # Temporary rule: promoted personal drafts sponsor to the user until
+        # group storyline sponsorship is defined.
+        piece.set_sponsor(author)
     piece.set_submitted_by(author)
     piece.save()
 

@@ -179,7 +179,11 @@ class LeafPromoteView(APIView):
     def post(self, request, pk):
         leaf = get_object_or_404(Leaf, pk=pk, author=request.user)
         try:
-            wc = promote_leaf_to_working_copy(leaf=leaf, author=request.user)
+            wc = promote_leaf_to_working_copy(
+                leaf=leaf,
+                author=request.user,
+                extra_meta=request.data or None,
+            )
         except PromotionError as e:
             return Response({"error": str(e)}, status=status.HTTP_403_FORBIDDEN)
         transaction.on_commit(
