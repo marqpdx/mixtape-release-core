@@ -21,7 +21,7 @@ from profiles.models import UserProfile
 from publishing.models import ContentPlacement
 from publishing.services.content_access import can_view_placement
 from publishing.services.content_display import get_display_payload
-from stackroom.models import Library
+from curation.models import Collection
 from writing.models import WritingPiece
 from earthlab.models import Course, CourseItem
 
@@ -162,21 +162,21 @@ class PublicMemberShelvesView(APIView):
         if request.user.is_authenticated:
             allowed_visibility.append("members")
 
-        libraries = Library.objects.filter(
+        collections = Collection.objects.filter(
             sponsor_content_type=sponsor_ct,
             sponsor_object_id=user_obj.id,
             visibility__in=allowed_visibility,
             scope="writing",
         ).order_by("-created_at")
-        ct_library = ContentType.objects.get_for_model(Library)
+        ct_collection = ContentType.objects.get_for_model(Collection)
         ct_piece = ContentType.objects.get_for_model(WritingPiece)
         viewer = request.user if request.user.is_authenticated else None
 
         results = []
-        for library in libraries:
+        for collection in collections:
             placements = ContentPlacement.objects.filter(
-                target_content_type=ct_library,
-                target_object_id=library.id,
+                target_content_type=ct_collection,
+                target_object_id=collection.id,
                 source_content_type=ct_piece,
                 channel="shelf",
             ).order_by("order_index", "-created_at")
@@ -210,11 +210,11 @@ class PublicMemberShelvesView(APIView):
             )
 
             results.append({
-                "id": str(library.id),
-                "title": library.title,
-                "slug": library.slug,
-                "summary": library.summary or "",
-                "visibility": library.visibility,
+                "id": str(collection.id),
+                "title": collection.title,
+                "slug": collection.slug,
+                "summary": collection.summary or "",
+                "visibility": collection.visibility,
                 "item_count": len(items),
                 "items": items,
             })
