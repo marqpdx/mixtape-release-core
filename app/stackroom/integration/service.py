@@ -5,6 +5,8 @@ import logging
 from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
 
+from stackroom.integration.adapters.collection import CollectionStackroomAdapter
+from stackroom.integration.adapters.concord_recording import ConcordRecordingStackroomAdapter
 from stackroom.integration.adapters.leaf import LeafStackroomAdapter
 from stackroom.integration.adapters.profile import UserProfileStackroomAdapter
 from stackroom.integration.adapters.seed import SeedStackroomAdapter
@@ -16,6 +18,8 @@ from stackroom.models import StackroomSyncState
 logger = logging.getLogger(__name__)
 
 _ADAPTERS = [
+    CollectionStackroomAdapter(),
+    ConcordRecordingStackroomAdapter(),
     LeafStackroomAdapter(),
     UserProfileStackroomAdapter(),
     SeedStackroomAdapter(),
