@@ -1002,35 +1002,37 @@ class BulkImportService:
         sessions: list[RecordingSession],
         result: BulkImportResult,
     ):
-        """Create a Library for this import batch."""
+        """Create a Collection for this import batch."""
         from django.contrib.contenttypes.models import ContentType
-        from stackroom.models.ir import Library, LibraryItem
+        from curation.models import Collection, CollectionItem
 
-        # Generate library title from zip filename
-        library_title = Path(zip_filename).stem
-        if not library_title or library_title == 'upload':
-            library_title = f"Import {timezone.now().strftime('%Y-%m-%d %H:%M')}"
+        # Generate collection title from zip filename
+        collection_title = Path(zip_filename).stem
+        if not collection_title or collection_title == 'upload':
+            collection_title = f"Import {timezone.now().strftime('%Y-%m-%d %H:%M')}"
 
         content_type = ContentType.objects.get_for_model(type(self.group))
         session_content_type = ContentType.objects.get_for_model(RecordingSession)
 
-        # Create Library
-        library = Library.objects.create(
+        # Create Collection
+        collection = Collection.objects.create(
             sponsor_content_type=content_type,
             sponsor_object_id=self.group.id,
-            title=library_title,
+            title=collection_title,
             summary=f"Bulk import of {len(sessions)} recording sessions",
             submitted_by=self.user,
         )
 
-        # Add each session as a LibraryItem
+        # Add each session as a CollectionItem
         for idx, session in enumerate(sessions):
-            LibraryItem.objects.create(
-                library=library,
+            CollectionItem.objects.create(
+                collection=collection,
                 content_type=session_content_type,
                 content_object_id=session.id,
                 order_index=idx,
             )
+
+        return collection
 
         return library
 

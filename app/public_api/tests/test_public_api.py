@@ -7,7 +7,7 @@ from rest_framework.test import APIClient
 
 from profiles.models import UserProfile
 from publishing.models import ContentPlacement, PublicationGroup
-from stackroom.models import Library
+from curation.models import Collection
 from writing.models import WritingPiece, WritingVersion
 
 
@@ -36,14 +36,14 @@ def _create_profile(*, user: User, display_name: str = "Test User") -> UserProfi
     )
 
 
-def _create_library(
+def _create_collection(
     *,
     user: User,
     title: str,
     visibility: str = "public",
     scope: str = "writing",
-) -> Library:
-    library = Library(
+) -> Collection:
+    collection = Collection(
         title=title,
         summary=f"Summary for {title}",
         visibility=visibility,
@@ -51,10 +51,10 @@ def _create_library(
         author=user,
         author_name=user.username,
     )
-    library.set_sponsor(user)
-    library.set_submitted_by(user)
-    library.save()
-    return library
+    collection.set_sponsor(user)
+    collection.set_submitted_by(user)
+    collection.save()
+    return collection
 
 
 def _create_piece(
@@ -200,31 +200,31 @@ class PublicMemberShelvesViewTests(TestCase):
         )
         _create_profile(user=self.author, display_name="Author")
 
-        self.public_library = _create_library(
+        self.public_collection = _create_collection(
             user=self.author,
             title="Public Writing",
             visibility="public",
             scope="writing",
         )
-        self.members_library = _create_library(
+        self.members_collection = _create_collection(
             user=self.author,
             title="Members Writing",
             visibility="members",
             scope="writing",
         )
-        self.private_library = _create_library(
+        self.private_collection = _create_collection(
             user=self.author,
             title="Private Writing",
             visibility="private",
             scope="writing",
         )
-        self.unlisted_library = _create_library(
+        self.unlisted_collection = _create_collection(
             user=self.author,
             title="Unlisted Writing",
             visibility="unlisted",
             scope="writing",
         )
-        self.general_library = _create_library(
+        self.general_collection = _create_collection(
             user=self.author,
             title="General Library",
             visibility="public",
@@ -234,7 +234,7 @@ class PublicMemberShelvesViewTests(TestCase):
         self.public_piece = _create_piece(author=self.author, title="Published Public")
         _create_placement(
             piece=self.public_piece,
-            target=self.public_library,
+            target=self.public_collection,
             user=self.author,
             visibility="public",
         )
@@ -242,7 +242,7 @@ class PublicMemberShelvesViewTests(TestCase):
         self.members_piece = _create_piece(author=self.author, title="Published Members")
         _create_placement(
             piece=self.members_piece,
-            target=self.public_library,
+            target=self.public_collection,
             user=self.author,
             visibility="members",
             order_index=1,
@@ -251,7 +251,7 @@ class PublicMemberShelvesViewTests(TestCase):
         self.private_piece = _create_piece(author=self.author, title="Published Private")
         _create_placement(
             piece=self.private_piece,
-            target=self.public_library,
+            target=self.public_collection,
             user=self.author,
             visibility="private",
             order_index=2,
@@ -264,7 +264,7 @@ class PublicMemberShelvesViewTests(TestCase):
         )
         _create_placement(
             piece=self.draft_piece,
-            target=self.public_library,
+            target=self.public_collection,
             user=self.author,
             visibility="public",
             order_index=3,
@@ -277,16 +277,16 @@ class PublicMemberShelvesViewTests(TestCase):
         )
         _create_placement(
             piece=self.archived_piece,
-            target=self.public_library,
+            target=self.public_collection,
             user=self.author,
             visibility="public",
             order_index=4,
         )
 
-        self.members_library_piece = _create_piece(author=self.author, title="Members Shelf Piece")
+        self.members_collection_piece = _create_piece(author=self.author, title="Members Shelf Piece")
         _create_placement(
-            piece=self.members_library_piece,
-            target=self.members_library,
+            piece=self.members_collection_piece,
+            target=self.members_collection,
             user=self.author,
             visibility="members",
         )
@@ -314,15 +314,15 @@ class PublicMemberShelvesViewTests(TestCase):
         response = self.client.get(self._url(self.author.username))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         returned_ids = {row["id"] for row in response.data}
-        self.assertNotIn(str(self.private_library.id), returned_ids)
-        self.assertNotIn(str(self.unlisted_library.id), returned_ids)
+        self.assertNotIn(str(self.private_collection.id), returned_ids)
+        self.assertNotIn(str(self.unlisted_collection.id), returned_ids)
 
     def test_shelves_only_writing_scope(self):
         self.client.force_authenticate(user=self.viewer)
         response = self.client.get(self._url(self.author.username))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         returned_ids = {row["id"] for row in response.data}
-        self.assertNotIn(str(self.general_library.id), returned_ids)
+        self.assertNotIn(str(self.general_collection.id), returned_ids)
 
     def test_shelves_items_inline(self):
         response = self.client.get(self._url(self.author.username))
@@ -383,7 +383,7 @@ class PublicWritingPieceViewTests(TestCase):
         )
         _create_profile(user=self.author, display_name="Author Name")
 
-        self.library = _create_library(
+        self.library = _create_collection(
             user=self.author,
             title="Public Writing",
             visibility="public",

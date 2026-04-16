@@ -11,7 +11,7 @@ from rest_framework.response import Response
 from earthlab.models import Course, Lesson, CourseItem, CourseRun, Enrollment, LessonProgress
 from earthlab.choices import ProgressStatus
 from groups.models import Group
-from stackroom.models import Library
+from curation.models import Collection
 
 
 def _group_and_ct(group_slug):
@@ -258,7 +258,7 @@ def lesson_detail(request, group_slug, lesson_slug):
 
 CONTENT_TYPE_MAP = {
     'lesson': Lesson,
-    'library': Library,
+    'collection': Collection,
 }
 
 
@@ -357,7 +357,7 @@ def list_available_content(request, group_slug):
         deleted_at__isnull=True,
     ).order_by('title')
 
-    libraries = Library.objects.filter(
+    collections = Collection.objects.filter(
         sponsor_content_type=ct, sponsor_object_id=group.id,
         deleted_at__isnull=True,
     ).order_by('title')
@@ -367,10 +367,10 @@ def list_available_content(request, group_slug):
             {'id': str(l.id), 'title': l.title, 'slug': l.slug}
             for l in lessons
         ],
-        'libraries': [
-            {'id': str(lib.id), 'title': lib.title, 'slug': lib.slug,
-             'scope': getattr(lib, 'scope', '')}
-            for lib in libraries
+        'collections': [
+            {'id': str(col.id), 'title': col.title, 'slug': col.slug,
+             'scope': col.scope}
+            for col in collections
         ],
     })
 

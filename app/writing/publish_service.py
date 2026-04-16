@@ -262,15 +262,15 @@ def publish_and_place(piece: WritingPiece, user, data: dict) -> dict:
             placements_created += 1
         placements.append(placement)
 
-    # Shelves (Library placements)
+    # Shelves (Collection placements)
     shelf_ids = destinations.get("shelves") or []
     if shelf_ids:
-        from stackroom.models import Library
-        ct_library = ContentType.objects.get_for_model(Library)
-        for shelf in Library.objects.filter(id__in=shelf_ids):
+        from curation.models import Collection
+        ct_collection = ContentType.objects.get_for_model(Collection)
+        for shelf in Collection.objects.filter(id__in=shelf_ids):
             next_order = (
                 ContentPlacement.objects.filter(
-                    target_content_type=ct_library,
+                    target_content_type=ct_collection,
                     target_object_id=shelf.id,
                     channel="shelf",
                 ).aggregate(Max("order_index")).get("order_index__max") or 0
@@ -282,7 +282,7 @@ def publish_and_place(piece: WritingPiece, user, data: dict) -> dict:
             placement, created = ContentPlacement.objects.update_or_create(
                 source_content_type=ct_piece,
                 source_object_id=piece.id,
-                target_content_type=ct_library,
+                target_content_type=ct_collection,
                 target_object_id=shelf.id,
                 channel="shelf",
                 defaults={
