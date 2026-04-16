@@ -13,6 +13,7 @@ from typing import Optional
 
 from celery import shared_task
 from celery.exceptions import MaxRetriesExceededError
+from django.db import transaction
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,9 @@ def interpret_recording_task(
             recording.status = RecordingStatus.READY
             recording.processing_completed_at = timezone.now()
             recording.save(update_fields=['status', 'processing_completed_at'])
+
+        from stackroom.integration.service import enqueue_ingest_object
+        transaction.on_commit(lambda: enqueue_ingest_object(recording, reason="transcription_ready"))
 
         return {
             "status": "success",
