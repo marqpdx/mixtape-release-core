@@ -302,6 +302,12 @@ class WritingPieceListCreateView(generics.ListCreateAPIView):
                     body_json=piece.body_json,
                     excerpt=piece.excerpt,
                 )
+                transaction.on_commit(
+                    lambda: enqueue_ingest_object(
+                        working_copy,
+                        reason="working_document_create_working_copy",
+                    )
+                )
 
                 # Add working copy to response
                 working_copy_data = WorkingDocumentLightSerializer(working_copy).data
@@ -1606,6 +1612,12 @@ def _create_or_replace_imported_piece(
                 working_document.excerpt = excerpt
                 working_document.body_json = body_json
                 working_document.save(update_fields=["title", "excerpt", "body_json", "updated_at"])
+            transaction.on_commit(
+                lambda: enqueue_ingest_object(
+                    working_document,
+                    reason="working_document_import_replace",
+                )
+            )
 
             notes = existing_receipt.import_notes or {}
             replacements = notes.get("replacements", [])
@@ -1664,6 +1676,12 @@ def _create_or_replace_imported_piece(
             title=title,
             excerpt=excerpt,
             body_json=body_json,
+        )
+        transaction.on_commit(
+            lambda: enqueue_ingest_object(
+                working_document,
+                reason="working_document_import_create",
+            )
         )
 
         from writing.models import ImportReceipt
