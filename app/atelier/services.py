@@ -31,7 +31,19 @@ def compute_craft_readiness(writing_piece) -> dict:
     tags = "confirmed" if tag_count >= 1 else "untouched"
     category = "confirmed" if cat_count >= 1 else "untouched"
     series = "confirmed" if writing_piece.series_id else "untouched"
-    relations = "deferred"
+
+    from .models import ArtifactRelation
+    piece_ct = ContentType.objects.get_for_model(writing_piece.__class__)
+    outgoing = ArtifactRelation.objects.filter(
+        source_content_type=piece_ct,
+        source_object_id=writing_piece.pk,
+    ).exclude(visibility="dismissed")
+    if not outgoing.exists():
+        relations = "untouched"
+    elif outgoing.filter(status__in=("acknowledged", "mutual")).exists():
+        relations = "confirmed"
+    else:
+        relations = "partial"
 
     if synopsis is None:
         summaries = "untouched"
@@ -53,7 +65,7 @@ def compute_craft_readiness(writing_piece) -> dict:
         else:
             summaries = "untouched"
 
-    active = [tags, category, summaries, series]
+    active = [tags, category, summaries, series, relations]
     if all(s == "confirmed" for s in active):
         overall = "confirmed"
     elif any(s in ("confirmed", "partial") for s in active):

@@ -1,5 +1,8 @@
+import uuid
+
 from django.contrib.contenttypes.models import ContentType
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -7,6 +10,7 @@ from rest_framework.views import APIView
 from classifications.models import Category, ClassificationUsage, Tag
 from writing.models import WritingPiece, WritingSeries, WritingSynopsis
 
+from ..models import ArtifactRelation
 from ..services import compute_craft_readiness
 from .serializers import CategorySerializer, TagSerializer
 
@@ -285,3 +289,183 @@ class SummariesConfirmView(APIView):
         update_fields.append("updated_at")
         synopsis.save(update_fields=update_fields)
         return Response(_synopsis_response(synopsis))
+
+
+# ---------------------------------------------------------------------------
+# Relations
+# ---------------------------------------------------------------------------
+
+VALID_VERBS = {v for v, _ in ArtifactRelation.VERB_CHOICES}
+VERB_LABELS = dict(ArtifactRelation.VERB_CHOICES)
+
+
+def _serialize_relation_piece(piece):
+    return {
+        "id": str(piece.id),
+        "title": piece.title or "Untitled",
+        "slug": piece.slug,
+    }
+
+
+def _serialize_outgoing(relation):
+    target = relation.target
+    return {
+        "id": str(relation.id),
+        "verb": relation.verb,
+        "verb_label": VERB_LABELS.get(relation.verb, relation.verb),
+        "status": relation.status,
+        "note": relation.note,
+        "target": _serialize_relation_piece(target) if target else None,
+    }
+
+
+def _serialize_incoming(relation):
+    source = relation.source
+    created_by = relation.created_by
+    return {
+        "id": str(relation.id),
+        "verb": relation.verb,
+        "verb_label": VERB_LABELS.get(relation.verb, relation.verb),
+        "status": relation.status,
+        "note": relation.note,
+        "source": _serialize_relation_piece(source) if source else None,
+        "created_by": {
+            "id": str(created_by.id),
+            "display_name": created_by.get_full_name() or created_by.username,
+        } if created_by else None,
+    }
+
+
+class RelationListCreateView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _piece_ct(self):
+        return ContentType.objects.get_for_model(WritingPiece)
+
+    def get(self, request, piece_slug):
+        piece, err = _get_piece_for_author(piece_slug, request.user)
+        if err:
+            return err
+        ct = self._piece_ct()
+        outgoing = ArtifactRelation.objects.filter(
+            source_content_type=ct,
+            source_object_id=piece.pk,
+        ).select_related("target_content_type", "created_by")
+        incoming = ArtifactRelation.objects.filter(
+            target_content_type=ct,
+            target_object_id=piece.pk,
+        ).exclude(visibility="dismissed").select_related("source_content_type", "created_by")
+        return Response({
+            "outgoing": [_serialize_outgoing(r) for r in outgoing],
+            "incoming": [_serialize_incoming(r) for r in incoming],
+        })
+
+    def post(self, request, piece_slug):
+        piece, err = _get_piece_for_author(piece_slug, request.user)
+        if err:
+            return err
+
+        target_slug = request.data.get("target_slug")
+        verb = request.data.get("verb")
+        note = request.data.get("note", "")
+
+        if not target_slug:
+            return Response({"detail": "target_slug required."}, status=400)
+        if verb not in VALID_VERBS:
+            return Response({"detail": f"Invalid verb. Choose from: {sorted(VALID_VERBS)}"}, status=400)
+
+        target = get_object_or_404(WritingPiece, slug=target_slug)
+        if target.pk == piece.pk:
+            return Response({"detail": "A piece cannot relate to itself."}, status=400)
+
+        ct = self._piece_ct()
+        relation, created = ArtifactRelation.objects.get_or_create(
+            source_content_type=ct,
+            source_object_id=piece.pk,
+            target_content_type=ct,
+            target_object_id=target.pk,
+            verb=verb,
+            defaults={"created_by": request.user, "note": note},
+        )
+        return Response(_serialize_outgoing(relation), status=201 if created else 200)
+
+
+class RelationDeleteView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, piece_slug, relation_id):
+        piece, err = _get_piece_for_author(piece_slug, request.user)
+        if err:
+            return err
+        ct = ContentType.objects.get_for_model(WritingPiece)
+        relation = get_object_or_404(
+            ArtifactRelation,
+            id=relation_id,
+            source_content_type=ct,
+            source_object_id=piece.pk,
+            created_by=request.user,
+        )
+        relation.delete()
+        return Response(status=204)
+
+
+class RelationAcknowledgeView(APIView):
+    """Target piece author acknowledges an incoming relation."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, piece_slug, relation_id):
+        piece, err = _get_piece_for_author(piece_slug, request.user)
+        if err:
+            return err
+        ct = ContentType.objects.get_for_model(WritingPiece)
+        relation = get_object_or_404(
+            ArtifactRelation,
+            id=relation_id,
+            target_content_type=ct,
+            target_object_id=piece.pk,
+        )
+        if relation.status in ("acknowledged", "mutual"):
+            return Response(_serialize_incoming(relation))
+        relation.status = "acknowledged"
+        relation.acknowledged_at = timezone.now()
+        relation.acknowledged_by = request.user
+        relation.save(update_fields=["status", "acknowledged_at", "acknowledged_by", "updated_at"])
+        return Response(_serialize_incoming(relation))
+
+
+class RelationDismissView(APIView):
+    """Target piece author dismisses an incoming relation (hides from their view)."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, piece_slug, relation_id):
+        piece, err = _get_piece_for_author(piece_slug, request.user)
+        if err:
+            return err
+        ct = ContentType.objects.get_for_model(WritingPiece)
+        relation = get_object_or_404(
+            ArtifactRelation,
+            id=relation_id,
+            target_content_type=ct,
+            target_object_id=piece.pk,
+        )
+        relation.visibility = "dismissed"
+        relation.save(update_fields=["visibility", "updated_at"])
+        return Response(status=204)
+
+
+class PieceSearchView(APIView):
+    """Search WritingPiece by title for relation target selection."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        q = request.query_params.get("q", "").strip()
+        if len(q) < 2:
+            return Response([])
+        pieces = (
+            WritingPiece.objects
+            .filter(title__icontains=q)
+            .exclude(title__isnull=True)
+            .exclude(title="")
+            .order_by("-updated_at")[:20]
+        )
+        return Response([_serialize_relation_piece(p) for p in pieces])
