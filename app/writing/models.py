@@ -1160,6 +1160,25 @@ class WritingSynopsis(BaseModel):
         help_text="Full Inkwell result: hook, short_synopsis, one_line_takeaway, alt_hook.",
     )
 
+    # ---- Atelier shaping fields ----
+    internal_abstract = models.TextField(
+        blank=True,
+        default="",
+        help_text="Internal-facing abstract. Oriented toward readers already within Mixtape.",
+    )
+    public_synopsis_confirmed = models.BooleanField(
+        default=False,
+        help_text="Author has confirmed the public synopsis in Atelier.",
+    )
+    linkedin_synopsis_confirmed = models.BooleanField(
+        default=False,
+        help_text="Author has confirmed the LinkedIn synopsis in Atelier.",
+    )
+    internal_abstract_confirmed = models.BooleanField(
+        default=False,
+        help_text="Author has confirmed the internal abstract in Atelier.",
+    )
+
     class Meta(BaseModel.Meta):
         verbose_name = "Writing Synopsis"
         verbose_name_plural = "Writing Synopses"
