@@ -588,6 +588,167 @@ class SplitSuggestion(BaseModel):
         return f"SplitSuggestion<{self.piece_id}> [{self.status}]"
 
 
+class WritingAnalysisSession(BaseModel):
+    """
+    Persisted root record for one export/analyze cycle.
+    Keeps source revision hash, export payload, and planner state outside
+    of the canonical writing models.
+    """
+
+    EXPORT_VERSION_V1 = "writing-analysis-export@v1"
+
+    class Status(models.TextChoices):
+        EXPORTED = "exported", "Exported"
+        ANALYZING = "analyzing", "Analyzing"
+        READY = "ready", "Ready"
+        APPROVED = "approved", "Approved"
+        IMPORTED = "imported", "Imported"
+        FAILED = "failed", "Failed"
+        STALE = "stale", "Stale"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    source_piece = models.ForeignKey(
+        "WritingPiece",
+        on_delete=models.CASCADE,
+        related_name="analysis_sessions",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="writing_analysis_sessions",
+    )
+    source_revision_hash = models.CharField(max_length=71, db_index=True)
+    export_version = models.CharField(max_length=64, default=EXPORT_VERSION_V1)
+    planner_type = models.CharField(max_length=32, blank=True, default="")
+    planner_label = models.CharField(max_length=128, blank=True, default="")
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.EXPORTED,
+        db_index=True,
+    )
+    completed_at = models.DateTimeField(null=True, blank=True)
+    error_message = models.TextField(blank=True)
+    export_payload = models.JSONField(default=dict, blank=True)
+    suggestion_payload = models.JSONField(default=dict, blank=True)
+    warnings = models.JSONField(default=list, blank=True)
+
+    class Meta(BaseModel.Meta):
+        ordering = ["-created_at"]
+        verbose_name = "Writing Analysis Session"
+        verbose_name_plural = "Writing Analysis Sessions"
+        indexes = [
+            models.Index(fields=["source_piece", "created_at"]),
+            models.Index(fields=["status"]),
+        ]
+
+    def __str__(self):
+        return f"WritingAnalysisSession<{self.source_piece_id}> [{self.status}]"
+
+
+class WritingSuggestedRevision(BaseModel):
+    """
+    Explicit lineage record for a non-destructive suggested revision draft.
+    Keeps source/suggested relationships outside core content tables.
+    """
+
+    class DerivationType(models.TextChoices):
+        SUGGESTED_REVISION = "suggested_revision", "Suggested Revision"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    source_piece = models.ForeignKey(
+        "WritingPiece",
+        on_delete=models.CASCADE,
+        related_name="suggested_revisions_as_source",
+    )
+    suggested_piece = models.OneToOneField(
+        "WritingPiece",
+        on_delete=models.CASCADE,
+        related_name="suggested_revision_lineage",
+    )
+    analysis_session = models.ForeignKey(
+        "WritingAnalysisSession",
+        on_delete=models.CASCADE,
+        related_name="suggested_revisions",
+    )
+    source_revision_hash = models.CharField(max_length=71, db_index=True)
+    derivation_type = models.CharField(
+        max_length=32,
+        choices=DerivationType.choices,
+        default=DerivationType.SUGGESTED_REVISION,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="created_suggested_revisions",
+    )
+
+    class Meta(BaseModel.Meta):
+        ordering = ["-created_at"]
+        verbose_name = "Writing Suggested Revision"
+        verbose_name_plural = "Writing Suggested Revisions"
+        indexes = [
+            models.Index(fields=["source_piece", "created_at"]),
+            models.Index(fields=["analysis_session"]),
+            models.Index(fields=["source_revision_hash"]),
+        ]
+
+    def __str__(self):
+        return f"WritingSuggestedRevision<{self.source_piece_id}->{self.suggested_piece_id}>"
+
+
+class WritingFidelityReport(BaseModel):
+    """
+    Structured report artifact explaining the relationship between the source
+    draft and a non-destructive suggested revision.
+    """
+
+    REPORT_VERSION_V1 = "writing-fidelity-report@v1"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    analysis_session = models.ForeignKey(
+        "WritingAnalysisSession",
+        on_delete=models.CASCADE,
+        related_name="fidelity_reports",
+    )
+    suggested_revision = models.OneToOneField(
+        "WritingSuggestedRevision",
+        on_delete=models.CASCADE,
+        related_name="fidelity_report",
+    )
+    source_piece = models.ForeignKey(
+        "WritingPiece",
+        on_delete=models.CASCADE,
+        related_name="fidelity_reports_as_source",
+    )
+    suggested_piece = models.ForeignKey(
+        "WritingPiece",
+        on_delete=models.CASCADE,
+        related_name="fidelity_reports_as_suggested",
+    )
+    source_revision_hash = models.CharField(max_length=71, db_index=True)
+    report_version = models.CharField(max_length=64, default=REPORT_VERSION_V1)
+    report_payload = models.JSONField(default=dict, blank=True)
+
+    class Meta(BaseModel.Meta):
+        ordering = ["-created_at"]
+        verbose_name = "Writing Fidelity Report"
+        verbose_name_plural = "Writing Fidelity Reports"
+        indexes = [
+            models.Index(fields=["analysis_session"]),
+            models.Index(fields=["source_piece", "created_at"]),
+            models.Index(fields=["suggested_piece"]),
+            models.Index(fields=["source_revision_hash"]),
+        ]
+
+    def __str__(self):
+        return f"WritingFidelityReport<{self.source_piece_id}->{self.suggested_piece_id}>"
+
+
 class WritingComment(BaseModel):
     piece = models.ForeignKey(WritingPiece, on_delete=models.CASCADE, related_name="comments")
     author = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -1185,4 +1346,3 @@ class WritingSynopsis(BaseModel):
 
     def __str__(self):
         return f"WritingSynopsis<{self.piece_id}> — {self.title[:60]}"
-

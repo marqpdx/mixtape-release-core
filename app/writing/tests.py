@@ -11,7 +11,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from writing.api.views import MAX_SEED_AUDIO_BYTES
-from writing.models import Seed
+from writing.models import Seed, WorkingDocument, WritingAnalysisSession, WritingFidelityReport, WritingSuggestedRevision
 from writing.tasks import transcribe_seed_task
 from groups.models import Group
 from publishing.models import ContentPlacement
@@ -199,6 +199,169 @@ class PublishingV1Tests(TestCase):
         display_body = response.data[0]["display"]["body_json"]
         self.assertEqual(display_body, version.body_json)
         self.assertNotEqual(display_body, updated_body)
+
+
+class WritingAnalysisExportTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="analysis_user",
+            email="analysis@example.com",
+            password="testpass123",
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def test_export_creates_session_and_returns_block_payload(self):
+        piece = _create_piece(author=self.user, sponsor=self.user)
+        piece.title = "Analysis Draft"
+        piece.body_json = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "heading",
+                    "attrs": {"level": 2, "data-block-id": "heading-1"},
+                    "content": [{"type": "text", "text": "Why this matters"}],
+                },
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "Opening "},
+                        {
+                            "type": "text",
+                            "text": "paragraph",
+                            "marks": [{"type": "bold"}],
+                        },
+                    ],
+                },
+            ],
+        }
+        piece.save(update_fields=["title", "body_json", "updated_at"])
+
+        response = self.client.post(
+            f"/api/writing/pieces/{piece.id}/analysis/export",
+            {"planner_type": "local-llm", "planner_label": "test-planner"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["session"]["planner_type"], "local-llm")
+        self.assertEqual(response.data["export"]["piece"]["title"], "Analysis Draft")
+        self.assertEqual(response.data["export"]["outline"]["mode"], "detected")
+        self.assertEqual(len(response.data["export"]["document"]["blocks"]), 2)
+        self.assertEqual(response.data["export"]["document"]["blocks"][0]["block_id"], "heading-1")
+        self.assertTrue(response.data["export"]["document"]["blocks"][1]["metadata"]["has_marks"])
+
+        session = WritingAnalysisSession.objects.get(id=response.data["session"]["id"])
+        self.assertEqual(session.source_piece_id, piece.id)
+        self.assertEqual(session.status, WritingAnalysisSession.Status.EXPORTED)
+        self.assertEqual(session.export_payload["piece"]["title"], "Analysis Draft")
+
+    def test_export_prefers_working_document_content(self):
+        piece = _create_piece(author=self.user, sponsor=self.user)
+        piece.title = "Piece Title"
+        piece.excerpt = "Piece excerpt"
+        piece.body_json = _body_json("piece body")
+        piece.save(update_fields=["title", "excerpt", "body_json", "updated_at"])
+
+        WorkingDocument.objects.create(
+            piece=piece,
+            user=self.user,
+            title="Working Title",
+            excerpt="Working excerpt",
+            body_json=_body_json("working body"),
+        )
+
+        response = self.client.post(
+            f"/api/writing/pieces/{piece.id}/analysis/export",
+            {},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["export"]["piece"]["title"], "Working Title")
+        self.assertEqual(response.data["export"]["piece"]["excerpt"], "Working excerpt")
+        self.assertEqual(
+            response.data["export"]["document"]["blocks"][0]["text"],
+            "working body",
+        )
+        self.assertEqual(response.data["export"]["source"]["source_kind"], "working_document")
+
+    def test_create_suggested_revision_creates_sibling_draft_and_lineage(self):
+        piece = _create_piece(author=self.user, sponsor=self.user)
+        piece.title = "Original Draft"
+        piece.excerpt = "Original excerpt"
+        piece.body_json = _body_json("source body")
+        piece.save(update_fields=["title", "excerpt", "body_json", "updated_at"])
+
+        export_response = self.client.post(
+            f"/api/writing/pieces/{piece.id}/analysis/export",
+            {},
+            format="json",
+        )
+        self.assertEqual(export_response.status_code, status.HTTP_201_CREATED)
+        session_id = export_response.data["session"]["id"]
+
+        create_response = self.client.post(
+            f"/api/writing/pieces/{piece.id}/analysis/sessions/{session_id}/create-revision",
+            {},
+            format="json",
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(create_response.data["piece"]["title"], "Original Draft - Suggested Revision")
+
+        piece.refresh_from_db()
+        self.assertEqual(piece.title, "Original Draft")
+        self.assertEqual(
+            piece.body_json["content"][0]["content"][0]["text"],
+            "source body",
+        )
+
+        revision = WritingSuggestedRevision.objects.get(id=create_response.data["suggested_revision"]["id"])
+        suggested_piece = revision.suggested_piece
+        report = WritingFidelityReport.objects.get(suggested_revision=revision)
+        self.assertEqual(revision.source_piece_id, piece.id)
+        self.assertEqual(str(revision.analysis_session_id), session_id)
+        self.assertEqual(suggested_piece.title, "Original Draft - Suggested Revision")
+        self.assertEqual(suggested_piece.author_id, piece.author_id)
+        self.assertEqual(
+            suggested_piece.body_json["content"][0]["content"][0]["text"],
+            "source body",
+        )
+        self.assertTrue(WorkingDocument.objects.filter(piece=suggested_piece, user=self.user).exists())
+        self.assertEqual(report.source_piece_id, piece.id)
+        self.assertEqual(report.suggested_piece_id, suggested_piece.id)
+        self.assertEqual(report.report_payload["summary"]["unchanged_block_count"], 1)
+        self.assertEqual(report.report_payload["summary"]["edited_block_count"], 0)
+        self.assertEqual(create_response.data["fidelity_report"]["id"], str(report.id))
+
+    def test_create_suggested_revision_is_idempotent_per_session(self):
+        piece = _create_piece(author=self.user, sponsor=self.user)
+        export_response = self.client.post(
+            f"/api/writing/pieces/{piece.id}/analysis/export",
+            {},
+            format="json",
+        )
+        self.assertEqual(export_response.status_code, status.HTTP_201_CREATED)
+        session_id = export_response.data["session"]["id"]
+
+        first_response = self.client.post(
+            f"/api/writing/pieces/{piece.id}/analysis/sessions/{session_id}/create-revision",
+            {},
+            format="json",
+        )
+        second_response = self.client.post(
+            f"/api/writing/pieces/{piece.id}/analysis/sessions/{session_id}/create-revision",
+            {},
+            format="json",
+        )
+        self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            first_response.data["suggested_revision"]["id"],
+            second_response.data["suggested_revision"]["id"],
+        )
+        self.assertEqual(
+            first_response.data["fidelity_report"]["id"],
+            second_response.data["fidelity_report"]["id"],
+        )
 
 
 class VoiceSeedsV1Tests(TestCase):

@@ -23,6 +23,9 @@ from ..models import (
     WorkingDocument,
     WritingSynopsis,
     SplitSuggestion,
+    WritingAnalysisSession,
+    WritingFidelityReport,
+    WritingSuggestedRevision,
 )
 
 
@@ -176,6 +179,77 @@ class SplitSuggestionSerializer(serializers.ModelSerializer):
     class Meta:
         model = SplitSuggestion
         fields = ["id", "status", "suggestions", "word_count_at_suggestion", "generated_at"]
+        read_only_fields = fields
+
+
+class WritingAnalysisExportRequestSerializer(serializers.Serializer):
+    planner_type = serializers.CharField(required=False, allow_blank=True, max_length=32, default="")
+    planner_label = serializers.CharField(required=False, allow_blank=True, max_length=128, default="")
+
+
+class WritingAnalysisSessionSerializer(serializers.ModelSerializer):
+    source_piece_id = serializers.UUIDField(source="source_piece_id", read_only=True)
+
+    class Meta:
+        model = WritingAnalysisSession
+        fields = [
+            "id",
+            "source_piece_id",
+            "source_revision_hash",
+            "export_version",
+            "planner_type",
+            "planner_label",
+            "status",
+            "completed_at",
+            "created_at",
+            "updated_at",
+            "warnings",
+        ]
+        read_only_fields = fields
+
+
+class WritingSuggestedRevisionCreateSerializer(serializers.Serializer):
+    title_suffix = serializers.CharField(required=False, allow_blank=True, max_length=64, default="Suggested Revision")
+
+
+class WritingSuggestedRevisionSerializer(serializers.ModelSerializer):
+    source_piece_id = serializers.UUIDField(source="source_piece_id", read_only=True)
+    suggested_piece_id = serializers.UUIDField(source="suggested_piece_id", read_only=True)
+    analysis_session_id = serializers.UUIDField(source="analysis_session_id", read_only=True)
+
+    class Meta:
+        model = WritingSuggestedRevision
+        fields = [
+            "id",
+            "source_piece_id",
+            "suggested_piece_id",
+            "analysis_session_id",
+            "source_revision_hash",
+            "derivation_type",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class WritingFidelityReportSerializer(serializers.ModelSerializer):
+    analysis_session_id = serializers.UUIDField(source="analysis_session_id", read_only=True)
+    suggested_revision_id = serializers.UUIDField(source="suggested_revision_id", read_only=True)
+    source_piece_id = serializers.UUIDField(source="source_piece_id", read_only=True)
+    suggested_piece_id = serializers.UUIDField(source="suggested_piece_id", read_only=True)
+
+    class Meta:
+        model = WritingFidelityReport
+        fields = [
+            "id",
+            "analysis_session_id",
+            "suggested_revision_id",
+            "source_piece_id",
+            "suggested_piece_id",
+            "source_revision_hash",
+            "report_version",
+            "report_payload",
+            "created_at",
+        ]
         read_only_fields = fields
 
 
