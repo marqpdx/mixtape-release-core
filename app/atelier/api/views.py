@@ -5,7 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from classifications.models import Category, ClassificationUsage, Tag
-from writing.models import WritingPiece, WritingSynopsis
+from writing.models import WritingPiece, WritingSeries, WritingSynopsis
 
 from ..services import compute_craft_readiness
 from .serializers import CategorySerializer, TagSerializer
@@ -197,6 +197,67 @@ class SummariesView(APIView):
         update_fields.append("updated_at")
         synopsis.save(update_fields=update_fields)
         return Response(_synopsis_response(synopsis))
+
+
+# ---------------------------------------------------------------------------
+# Series
+# ---------------------------------------------------------------------------
+
+def _serialize_series(series) -> dict:
+    return {"id": str(series.id), "title": series.title, "slug": series.slug}
+
+
+def _available_series(piece):
+    """Series scoped to the piece's group sponsor, or group-less series for user-sponsored pieces."""
+    if piece.sponsor_content_type and piece.sponsor_content_type.model == "group":
+        return WritingSeries.objects.filter(group_id=piece.sponsor_object_id)
+    return WritingSeries.objects.filter(group__isnull=True)
+
+
+class SeriesView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, piece_slug):
+        piece, err = _get_piece_for_author(piece_slug, request.user)
+        if err:
+            return err
+        current = _serialize_series(piece.series) if piece.series_id else None
+        available = [_serialize_series(s) for s in _available_series(piece)]
+        return Response({"current": current, "available": available})
+
+    def put(self, request, piece_slug):
+        piece, err = _get_piece_for_author(piece_slug, request.user)
+        if err:
+            return err
+        series_id = request.data.get("series_id")
+        if not series_id:
+            return Response({"detail": "series_id required."}, status=400)
+        series = get_object_or_404(_available_series(piece), id=series_id)
+        piece.series = series
+        piece.save(update_fields=["series", "updated_at"])
+        return Response({"current": _serialize_series(series)})
+
+    def delete(self, request, piece_slug):
+        piece, err = _get_piece_for_author(piece_slug, request.user)
+        if err:
+            return err
+        piece.series = None
+        piece.save(update_fields=["series", "updated_at"])
+        return Response(status=204)
+
+
+class SeriesSearchView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, piece_slug):
+        piece, err = _get_piece_for_author(piece_slug, request.user)
+        if err:
+            return err
+        q = request.query_params.get("q", "").strip()
+        qs = _available_series(piece)
+        if q:
+            qs = qs.filter(title__icontains=q)
+        return Response([_serialize_series(s) for s in qs[:20]])
 
 
 class SummariesConfirmView(APIView):
