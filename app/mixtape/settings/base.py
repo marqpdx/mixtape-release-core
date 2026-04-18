@@ -116,6 +116,7 @@ INSTALLED_APPS = [
     "utils",           # Utility functions and helpers
     "worksessions",    # Work Sessions (Artifact Stream Authoring)
     "writing",         # Writing app
+    "atelier",         # Atelier — intermediate shaping layer
     "initiatives",     # Initiatives — group-scoped AI-assisted inquiry sessions
     "workbench",       # Workbench curation — WorkingItem assembly and promotion
     "curation",        # Django-native Collection curation layer (CP5)
