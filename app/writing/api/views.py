@@ -838,11 +838,14 @@ class WritingPiecePublishAndPlaceView(generics.GenericAPIView):
     def post(self, request, pk=None):
         from publishing.serializers import ContentPlacementSerializer
         from writing.publish_service import publish_and_place
+        from atelier.services import get_readiness_warnings
 
         piece = self.get_piece(pk)
 
         if piece.is_empty:
             return Response({"error": "Cannot publish empty content"}, status=400)
+
+        readiness_warnings = get_readiness_warnings(piece)
 
         try:
             result = publish_and_place(piece, request.user, request.data or {})
@@ -861,7 +864,8 @@ class WritingPiecePublishAndPlaceView(generics.GenericAPIView):
             "placements_created": result["placements_created"],
             "placements": ContentPlacementSerializer(result["placements"], many=True, context={"request": request}).data,
             "publication_group_id": str(result["pub_group"].id) if result["pub_group"] else None,
-            "message": f'Successfully {msg_base} "{piece.title}" to {result["placements_created"]} destination(s).'
+            "message": f'Successfully {msg_base} "{piece.title}" to {result["placements_created"]} destination(s).',
+            "readiness_warnings": readiness_warnings,
         }, status=status.HTTP_200_OK)
 
 
