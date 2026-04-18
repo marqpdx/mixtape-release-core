@@ -29,6 +29,8 @@ from writing.models import (
     Seed,
     SplitSuggestion,
     WritingComment,
+    WritingAnalysisSession,
+    WritingSuggestedRevision,
     WritingPiece,
     # WritingPlacement,  # Deprecated - replaced by ContentPlacement
     WritingSeries,
@@ -37,6 +39,12 @@ from writing.models import (
 )
 from writing.services import promote_seed_to_working_copy
 from writing.tasks import transcribe_seed_task
+from writing.analysis_export import (
+    build_analysis_export,
+    compute_source_revision_hash,
+    get_export_source_for_user,
+)
+from writing.suggested_revision import create_suggested_revision_from_session
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +58,11 @@ from .serializers import (
     SeedSerializer,
     SeedUpdateSerializer,
     SplitSuggestionSerializer,
+    WritingAnalysisExportRequestSerializer,
+    WritingAnalysisSessionSerializer,
+    WritingFidelityReportSerializer,
+    WritingSuggestedRevisionCreateSerializer,
+    WritingSuggestedRevisionSerializer,
     WritingCommentSerializer,
     WritingPieceDetailSerializer,
     WritingPieceSerializer,
@@ -238,6 +251,118 @@ class WorkingDocumentApplyView(generics.GenericAPIView):
         if changed and piece.is_published:
             piece.create_version(content_changed=True)
         return Response(self.get_serializer(piece).data, status=status.HTTP_200_OK)
+
+
+class WritingPieceAnalysisExportView(generics.GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated, CanEditWritingPiece]
+    serializer_class = WritingAnalysisExportRequestSerializer
+
+    def _get_piece(self, pk):
+        piece = get_object_or_404(WritingPiece, pk=pk)
+        self.check_object_permissions(self.request, piece)
+        return piece
+
+    def post(self, request, pk):
+        piece = self._get_piece(pk)
+        serializer = self.get_serializer(data=request.data or {})
+        serializer.is_valid(raise_exception=True)
+
+        export_source = get_export_source_for_user(piece, request.user)
+        source_revision_hash = compute_source_revision_hash(
+            title=export_source["title"],
+            excerpt=export_source["excerpt"],
+            body_json=export_source["body_json"],
+        )
+        export_payload = build_analysis_export(
+            piece=piece,
+            title=export_source["title"],
+            excerpt=export_source["excerpt"],
+            body_json=export_source["body_json"],
+            source_revision_hash=source_revision_hash,
+            source_kind=export_source["source_kind"],
+            working_document_id=export_source["working_document_id"],
+        )
+        export_payload["source"]["exported_at"] = timezone.now().isoformat()
+
+        session = WritingAnalysisSession.objects.create(
+            source_piece=piece,
+            created_by=request.user,
+            source_revision_hash=source_revision_hash,
+            export_version=WritingAnalysisSession.EXPORT_VERSION_V1,
+            planner_type=serializer.validated_data.get("planner_type", ""),
+            planner_label=serializer.validated_data.get("planner_label", ""),
+            status=WritingAnalysisSession.Status.EXPORTED,
+            export_payload=export_payload,
+        )
+
+        return Response(
+            {
+                "session": WritingAnalysisSessionSerializer(session).data,
+                "export": export_payload,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class WritingPieceSuggestedRevisionCreateView(generics.GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated, CanEditWritingPiece]
+    serializer_class = WritingSuggestedRevisionCreateSerializer
+
+    def _get_piece(self, pk):
+        piece = get_object_or_404(WritingPiece, pk=pk)
+        self.check_object_permissions(self.request, piece)
+        return piece
+
+    def post(self, request, pk, session_id):
+        piece = self._get_piece(pk)
+        serializer = self.get_serializer(data=request.data or {})
+        serializer.is_valid(raise_exception=True)
+
+        session = get_object_or_404(
+            WritingAnalysisSession,
+            pk=session_id,
+            source_piece=piece,
+        )
+        export_source = ((session.export_payload or {}).get("source") or {})
+        if session.source_revision_hash != export_source.get("body_json_revision_hash"):
+            return Response(
+                {"detail": "Analysis session source revision is inconsistent."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        if session.status == WritingAnalysisSession.Status.STALE:
+            return Response({"detail": "Analysis session is stale."}, status=status.HTTP_409_CONFLICT)
+
+        existing_revision = (
+            WritingSuggestedRevision.objects
+            .filter(analysis_session=session)
+            .select_related("suggested_piece")
+            .order_by("-created_at")
+            .first()
+        )
+        if existing_revision:
+            return Response(
+                {
+                    "detail": "A suggested revision already exists for this session.",
+                    "suggested_revision": WritingSuggestedRevisionSerializer(existing_revision).data,
+                    "fidelity_report": WritingFidelityReportSerializer(existing_revision.fidelity_report).data if hasattr(existing_revision, "fidelity_report") else None,
+                    "piece": WritingPieceSerializer(existing_revision.suggested_piece, context={"request": request}).data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        suggested_piece, suggested_revision, fidelity_report = create_suggested_revision_from_session(
+            session=session,
+            acting_user=request.user,
+            title_suffix=serializer.validated_data.get("title_suffix", "Suggested Revision"),
+        )
+        return Response(
+            {
+                "suggested_revision": WritingSuggestedRevisionSerializer(suggested_revision).data,
+                "fidelity_report": WritingFidelityReportSerializer(fidelity_report).data,
+                "piece": WritingPieceSerializer(suggested_piece, context={"request": request}).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class WritingPieceListCreateView(generics.ListCreateAPIView):

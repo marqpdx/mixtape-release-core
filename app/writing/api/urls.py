@@ -41,6 +41,7 @@ from .views import (
     WorkingDocumentRescindCollaborationView,
     WritingCommentListCreateView,
     WritingPieceCategoriesView,
+    WritingPieceAnalysisExportView,
     WritingPieceListCreateView,
     WritingPiecePinView,
     WritingPiecePublicView,
@@ -53,6 +54,7 @@ from .views import (
     WorkingDocumentApplyView,
     WorkingDocumentUpsertView,
     WritingPieceSplitSuggestionView,
+    WritingPieceSuggestedRevisionCreateView,
     WritingPieceExecuteSplitView,
     WritingSeriesListView,
     WritingSynopsisView,
@@ -89,6 +91,8 @@ urlpatterns = [
     # Working copy (autosave buffer)
     path("pieces/<uuid:pk>/working-copy", WorkingDocumentUpsertView.as_view(), name="writingpiece-working-document"),
     path("pieces/<uuid:pk>/apply-working-copy", WorkingDocumentApplyView.as_view(), name="writingpiece-apply-working-document"),
+    path("pieces/<uuid:pk>/analysis/export", WritingPieceAnalysisExportView.as_view(), name="writingpiece-analysis-export"),
+    path("pieces/<uuid:pk>/analysis/sessions/<uuid:session_id>/create-revision", WritingPieceSuggestedRevisionCreateView.as_view(), name="writingpiece-suggested-revision-create"),
 
     # Split suggestion
     path("pieces/<uuid:pk>/split-suggestion", WritingPieceSplitSuggestionView.as_view(), name="writingpiece-split-suggestion"),
