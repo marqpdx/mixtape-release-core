@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 from groups.models import Group
 from django.contrib.contenttypes.models import ContentType
 from initiatives.models import (
+    ActionRun,
     Artifact,
     ApertureLog,
     ApertureLogEntry,
@@ -25,6 +26,9 @@ from initiatives.models import (
     Session,
 )
 from initiatives.api.serializers import (
+    ActionRunCreateSerializer,
+    ActionRunPatchSerializer,
+    ActionRunSummarySerializer,
     ApertureLogEntrySerializer,
     ApertureLogSerializer,
     ArtifactSerializer,
@@ -34,6 +38,7 @@ from initiatives.api.serializers import (
     RollingSummaryUpdateSerializer,
     SessionSerializer,
 )
+from initiatives.api.permissions import HasOrchestrationWriteScope
 
 logger = logging.getLogger(__name__)
 
@@ -239,6 +244,31 @@ class SessionListCreateView(APIView):
             distillation={},
         )
         return Response(SessionSerializer(session).data, status=status.HTTP_201_CREATED)
+
+
+class ActionRunListCreateView(APIView):
+    permission_classes = [HasOrchestrationWriteScope]
+
+    def post(self, request):
+        serializer = ActionRunCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        action_run = serializer.save()
+        return Response(ActionRunSummarySerializer(action_run).data, status=status.HTTP_201_CREATED)
+
+
+class ActionRunDetailView(APIView):
+    permission_classes = [HasOrchestrationWriteScope]
+
+    def patch(self, request, action_run_id):
+        action_run = get_object_or_404(ActionRun, pk=action_run_id)
+        serializer = ActionRunPatchSerializer(action_run, data=request.data, partial=True)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        updated = serializer.save()
+        return Response(ActionRunSummarySerializer(updated).data)
 
 
 class SessionDetailView(APIView):

@@ -74,6 +74,24 @@ class HandoffStatus(models.TextChoices):
     WITHDRAWN = "withdrawn", "Withdrawn"
 
 
+class ActionRunStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    SUCCEEDED = "succeeded", "Succeeded"
+    FAILED = "failed", "Failed"
+
+
+class ActionRunExecutionMode(models.TextChoices):
+    LOCAL = "local", "Local"
+    LOCAL_RETRIEVAL = "local_retrieval", "Local + Retrieval"
+    CLOUD = "cloud", "Cloud"
+
+
+class ActionRunInitiatorType(models.TextChoices):
+    HUMAN = "human", "Human"
+    MODEL = "model", "Model"
+    SYSTEM = "system", "System"
+
+
 # ---------------------------------------------------------------------------
 # Initiative
 # ---------------------------------------------------------------------------
@@ -442,6 +460,87 @@ class LinkedOutput(BaseModel):
 
     def __str__(self):
         return f"LinkedOutput → {self.output_content_type} {self.output_object_id}"
+
+
+# ---------------------------------------------------------------------------
+# ActionRun
+# ---------------------------------------------------------------------------
+
+class ActionRun(BaseModel):
+    """
+    Durable execution record for Switchboard tool calls.
+
+    This is the orchestration-layer audit primitive referenced by the
+    Switchboard ADR. It is intentionally generic so it can record both
+    human-initiated and future model-initiated tool execution chains.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    initiative = models.ForeignKey(
+        Initiative,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="action_runs",
+    )
+    session = models.ForeignKey(
+        Session,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="action_runs",
+    )
+
+    tool_name = models.CharField(max_length=120)
+    status = models.CharField(
+        max_length=20,
+        choices=ActionRunStatus.choices,
+        default=ActionRunStatus.PENDING,
+    )
+    execution_mode = models.CharField(
+        max_length=20,
+        choices=ActionRunExecutionMode.choices,
+        default=ActionRunExecutionMode.LOCAL,
+    )
+    service_name = models.CharField(max_length=80, default="switchboard")
+
+    tenant_id = models.UUIDField()
+    tenant_namespace = models.CharField(max_length=255)
+
+    initiator_type = models.CharField(
+        max_length=20,
+        choices=ActionRunInitiatorType.choices,
+    )
+    initiator_id = models.CharField(max_length=255)
+    parent_action = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="child_actions",
+    )
+
+    request_payload = models.JSONField(null=True, blank=True)
+    result_payload = models.JSONField(null=True, blank=True)
+    error_payload = models.JSONField(null=True, blank=True)
+    cloud_approved = models.BooleanField(default=False)
+    approval_payload = models.JSONField(null=True, blank=True)
+
+    started_at = models.DateTimeField(default=timezone.now)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(BaseModel.Meta):
+        ordering = ["-started_at"]
+        indexes = [
+            models.Index(fields=["tenant_namespace", "-started_at"], name="initiatives_ar_tenant_idx"),
+            models.Index(fields=["tool_name", "-started_at"], name="initiatives_ar_tool_idx"),
+            models.Index(fields=["status", "-started_at"], name="initiatives_ar_status_idx"),
+            models.Index(fields=["initiator_type", "initiator_id"], name="initiatives_ar_init_idx"),
+        ]
+
+    def __str__(self):
+        return f"ActionRun [{self.tool_name}] {self.status}"
 
 
 # ---------------------------------------------------------------------------
