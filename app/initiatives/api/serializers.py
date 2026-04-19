@@ -6,8 +6,16 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from initiatives.models import (
-    Artifact, ApertureLog, ApertureLogEntry, ApertureLogEntryKind,
-    DistillationState, Initiative, LinkedOutput, Session,
+    ActionRun,
+    ActionRunStatus,
+    Artifact,
+    ApertureLog,
+    ApertureLogEntry,
+    ApertureLogEntryKind,
+    DistillationState,
+    Initiative,
+    LinkedOutput,
+    Session,
 )
 
 _MOMENTUM_WINDOW_DAYS = 14
@@ -256,6 +264,111 @@ class ApertureLogSerializer(serializers.ModelSerializer):
         model = ApertureLog
         fields = ["id", "initiative", "last_handoff_at", "created_at", "updated_at", "entries"]
         read_only_fields = ["id", "initiative", "last_handoff_at", "created_at", "updated_at"]
+
+
+class ActionRunCreateSerializer(serializers.ModelSerializer):
+    initiative_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
+    session_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
+    parent_action_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
+
+    class Meta:
+        model = ActionRun
+        fields = [
+            "id",
+            "initiative_id",
+            "session_id",
+            "tool_name",
+            "execution_mode",
+            "service_name",
+            "tenant_id",
+            "tenant_namespace",
+            "initiator_type",
+            "initiator_id",
+            "parent_action_id",
+            "request_payload",
+            "cloud_approved",
+            "approval_payload",
+            "status",
+            "started_at",
+            "completed_at",
+        ]
+        read_only_fields = ["id", "status", "started_at", "completed_at"]
+
+    def validate(self, attrs):
+        initiative_id = attrs.pop("initiative_id", None)
+        session_id = attrs.pop("session_id", None)
+        parent_action_id = attrs.pop("parent_action_id", None)
+
+        if initiative_id:
+            try:
+                attrs["initiative"] = Initiative.objects.get(pk=initiative_id)
+            except Initiative.DoesNotExist as exc:
+                raise serializers.ValidationError({"initiative_id": "Initiative not found."}) from exc
+
+        if session_id:
+            try:
+                attrs["session"] = Session.objects.get(pk=session_id)
+            except Session.DoesNotExist as exc:
+                raise serializers.ValidationError({"session_id": "Session not found."}) from exc
+
+        if parent_action_id:
+            try:
+                attrs["parent_action"] = ActionRun.objects.get(pk=parent_action_id)
+            except ActionRun.DoesNotExist as exc:
+                raise serializers.ValidationError({"parent_action_id": "Parent action not found."}) from exc
+
+        session = attrs.get("session")
+        initiative = attrs.get("initiative")
+        if session and initiative and session.initiative_id != initiative.id:
+            raise serializers.ValidationError({"session_id": "Session does not belong to initiative."})
+
+        if session and not initiative:
+            attrs["initiative"] = session.initiative
+
+        return attrs
+
+
+class ActionRunPatchSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ActionRun
+        fields = [
+            "status",
+            "result_payload",
+            "error_payload",
+            "completed_at",
+        ]
+
+    def validate_status(self, value):
+        if value not in {ActionRunStatus.SUCCEEDED, ActionRunStatus.FAILED}:
+            raise serializers.ValidationError("Status must transition to succeeded or failed.")
+        return value
+
+    def validate(self, attrs):
+        instance = self.instance
+        if instance.status != ActionRunStatus.PENDING:
+            raise serializers.ValidationError("Only pending runs may be finalized.")
+
+        status_value = attrs.get("status")
+        if status_value == ActionRunStatus.SUCCEEDED and "error_payload" in attrs and attrs["error_payload"]:
+            raise serializers.ValidationError({"error_payload": "Successful runs cannot include error payload."})
+        if status_value == ActionRunStatus.FAILED and not attrs.get("error_payload"):
+            raise serializers.ValidationError({"error_payload": "Failed runs require error payload."})
+
+        return attrs
+
+    def update(self, instance, validated_data):
+        instance.status = validated_data["status"]
+        instance.result_payload = validated_data.get("result_payload")
+        instance.error_payload = validated_data.get("error_payload")
+        instance.completed_at = validated_data.get("completed_at") or timezone.now()
+        instance.save(update_fields=["status", "result_payload", "error_payload", "completed_at", "updated_at"])
+        return instance
+
+
+class ActionRunSummarySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ActionRun
+        fields = ["id", "status", "started_at", "completed_at"]
 
 
 class DistillationCurateSerializer(serializers.Serializer):
