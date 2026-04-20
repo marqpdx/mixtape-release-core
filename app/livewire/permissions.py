@@ -1,15 +1,22 @@
 from rest_framework.permissions import BasePermission
 
 
-class HasChatWriteScope(BasePermission):
+class _HasServiceScope(BasePermission):
+    required_scope = ""
+
     def has_permission(self, request, view):
         payload = getattr(request, "auth_payload", {}) or {}
         scopes = set(payload.get("scopes", []))
-        return "chat:write" in scopes
+        return self.required_scope in scopes
 
 
-class HasDispatchWriteScope(BasePermission):
-    def has_permission(self, request, view):
-        payload = getattr(request, "auth_payload", {}) or {}
-        scopes = set(payload.get("scopes", []))
-        return "dispatch:write" in scopes
+class HasChatWriteScope(_HasServiceScope):
+    required_scope = "chat:write"
+
+
+class HasDispatchWriteScope(_HasServiceScope):
+    required_scope = "dispatch:write"
+
+
+class HasOrchestrationWriteScope(_HasServiceScope):
+    required_scope = "orchestration:write"

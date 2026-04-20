@@ -39,6 +39,7 @@ from initiatives.api.serializers import (
     SessionSerializer,
 )
 from initiatives.api.permissions import HasOrchestrationWriteScope
+from livewire.auth import InternalServiceAuthentication
 
 logger = logging.getLogger(__name__)
 
@@ -247,6 +248,7 @@ class SessionListCreateView(APIView):
 
 
 class ActionRunListCreateView(APIView):
+    authentication_classes = [InternalServiceAuthentication]
     permission_classes = [HasOrchestrationWriteScope]
 
     def post(self, request):
@@ -259,6 +261,7 @@ class ActionRunListCreateView(APIView):
 
 
 class ActionRunDetailView(APIView):
+    authentication_classes = [InternalServiceAuthentication]
     permission_classes = [HasOrchestrationWriteScope]
 
     def patch(self, request, action_run_id):
