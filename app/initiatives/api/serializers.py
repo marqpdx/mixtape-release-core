@@ -339,16 +339,41 @@ class ActionRunPatchSerializer(serializers.ModelSerializer):
         ]
 
     def validate_status(self, value):
-        if value not in {ActionRunStatus.SUCCEEDED, ActionRunStatus.FAILED}:
-            raise serializers.ValidationError("Status must transition to succeeded or failed.")
+        if value not in {
+            ActionRunStatus.RUNNING,
+            ActionRunStatus.SUCCEEDED,
+            ActionRunStatus.FAILED,
+        }:
+            raise serializers.ValidationError("Status must transition to running, succeeded, or failed.")
         return value
 
     def validate(self, attrs):
         instance = self.instance
-        if instance.status != ActionRunStatus.PENDING:
-            raise serializers.ValidationError("Only pending runs may be finalized.")
-
         status_value = attrs.get("status")
+        allowed_transitions = {
+            ActionRunStatus.PENDING: {
+                ActionRunStatus.RUNNING,
+                ActionRunStatus.SUCCEEDED,
+                ActionRunStatus.FAILED,
+            },
+            ActionRunStatus.RUNNING: {
+                ActionRunStatus.SUCCEEDED,
+                ActionRunStatus.FAILED,
+            },
+        }
+        if status_value not in allowed_transitions.get(instance.status, set()):
+            raise serializers.ValidationError(
+                f"ActionRun may not transition from {instance.status} to {status_value}."
+            )
+
+        if status_value == ActionRunStatus.RUNNING:
+            if attrs.get("result_payload"):
+                raise serializers.ValidationError({"result_payload": "Running runs cannot include result payload."})
+            if attrs.get("error_payload"):
+                raise serializers.ValidationError({"error_payload": "Running runs cannot include error payload."})
+            if attrs.get("completed_at"):
+                raise serializers.ValidationError({"completed_at": "Running runs cannot set completion time."})
+
         if status_value == ActionRunStatus.SUCCEEDED and "error_payload" in attrs and attrs["error_payload"]:
             raise serializers.ValidationError({"error_payload": "Successful runs cannot include error payload."})
         if status_value == ActionRunStatus.FAILED and not attrs.get("error_payload"):
@@ -358,10 +383,23 @@ class ActionRunPatchSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         instance.status = validated_data["status"]
-        instance.result_payload = validated_data.get("result_payload")
-        instance.error_payload = validated_data.get("error_payload")
-        instance.completed_at = validated_data.get("completed_at") or timezone.now()
-        instance.save(update_fields=["status", "result_payload", "error_payload", "completed_at", "updated_at"])
+        update_fields = ["status", "updated_at"]
+
+        if "result_payload" in validated_data:
+            instance.result_payload = validated_data.get("result_payload")
+            update_fields.append("result_payload")
+        if "error_payload" in validated_data:
+            instance.error_payload = validated_data.get("error_payload")
+            update_fields.append("error_payload")
+
+        if validated_data["status"] == ActionRunStatus.RUNNING:
+            instance.completed_at = None
+            update_fields.append("completed_at")
+        else:
+            instance.completed_at = validated_data.get("completed_at") or timezone.now()
+            update_fields.append("completed_at")
+
+        instance.save(update_fields=update_fields)
         return instance
 
 
@@ -369,6 +407,22 @@ class ActionRunSummarySerializer(serializers.ModelSerializer):
     class Meta:
         model = ActionRun
         fields = ["id", "status", "started_at", "completed_at"]
+
+
+class ActionRunDetailSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ActionRun
+        fields = [
+            "id",
+            "tool_name",
+            "status",
+            "execution_mode",
+            "service_name",
+            "started_at",
+            "completed_at",
+            "result_payload",
+            "error_payload",
+        ]
 
 
 class DistillationCurateSerializer(serializers.Serializer):

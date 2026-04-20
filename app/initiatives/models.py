@@ -76,6 +76,7 @@ class HandoffStatus(models.TextChoices):
 
 class ActionRunStatus(models.TextChoices):
     PENDING = "pending", "Pending"
+    RUNNING = "running", "Running"
     SUCCEEDED = "succeeded", "Succeeded"
     FAILED = "failed", "Failed"
 
