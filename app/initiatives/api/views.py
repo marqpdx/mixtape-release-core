@@ -27,6 +27,7 @@ from initiatives.models import (
 )
 from initiatives.api.serializers import (
     ActionRunCreateSerializer,
+    ActionRunDetailSerializer,
     ActionRunPatchSerializer,
     ActionRunSummarySerializer,
     ApertureLogEntrySerializer,
@@ -261,8 +262,22 @@ class ActionRunListCreateView(APIView):
 
 
 class ActionRunDetailView(APIView):
-    authentication_classes = [InternalServiceAuthentication]
-    permission_classes = [HasOrchestrationWriteScope]
+    def get_authenticators(self):
+        if self.request.method == "PATCH":
+            return [InternalServiceAuthentication()]
+        return super().get_authenticators()
+
+    def get_permissions(self):
+        if self.request.method == "PATCH":
+            return [HasOrchestrationWriteScope()]
+        return [permissions.IsAuthenticated()]
+
+    def get(self, request, action_run_id):
+        if not _superuser_required(request):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        action_run = get_object_or_404(ActionRun, pk=action_run_id)
+        return Response(ActionRunDetailSerializer(action_run).data)
 
     def patch(self, request, action_run_id):
         action_run = get_object_or_404(ActionRun, pk=action_run_id)
