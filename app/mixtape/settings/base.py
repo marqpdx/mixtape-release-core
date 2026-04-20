@@ -124,6 +124,7 @@ INSTALLED_APPS = [
     "workbench",       # Workbench curation — WorkingItem assembly and promotion
     "curation",        # Django-native Collection curation layer (CP5)
     "distribution",    # External distribution — Source channels, PublishEvent, ShareRecord
+    "switchboard",     # Switchboard proxy — async tool submission surface
 ]
 
 INSTALLED_APPS += ["rest_framework_simplejwt.token_blacklist"]
@@ -300,6 +301,10 @@ SERVICE_JWT_ISS = os.getenv("SERVICE_JWT_ISS", "mixtape")
 SERVICE_JWT_AUD_IR = os.getenv("SERVICE_JWT_AUD_IR", "django-ir")  # <-- Phase 1.2 audience
 
 STACKROOM_BASE_URL = os.getenv("STACKROOM_BASE_URL", "http://127.0.0.1:8012")
+
+# Switchboard async proxy
+SWITCHBOARD_DEFAULT_TENANT_ID = os.getenv("SWITCHBOARD_DEFAULT_TENANT_ID", "00000000-0000-0000-0000-000000000001")
+SWITCHBOARD_DEFAULT_TENANT_NAMESPACE = os.getenv("SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", "platform:crossroads")
 
 
 # Internationalization
