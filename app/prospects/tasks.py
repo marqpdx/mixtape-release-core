@@ -65,3 +65,39 @@ def parse_prospect_file_task(self, response_id):
         response.processing_error = str(exc)
         response.save(update_fields=["processing_status", "processing_error", "updated_at"])
         raise self.retry(exc=exc)
+
+
+@shared_task(
+    name="prospects.tasks.transcribe_prospect_voice_task",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=30,
+)
+def transcribe_prospect_voice_task(self, response_id):
+    from .models import ProspectResponse
+
+    try:
+        response = ProspectResponse.objects.get(id=response_id)
+    except ProspectResponse.DoesNotExist:
+        logger.warning(f"ProspectResponse {response_id} not found — skipping transcription")
+        return
+
+    response.processing_status = "processing"
+    response.save(update_fields=["processing_status"])
+
+    try:
+        from concord.services.whisper import transcribe_audio
+        result = transcribe_audio(audio_path=response.audio_file.name, model_name="base")
+        response.transcript_text = result.text
+        response.response_text = result.text
+        response.processing_status = "done"
+        response.processing_error = ""
+        response.save(update_fields=[
+            "transcript_text", "response_text", "processing_status", "processing_error", "updated_at"
+        ])
+    except Exception as exc:
+        logger.exception(f"Voice transcription failed for ProspectResponse {response_id}: {exc}")
+        response.processing_status = "failed"
+        response.processing_error = str(exc)
+        response.save(update_fields=["processing_status", "processing_error", "updated_at"])
+        raise self.retry(exc=exc)

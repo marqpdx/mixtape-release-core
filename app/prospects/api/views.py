@@ -201,6 +201,51 @@ class IntakeResponseStatusView(APIView):
         })
 
 
+class IntakeVoiceUploadView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request, token):
+        session = _get_session_by_token(token)
+        if session is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        if session.token_expires_at and session.token_expires_at < timezone.now():
+            return Response({"detail": "This link has expired."}, status=status.HTTP_410_GONE)
+        if session.status == "submitted":
+            return Response({"detail": "Session already submitted."}, status=status.HTTP_400_BAD_REQUEST)
+
+        question_id = request.data.get("question_id")
+        audio_file = request.FILES.get("audio")
+        if not question_id or not audio_file:
+            return Response({"detail": "question_id and audio are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            question = ProspectQuestion.objects.get(id=question_id)
+        except ProspectQuestion.DoesNotExist:
+            return Response({"detail": "Question not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        response = ProspectResponse.objects.create(
+            intake_session=session,
+            question=question,
+            question_prompt_snapshot=question.prompt,
+            kind="voice",
+            audio_file=audio_file,
+            processing_status="pending",
+        )
+
+        if session.status == "draft":
+            session.status = "in_progress"
+            session.started_at = timezone.now()
+            session.save(update_fields=["status", "started_at"])
+
+        from ..tasks import transcribe_prospect_voice_task
+        transcribe_prospect_voice_task.delay(str(response.id))
+
+        return Response(
+            {"id": str(response.id), "processing_status": "pending"},
+            status=status.HTTP_201_CREATED,
+        )
+
+
 # ============================================================================
 # Internal staff API (superuser only)
 # ============================================================================

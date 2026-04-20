@@ -29,11 +29,15 @@
     .badge-failed { background: #f8d7da; color: #842029; }
     .file-preview { font-size: 0.8rem; color: #555; max-height: 60px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 360px; }
 
-    .upload-btn-row { display: flex; align-items: center; gap: 10px; }
+    .upload-btn-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .btn-upload { display: inline-block; padding: 7px 16px; background: #fff; border: 1px solid #ccc; border-radius: 6px; font-size: 0.875rem; cursor: pointer; }
     .btn-upload:hover { background: #f5f5f5; }
     input[type="file"] { display: none; }
     .upload-hint { font-size: 0.8rem; color: #888; }
+    .btn-record { padding: 7px 16px; background: #fff; border: 1px solid #ccc; border-radius: 6px; font-size: 0.875rem; cursor: pointer; }
+    .btn-record:hover { background: #f5f5f5; }
+    .btn-record.recording { background: #f8d7da; border-color: #842029; color: #842029; }
+    .record-timer { font-size: 0.8rem; color: #888; min-width: 40px; }
 
     .submit-area { margin-top: 48px; }
     .btn-submit { padding: 14px 40px; background: #1a1a1a; color: #fff; border: none; border-radius: 6px; font-size: 1rem; font-weight: 500; cursor: pointer; }
@@ -66,6 +70,8 @@
           <label class="btn-upload" for="file-input-{{ question.id }}">+ Attach file</label>
           <input type="file" id="file-input-{{ question.id }}" accept=".md,.pdf,.docx,.doc" data-question-id="{{ question.id }}">
           <span class="upload-hint">md · pdf · docx</span>
+          <button class="btn-record" type="button" data-question-id="{{ question.id }}" id="rec-btn-{{ question.id }}">&#9679; Record voice</button>
+          <span class="record-timer" id="rec-timer-{{ question.id }}"></span>
         </div>
       </div>
     </div>
@@ -207,6 +213,89 @@
         input.value = "";
       });
     });
+
+    // ---- Voice recording ----
+    const VOICE_URL = `/api/intake/${TOKEN}/voices/`;
+    const activeRecorders = {};
+
+    document.querySelectorAll(".btn-record[data-question-id]").forEach(function(btn) {
+      const qid = btn.dataset.questionId;
+      let mediaRecorder = null;
+      let chunks = [];
+      let timerInterval = null;
+      let seconds = 0;
+
+      btn.addEventListener("click", function() {
+        if (activeRecorders[qid]) {
+          // Stop recording
+          mediaRecorder.stop();
+        } else {
+          // Start recording
+          navigator.mediaDevices.getUserMedia({ audio: true })
+            .then(function(stream) {
+              chunks = [];
+              seconds = 0;
+              const timerEl = document.getElementById("rec-timer-" + qid);
+
+              const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/mp4";
+              mediaRecorder = new MediaRecorder(stream, { mimeType });
+              activeRecorders[qid] = mediaRecorder;
+              btn.textContent = "⏹ Stop";
+              btn.classList.add("recording");
+
+              timerInterval = setInterval(function() {
+                seconds++;
+                if (timerEl) timerEl.textContent = formatTime(seconds);
+              }, 1000);
+
+              mediaRecorder.ondataavailable = function(e) {
+                if (e.data.size > 0) chunks.push(e.data);
+              };
+
+              mediaRecorder.onstop = function() {
+                clearInterval(timerInterval);
+                stream.getTracks().forEach(function(t) { t.stop(); });
+                btn.textContent = "● Record voice";
+                btn.classList.remove("recording");
+                if (timerEl) timerEl.textContent = "";
+                delete activeRecorders[qid];
+
+                const ext = mimeType === "audio/webm" ? "webm" : "m4a";
+                const blob = new Blob(chunks, { type: mimeType });
+                const file = new File([blob], `voice-${Date.now()}.${ext}`, { type: mimeType });
+
+                const formData = new FormData();
+                formData.append("question_id", qid);
+                formData.append("audio", file);
+
+                fetch(VOICE_URL, {
+                  method: "POST",
+                  headers: { "X-CSRFToken": getCookie("csrftoken") },
+                  body: formData,
+                })
+                  .then(function(r) { return r.json(); })
+                  .then(function(data) {
+                    addFileEntry(qid, data.id, `Voice note (${formatTime(seconds)})`, data.processing_status, "");
+                  })
+                  .catch(function() {
+                    alert("Voice upload failed. Please try again.");
+                  });
+              };
+
+              mediaRecorder.start();
+            })
+            .catch(function() {
+              alert("Microphone access denied. Please allow microphone access and try again.");
+            });
+        }
+      });
+    });
+
+    function formatTime(s) {
+      const m = Math.floor(s / 60);
+      const sec = s % 60;
+      return m + ":" + (sec < 10 ? "0" : "") + sec;
+    }
 
     // ---- Submit ----
     document.getElementById("btn-submit").addEventListener("click", function() {

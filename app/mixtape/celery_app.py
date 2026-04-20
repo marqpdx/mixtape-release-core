@@ -123,9 +123,12 @@ app.conf.task_routes = {
         "queue": "commons", "routing_key": "commons"
     },
 
-    # --- Prospects: file parsing ---
+    # --- Prospects: file parsing + voice transcription ---
     "prospects.tasks.parse_prospect_file_task": {
         "queue": "commons", "routing_key": "commons"
+    },
+    "prospects.tasks.transcribe_prospect_voice_task": {
+        "queue": "transcription", "routing_key": "transcription"
     },
 
     # --- Initiatives: AI-backed quality scan and rolling summary ---
