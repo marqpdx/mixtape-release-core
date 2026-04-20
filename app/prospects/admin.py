@@ -36,7 +36,7 @@ class ProspectQuestionAdmin(admin.ModelAdmin):
 
 @admin.register(ProspectResponse)
 class ProspectResponseAdmin(admin.ModelAdmin):
-    list_display = ("intake_session", "question", "response_mode", "created_at")
+    list_display = ("intake_session", "question", "kind", "processing_status", "created_at")
     raw_id_fields = ("intake_session", "question")
 
 

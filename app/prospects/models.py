@@ -111,18 +111,36 @@ class ProspectQuestion(models.Model):
 
 
 class ProspectResponse(models.Model):
-    MODE_CHOICES = [
+    KIND_CHOICES = [
         ("typed", "Typed"),
+        ("file", "File"),
         ("voice", "Voice"),
-        ("mixed", "Mixed"),
+    ]
+    FILE_KIND_CHOICES = [
+        ("md", "Markdown"),
+        ("pdf", "PDF"),
+        ("docx", "Word Document"),
+        ("other", "Other"),
+    ]
+    PROCESSING_STATUS_CHOICES = [
+        ("done", "Done"),
+        ("pending", "Pending"),
+        ("processing", "Processing"),
+        ("failed", "Failed"),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     intake_session = models.ForeignKey(ProspectIntakeSession, on_delete=models.CASCADE, related_name="responses")
     question = models.ForeignKey(ProspectQuestion, on_delete=models.CASCADE, related_name="responses")
     question_prompt_snapshot = models.TextField()
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES, default="typed")
     response_text = models.TextField(blank=True)
-    response_mode = models.CharField(max_length=20, choices=MODE_CHOICES, default="typed")
+    source_file = models.FileField(upload_to="prospects/intake/", null=True, blank=True)
+    file_kind = models.CharField(max_length=10, choices=FILE_KIND_CHOICES, blank=True)
+    processing_status = models.CharField(
+        max_length=15, choices=PROCESSING_STATUS_CHOICES, default="done"
+    )
+    processing_error = models.TextField(blank=True)
     human_refined_text = models.TextField(null=True, blank=True)
     ai_summary_text = models.TextField(null=True, blank=True)
     transcript_text = models.TextField(null=True, blank=True)
@@ -130,11 +148,8 @@ class ProspectResponse(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    class Meta:
-        unique_together = [("intake_session", "question")]
-
     def __str__(self):
-        return f"{self.intake_session} — Q{self.question.order_index}"
+        return f"{self.intake_session} — Q{self.question.order_index} ({self.kind})"
 
 
 class ProspectInsight(models.Model):
