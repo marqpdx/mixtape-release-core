@@ -1,8 +1,14 @@
+from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
 from django.utils.text import slugify
-from rest_framework import generics, permissions, status
+from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+
+class IsSuperUser(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated and request.user.is_superuser)
 
 from ..models import (
     BusinessProspect,
@@ -120,17 +126,43 @@ class IntakeSubmitView(APIView):
 
 
 # ============================================================================
-# Internal staff API (IsAdminUser)
+# Internal staff API (superuser only)
 # ============================================================================
 
+def _resolve_sponsor_group(group_slug):
+    from groups.models import Group
+    try:
+        group = Group.objects.get(slug=group_slug)
+    except Group.DoesNotExist:
+        return None, None
+    ct = ContentType.objects.get_for_model(Group)
+    return ct, group.id
+
+
 class ProspectListCreateView(APIView):
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsSuperUser]
 
     def get(self, request):
-        prospects = BusinessProspect.objects.all().order_by("-created_at")
-        return Response(BusinessProspectSerializer(prospects, many=True).data)
+        group_slug = request.query_params.get("group")
+        qs = BusinessProspect.objects.all().order_by("-created_at")
+        if group_slug:
+            from groups.models import Group
+            ct = ContentType.objects.get_for_model(Group)
+            try:
+                group = Group.objects.get(slug=group_slug)
+                qs = qs.filter(sponsor_content_type=ct, sponsor_object_id=group.id)
+            except Group.DoesNotExist:
+                return Response({"detail": "Group not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(BusinessProspectSerializer(qs, many=True).data)
 
     def post(self, request):
+        group_slug = request.data.get("sponsor_group_slug")
+        if not group_slug:
+            return Response({"detail": "sponsor_group_slug is required."}, status=status.HTTP_400_BAD_REQUEST)
+        ct, group_id = _resolve_sponsor_group(group_slug)
+        if ct is None:
+            return Response({"detail": "Sponsor group not found."}, status=status.HTTP_404_NOT_FOUND)
+
         serializer = BusinessProspectSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -141,12 +173,12 @@ class ProspectListCreateView(APIView):
         while BusinessProspect.objects.filter(slug=slug).exists():
             slug = f"{base_slug}-{counter}"
             counter += 1
-        prospect = serializer.save(slug=slug)
+        prospect = serializer.save(slug=slug, sponsor_content_type=ct, sponsor_object_id=group_id)
         return Response(BusinessProspectSerializer(prospect).data, status=status.HTTP_201_CREATED)
 
 
 class ProspectDetailView(APIView):
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsSuperUser]
 
     def _get(self, slug):
         try:
@@ -172,7 +204,7 @@ class ProspectDetailView(APIView):
 
 
 class IntakeSessionCreateView(APIView):
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsSuperUser]
 
     def post(self, request, slug):
         try:
@@ -192,7 +224,7 @@ class IntakeSessionCreateView(APIView):
 
 
 class IntakeSessionDetailInternalView(APIView):
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsSuperUser]
 
     def get(self, request, slug, session_id):
         try:
@@ -205,7 +237,7 @@ class IntakeSessionDetailInternalView(APIView):
 
 
 class ResponseRefinementView(APIView):
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsSuperUser]
 
     def patch(self, request, slug, session_id, response_id):
         try:
@@ -220,7 +252,7 @@ class ResponseRefinementView(APIView):
 
 
 class InsightCreateView(APIView):
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsSuperUser]
 
     def post(self, request, slug, session_id):
         try:
@@ -236,7 +268,7 @@ class InsightCreateView(APIView):
 
 
 class NoteCreateView(APIView):
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsSuperUser]
 
     def post(self, request, slug):
         try:
