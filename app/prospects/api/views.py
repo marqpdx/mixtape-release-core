@@ -327,11 +327,24 @@ class ProspectDetailView(APIView):
 class IntakeSessionCreateView(APIView):
     permission_classes = [IsSuperUser]
 
+    def get(self, request, slug):
+        try:
+            prospect = BusinessProspect.objects.get(slug=slug)
+        except BusinessProspect.DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        sessions = ProspectIntakeSession.objects.filter(prospect=prospect).order_by("-created_at")
+        return Response(ProspectIntakeSessionInternalSerializer(sessions, many=True).data)
+
     def post(self, request, slug):
         try:
             prospect = BusinessProspect.objects.get(slug=slug)
         except BusinessProspect.DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        active = ProspectIntakeSession.objects.filter(
+            prospect=prospect, status__in=["draft", "in_progress"]
+        ).first()
+
         session = ProspectIntakeSession.objects.create(
             prospect=prospect,
             mode=request.data.get("mode", "pre_meeting"),
@@ -341,6 +354,8 @@ class IntakeSessionCreateView(APIView):
         intake_url = request.build_absolute_uri(f"/intake/{session.resume_token}/")
         data = ProspectIntakeSessionInternalSerializer(session).data
         data["intake_url"] = intake_url
+        if active:
+            data["warning"] = f"An active session already exists (status: {active.status}). Created a new one anyway."
         return Response(data, status=status.HTTP_201_CREATED)
 
 
