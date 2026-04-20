@@ -9,6 +9,7 @@ from .views import (
     IntakeSessionDetailInternalView,
     IntakeSessionDetailView,
     IntakeSubmitView,
+    IntakeVoiceUploadView,
     NoteCreateView,
     ProspectDetailView,
     ProspectListCreateView,
@@ -20,6 +21,7 @@ intake_patterns = [
     path("<uuid:token>/", IntakeSessionDetailView.as_view()),
     path("<uuid:token>/responses/", IntakeResponseSaveView.as_view()),
     path("<uuid:token>/files/", IntakeFileUploadView.as_view()),
+    path("<uuid:token>/voices/", IntakeVoiceUploadView.as_view()),
     path("<uuid:token>/responses/<uuid:response_id>/status/", IntakeResponseStatusView.as_view()),
     path("<uuid:token>/submit/", IntakeSubmitView.as_view()),
 ]

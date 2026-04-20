@@ -33,16 +33,24 @@ class IntakeQuestionsView(View):
         questions = ProspectQuestion.objects.filter(is_active=True).order_by("order_index")
         all_responses = session.responses.select_related("question").all()
         typed = {str(r.question_id): r.response_text for r in all_responses if r.kind == "typed"}
-        files = [
-            {
-                "id": str(r.id),
-                "question_id": str(r.question_id),
-                "file_name": r.source_file.name.split("/")[-1] if r.source_file else "Attached file",
-                "processing_status": r.processing_status,
-                "response_text": r.response_text,
-            }
-            for r in all_responses if r.kind == "file"
-        ]
+        files = []
+        for r in all_responses:
+            if r.kind == "file":
+                files.append({
+                    "id": str(r.id),
+                    "question_id": str(r.question_id),
+                    "file_name": r.source_file.name.split("/")[-1] if r.source_file else "Attached file",
+                    "processing_status": r.processing_status,
+                    "response_text": r.response_text,
+                })
+            elif r.kind == "voice":
+                files.append({
+                    "id": str(r.id),
+                    "question_id": str(r.question_id),
+                    "file_name": r.audio_file.name.split("/")[-1] if r.audio_file else "Voice note",
+                    "processing_status": r.processing_status,
+                    "response_text": r.response_text,
+                })
         return render(request, "prospects/intake_questions.html", {
             "session": session,
             "questions": questions,
