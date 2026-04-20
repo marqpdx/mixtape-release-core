@@ -123,6 +123,11 @@ app.conf.task_routes = {
         "queue": "commons", "routing_key": "commons"
     },
 
+    # --- Prospects: file parsing ---
+    "prospects.tasks.parse_prospect_file_task": {
+        "queue": "commons", "routing_key": "commons"
+    },
+
     # --- Initiatives: AI-backed quality scan and rolling summary ---
     "initiatives.tasks.run_artifact_quality_scan": {
         "queue": "commons", "routing_key": "commons"

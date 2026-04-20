@@ -12,7 +12,10 @@ class ProspectQuestionSerializer(serializers.ModelSerializer):
 class ProspectResponseSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProspectResponse
-        fields = ["id", "question_id", "question_prompt_snapshot", "response_text", "response_mode"]
+        fields = [
+            "id", "question_id", "question_prompt_snapshot",
+            "kind", "response_text", "processing_status", "processing_error",
+        ]
 
 
 class ProspectIntakeSessionSerializer(serializers.ModelSerializer):

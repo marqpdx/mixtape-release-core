@@ -1,4 +1,5 @@
 from django.contrib.contenttypes.models import ContentType
+from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
 from rest_framework import permissions, status
@@ -75,10 +76,11 @@ class IntakeResponseSaveView(APIView):
         response, created = ProspectResponse.objects.update_or_create(
             intake_session=session,
             question=question,
+            kind="typed",
             defaults={
                 "question_prompt_snapshot": question.prompt,
                 "response_text": response_text,
-                "response_mode": "typed",
+                "processing_status": "done",
             },
         )
 
@@ -103,13 +105,16 @@ class IntakeSubmitView(APIView):
             return Response({"detail": "Already submitted."}, status=status.HTTP_400_BAD_REQUEST)
 
         active_questions = ProspectQuestion.objects.filter(is_active=True)
-        answered_ids = set(
+        # A question is satisfied by any response with text OR a file still processing
+        satisfied_ids = set(
             ProspectResponse.objects.filter(
                 intake_session=session,
-                response_text__gt="",
+            ).filter(
+                models.Q(response_text__gt="") |
+                models.Q(processing_status__in=["pending", "processing"])
             ).values_list("question_id", flat=True)
         )
-        unanswered = [str(q.id) for q in active_questions if q.id not in answered_ids]
+        unanswered = [str(q.id) for q in active_questions if q.id not in satisfied_ids]
         if unanswered:
             return Response(
                 {"detail": "All questions must be answered.", "unanswered_question_ids": unanswered},
@@ -123,6 +128,77 @@ class IntakeSubmitView(APIView):
         intake_submitted.send(sender=ProspectIntakeSession, intake_session=session)
 
         return Response({"detail": "Submitted successfully."})
+
+
+class IntakeFileUploadView(APIView):
+    permission_classes = [permissions.AllowAny]
+    parser_classes_override = None  # uses default parsers including MultiPartParser
+
+    def post(self, request, token):
+        from rest_framework.parsers import MultiPartParser
+        session = _get_session_by_token(token)
+        if session is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        if session.token_expires_at and session.token_expires_at < timezone.now():
+            return Response({"detail": "This link has expired."}, status=status.HTTP_410_GONE)
+        if session.status == "submitted":
+            return Response({"detail": "Session already submitted."}, status=status.HTTP_400_BAD_REQUEST)
+
+        question_id = request.data.get("question_id")
+        uploaded_file = request.FILES.get("file")
+        if not question_id or not uploaded_file:
+            return Response({"detail": "question_id and file are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            question = ProspectQuestion.objects.get(id=question_id)
+        except ProspectQuestion.DoesNotExist:
+            return Response({"detail": "Question not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        ext = uploaded_file.name.rsplit(".", 1)[-1].lower() if "." in uploaded_file.name else ""
+        file_kind_map = {"md": "md", "pdf": "pdf", "docx": "docx"}
+        file_kind = file_kind_map.get(ext, "other")
+
+        response = ProspectResponse.objects.create(
+            intake_session=session,
+            question=question,
+            question_prompt_snapshot=question.prompt,
+            kind="file",
+            source_file=uploaded_file,
+            file_kind=file_kind,
+            processing_status="pending",
+        )
+
+        if session.status == "draft":
+            session.status = "in_progress"
+            session.started_at = timezone.now()
+            session.save(update_fields=["status", "started_at"])
+
+        from ..tasks import parse_prospect_file_task
+        parse_prospect_file_task.delay(str(response.id))
+
+        return Response(
+            {"id": str(response.id), "processing_status": "pending", "file_name": uploaded_file.name},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class IntakeResponseStatusView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, token, response_id):
+        session = _get_session_by_token(token)
+        if session is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            response = ProspectResponse.objects.get(id=response_id, intake_session=session)
+        except ProspectResponse.DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({
+            "id": str(response.id),
+            "processing_status": response.processing_status,
+            "response_text": response.response_text if response.processing_status == "done" else "",
+            "processing_error": response.processing_error if response.processing_status == "failed" else "",
+        })
 
 
 # ============================================================================

@@ -9,12 +9,32 @@
     body { font-family: system-ui, sans-serif; background: #f9f9f7; color: #1a1a1a; }
     .container { max-width: 680px; margin: 48px auto; padding: 0 24px 80px; }
     h2 { font-size: 1.5rem; font-weight: 600; margin-bottom: 32px; }
-    .question { margin-bottom: 40px; }
-    .question label { display: block; font-size: 1.05rem; font-weight: 600; margin-bottom: 6px; }
-    .question .help { font-size: 0.875rem; color: #666; margin-bottom: 10px; }
-    .question textarea { width: 100%; min-height: 120px; padding: 12px; font-size: 0.95rem; font-family: inherit; border: 1px solid #ccc; border-radius: 6px; resize: vertical; }
-    .question textarea:focus { outline: none; border-color: #1a1a1a; }
+    .question { margin-bottom: 48px; border-top: 1px solid #e5e5e5; padding-top: 28px; }
+    .question:first-of-type { border-top: none; }
+    .question-label { font-size: 1.05rem; font-weight: 600; margin-bottom: 6px; }
+    .question-help { font-size: 0.875rem; color: #666; margin-bottom: 14px; }
+    textarea { width: 100%; min-height: 120px; padding: 12px; font-size: 0.95rem; font-family: inherit; border: 1px solid #ccc; border-radius: 6px; resize: vertical; }
+    textarea:focus { outline: none; border-color: #1a1a1a; }
     .save-status { font-size: 0.8rem; color: #888; margin-top: 4px; min-height: 18px; }
+
+    .file-section { margin-top: 14px; }
+    .file-section-label { font-size: 0.85rem; font-weight: 500; color: #555; margin-bottom: 8px; }
+    .file-list { list-style: none; margin-bottom: 10px; }
+    .file-list li { display: flex; align-items: center; gap: 10px; font-size: 0.875rem; padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
+    .file-list li:last-child { border-bottom: none; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
+    .badge-pending { background: #fff3cd; color: #856404; }
+    .badge-processing { background: #cfe2ff; color: #084298; }
+    .badge-done { background: #d1e7dd; color: #0a3622; }
+    .badge-failed { background: #f8d7da; color: #842029; }
+    .file-preview { font-size: 0.8rem; color: #555; max-height: 60px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 360px; }
+
+    .upload-btn-row { display: flex; align-items: center; gap: 10px; }
+    .btn-upload { display: inline-block; padding: 7px 16px; background: #fff; border: 1px solid #ccc; border-radius: 6px; font-size: 0.875rem; cursor: pointer; }
+    .btn-upload:hover { background: #f5f5f5; }
+    input[type="file"] { display: none; }
+    .upload-hint { font-size: 0.8rem; color: #888; }
+
     .submit-area { margin-top: 48px; }
     .btn-submit { padding: 14px 40px; background: #1a1a1a; color: #fff; border: none; border-radius: 6px; font-size: 1rem; font-weight: 500; cursor: pointer; }
     .btn-submit:hover { background: #333; }
@@ -28,16 +48,26 @@
 
     {% for question in questions %}
     <div class="question" data-question-id="{{ question.id }}">
-      <label>{{ forloop.counter }}. {{ question.prompt }}</label>
+      <div class="question-label">{{ forloop.counter }}. {{ question.prompt }}</div>
       {% if question.help_text %}
-      <div class="help">{{ question.help_text }}</div>
+      <div class="question-help">{{ question.help_text }}</div>
       {% endif %}
+
       <textarea
-        name="response_{{ question.id }}"
         data-question-id="{{ question.id }}"
-        placeholder="Your answer…"
-      >{{ existing_responses|default_if_none:""|dictsort:question.id }}</textarea>
-      <div class="save-status" id="status-{{ question.id }}"></div>
+        placeholder="Type your answer here…"
+      ></textarea>
+      <div class="save-status" id="text-status-{{ question.id }}"></div>
+
+      <div class="file-section">
+        <div class="file-section-label">Or attach a file (md, pdf, docx)</div>
+        <ul class="file-list" id="file-list-{{ question.id }}"></ul>
+        <div class="upload-btn-row">
+          <label class="btn-upload" for="file-input-{{ question.id }}">+ Attach file</label>
+          <input type="file" id="file-input-{{ question.id }}" accept=".md,.pdf,.docx,.doc" data-question-id="{{ question.id }}">
+          <span class="upload-hint">md · pdf · docx</span>
+        </div>
+      </div>
     </div>
     {% endfor %}
 
@@ -50,56 +80,152 @@
   <script>
     const TOKEN = "{{ token }}";
     const SAVE_URL = `/api/intake/${TOKEN}/responses/`;
+    const FILE_URL = `/api/intake/${TOKEN}/files/`;
     const SUBMIT_URL = `/api/intake/${TOKEN}/submit/`;
     const SUBMITTED_URL = `/intake/${TOKEN}/submitted/`;
 
-    const existingResponses = {{ existing_responses|default:"{}" }};
-
+    // Load existing typed responses
+    const existingResponses = {{ existing_responses_json|safe }};
     document.querySelectorAll("textarea[data-question-id]").forEach(function(ta) {
       const qid = ta.dataset.questionId;
-      if (existingResponses[qid]) {
-        ta.value = existingResponses[qid];
-      }
+      if (existingResponses[qid]) ta.value = existingResponses[qid];
     });
 
-    let saveTimers = {};
+    // Load existing file responses
+    const existingFiles = {{ existing_files_json|safe }};
+    existingFiles.forEach(function(f) {
+      addFileEntry(f.question_id, f.id, f.file_name || "Attached file", f.processing_status, f.response_text);
+    });
 
-    function setStatus(qid, msg) {
-      const el = document.getElementById("status-" + qid);
+    // ---- Typed autosave ----
+    let saveTimers = {};
+    function setTextStatus(qid, msg) {
+      const el = document.getElementById("text-status-" + qid);
       if (el) el.textContent = msg;
     }
 
-    function saveResponse(qid, text) {
-      setStatus(qid, "Saving…");
+    function saveTyped(qid, text) {
+      setTextStatus(qid, "Saving…");
       fetch(SAVE_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-CSRFToken": getCookie("csrftoken") },
         body: JSON.stringify({ question_id: qid, response_text: text }),
       })
-        .then(function(r) { return r.ok ? setStatus(qid, "Saved") : setStatus(qid, "Save failed"); })
-        .catch(function() { setStatus(qid, "Save failed"); });
+        .then(function(r) { r.ok ? setTextStatus(qid, "Saved") : setTextStatus(qid, "Save failed"); })
+        .catch(function() { setTextStatus(qid, "Save failed"); });
     }
 
     document.querySelectorAll("textarea[data-question-id]").forEach(function(ta) {
       ta.addEventListener("input", function() {
         const qid = ta.dataset.questionId;
         clearTimeout(saveTimers[qid]);
-        setStatus(qid, "");
-        saveTimers[qid] = setTimeout(function() { saveResponse(qid, ta.value); }, 2000);
+        setTextStatus(qid, "");
+        saveTimers[qid] = setTimeout(function() { saveTyped(qid, ta.value); }, 2000);
       });
     });
 
+    // ---- File upload ----
+    const pollIntervals = {};
+
+    function addFileEntry(qid, responseId, fileName, processingStatus, responseText) {
+      const list = document.getElementById("file-list-" + qid);
+      if (!list) return;
+
+      const existing = document.getElementById("file-entry-" + responseId);
+      if (existing) {
+        updateFileEntry(responseId, processingStatus, responseText);
+        return;
+      }
+
+      const li = document.createElement("li");
+      li.id = "file-entry-" + responseId;
+      li.innerHTML = `
+        <span class="badge badge-${processingStatus}" id="file-badge-${responseId}">${badgeLabel(processingStatus)}</span>
+        <span>${fileName}</span>
+        <span class="file-preview" id="file-preview-${responseId}">${responseText ? responseText.slice(0, 120) : ""}</span>
+      `;
+      list.appendChild(li);
+
+      if (processingStatus === "pending" || processingStatus === "processing") {
+        startPolling(qid, responseId);
+      }
+    }
+
+    function updateFileEntry(responseId, processingStatus, responseText) {
+      const badge = document.getElementById("file-badge-" + responseId);
+      if (badge) {
+        badge.className = "badge badge-" + processingStatus;
+        badge.textContent = badgeLabel(processingStatus);
+      }
+      const preview = document.getElementById("file-preview-" + responseId);
+      if (preview && responseText) preview.textContent = responseText.slice(0, 120);
+    }
+
+    function badgeLabel(s) {
+      return { pending: "Processing…", processing: "Processing…", done: "Ready", failed: "Failed" }[s] || s;
+    }
+
+    function startPolling(qid, responseId) {
+      if (pollIntervals[responseId]) return;
+      pollIntervals[responseId] = setInterval(function() {
+        fetch(`/api/intake/${TOKEN}/responses/${responseId}/status/`)
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            updateFileEntry(responseId, data.processing_status, data.response_text);
+            if (data.processing_status === "done" || data.processing_status === "failed") {
+              clearInterval(pollIntervals[responseId]);
+              delete pollIntervals[responseId];
+            }
+          })
+          .catch(function() {});
+      }, 2000);
+    }
+
+    document.querySelectorAll("input[type='file']").forEach(function(input) {
+      input.addEventListener("change", function() {
+        const file = input.files[0];
+        if (!file) return;
+        const qid = input.dataset.questionId;
+
+        const formData = new FormData();
+        formData.append("question_id", qid);
+        formData.append("file", file);
+
+        fetch(FILE_URL, {
+          method: "POST",
+          headers: { "X-CSRFToken": getCookie("csrftoken") },
+          body: formData,
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            addFileEntry(qid, data.id, file.name, data.processing_status, "");
+          })
+          .catch(function() {
+            alert("Upload failed. Please try again.");
+          });
+
+        input.value = "";
+      });
+    });
+
+    // ---- Submit ----
     document.getElementById("btn-submit").addEventListener("click", function() {
       const btn = this;
       btn.disabled = true;
       document.getElementById("error-msg").style.display = "none";
 
-      const saves = [];
+      const pendingSaves = [];
       document.querySelectorAll("textarea[data-question-id]").forEach(function(ta) {
-        saves.push(saveResponse(ta.dataset.questionId, ta.value));
+        pendingSaves.push(
+          fetch(SAVE_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-CSRFToken": getCookie("csrftoken") },
+            body: JSON.stringify({ question_id: ta.dataset.questionId, response_text: ta.value }),
+          }).catch(function() {})
+        );
       });
 
-      Promise.allSettled(saves).then(function() {
+      Promise.allSettled(pendingSaves).then(function() {
         fetch(SUBMIT_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-CSRFToken": getCookie("csrftoken") },

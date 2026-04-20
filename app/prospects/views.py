@@ -1,8 +1,10 @@
+import json
+
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 from django.views import View
 
-from .models import ProspectIntakeSession, ProspectQuestion
+from .models import ProspectIntakeSession, ProspectQuestion, ProspectResponse
 
 
 def _get_session_or_410(token):
@@ -29,11 +31,23 @@ class IntakeQuestionsView(View):
             from django.shortcuts import redirect
             return redirect("intake-submitted", token=token)
         questions = ProspectQuestion.objects.filter(is_active=True).order_by("order_index")
-        existing = {str(r.question_id): r.response_text for r in session.responses.all()}
+        all_responses = session.responses.select_related("question").all()
+        typed = {str(r.question_id): r.response_text for r in all_responses if r.kind == "typed"}
+        files = [
+            {
+                "id": str(r.id),
+                "question_id": str(r.question_id),
+                "file_name": r.source_file.name.split("/")[-1] if r.source_file else "Attached file",
+                "processing_status": r.processing_status,
+                "response_text": r.response_text,
+            }
+            for r in all_responses if r.kind == "file"
+        ]
         return render(request, "prospects/intake_questions.html", {
             "session": session,
             "questions": questions,
-            "existing_responses": existing,
+            "existing_responses_json": json.dumps(typed),
+            "existing_files_json": json.dumps(files),
             "token": str(token),
         })
 
