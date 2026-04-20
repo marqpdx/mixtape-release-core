@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Intake — {{ session.prospect.name }}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f9f9f7; color: #1a1a1a; }
+    .container { max-width: 680px; margin: 48px auto; padding: 0 24px 80px; }
+    h2 { font-size: 1.5rem; font-weight: 600; margin-bottom: 32px; }
+    .question { margin-bottom: 40px; }
+    .question label { display: block; font-size: 1.05rem; font-weight: 600; margin-bottom: 6px; }
+    .question .help { font-size: 0.875rem; color: #666; margin-bottom: 10px; }
+    .question textarea { width: 100%; min-height: 120px; padding: 12px; font-size: 0.95rem; font-family: inherit; border: 1px solid #ccc; border-radius: 6px; resize: vertical; }
+    .question textarea:focus { outline: none; border-color: #1a1a1a; }
+    .save-status { font-size: 0.8rem; color: #888; margin-top: 4px; min-height: 18px; }
+    .submit-area { margin-top: 48px; }
+    .btn-submit { padding: 14px 40px; background: #1a1a1a; color: #fff; border: none; border-radius: 6px; font-size: 1rem; font-weight: 500; cursor: pointer; }
+    .btn-submit:hover { background: #333; }
+    .btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+    .error-msg { color: #c00; font-size: 0.9rem; margin-top: 16px; display: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Tell us about {{ session.prospect.name }}</h2>
+
+    {% for question in questions %}
+    <div class="question" data-question-id="{{ question.id }}">
+      <label>{{ forloop.counter }}. {{ question.prompt }}</label>
+      {% if question.help_text %}
+      <div class="help">{{ question.help_text }}</div>
+      {% endif %}
+      <textarea
+        name="response_{{ question.id }}"
+        data-question-id="{{ question.id }}"
+        placeholder="Your answer…"
+      >{{ existing_responses|default_if_none:""|dictsort:question.id }}</textarea>
+      <div class="save-status" id="status-{{ question.id }}"></div>
+    </div>
+    {% endfor %}
+
+    <div class="submit-area">
+      <button class="btn-submit" id="btn-submit">Submit</button>
+      <div class="error-msg" id="error-msg"></div>
+    </div>
+  </div>
+
+  <script>
+    const TOKEN = "{{ token }}";
+    const SAVE_URL = `/api/intake/${TOKEN}/responses/`;
+    const SUBMIT_URL = `/api/intake/${TOKEN}/submit/`;
+    const SUBMITTED_URL = `/intake/${TOKEN}/submitted/`;
+
+    const existingResponses = {{ existing_responses|default:"{}" }};
+
+    document.querySelectorAll("textarea[data-question-id]").forEach(function(ta) {
+      const qid = ta.dataset.questionId;
+      if (existingResponses[qid]) {
+        ta.value = existingResponses[qid];
+      }
+    });
+
+    let saveTimers = {};
+
+    function setStatus(qid, msg) {
+      const el = document.getElementById("status-" + qid);
+      if (el) el.textContent = msg;
+    }
+
+    function saveResponse(qid, text) {
+      setStatus(qid, "Saving…");
+      fetch(SAVE_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": getCookie("csrftoken") },
+        body: JSON.stringify({ question_id: qid, response_text: text }),
+      })
+        .then(function(r) { return r.ok ? setStatus(qid, "Saved") : setStatus(qid, "Save failed"); })
+        .catch(function() { setStatus(qid, "Save failed"); });
+    }
+
+    document.querySelectorAll("textarea[data-question-id]").forEach(function(ta) {
+      ta.addEventListener("input", function() {
+        const qid = ta.dataset.questionId;
+        clearTimeout(saveTimers[qid]);
+        setStatus(qid, "");
+        saveTimers[qid] = setTimeout(function() { saveResponse(qid, ta.value); }, 2000);
+      });
+    });
+
+    document.getElementById("btn-submit").addEventListener("click", function() {
+      const btn = this;
+      btn.disabled = true;
+      document.getElementById("error-msg").style.display = "none";
+
+      const saves = [];
+      document.querySelectorAll("textarea[data-question-id]").forEach(function(ta) {
+        saves.push(saveResponse(ta.dataset.questionId, ta.value));
+      });
+
+      Promise.allSettled(saves).then(function() {
+        fetch(SUBMIT_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRFToken": getCookie("csrftoken") },
+          body: "{}",
+        })
+          .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+          .then(function(res) {
+            if (res.ok) {
+              window.location.href = SUBMITTED_URL;
+            } else {
+              const errEl = document.getElementById("error-msg");
+              errEl.textContent = res.data.detail || "Please answer all questions before submitting.";
+              errEl.style.display = "block";
+              btn.disabled = false;
+            }
+          })
+          .catch(function() {
+            document.getElementById("error-msg").textContent = "Something went wrong. Please try again.";
+            document.getElementById("error-msg").style.display = "block";
+            btn.disabled = false;
+          });
+      });
+    });
+
+    function getCookie(name) {
+      const v = document.cookie.match("(^|;)\\s*" + name + "\\s*=\\s*([^;]+)");
+      return v ? v.pop() : "";
+    }
+  </script>
+</body>
+</html>
