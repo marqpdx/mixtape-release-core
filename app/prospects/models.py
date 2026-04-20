@@ -1,6 +1,8 @@
 import uuid
 
 from django.conf import settings
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 from django.db import models
 
 
@@ -27,6 +29,15 @@ class BusinessProspect(models.Model):
     status = models.CharField(max_length=30, choices=STATUS_CHOICES, default="new")
     summary = models.TextField(blank=True)
     converted_to_group_id = models.IntegerField(null=True, blank=True)
+    sponsor_content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="sponsored_prospects",
+    )
+    sponsor_object_id = models.UUIDField(null=True, blank=True)
+    sponsor = GenericForeignKey("sponsor_content_type", "sponsor_object_id")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

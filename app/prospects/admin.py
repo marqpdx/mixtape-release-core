@@ -12,10 +12,11 @@ from .models import (
 
 @admin.register(BusinessProspect)
 class BusinessProspectAdmin(admin.ModelAdmin):
-    list_display = ("name", "status", "primary_contact_email", "created_at")
-    list_filter = ("status",)
+    list_display = ("name", "status", "primary_contact_email", "sponsor_content_type", "created_at")
+    list_filter = ("status", "sponsor_content_type")
     search_fields = ("name", "primary_contact_email")
     prepopulated_fields = {"slug": ("name",)}
+    raw_id_fields = ("sponsor_content_type",)
 
 
 @admin.register(ProspectIntakeSession)
