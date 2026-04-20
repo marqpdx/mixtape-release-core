@@ -25,6 +25,8 @@ CONTACT_NOTIFICATION_EMAIL = "marqpdx@gmail.com"
 
 DEFAULT_FROM_EMAIL = "Crossroads <connect@crossroads.place>"
 
+PROSPECTS_NOTIFY_EMAIL = os.getenv("PROSPECTS_NOTIFY_EMAIL", "")
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-unsafe-secret-key")
 
 # AI / Initiatives
@@ -116,6 +118,7 @@ INSTALLED_APPS = [
     "utils",           # Utility functions and helpers
     "worksessions",    # Work Sessions (Artifact Stream Authoring)
     "writing",         # Writing app
+    "prospects",       # Prospect intake — small business CRM
     "atelier",         # Atelier — intermediate shaping layer
     "initiatives",     # Initiatives — group-scoped AI-assisted inquiry sessions
     "workbench",       # Workbench curation — WorkingItem assembly and promotion

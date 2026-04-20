@@ -6,6 +6,7 @@ from rest_framework import routers
 
 from accounts.api.views import UserViewSet
 from initiatives.api.urls import action_run_patterns, aperture_patterns
+from prospects.api.urls import intake_patterns, internal_patterns
 
 from . import views
 
@@ -102,6 +103,14 @@ urlpatterns = [
     path("api/workbench/", include("fundamentals.api.urls")),
 
     # === END PHASE 4 ENDPOINTS ===
+
+    # Prospects — public intake (token-gated, no auth)
+    path("api/intake/", include(intake_patterns)),
+    # Prospects — internal staff API
+    path("api/", include(internal_patterns)),
+
+    # Prospects — public Django template views
+    path("", include("prospects.urls")),
 
     # DRF Router endpoints
     path("api/", include(router.urls)),

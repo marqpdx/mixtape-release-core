@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome — {{ session.prospect.name }}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f9f9f7; color: #1a1a1a; }
+    .container { max-width: 640px; margin: 60px auto; padding: 0 24px; }
+    h1 { font-size: 1.75rem; font-weight: 600; margin-bottom: 16px; }
+    p { font-size: 1rem; line-height: 1.65; color: #444; margin-bottom: 16px; }
+    .btn { display: inline-block; margin-top: 24px; padding: 14px 32px; background: #1a1a1a; color: #fff; border-radius: 6px; text-decoration: none; font-size: 1rem; font-weight: 500; }
+    .btn:hover { background: #333; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Welcome, {{ session.prospect.primary_contact_name|default:session.prospect.name }}</h1>
+    <p>
+      Thank you for taking the time to share your story. This short intake helps us understand
+      your business before we meet — so we can make the most of our time together.
+    </p>
+    <p>
+      There are six open-ended questions. There are no wrong answers. Write as much or as
+      little as feels right. Your responses are saved automatically as you go.
+    </p>
+    {% if session.meeting_date %}
+    <p>We're scheduled to meet on <strong>{{ session.meeting_date }}</strong>.</p>
+    {% endif %}
+    <a class="btn" href="{% url 'intake-questions' token=session.resume_token %}">Begin</a>
+  </div>
+</body>
+</html>

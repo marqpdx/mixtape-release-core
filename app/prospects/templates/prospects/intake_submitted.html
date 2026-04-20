@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Submitted — Thank You</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f9f9f7; color: #1a1a1a; }
+    .container { max-width: 560px; margin: 80px auto; padding: 0 24px; text-align: center; }
+    h1 { font-size: 1.75rem; font-weight: 600; margin-bottom: 16px; }
+    p { font-size: 1rem; line-height: 1.65; color: #444; margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Thank you.</h1>
+    <p>Your responses have been received. We'll review them before we meet.</p>
+    {% if session.meeting_date %}
+    <p>We're looking forward to our conversation on <strong>{{ session.meeting_date }}</strong>.</p>
+    {% endif %}
+    <p>You can close this window.</p>
+  </div>
+</body>
+</html>
