@@ -152,8 +152,8 @@ _SUMMARY_FIELD_MAP = {
 _VALID_TYPES = set(_SUMMARY_FIELD_MAP.keys())
 
 
-def _synopsis_response(synopsis) -> dict:
-    return {
+def _synopsis_response(synopsis, piece=None) -> dict:
+    result = {
         "public_synopsis": {
             "text": synopsis.description,
             "confirmed": synopsis.public_synopsis_confirmed,
@@ -167,6 +167,9 @@ def _synopsis_response(synopsis) -> dict:
             "confirmed": synopsis.internal_abstract_confirmed,
         },
     }
+    if piece is not None:
+        result["excerpt"] = piece.excerpt or ""
+    return result
 
 
 class SummariesView(APIView):
@@ -181,7 +184,7 @@ class SummariesView(APIView):
         if err:
             return err
         synopsis = self._get_or_create_synopsis(piece)
-        return Response(_synopsis_response(synopsis))
+        return Response(_synopsis_response(synopsis, piece=piece))
 
     def patch(self, request, piece_slug):
         piece, err = _get_piece_for_author(piece_slug, request.user)
