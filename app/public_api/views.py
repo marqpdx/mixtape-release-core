@@ -283,6 +283,111 @@ class PublicWritingPieceView(APIView):
         return Response(data)
 
 
+class PublicMemberWritingView(APIView):
+    """
+    GET /api/public/members/{username}/writing
+
+    Published writing pieces authored by a member, reverse chronological.
+    Anonymous: public pieces only.
+    Authenticated: public + members pieces.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, username):
+        User = get_user_model()
+        user_obj = get_object_or_404(User, username=username, is_active=True)
+        author_profile = getattr(user_obj, "profile", None)
+
+        allowed_visibility = ["public"]
+        if request.user.is_authenticated:
+            allowed_visibility.append("members")
+
+        ct_group = ContentType.objects.get_for_model(Group)
+        pieces = (
+            WritingPiece.objects
+            .filter(author=user_obj, status="published")
+            .select_related("author", "sponsor_content_type")
+            .order_by("-published_at")
+        )
+
+        results = []
+        for piece in pieces:
+            sponsor_group = None
+            if (
+                piece.sponsor_content_type_id == ct_group.id
+                and piece.sponsor_object_id
+            ):
+                try:
+                    g = Group.objects.get(id=piece.sponsor_object_id)
+                    sponsor_group = {"slug": g.slug, "title": g.title}
+                except Group.DoesNotExist:
+                    pass
+
+            results.append({
+                "id": str(piece.id),
+                "slug": piece.slug,
+                "title": piece.title,
+                "excerpt": piece.excerpt or "",
+                "writing_kind": piece.writing_kind,
+                "published_at": piece.published_at,
+                "reading_time": piece.reading_time,
+                "author": {
+                    "username": user_obj.username,
+                    "display_name": author_profile.display_name if author_profile else user_obj.username,
+                },
+                "sponsor_group": sponsor_group,
+            })
+
+        return Response(results)
+
+
+class PublicGroupWritingView(APIView):
+    """
+    GET /api/public/groups/{slug}/writing
+
+    Published writing pieces sponsored by a group, reverse chronological.
+    Anonymous: public pieces only.
+    Authenticated: public + members pieces.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, slug):
+        group = get_object_or_404(Group, slug=slug, visibility="public", is_active=True)
+        ct_group = ContentType.objects.get_for_model(Group)
+
+        pieces = (
+            WritingPiece.objects
+            .filter(
+                sponsor_content_type=ct_group,
+                sponsor_object_id=group.id,
+                status="published",
+            )
+            .select_related("author")
+            .order_by("-published_at")
+        )
+
+        results = []
+        for piece in pieces:
+            author = piece.author
+            author_profile = getattr(author, "profile", None) if author else None
+            results.append({
+                "id": str(piece.id),
+                "slug": piece.slug,
+                "title": piece.title,
+                "excerpt": piece.excerpt or "",
+                "writing_kind": piece.writing_kind,
+                "published_at": piece.published_at,
+                "reading_time": piece.reading_time,
+                "author": {
+                    "username": author.username if author else "",
+                    "display_name": author_profile.display_name if author_profile else (author.username if author else ""),
+                },
+                "sponsor_group": {"slug": group.slug, "title": group.title},
+            })
+
+        return Response(results)
+
+
 class PublicGroupCoursesView(APIView):
     """
     GET /api/public/groups/{slug}/courses
