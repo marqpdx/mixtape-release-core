@@ -86,6 +86,7 @@ urlpatterns = [
     path("api/work-sessions/", include("worksessions.api.urls")),
     path("api/writing/", include("writing.api.urls")),
     path("api/atelier/", include("atelier.api.urls")),
+    path("api/reading/", include("reading.api.urls")),
     path("api/switchboard/", include("switchboard.api.urls")),
     path("api/storyline/", include("writing.api.storyline_urls")),
     path("api/distribution/", include("distribution.api.urls")),
