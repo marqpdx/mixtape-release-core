@@ -2,6 +2,7 @@
 
 import datetime
 
+from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -15,7 +16,10 @@ from initiatives.models import (
     DistillationState,
     Initiative,
     LinkedOutput,
+    Note,
+    Reminder,
     Session,
+    Task,
 )
 
 _MOMENTUM_WINDOW_DAYS = 14
@@ -423,6 +427,139 @@ class ActionRunDetailSerializer(serializers.ModelSerializer):
             "result_payload",
             "error_payload",
         ]
+
+
+class _AgentObjectSerializerMixin(serializers.ModelSerializer):
+    initiative_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
+    sponsor_model = serializers.CharField(required=False, allow_blank=False, write_only=True)
+    sponsor_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
+
+    def validate(self, attrs):
+        initiative_id = attrs.pop("initiative_id", None)
+        sponsor_model = attrs.pop("sponsor_model", None)
+        sponsor_id = attrs.pop("sponsor_id", None)
+
+        initiative = None
+        if initiative_id:
+            try:
+                initiative = Initiative.objects.get(pk=initiative_id)
+            except Initiative.DoesNotExist as exc:
+                raise serializers.ValidationError({"initiative_id": "Initiative not found."}) from exc
+
+        if initiative:
+            attrs["initiative"] = initiative
+            attrs["sponsor_content_type"] = initiative.sponsor_content_type
+            attrs["sponsor_object_id"] = initiative.sponsor_object_id
+        else:
+            if not sponsor_model or not sponsor_id:
+                raise serializers.ValidationError(
+                    "Provide either initiative_id or both sponsor_model and sponsor_id."
+                )
+            try:
+                content_type = ContentType.objects.get(model=sponsor_model)
+            except ContentType.DoesNotExist as exc:
+                raise serializers.ValidationError({"sponsor_model": "Sponsor model not found."}) from exc
+
+            model_class = content_type.model_class()
+            if model_class is None:
+                raise serializers.ValidationError({"sponsor_model": "Sponsor model is not concrete."})
+            try:
+                model_class.objects.get(pk=sponsor_id)
+            except model_class.DoesNotExist as exc:
+                raise serializers.ValidationError({"sponsor_id": "Sponsor object not found."}) from exc
+
+            attrs["sponsor_content_type"] = content_type
+            attrs["sponsor_object_id"] = sponsor_id
+
+        return attrs
+
+
+class NoteSerializer(_AgentObjectSerializerMixin):
+    class Meta:
+        model = Note
+        fields = [
+            "id",
+            "initiative",
+            "initiative_id",
+            "sponsor_model",
+            "sponsor_id",
+            "title",
+            "body",
+            "capture_mode",
+            "origin",
+            "raw_input",
+            "parsed_metadata",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "initiative", "created_by", "created_at", "updated_at"]
+
+
+class ReminderSerializer(_AgentObjectSerializerMixin):
+    class Meta:
+        model = Reminder
+        fields = [
+            "id",
+            "initiative",
+            "initiative_id",
+            "sponsor_model",
+            "sponsor_id",
+            "title",
+            "body",
+            "remind_at",
+            "status",
+            "snoozed_until",
+            "capture_mode",
+            "origin",
+            "raw_input",
+            "parsed_metadata",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "initiative", "status", "created_by", "created_at", "updated_at"]
+
+
+class TaskSerializer(_AgentObjectSerializerMixin):
+    assigned_to_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
+
+    class Meta:
+        model = Task
+        fields = [
+            "id",
+            "initiative",
+            "initiative_id",
+            "sponsor_model",
+            "sponsor_id",
+            "title",
+            "details",
+            "status",
+            "due_at",
+            "assigned_to",
+            "assigned_to_id",
+            "capture_mode",
+            "origin",
+            "raw_input",
+            "parsed_metadata",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "initiative", "created_by", "created_at", "updated_at"]
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        assigned_to_id = attrs.pop("assigned_to_id", None)
+        if assigned_to_id:
+            from django.contrib.auth import get_user_model
+
+            user_model = get_user_model()
+            try:
+                attrs["assigned_to"] = user_model.objects.get(pk=assigned_to_id)
+            except user_model.DoesNotExist as exc:
+                raise serializers.ValidationError({"assigned_to_id": "Assigned user not found."}) from exc
+        return attrs
 
 
 class DistillationCurateSerializer(serializers.Serializer):

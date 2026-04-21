@@ -21,6 +21,15 @@ action_run_patterns = [
     path("action-runs/<uuid:action_run_id>", views.ActionRunDetailView.as_view(), name="action-run-detail"),
 ]
 
+agent_object_patterns = [
+    path("notes", views.NoteListCreateView.as_view(), name="initiative-note-create"),
+    path("notes/<uuid:note_id>", views.NoteDetailView.as_view(), name="initiative-note-detail"),
+    path("reminders", views.ReminderListCreateView.as_view(), name="initiative-reminder-create"),
+    path("reminders/<uuid:reminder_id>", views.ReminderDetailView.as_view(), name="initiative-reminder-detail"),
+    path("tasks", views.TaskListCreateView.as_view(), name="initiative-task-create"),
+    path("tasks/<uuid:task_id>", views.TaskDetailView.as_view(), name="initiative-task-detail"),
+]
+
 # ---------------------------------------------------------------------------
 # Group-scoped initiative patterns — included under api/groups/<slug>/initiatives/
 # ---------------------------------------------------------------------------
