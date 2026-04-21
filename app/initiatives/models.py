@@ -41,6 +41,11 @@ class CaptureMode(models.TextChoices):
     PASTED = "pasted", "Pasted"
 
 
+class AgentObjectOrigin(models.TextChoices):
+    AGENT = "agent", "Agent"
+    MANUAL = "manual", "Manual"
+
+
 class DistillationState(models.TextChoices):
     PENDING = "pending", "Pending"
     PROPOSED = "proposed", "Proposed"
@@ -91,6 +96,13 @@ class ActionRunInitiatorType(models.TextChoices):
     HUMAN = "human", "Human"
     MODEL = "model", "Model"
     SYSTEM = "system", "System"
+
+
+class TaskStatus(models.TextChoices):
+    TODO = "todo", "To do"
+    IN_PROGRESS = "in_progress", "In progress"
+    DONE = "done", "Done"
+    CANCELLED = "cancelled", "Cancelled"
 
 
 # ---------------------------------------------------------------------------
@@ -842,6 +854,65 @@ class ReminderStatus(models.TextChoices):
     SNOOZED = "snoozed", "Snoozed"
 
 
+class Note(BaseModel):
+    """
+    Canonical agent-capture object for ad hoc notes and observations.
+
+    This remains distinct from writing.Seed. Mobile and desktop agent verbs
+    should persist quick capture here first, then route or promote elsewhere
+    if richer workflows need it later.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    sponsor_content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE,
+        related_name="initiative_notes",
+    )
+    sponsor_object_id = models.UUIDField()
+    sponsor = GenericForeignKey("sponsor_content_type", "sponsor_object_id")
+
+    initiative = models.ForeignKey(
+        Initiative,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="notes",
+    )
+    title = models.CharField(max_length=255, blank=True, default="")
+    body = models.TextField()
+    capture_mode = models.CharField(
+        max_length=20,
+        choices=CaptureMode.choices,
+        default=CaptureMode.TYPED,
+    )
+    origin = models.CharField(
+        max_length=20,
+        choices=AgentObjectOrigin.choices,
+        default=AgentObjectOrigin.AGENT,
+    )
+    raw_input = models.TextField(blank=True, default="")
+    parsed_metadata = models.JSONField(default=dict, blank=True)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="initiative_notes",
+    )
+
+    class Meta(BaseModel.Meta):
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["sponsor_content_type", "sponsor_object_id", "-created_at"], name="initiatives_note_sponsor_idx"),
+            models.Index(fields=["initiative", "-created_at"], name="initiatives_note_init_idx"),
+        ]
+
+    def __str__(self):
+        return self.title or f"Note {self.pk}"
+
+
 class Reminder(BaseModel):
     """
     A time-based reminder attached to an Initiative.
@@ -852,11 +923,21 @@ class Reminder(BaseModel):
 
     initiative = models.ForeignKey(
         Initiative,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="reminders",
     )
+    sponsor_content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE,
+        related_name="initiative_reminders",
+        null=True,
+        blank=True,
+    )
+    sponsor_object_id = models.UUIDField(null=True, blank=True)
+    sponsor = GenericForeignKey("sponsor_content_type", "sponsor_object_id")
+    title = models.CharField(max_length=255, blank=True, default="")
     body = models.TextField()
     remind_at = models.DateTimeField()
     status = models.CharField(
@@ -865,6 +946,18 @@ class Reminder(BaseModel):
         default=ReminderStatus.PENDING,
     )
     snoozed_until = models.DateTimeField(null=True, blank=True)
+    capture_mode = models.CharField(
+        max_length=20,
+        choices=CaptureMode.choices,
+        default=CaptureMode.TYPED,
+    )
+    origin = models.CharField(
+        max_length=20,
+        choices=AgentObjectOrigin.choices,
+        default=AgentObjectOrigin.AGENT,
+    )
+    raw_input = models.TextField(blank=True, default="")
+    parsed_metadata = models.JSONField(default=dict, blank=True)
     created_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
@@ -875,6 +968,80 @@ class Reminder(BaseModel):
 
     class Meta(BaseModel.Meta):
         ordering = ["remind_at"]
+        indexes = [
+            models.Index(fields=["sponsor_content_type", "sponsor_object_id", "remind_at"], name="initiatives_rem_sponsor_idx"),
+            models.Index(fields=["initiative", "remind_at"], name="initiatives_rem_init_idx"),
+            models.Index(fields=["status", "remind_at"], name="initiatives_rem_status_idx"),
+        ]
 
     def __str__(self):
         return f"Reminder [{self.status}] at {self.remind_at} for initiative {self.initiative_id}"
+
+
+class Task(BaseModel):
+    """
+    Canonical agent task object for mobile and desktop command surfaces.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    sponsor_content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE,
+        related_name="initiative_tasks",
+    )
+    sponsor_object_id = models.UUIDField()
+    sponsor = GenericForeignKey("sponsor_content_type", "sponsor_object_id")
+
+    initiative = models.ForeignKey(
+        Initiative,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tasks",
+    )
+    title = models.CharField(max_length=255)
+    details = models.TextField(blank=True, default="")
+    status = models.CharField(
+        max_length=20,
+        choices=TaskStatus.choices,
+        default=TaskStatus.TODO,
+    )
+    due_at = models.DateTimeField(null=True, blank=True)
+    assigned_to = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assigned_initiative_tasks",
+    )
+    capture_mode = models.CharField(
+        max_length=20,
+        choices=CaptureMode.choices,
+        default=CaptureMode.TYPED,
+    )
+    origin = models.CharField(
+        max_length=20,
+        choices=AgentObjectOrigin.choices,
+        default=AgentObjectOrigin.AGENT,
+    )
+    raw_input = models.TextField(blank=True, default="")
+    parsed_metadata = models.JSONField(default=dict, blank=True)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_initiative_tasks",
+    )
+
+    class Meta(BaseModel.Meta):
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["sponsor_content_type", "sponsor_object_id", "-created_at"], name="initiatives_task_sponsor_idx"),
+            models.Index(fields=["initiative", "-created_at"], name="initiatives_task_init_idx"),
+            models.Index(fields=["status", "due_at"], name="initiatives_task_status_idx"),
+        ]
+
+    def __str__(self):
+        return self.title

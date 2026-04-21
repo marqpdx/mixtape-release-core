@@ -22,8 +22,11 @@ from initiatives.models import (
     Initiative,
     InitiativeStatus,
     LinkedOutput,
+    Note,
+    Reminder,
     QualityScanState,
     Session,
+    Task,
 )
 from initiatives.api.serializers import (
     ActionRunCreateSerializer,
@@ -36,8 +39,11 @@ from initiatives.api.serializers import (
     DistillationCurateSerializer,
     InitiativeSerializer,
     LinkedOutputSerializer,
+    NoteSerializer,
+    ReminderSerializer,
     RollingSummaryUpdateSerializer,
     SessionSerializer,
+    TaskSerializer,
 )
 from initiatives.api.permissions import HasOrchestrationWriteScope
 from livewire.auth import InternalServiceAuthentication
@@ -287,6 +293,84 @@ class ActionRunDetailView(APIView):
 
         updated = serializer.save()
         return Response(ActionRunSummarySerializer(updated).data)
+
+
+class NoteListCreateView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        if not _superuser_required(request):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = NoteSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        note = serializer.save(created_by=request.user)
+        return Response(NoteSerializer(note).data, status=status.HTTP_201_CREATED)
+
+
+class NoteDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, note_id):
+        if not _superuser_required(request):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        note = get_object_or_404(Note, pk=note_id)
+        return Response(NoteSerializer(note).data)
+
+
+class ReminderListCreateView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        if not _superuser_required(request):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = ReminderSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        reminder = serializer.save(created_by=request.user)
+        return Response(ReminderSerializer(reminder).data, status=status.HTTP_201_CREATED)
+
+
+class ReminderDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, reminder_id):
+        if not _superuser_required(request):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        reminder = get_object_or_404(Reminder, pk=reminder_id)
+        return Response(ReminderSerializer(reminder).data)
+
+
+class TaskListCreateView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        if not _superuser_required(request):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = TaskSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        task = serializer.save(created_by=request.user)
+        return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
+
+
+class TaskDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, task_id):
+        if not _superuser_required(request):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        task = get_object_or_404(Task, pk=task_id)
+        return Response(TaskSerializer(task).data)
 
 
 class SessionDetailView(APIView):
