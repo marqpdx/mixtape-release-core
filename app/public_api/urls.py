@@ -1,8 +1,7 @@
 # public_api/urls.py
 
 from django.urls import path
-from . import views
-from . import views_commons
+from . import views, views_commons
 
 urlpatterns = [
     path(
@@ -39,6 +38,16 @@ urlpatterns = [
         "members/<str:username>/shelves",
         views.PublicMemberShelvesView.as_view(),
         name="public-member-shelves",
+    ),
+    path(
+        "members/<str:username>/writing",
+        views.PublicMemberWritingView.as_view(),
+        name="public-member-writing",
+    ),
+    path(
+        "groups/<slug:slug>/writing",
+        views.PublicGroupWritingView.as_view(),
+        name="public-group-writing",
     ),
     path(
         "writing/<slug:slug>",
