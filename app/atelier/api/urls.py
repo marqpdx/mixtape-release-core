@@ -3,6 +3,7 @@ from django.urls import path
 from .views import (
     CategoryView,
     MarkerDetailView,
+    MarkerIndexView,
     MarkerListView,
     PieceSearchView,
     ReadinessView,
@@ -23,6 +24,7 @@ urlpatterns = [
     # Fixed paths must precede <slug:piece_slug>/ patterns
     path("tags/search/", TagSearchView.as_view()),
     path("pieces/search/", PieceSearchView.as_view()),
+    path("markers/", MarkerIndexView.as_view()),
 
     path("<slug:piece_slug>/readiness/", ReadinessView.as_view()),
     path("<slug:piece_slug>/tags/", TagListCreateView.as_view()),

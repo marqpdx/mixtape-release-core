@@ -492,15 +492,72 @@ def _serialize_marker(occ: WritingMarkerOccurrence) -> dict:
 
 
 class MarkerListView(APIView):
-    """GET — sync and return pending markers for a piece."""
+    """
+    GET — returns markers for a piece.
+    ?status=affirmed  → affirmed markers only, no sync (reader-safe)
+    default           → sync then return pending (writer Atelier use)
+    """
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, piece_slug):
+        status_filter = request.query_params.get("status")
+        if status_filter == WritingMarkerOccurrence.STATUS_AFFIRMED:
+            piece = get_object_or_404(WritingPiece, slug=piece_slug)
+            occurrences = WritingMarkerOccurrence.objects.filter(
+                piece=piece, status=WritingMarkerOccurrence.STATUS_AFFIRMED
+            ).order_by("char_offset")
+            return Response([_serialize_marker(occ) for occ in occurrences])
+
         piece, err = _get_piece_for_author(piece_slug, request.user)
         if err:
             return err
         pending = detect_and_sync_markers(piece)
         return Response([_serialize_marker(occ) for occ in pending])
+
+
+class MarkerIndexView(APIView):
+    """
+    GET /api/atelier/markers/?raw_name=q
+    Cross-piece index: all affirmed markers of a given type for the current user.
+    Returns occurrences with piece slug and title for navigation.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        raw_name = request.query_params.get("raw_name", "").strip()
+        if not raw_name:
+            return Response({"detail": "raw_name is required."}, status=400)
+
+        user = request.user
+        user_ct = ContentType.objects.get_for_model(user.__class__)
+
+        occurrences = (
+            WritingMarkerOccurrence.objects
+            .filter(
+                raw_name=raw_name,
+                status=WritingMarkerOccurrence.STATUS_AFFIRMED,
+                sponsor_content_type=user_ct,
+                sponsor_object_id=user.pk,
+            )
+            .select_related("piece")
+            .order_by("piece__title", "char_offset")
+        )
+
+        result = []
+        for occ in occurrences:
+            result.append({
+                "id": str(occ.id),
+                "raw_name": occ.raw_name,
+                "label": occ.label,
+                "body": occ.body,
+                "char_offset": occ.char_offset,
+                "piece": {
+                    "id": str(occ.piece.pk),
+                    "slug": occ.piece.slug,
+                    "title": occ.piece.title or "Untitled",
+                },
+            })
+        return Response(result)
 
 
 class MarkerDetailView(APIView):
