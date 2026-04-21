@@ -125,6 +125,7 @@ INSTALLED_APPS = [
     "curation",        # Django-native Collection curation layer (CP5)
     "distribution",    # External distribution — Source channels, PublishEvent, ShareRecord
     "switchboard",     # Switchboard proxy — async tool submission surface
+    "reading",         # Reading — Dart annotations and ReadingStats
 ]
 
 INSTALLED_APPS += ["rest_framework_simplejwt.token_blacklist"]
