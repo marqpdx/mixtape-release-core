@@ -10,8 +10,8 @@ from rest_framework.views import APIView
 from classifications.models import Category, ClassificationUsage, Tag
 from writing.models import WritingPiece, WritingSeries, WritingSynopsis
 
-from ..models import ArtifactRelation
-from ..services import compute_craft_readiness
+from ..models import ArtifactRelation, WritingMarkerOccurrence
+from ..services import compute_craft_readiness, detect_and_sync_markers
 from .serializers import CategorySerializer, TagSerializer
 
 
@@ -472,3 +472,64 @@ class PieceSearchView(APIView):
             .order_by("-updated_at")[:20]
         )
         return Response([_serialize_relation_piece(p) for p in pieces])
+
+
+# ---------------------------------------------------------------------------
+# Markers (CR-002 — Ad Hoc Semantic Markers)
+# ---------------------------------------------------------------------------
+
+def _serialize_marker(occ: WritingMarkerOccurrence) -> dict:
+    return {
+        "id": str(occ.id),
+        "raw_name": occ.raw_name,
+        "raw_marker": occ.raw_marker,
+        "char_offset": occ.char_offset,
+        "status": occ.status,
+        "label": occ.label,
+        "body": occ.body,
+        "created_at": occ.created_at.isoformat(),
+    }
+
+
+class MarkerListView(APIView):
+    """GET — sync and return pending markers for a piece."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, piece_slug):
+        piece, err = _get_piece_for_author(piece_slug, request.user)
+        if err:
+            return err
+        pending = detect_and_sync_markers(piece)
+        return Response([_serialize_marker(occ) for occ in pending])
+
+
+class MarkerDetailView(APIView):
+    """PATCH — affirm or dismiss a marker occurrence."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, piece_slug, marker_id):
+        piece, err = _get_piece_for_author(piece_slug, request.user)
+        if err:
+            return err
+
+        occ = get_object_or_404(WritingMarkerOccurrence, id=marker_id, piece=piece)
+        action = request.data.get("action")
+
+        if action == "affirm":
+            label = request.data.get("label", occ.label)
+            body = request.data.get("body", occ.body)
+            if not label:
+                return Response({"detail": "label is required to affirm a marker."}, status=400)
+            occ.label = label
+            occ.body = body
+            occ.status = WritingMarkerOccurrence.STATUS_AFFIRMED
+            occ.affirmed_at = timezone.now()
+            occ.save(update_fields=["label", "body", "status", "affirmed_at", "updated_at"])
+        elif action == "dismiss":
+            occ.status = WritingMarkerOccurrence.STATUS_DISMISSED
+            occ.dismissed_at = timezone.now()
+            occ.save(update_fields=["status", "dismissed_at", "updated_at"])
+        else:
+            return Response({"detail": "action must be 'affirm' or 'dismiss'."}, status=400)
+
+        return Response(_serialize_marker(occ))
