@@ -2,6 +2,8 @@ from django.urls import path
 
 from .views import (
     CategoryView,
+    MarkerDetailView,
+    MarkerListView,
     PieceSearchView,
     ReadinessView,
     RelationAcknowledgeView,
@@ -34,4 +36,6 @@ urlpatterns = [
     path("<slug:piece_slug>/relations/<uuid:relation_id>/", RelationDeleteView.as_view()),
     path("<slug:piece_slug>/relations/<uuid:relation_id>/acknowledge/", RelationAcknowledgeView.as_view()),
     path("<slug:piece_slug>/relations/<uuid:relation_id>/dismiss/", RelationDismissView.as_view()),
+    path("<slug:piece_slug>/markers/", MarkerListView.as_view()),
+    path("<slug:piece_slug>/markers/<uuid:marker_id>/", MarkerDetailView.as_view()),
 ]
