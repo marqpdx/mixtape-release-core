@@ -23,6 +23,57 @@ _DEFAULT_TENANT_NAMESPACE = getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESP
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+def classify_async_proxy(request):
+    text = (request.data.get("text") or "").strip()
+    max_tags = int(request.data.get("max_tags") or 8)
+
+    if not text:
+        return JsonResponse({"detail": "text is required."}, status=400)
+    if len(text) < 30:
+        return JsonResponse({"detail": "text too short to classify (minimum 30 characters)"}, status=400)
+
+    tenant_id = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_ID", _DEFAULT_TENANT_ID))
+    tenant_namespace = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", _DEFAULT_TENANT_NAMESPACE))
+
+    action_run = ActionRun.objects.create(
+        tool_name="inkwell.classify",
+        status=ActionRunStatus.PENDING,
+        execution_mode=ActionRunExecutionMode.LOCAL,
+        tenant_id=tenant_id,
+        tenant_namespace=tenant_namespace,
+        initiator_type=ActionRunInitiatorType.HUMAN,
+        initiator_id=str(request.user.pk),
+        request_payload={"text_length": len(text), "max_tags": max_tags},
+    )
+
+    classify_payload = {"text": text, "max_tags": max_tags}
+
+    celery_app.send_task(
+        "switchboard.classify_async",
+        kwargs={
+            "action_run_id": str(action_run.id),
+            "tenant_id": tenant_id,
+            "tenant_namespace": tenant_namespace,
+            "principal_user_id": str(request.user.pk),
+            "principal_service_token_id": None,
+            "request_payload": classify_payload,
+            "classify_payload": classify_payload,
+        },
+        queue="switchboard",
+    )
+
+    logger.info(
+        "Enqueued async classify action_run=%s user=%s text_len=%s",
+        action_run.id,
+        request.user.pk,
+        len(text),
+    )
+
+    return JsonResponse({"action_run_id": str(action_run.id)}, status=202)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
 def summarize_async_proxy(request):
     if not request.user.is_superuser:
         return JsonResponse({"detail": "Superuser access required."}, status=403)
