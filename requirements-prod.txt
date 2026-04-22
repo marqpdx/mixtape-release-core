@@ -117,3 +117,5 @@ vine==5.1.0
 wcwidth==0.2.14
 wrapt==1.17.3
 yarl==1.22.0
+
+WeasyPrint==61.2
