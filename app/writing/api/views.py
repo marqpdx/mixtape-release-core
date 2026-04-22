@@ -6,6 +6,7 @@ from django.contrib.contenttypes.models import ContentType
 import uuid
 from django.core.exceptions import ValidationError
 from django.core.files.storage import default_storage
+from django.http import HttpResponse
 from django.utils.text import get_valid_filename
 from django.db import transaction
 from django.db.models import F, Max, Q
@@ -45,6 +46,10 @@ from writing.analysis_export import (
     get_export_source_for_user,
 )
 from writing.suggested_revision import create_suggested_revision_from_session
+from writing.pdf_export import (
+    build_pdf_export_response,
+    get_pdf_export_source_for_user,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -251,6 +256,26 @@ class WorkingDocumentApplyView(generics.GenericAPIView):
         if changed and piece.is_published:
             piece.create_version(content_changed=True)
         return Response(self.get_serializer(piece).data, status=status.HTTP_200_OK)
+
+
+class WritingPiecePdfExportView(generics.GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated, CanEditWritingPiece]
+
+    def _get_piece(self, pk):
+        piece = get_object_or_404(WritingPiece, pk=pk)
+        self.check_object_permissions(self.request, piece)
+        return piece
+
+    def get(self, request, pk):
+        piece = self._get_piece(pk)
+        source = get_pdf_export_source_for_user(piece, request.user)
+        return build_pdf_export_response(
+            piece=piece,
+            title=source["title"],
+            excerpt=source["excerpt"],
+            body_json=source["body_json"],
+            source_kind=source["source_kind"],
+        )
 
 
 class WritingPieceAnalysisExportView(generics.GenericAPIView):

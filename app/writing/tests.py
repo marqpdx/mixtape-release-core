@@ -16,6 +16,7 @@ from writing.tasks import transcribe_seed_task
 from groups.models import Group
 from publishing.models import ContentPlacement
 from writing.models import WritingPiece, WritingVersion
+from dispatch.models import DispatchContent
 
 
 User = get_user_model()
@@ -362,6 +363,91 @@ class WritingAnalysisExportTests(TestCase):
             first_response.data["fidelity_report"]["id"],
             second_response.data["fidelity_report"]["id"],
         )
+
+
+class WritingPdfExportTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="pdf_user",
+            email="pdf@example.com",
+            password="testpass123",
+        )
+        self.other = User.objects.create_user(
+            username="pdf_other",
+            email="pdf-other@example.com",
+            password="testpass123",
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    @patch("writing.pdf_export.generate_pdf_bytes", return_value=b"%PDF-test")
+    def test_pdf_export_prefers_working_document_content(self, mock_pdf):
+        piece = _create_piece(author=self.user, sponsor=self.user)
+        WorkingDocument.objects.create(
+            piece=piece,
+            user=self.user,
+            title="Working Title",
+            excerpt="Working excerpt",
+            body_json=_body_json("working body"),
+        )
+
+        response = self.client.get(f"/api/writing/pieces/{piece.id}/export/pdf")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertEqual(response["X-Export-Source-Kind"], "working_document")
+        self.assertIn('working-title.pdf', response["Content-Disposition"])
+        self.assertEqual(response.content, b"%PDF-test")
+        html = mock_pdf.call_args.kwargs["html"]
+        self.assertIn("Working Title", html)
+        self.assertIn("Working excerpt", html)
+        self.assertIn("working body", html)
+
+    @patch("writing.pdf_export.generate_pdf_bytes", return_value=b"%PDF-dispatch")
+    def test_pdf_export_prefers_dispatch_snapshot_when_collaborative(self, mock_pdf):
+        piece = _create_piece(author=self.user, sponsor=self.user)
+        dispatch_content = DispatchContent.objects.create(
+            created_by=self.user,
+            content_snapshot=_body_json("dispatch body"),
+        )
+        WorkingDocument.objects.create(
+            piece=piece,
+            user=self.user,
+            title="Dispatch Title",
+            excerpt="Dispatch excerpt",
+            body_json=_body_json("working body"),
+            dispatch_content=dispatch_content,
+        )
+
+        response = self.client.get(f"/api/writing/pieces/{piece.id}/export/pdf")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["X-Export-Source-Kind"], "dispatch_content")
+        html = mock_pdf.call_args.kwargs["html"]
+        self.assertIn("dispatch body", html)
+        self.assertNotIn("working body", html)
+
+    @patch("writing.pdf_export.generate_pdf_bytes", return_value=b"%PDF-collab")
+    def test_pdf_export_allows_collaborator_via_piece_permission(self, mock_pdf):
+        piece = _create_piece(author=self.user, sponsor=self.user)
+        dispatch_content = DispatchContent.objects.create(
+            created_by=self.user,
+            content_snapshot=_body_json("collab body"),
+        )
+        dispatch_content.collaborators.add(self.other)
+        WorkingDocument.objects.create(
+            piece=piece,
+            user=self.user,
+            title="Shared Draft",
+            body_json=_body_json("author working body"),
+            dispatch_content=dispatch_content,
+        )
+
+        self.client.force_authenticate(user=self.other)
+        response = self.client.get(f"/api/writing/pieces/{piece.id}/export/pdf")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["X-Export-Source-Kind"], "dispatch_content")
+        html = mock_pdf.call_args.kwargs["html"]
+        self.assertIn("collab body", html)
+
 
 
 class VoiceSeedsV1Tests(TestCase):
