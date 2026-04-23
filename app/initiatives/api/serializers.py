@@ -7,20 +7,22 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from initiatives.models import (
+    AgentCommand,
     ActionRun,
     ActionRunStatus,
     Artifact,
     ApertureLog,
     ApertureLogEntry,
     ApertureLogEntryKind,
+    CaptureMode,
     DistillationState,
     Initiative,
-    LinkedOutput,
     Note,
     Reminder,
     Session,
     Task,
 )
+from initiatives.services import resolve_content_type_for_sponsor_model
 
 _MOMENTUM_WINDOW_DAYS = 14
 
@@ -191,24 +193,23 @@ class ArtifactSerializer(serializers.ModelSerializer):
         ]
 
 
-class LinkedOutputSerializer(serializers.ModelSerializer):
-    output_type = serializers.SerializerMethodField()
+class LinkedOutputCreateSerializer(serializers.Serializer):
+    """Validation for linking an artifact to an Initiative."""
 
-    class Meta:
-        model = LinkedOutput
-        fields = [
-            "id",
-            "initiative",
-            "output_content_type",
-            "output_object_id",
-            "output_type",
-            "note",
-            "created_at",
-        ]
-        read_only_fields = ["id", "created_at"]
+    output_content_type_id = serializers.IntegerField()
+    output_object_id = serializers.UUIDField()
+    note = serializers.CharField(required=False, allow_blank=True, default="")
 
-    def get_output_type(self, obj):
-        return obj.output_content_type.model if obj.output_content_type else None
+
+def serialize_linked_output(r):
+    return {
+        "id": str(r.id),
+        "output_content_type": r.target_content_type_id,
+        "output_object_id": str(r.target_object_id),
+        "output_type": r.target_content_type.model if r.target_content_type else None,
+        "note": r.notes,
+        "created_at": r.created_at,
+    }
 
 
 class RollingSummaryUpdateSerializer(serializers.Serializer):
@@ -456,7 +457,7 @@ class _AgentObjectSerializerMixin(serializers.ModelSerializer):
                     "Provide either initiative_id or both sponsor_model and sponsor_id."
                 )
             try:
-                content_type = ContentType.objects.get(model=sponsor_model)
+                content_type = resolve_content_type_for_sponsor_model(sponsor_model)
             except ContentType.DoesNotExist as exc:
                 raise serializers.ValidationError({"sponsor_model": "Sponsor model not found."}) from exc
 
@@ -568,3 +569,68 @@ class DistillationCurateSerializer(serializers.Serializer):
     open_questions = serializers.ListField(child=serializers.CharField(), required=False, default=list)
     actions = serializers.ListField(child=serializers.CharField(), required=False, default=list)
     notes = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class MobileCommandCreateSerializer(serializers.Serializer):
+    text = serializers.CharField()
+    source = serializers.CharField(required=False, default="mobile_initiatives")
+    capture_mode = serializers.ChoiceField(choices=CaptureMode.choices, required=False, default=CaptureMode.TYPED)
+    session_id = serializers.CharField(required=False, allow_blank=True, default="")
+    draft_id = serializers.CharField(required=False, allow_blank=True, default="")
+    initiative_id = serializers.UUIDField(required=False, allow_null=True)
+    sponsor_model = serializers.CharField(required=False, allow_blank=False)
+    sponsor_id = serializers.UUIDField(required=False, allow_null=True)
+
+    def validate(self, attrs):
+        if not attrs.get("initiative_id") and not (attrs.get("sponsor_model") and attrs.get("sponsor_id")):
+            raise serializers.ValidationError(
+                "Provide either initiative_id or both sponsor_model and sponsor_id."
+            )
+        return attrs
+
+
+class MobileCommandConfirmSerializer(serializers.Serializer):
+    confirm_action = serializers.ChoiceField(choices=["confirm"])
+    fields = serializers.JSONField(required=False, default=dict)
+
+
+class AgentCommandDetailSerializer(serializers.ModelSerializer):
+    command_id = serializers.UUIDField(source="id", read_only=True)
+    verb = serializers.CharField(source="parsed_verb", read_only=True)
+    executed_verb = serializers.CharField(read_only=True)
+    title = serializers.CharField(source="parsed_title", read_only=True)
+    summary = serializers.CharField(source="parsed_summary", read_only=True)
+    fields = serializers.JSONField(source="parsed_fields", read_only=True)
+    generated_text = serializers.CharField(read_only=True)
+    needs_clarification = serializers.BooleanField(read_only=True)
+    clarification_reason = serializers.CharField(read_only=True)
+    result_payload = serializers.JSONField(read_only=True)
+    follow_up_suggestions = serializers.JSONField(read_only=True)
+    routing = serializers.JSONField(source="routing_metadata", read_only=True)
+
+    class Meta:
+        model = AgentCommand
+        fields = [
+            "id",
+            "command_id",
+            "status",
+            "source",
+            "capture_mode",
+            "draft_session_id",
+            "verb",
+            "executed_verb",
+            "confidence",
+            "title",
+            "summary",
+            "fields",
+            "generated_text",
+            "needs_clarification",
+            "clarification_reason",
+            "result_type",
+            "result_payload",
+            "follow_up_suggestions",
+            "routing",
+            "error_payload",
+            "created_at",
+            "updated_at",
+        ]

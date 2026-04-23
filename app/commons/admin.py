@@ -2,7 +2,7 @@
 
 from django.contrib import admin
 
-from .models import CommonsItem, Filament
+from .models import CommonsItem
 
 
 @admin.register(CommonsItem)
@@ -20,7 +20,3 @@ class CommonsItemAdmin(admin.ModelAdmin):
     readonly_fields = ["id", "created_at", "updated_at"]
 
 
-@admin.register(Filament)
-class FilamentAdmin(admin.ModelAdmin):
-    list_display = ["source", "relation_type", "target", "created_at"]
-    list_filter = ["relation_type"]

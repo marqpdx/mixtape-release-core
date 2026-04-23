@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Artifact, Initiative, LinkedOutput, Note, Reminder, Session, Task
+from .models import AgentCommand, Artifact, Initiative, Note, Reminder, Session, Task
 
 
 @admin.register(Initiative)
@@ -26,12 +26,6 @@ class ArtifactAdmin(admin.ModelAdmin):
     readonly_fields = ("id", "created_at")
 
 
-@admin.register(LinkedOutput)
-class LinkedOutputAdmin(admin.ModelAdmin):
-    list_display = ("initiative", "output_content_type", "output_object_id", "created_at")
-    readonly_fields = ("id", "created_at")
-
-
 @admin.register(Note)
 class NoteAdmin(admin.ModelAdmin):
     list_display = ("title", "initiative", "capture_mode", "origin", "created_by", "created_at")
@@ -53,4 +47,12 @@ class TaskAdmin(admin.ModelAdmin):
     list_display = ("title", "initiative", "status", "assigned_to", "due_at", "created_by", "created_at")
     list_filter = ("status", "capture_mode", "origin")
     search_fields = ("title", "details", "raw_input")
+    readonly_fields = ("id", "created_at", "updated_at")
+
+
+@admin.register(AgentCommand)
+class AgentCommandAdmin(admin.ModelAdmin):
+    list_display = ("parsed_verb", "status", "source", "capture_mode", "created_by", "created_at")
+    list_filter = ("status", "source", "capture_mode", "parsed_verb")
+    search_fields = ("raw_input", "parsed_title", "parsed_summary")
     readonly_fields = ("id", "created_at", "updated_at")

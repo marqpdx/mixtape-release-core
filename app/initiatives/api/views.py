@@ -12,6 +12,8 @@ from rest_framework.views import APIView
 from groups.models import Group
 from django.contrib.contenttypes.models import ContentType
 from initiatives.models import (
+    AgentCommand,
+    AgentCommandStatus,
     ActionRun,
     Artifact,
     ApertureLog,
@@ -21,7 +23,6 @@ from initiatives.models import (
     DistillationState,
     Initiative,
     InitiativeStatus,
-    LinkedOutput,
     Note,
     Reminder,
     QualityScanState,
@@ -29,6 +30,7 @@ from initiatives.models import (
     Task,
 )
 from initiatives.api.serializers import (
+    AgentCommandDetailSerializer,
     ActionRunCreateSerializer,
     ActionRunDetailSerializer,
     ActionRunPatchSerializer,
@@ -38,7 +40,10 @@ from initiatives.api.serializers import (
     ArtifactSerializer,
     DistillationCurateSerializer,
     InitiativeSerializer,
-    LinkedOutputSerializer,
+    LinkedOutputCreateSerializer,
+    serialize_linked_output,
+    MobileCommandConfirmSerializer,
+    MobileCommandCreateSerializer,
     NoteSerializer,
     ReminderSerializer,
     RollingSummaryUpdateSerializer,
@@ -47,6 +52,13 @@ from initiatives.api.serializers import (
 )
 from initiatives.api.permissions import HasOrchestrationWriteScope
 from livewire.auth import InternalServiceAuthentication
+from initiatives.services import (
+    AgentParseError,
+    execute_agent_command,
+    parse_agent_command,
+    resolve_content_type_for_sponsor_model,
+    summarize_parsed_command,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -293,6 +305,136 @@ class ActionRunDetailView(APIView):
 
         updated = serializer.save()
         return Response(ActionRunSummarySerializer(updated).data)
+
+
+def _resolve_mobile_command_target(*, initiative_id=None, sponsor_model=None, sponsor_id=None):
+    initiative = None
+    sponsor_content_type = None
+    sponsor_object_id = None
+
+    if initiative_id:
+        initiative = get_object_or_404(Initiative, pk=initiative_id)
+        sponsor_content_type = initiative.sponsor_content_type
+        sponsor_object_id = initiative.sponsor_object_id
+    elif sponsor_model and sponsor_id:
+        sponsor_content_type = resolve_content_type_for_sponsor_model(sponsor_model)
+        model_class = sponsor_content_type.model_class()
+        if model_class is None:
+            raise ValueError("Sponsor model is not concrete.")
+        get_object_or_404(model_class, pk=sponsor_id)
+        sponsor_object_id = sponsor_id
+
+    return initiative, sponsor_content_type, sponsor_object_id
+
+
+class MobileCommandListCreateView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        if not _superuser_required(request):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = MobileCommandCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        data = serializer.validated_data
+        try:
+            parsed = parse_agent_command(
+                text=data["text"],
+                capture_mode=data["capture_mode"],
+                source=data["source"],
+                initiative_id=data.get("initiative_id"),
+                sponsor_model=data.get("sponsor_model"),
+                sponsor_id=data.get("sponsor_id"),
+                principal_user_id=request.user.pk,
+            )
+        except AgentParseError as exc:
+            http_status = (
+                status.HTTP_504_GATEWAY_TIMEOUT
+                if exc.status_code == 504
+                else status.HTTP_502_BAD_GATEWAY
+            )
+            body = {"detail": exc.detail}
+            if exc.body:
+                body["body"] = exc.body
+            return Response(body, status=http_status)
+
+        title, summary, generated_text, needs_clarification, clarification_reason = summarize_parsed_command(parsed)
+        try:
+            initiative, sponsor_content_type, sponsor_object_id = _resolve_mobile_command_target(
+                initiative_id=data.get("initiative_id"),
+                sponsor_model=data.get("sponsor_model"),
+                sponsor_id=data.get("sponsor_id"),
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        command = AgentCommand.objects.create(
+            initiative=initiative,
+            sponsor_content_type=sponsor_content_type,
+            sponsor_object_id=sponsor_object_id,
+            source=data["source"],
+            capture_mode=data["capture_mode"],
+            draft_session_id=data.get("draft_id") or data.get("session_id") or "",
+            raw_input=data["text"],
+            parsed_verb=parsed.get("verb") or "",
+            confidence=parsed.get("confidence"),
+            parsed_title=title,
+            parsed_summary=summary,
+            parsed_fields=parsed.get("normalized_payload") or {},
+            parse_metadata={
+                "parsed_entities": parsed.get("parsed_entities") or {},
+                "ambiguities": parsed.get("ambiguities") or [],
+                "method": parsed.get("method") or "llm",
+            },
+            generated_text=generated_text,
+            needs_clarification=needs_clarification,
+            clarification_reason=clarification_reason,
+            created_by=request.user,
+        )
+        return Response(AgentCommandDetailSerializer(command).data, status=status.HTTP_201_CREATED)
+
+
+class MobileCommandDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, command_id):
+        if not _superuser_required(request):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        command = get_object_or_404(AgentCommand, pk=command_id)
+        return Response(AgentCommandDetailSerializer(command).data)
+
+
+class MobileCommandConfirmView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, command_id):
+        if not _superuser_required(request):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        command = get_object_or_404(AgentCommand, pk=command_id)
+        if command.status != AgentCommandStatus.PARSED:
+            return Response(
+                {"detail": f"Command is not confirmable in status '{command.status}'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = MobileCommandConfirmSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            command = execute_agent_command(
+                command=command,
+                confirmed_fields=serializer.validated_data.get("fields") or {},
+                confirmed_by=request.user,
+            )
+        except NotImplementedError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_501_NOT_IMPLEMENTED)
+
+        return Response(AgentCommandDetailSerializer(command).data)
 
 
 class NoteListCreateView(APIView):
@@ -809,21 +951,37 @@ class LinkedOutputListCreateView(APIView):
     def get(self, request, slug, initiative_id):
         if not _superuser_required(request):
             return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+        from relations.service import RelationshipService
         initiative = self._get_initiative(slug, initiative_id)
-        outputs = initiative.linked_outputs.all()
-        return Response(LinkedOutputSerializer(outputs, many=True).data)
+        outputs = RelationshipService.get_outgoing(initiative, type_slug="outputs-from")
+        return Response([serialize_linked_output(r) for r in outputs])
 
     def post(self, request, slug, initiative_id):
         if not _superuser_required(request):
             return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
-        initiative = self._get_initiative(slug, initiative_id)
+        from django.contrib.contenttypes.models import ContentType
+        from relations.service import RelationshipService
 
-        serializer = LinkedOutputSerializer(data=request.data)
+        initiative = self._get_initiative(slug, initiative_id)
+        serializer = LinkedOutputCreateSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        output = serializer.save(initiative=initiative)
-        return Response(LinkedOutputSerializer(output).data, status=status.HTTP_201_CREATED)
+        data = serializer.validated_data
+        target_ct = get_object_or_404(ContentType, pk=data["output_content_type_id"])
+        target_model = target_ct.model_class()
+        if target_model is None:
+            return Response({"detail": "Invalid content type."}, status=status.HTTP_400_BAD_REQUEST)
+        target_obj = get_object_or_404(target_model, pk=data["output_object_id"])
+
+        relationship = RelationshipService.create_relationship(
+            type_slug="outputs-from",
+            source=initiative,
+            target=target_obj,
+            created_by=request.user,
+            notes=data.get("note", ""),
+        )
+        return Response(serialize_linked_output(relationship), status=status.HTTP_201_CREATED)
 
 
 # ---------------------------------------------------------------------------
