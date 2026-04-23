@@ -153,15 +153,11 @@ def compute_craft_readiness(writing_piece) -> dict:
     category = "confirmed" if cat_count >= 1 else "untouched"
     series = "confirmed" if writing_piece.series_id else "untouched"
 
-    from .models import ArtifactRelation
-    piece_ct = ContentType.objects.get_for_model(writing_piece.__class__)
-    outgoing = ArtifactRelation.objects.filter(
-        source_content_type=piece_ct,
-        source_object_id=writing_piece.pk,
-    ).exclude(visibility="dismissed")
+    from relations.service import RelationshipService
+    outgoing = RelationshipService.get_outgoing(writing_piece, domain="editorial")
     if not outgoing.exists():
         relations = "untouched"
-    elif outgoing.filter(status__in=("acknowledged", "mutual")).exists():
+    elif outgoing.filter(lifecycle__in=("acknowledged", "mutual")).exists():
         relations = "confirmed"
     else:
         relations = "partial"

@@ -68,6 +68,22 @@ class RelationshipService:
 
     @staticmethod
     @transaction.atomic
+    def acknowledge_relationship(*, relationship_id, acknowledged_by=None) -> "Relationship":
+        from django.utils import timezone
+        relationship = Relationship.objects.select_for_update().get(pk=relationship_id)
+        if relationship.lifecycle in (Relationship.LIFECYCLE_ACKNOWLEDGED, Relationship.LIFECYCLE_MUTUAL):
+            return relationship
+        relationship.lifecycle = Relationship.LIFECYCLE_ACKNOWLEDGED
+        meta = relationship.metadata or {}
+        meta["acknowledged_at"] = timezone.now().isoformat()
+        if acknowledged_by:
+            meta["acknowledged_by"] = str(acknowledged_by.pk)
+        relationship.metadata = meta
+        relationship.save(update_fields=["lifecycle", "metadata", "updated_at"])
+        return relationship
+
+    @staticmethod
+    @transaction.atomic
     def annotate_relationship(
         *, relationship_id, body: str = "", anchor_text: str = ""
     ) -> RelationshipAnnotation:
