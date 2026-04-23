@@ -126,6 +126,7 @@ INSTALLED_APPS = [
     "distribution",    # External distribution — Source channels, PublishEvent, ShareRecord
     "switchboard",     # Switchboard proxy — async tool submission surface
     "reading",         # Reading — Dart annotations and ReadingStats
+    "relations",       # Universal Relationship Fabric (ADR-0042)
 ]
 
 INSTALLED_APPS += ["rest_framework_simplejwt.token_blacklist"]
