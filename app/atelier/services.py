@@ -9,7 +9,8 @@ from classifications.models import Category, Tag, ClassificationUsage
 # Marker detection
 # ---------------------------------------------------------------------------
 
-_MARKER_RE = re.compile(r'(?<![:/])(?:^|(?<=\s))/([a-zA-Z][a-zA-Z0-9_-]*)', re.MULTILINE)
+# Matches /word markers AND single-char signal markers /! /~ /? /@
+_MARKER_RE = re.compile(r'(?<![:/])(?:^|(?<=\s))/([!~?@]|[a-zA-Z][a-zA-Z0-9_-]*)', re.MULTILINE)
 _CODE_FENCE_RE = re.compile(r'```[\s\S]*?```')
 _INLINE_CODE_RE = re.compile(r'`[^`\n]+`')
 _URL_RE = re.compile(r'https?://\S+')
@@ -38,7 +39,7 @@ def _extract_block(text: str, match_start: int) -> tuple[str, str, str]:
     blank = rest.find('\n\n')
     raw_marker = rest[:blank].rstrip() if blank != -1 else rest.rstrip()
 
-    word_match = re.match(r'/[a-zA-Z][a-zA-Z0-9_-]*', raw_marker)
+    word_match = re.match(r'/(?:[!~?@]|[a-zA-Z][a-zA-Z0-9_-]*)', raw_marker)
     after_word = raw_marker[word_match.end():].lstrip() if word_match else ""
 
     quoted = _QUOTED_LABEL_RE.match(after_word)
