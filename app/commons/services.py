@@ -5,7 +5,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from django.utils import timezone
 
-from .models import CommonsItem, Filament
+from .models import CommonsItem
 
 
 User = get_user_model()
@@ -97,12 +97,26 @@ def reject_item(item, user, reason=""):
     return advance_status(item, user, CommonsItem.CurationStatus.REJECTED)
 
 
+FILAMENT_VERB_SLUG_MAP = {
+    "founded_by": "founded-by",
+    "located_in": "located-in",
+    "collaborates_with": "collaborates-with",
+    "teaches_at": "teaches-at",
+    "inspired_by": "inspired-by",
+    "affiliated_with": "affiliated-with",
+    "program_of": "program-of",
+}
+
+
 @transaction.atomic
-def create_filament(source, target, relation_type, note=""):
-    """Create a relationship between two CommonsItems."""
-    return Filament.objects.create(
+def create_filament(source, target, relation_type, note="", created_by=None):
+    """Create a commons-domain Relationship between two CommonsItems."""
+    from relations.service import RelationshipService
+    slug = FILAMENT_VERB_SLUG_MAP.get(relation_type, relation_type)
+    return RelationshipService.create_relationship(
+        type_slug=slug,
         source=source,
         target=target,
-        relation_type=relation_type,
-        note=note,
+        created_by=created_by,
+        notes=note,
     )

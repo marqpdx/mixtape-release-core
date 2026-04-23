@@ -30,6 +30,12 @@ agent_object_patterns = [
     path("tasks/<uuid:task_id>", views.TaskDetailView.as_view(), name="initiative-task-detail"),
 ]
 
+mobile_command_patterns = [
+    path("mobile/commands", views.MobileCommandListCreateView.as_view(), name="initiative-mobile-command-create"),
+    path("mobile/commands/<uuid:command_id>", views.MobileCommandDetailView.as_view(), name="initiative-mobile-command-detail"),
+    path("mobile/commands/<uuid:command_id>/confirm", views.MobileCommandConfirmView.as_view(), name="initiative-mobile-command-confirm"),
+]
+
 # ---------------------------------------------------------------------------
 # Group-scoped initiative patterns — included under api/groups/<slug>/initiatives/
 # ---------------------------------------------------------------------------

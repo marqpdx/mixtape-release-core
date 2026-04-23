@@ -2,7 +2,7 @@
 
 from rest_framework import serializers
 
-from commons.models import CommonsItem, Filament
+from commons.models import CommonsItem
 
 
 class CommonsItemListSerializer(serializers.ModelSerializer):
@@ -73,10 +73,12 @@ class CommonsItemDetailSerializer(CommonsItemListSerializer):
         return None
 
     def get_filaments_out(self, obj):
-        return FilamentSerializer(obj.filaments_out.all(), many=True).data
+        from relations.service import RelationshipService
+        return [_serialize_commons_relationship(r) for r in RelationshipService.get_outgoing(obj, domain="commons")]
 
     def get_filaments_in(self, obj):
-        return FilamentSerializer(obj.filaments_in.all(), many=True).data
+        from relations.service import RelationshipService
+        return [_serialize_commons_relationship(r) for r in RelationshipService.get_incoming(obj, domain="commons")]
 
 
 class CommonsItemCreateSerializer(serializers.Serializer):
@@ -127,28 +129,42 @@ class CommonsItemCurationSerializer(serializers.ModelSerializer):
         extra_kwargs = {field: {"required": False} for field in fields}
 
 
-class FilamentSerializer(serializers.ModelSerializer):
-    source_title = serializers.CharField(source="source.title", read_only=True)
-    target_title = serializers.CharField(source="target.title", read_only=True)
+COMMONS_VERB_CHOICES = [
+    ("founded-by", "Founded By"),
+    ("located-in", "Located In"),
+    ("collaborates-with", "Collaborates With"),
+    ("teaches-at", "Teaches At"),
+    ("inspired-by", "Inspired By"),
+    ("affiliated-with", "Affiliated With"),
+    ("program-of", "Program Of"),
+]
 
-    class Meta:
-        model = Filament
-        fields = [
-            "id",
-            "source",
-            "source_title",
-            "target",
-            "target_title",
-            "relation_type",
-            "note",
-            "created_at",
-        ]
-        read_only_fields = ["id", "created_at"]
+
+def _serialize_commons_relationship(r):
+    endpoint_map = {}
+    for ct_id, obj_id, obj in [
+        (r.source_content_type_id, str(r.source_object_id), r.source),
+        (r.target_content_type_id, str(r.target_object_id), r.target),
+    ]:
+        endpoint_map[(ct_id, obj_id)] = obj
+
+    source = r.source
+    target = r.target
+    return {
+        "id": str(r.id),
+        "source": str(r.source_object_id),
+        "source_title": getattr(source, "title", None) if source else None,
+        "target": str(r.target_object_id),
+        "target_title": getattr(target, "title", None) if target else None,
+        "relation_type": r.relationship_type.slug,
+        "note": r.notes,
+        "created_at": r.created_at,
+    }
 
 
 class FilamentCreateSerializer(serializers.Serializer):
-    """Validation for creating a filament from a source item's detail view."""
+    """Validation for creating a commons-domain Relationship from a CommonsItem."""
 
     target_id = serializers.UUIDField()
-    relation_type = serializers.ChoiceField(choices=Filament.RelationType.choices)
+    relation_type = serializers.ChoiceField(choices=COMMONS_VERB_CHOICES)
     note = serializers.CharField(required=False, allow_blank=True, default="")

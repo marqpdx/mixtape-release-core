@@ -4,7 +4,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 
-from commons.models import CommonsItem, Filament
+from commons.models import CommonsItem
 from commons import services as commons_service
 
 from .serializers import (
@@ -12,8 +12,8 @@ from .serializers import (
     CommonsItemDetailSerializer,
     CommonsItemCreateSerializer,
     CommonsItemCurationSerializer,
-    FilamentSerializer,
     FilamentCreateSerializer,
+    _serialize_commons_relationship,
 )
 
 
@@ -196,8 +196,8 @@ class CommonsItemRejectView(generics.GenericAPIView):
 
 class FilamentListCreateView(generics.GenericAPIView):
     """
-    GET  — List filaments for a CommonsItem (both directions)
-    POST — Create a new filament from this item
+    GET  — List commons-domain Relationships for a CommonsItem (both directions)
+    POST — Create a new commons-domain Relationship from this item
     """
 
     permission_classes = [permissions.IsAuthenticated]
@@ -207,9 +207,10 @@ class FilamentListCreateView(generics.GenericAPIView):
         if denied:
             return denied
 
+        from relations.service import RelationshipService
         item = get_object_or_404(CommonsItem, pk=pk, deleted_at__isnull=True)
-        outgoing = FilamentSerializer(item.filaments_out.all(), many=True).data
-        incoming = FilamentSerializer(item.filaments_in.all(), many=True).data
+        outgoing = [_serialize_commons_relationship(r) for r in RelationshipService.get_outgoing(item, domain="commons")]
+        incoming = [_serialize_commons_relationship(r) for r in RelationshipService.get_incoming(item, domain="commons")]
         return Response({"outgoing": outgoing, "incoming": incoming})
 
     def post(self, request, pk):
@@ -217,6 +218,7 @@ class FilamentListCreateView(generics.GenericAPIView):
         if denied:
             return denied
 
+        from relations.service import RelationshipService
         source = get_object_or_404(CommonsItem, pk=pk, deleted_at__isnull=True)
         serializer = FilamentCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -226,21 +228,22 @@ class FilamentListCreateView(generics.GenericAPIView):
             CommonsItem, pk=data["target_id"], deleted_at__isnull=True
         )
 
-        filament = commons_service.create_filament(
+        relationship = commons_service.create_filament(
             source=source,
             target=target,
             relation_type=data["relation_type"],
             note=data.get("note", ""),
+            created_by=request.user,
         )
 
         return Response(
-            FilamentSerializer(filament).data,
+            _serialize_commons_relationship(relationship),
             status=status.HTTP_201_CREATED,
         )
 
 
 class FilamentDeleteView(generics.GenericAPIView):
-    """DELETE — Remove a filament."""
+    """DELETE — Archive a commons-domain Relationship."""
 
     permission_classes = [permissions.IsAuthenticated]
 
@@ -249,6 +252,8 @@ class FilamentDeleteView(generics.GenericAPIView):
         if denied:
             return denied
 
-        filament = get_object_or_404(Filament, pk=pk)
-        filament.delete()
+        from relations.models import Relationship
+        from relations.service import RelationshipService
+        relationship = get_object_or_404(Relationship, pk=pk)
+        RelationshipService.archive_relationship(relationship_id=relationship.id, archived_by=request.user)
         return Response(status=status.HTTP_204_NO_CONTENT)

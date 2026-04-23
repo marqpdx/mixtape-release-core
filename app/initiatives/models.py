@@ -105,6 +105,23 @@ class TaskStatus(models.TextChoices):
     CANCELLED = "cancelled", "Cancelled"
 
 
+class AgentCommandSource(models.TextChoices):
+    MOBILE_INITIATIVES = "mobile_initiatives", "Mobile Initiatives"
+    DESKTOP_INITIATIVES = "desktop_initiatives", "Desktop Initiatives"
+
+
+class AgentCommandStatus(models.TextChoices):
+    PARSED = "parsed", "Parsed"
+    EXECUTED = "executed", "Executed"
+    FAILED = "failed", "Failed"
+
+
+class AgentCommandResultType(models.TextChoices):
+    ACKNOWLEDGMENT = "acknowledgment", "Acknowledgment"
+    GENERATED_ARTIFACT = "generated_artifact", "Generated Artifact"
+    SEARCH_RESULTS = "search_results", "Search Results"
+
+
 # ---------------------------------------------------------------------------
 # Initiative
 # ---------------------------------------------------------------------------
@@ -434,45 +451,6 @@ class Artifact(BaseModel):
         self.save(update_fields=["puddlejump_routed", "puddlejump_routed_at", "updated_at"])
 
 
-# ---------------------------------------------------------------------------
-# LinkedOutput
-# ---------------------------------------------------------------------------
-
-class LinkedOutput(BaseModel):
-    """
-    A Mixtape artifact (any model) that was produced by this Initiative.
-    The link is explicit and traceable — closing the provenance loop.
-    """
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-
-    initiative = models.ForeignKey(
-        Initiative,
-        on_delete=models.CASCADE,
-        related_name="linked_outputs",
-    )
-
-    # Polymorphic output (WritingPiece, Event, Project, etc.)
-    output_content_type = models.ForeignKey(
-        ContentType,
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-    )
-    output_object_id = models.UUIDField(null=True, blank=True)
-    output = GenericForeignKey("output_content_type", "output_object_id")
-
-    note = models.TextField(
-        blank=True,
-        default="",
-        help_text="Optional human note about the relationship.",
-    )
-
-    class Meta(BaseModel.Meta):
-        ordering = ["-created_at"]
-
-    def __str__(self):
-        return f"LinkedOutput → {self.output_content_type} {self.output_object_id}"
 
 
 # ---------------------------------------------------------------------------
@@ -852,6 +830,95 @@ class ReminderStatus(models.TextChoices):
     PENDING = "pending", "Pending"
     ACKNOWLEDGED = "acknowledged", "Acknowledged"
     SNOOZED = "snoozed", "Snoozed"
+
+
+class AgentCommand(BaseModel):
+    """
+    Persisted parse/confirm record for agent command UX across mobile and desktop.
+
+    This gives the client a stable resource for parse, confirm, and result
+    display without exposing the verb-specific execution seams directly.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    sponsor_content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE,
+        related_name="initiative_agent_commands",
+        null=True,
+        blank=True,
+    )
+    sponsor_object_id = models.UUIDField(null=True, blank=True)
+    sponsor = GenericForeignKey("sponsor_content_type", "sponsor_object_id")
+
+    initiative = models.ForeignKey(
+        Initiative,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="agent_commands",
+    )
+    source = models.CharField(
+        max_length=40,
+        choices=AgentCommandSource.choices,
+        default=AgentCommandSource.MOBILE_INITIATIVES,
+    )
+    capture_mode = models.CharField(
+        max_length=20,
+        choices=CaptureMode.choices,
+        default=CaptureMode.TYPED,
+    )
+    draft_session_id = models.CharField(max_length=255, blank=True, default="")
+    raw_input = models.TextField()
+
+    parsed_verb = models.CharField(max_length=40, blank=True, default="")
+    confidence = models.FloatField(null=True, blank=True)
+    parsed_title = models.CharField(max_length=255, blank=True, default="")
+    parsed_summary = models.TextField(blank=True, default="")
+    parsed_fields = models.JSONField(default=dict, blank=True)
+    parse_metadata = models.JSONField(default=dict, blank=True)
+    generated_text = models.TextField(blank=True, default="")
+    needs_clarification = models.BooleanField(default=False)
+    clarification_reason = models.TextField(blank=True, default="")
+
+    edited_fields = models.JSONField(default=dict, blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=AgentCommandStatus.choices,
+        default=AgentCommandStatus.PARSED,
+    )
+    executed_verb = models.CharField(max_length=40, blank=True, default="")
+    result_type = models.CharField(
+        max_length=30,
+        choices=AgentCommandResultType.choices,
+        blank=True,
+        default="",
+    )
+    result_payload = models.JSONField(default=dict, blank=True)
+    error_payload = models.JSONField(default=dict, blank=True)
+    follow_up_suggestions = models.JSONField(default=list, blank=True)
+    routing_metadata = models.JSONField(default=dict, blank=True)
+
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="initiative_agent_commands",
+    )
+
+    class Meta(BaseModel.Meta):
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["source", "-created_at"], name="init_agcmd_source_idx"),
+            models.Index(fields=["initiative", "-created_at"], name="initiatives_agentcmd_init_idx"),
+            models.Index(fields=["status", "-created_at"], name="init_agcmd_status_idx"),
+            models.Index(fields=["created_by", "-created_at"], name="initiatives_agentcmd_user_idx"),
+        ]
+
+    def __str__(self):
+        return self.parsed_title or self.raw_input[:60] or f"AgentCommand {self.pk}"
 
 
 class Note(BaseModel):
