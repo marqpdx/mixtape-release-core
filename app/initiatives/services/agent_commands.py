@@ -5,6 +5,7 @@ from uuid import UUID
 
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
+from django.db.models import Q
 from django.utils.dateparse import parse_datetime
 
 from initiatives.models import (
@@ -16,6 +17,7 @@ from initiatives.models import (
     Reminder,
     Task,
 )
+from lists.models import List as MixtapeList
 
 
 User = get_user_model()
@@ -180,6 +182,63 @@ def create_task_from_agent(
     )
 
 
+def _normalize_items(raw) -> list[str]:
+    """Coerce Inkwell's items field to a flat list of non-empty strings."""
+    if isinstance(raw, list):
+        return [str(i).strip() for i in raw if str(i).strip()]
+    if isinstance(raw, str) and raw.strip():
+        return [part.strip() for part in raw.replace(";", ",").split(",") if part.strip()]
+    return []
+
+
+def add_items_from_agent(
+    *,
+    created_by: User,
+    target_name: str,
+    items: list[str],
+    capture_mode: str = "typed",
+    raw_input: str = "",
+    parsed_metadata: dict | None = None,
+    initiative_id: UUID | None = None,
+    sponsor_model: str | None = None,
+    sponsor_id: UUID | None = None,
+) -> tuple[MixtapeList, list[str]]:
+    """
+    Find (or create) the named list for the sponsor and append items to it.
+    Returns (list_obj, added_items).
+    """
+    target = _resolve_target(
+        initiative_id=initiative_id,
+        sponsor_model=sponsor_model,
+        sponsor_id=sponsor_id,
+    )
+    slug_query = target_name.lower().replace(" ", "-")
+    lst = (
+        MixtapeList.objects.filter(
+            sponsor_content_type=target.sponsor_content_type,
+            sponsor_object_id=target.sponsor_object_id,
+            deleted_at__isnull=True,
+        )
+        .filter(Q(title__icontains=target_name) | Q(slug__icontains=slug_query))
+        .order_by("-updated_at")
+        .first()
+    )
+
+    if lst is None:
+        lst = MixtapeList.objects.create(
+            sponsor_content_type=target.sponsor_content_type,
+            sponsor_object_id=target.sponsor_object_id,
+            title=target_name,
+            submitted_by=created_by,
+            body_text="",
+        )
+
+    appended = "\n".join(f"- {item}" for item in items)
+    lst.body_text = (lst.body_text.rstrip("\n") + "\n" + appended).lstrip("\n")
+    lst.save(update_fields=["body_text", "updated_at"])
+    return lst, items
+
+
 def summarize_parsed_command(parsed_result: dict) -> tuple[str, str, str, bool, str]:
     normalized = parsed_result.get("normalized_payload") or {}
     ambiguities = parsed_result.get("ambiguities") or []
@@ -305,6 +364,68 @@ def execute_agent_command(
             "target_screen": "initiative_task_detail",
             "target_params": {"task_id": str(task.id)},
         }
+    elif command.parsed_verb == "add":
+        target_name = payload.get("target_name") or payload.get("target") or "Untitled list"
+        raw_items = payload.get("items") or payload.get("target_items") or []
+        items = _normalize_items(raw_items)
+        if not items:
+            items = [command.raw_input]
+
+        lst, added = add_items_from_agent(
+            created_by=confirmed_by,
+            initiative_id=command.initiative_id,
+            sponsor_model=command.sponsor_content_type.model if command.sponsor_content_type else None,
+            sponsor_id=command.sponsor_object_id,
+            target_name=target_name,
+            items=items,
+            capture_mode=command.capture_mode,
+            raw_input=command.raw_input,
+            parsed_metadata=parsed_metadata,
+        )
+        result_payload = {
+            "object_type": "list",
+            "list": {
+                "id": str(lst.id),
+                "title": lst.title,
+                "slug": lst.slug,
+                "added_items": added,
+                "item_count": lst.body_text.count("\n- ") + (1 if lst.body_text.startswith("- ") else 0),
+            },
+        }
+        routing_metadata = {
+            "deep_link_type": "tab",
+            "target_screen": "Initiatives",
+        }
+    elif command.parsed_verb == "research":
+        from initiatives.services.agent_research import AgentResearchError, research_via_inkwell
+
+        query = payload.get("query") or command.parsed_title or command.raw_input
+        try:
+            research_result = research_via_inkwell(query=query)
+        except AgentResearchError as exc:
+            command.status = AgentCommandStatus.FAILED
+            command.error_payload = {"detail": exc.detail}
+            command.save(update_fields=["status", "error_payload", "updated_at"])
+            raise
+
+        sources = research_result.get("sources") or []
+        result_payload = {
+            "object_type": "research_results",
+            "query": query,
+            "result": research_result.get("result") or "",
+            "sources": [
+                {"title": s.get("title", ""), "url": s.get("url", ""), "excerpt": s.get("excerpt", "")}
+                for s in sources
+            ],
+            "confidence": research_result.get("confidence", 0.0),
+            "method": research_result.get("method", "llm"),
+        }
+        first_url = sources[0].get("url") if sources else None
+        routing_metadata = (
+            {"deep_link_type": "external_url", "external_url": first_url}
+            if first_url
+            else {"deep_link_type": "tab", "target_screen": "Initiatives"}
+        )
     else:
         command.status = AgentCommandStatus.FAILED
         command.error_payload = {
@@ -313,10 +434,16 @@ def execute_agent_command(
         command.save(update_fields=["status", "error_payload", "updated_at"])
         raise NotImplementedError(f"Unsupported agent command verb: {command.parsed_verb}")
 
+    result_type = (
+        AgentCommandResultType.GENERATED_ARTIFACT
+        if command.parsed_verb == "research"
+        else AgentCommandResultType.ACKNOWLEDGMENT
+    )
+
     command.edited_fields = confirmed_fields or {}
     command.status = AgentCommandStatus.EXECUTED
     command.executed_verb = command.parsed_verb
-    command.result_type = AgentCommandResultType.ACKNOWLEDGMENT
+    command.result_type = result_type
     command.result_payload = result_payload
     command.error_payload = {}
     command.follow_up_suggestions = []
