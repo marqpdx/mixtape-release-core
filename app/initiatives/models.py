@@ -1112,3 +1112,45 @@ class Task(BaseModel):
 
     def __str__(self):
         return self.title
+
+
+# ============================================================================
+# Initiatives Voice Transcription Job (IM-7c)
+# ============================================================================
+
+class AgentTranscriptionStatus(models.TextChoices):
+    PROCESSING = "processing", "Processing"
+    COMPLETE = "complete", "Complete"
+    FAILED = "failed", "Failed"
+
+
+class AgentTranscriptionJob(BaseModel):
+    """
+    Ephemeral record tracking a mobile voice command transcription job.
+    Audio is stored temporarily and deleted once transcription completes.
+    """
+
+    status = models.CharField(
+        max_length=20,
+        choices=AgentTranscriptionStatus.choices,
+        default=AgentTranscriptionStatus.PROCESSING,
+    )
+    audio_path = models.CharField(max_length=512, blank=True)
+    transcription_text = models.TextField(blank=True)
+    failure_reason = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="agent_transcription_jobs",
+    )
+
+    class Meta(BaseModel.Meta):
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["status", "-created_at"], name="init_transcription_status_idx"),
+        ]
+
+    def __str__(self):
+        return f"TranscriptionJob({self.status}) {self.id}"

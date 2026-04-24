@@ -34,6 +34,8 @@ mobile_command_patterns = [
     path("mobile/commands", views.MobileCommandListCreateView.as_view(), name="initiative-mobile-command-create"),
     path("mobile/commands/<uuid:command_id>", views.MobileCommandDetailView.as_view(), name="initiative-mobile-command-detail"),
     path("mobile/commands/<uuid:command_id>/confirm", views.MobileCommandConfirmView.as_view(), name="initiative-mobile-command-confirm"),
+    path("mobile/transcribe", views.MobileTranscribeUploadView.as_view(), name="initiative-mobile-transcribe-upload"),
+    path("mobile/transcribe/<uuid:job_id>", views.MobileTranscribeStatusView.as_view(), name="initiative-mobile-transcribe-status"),
 ]
 
 # ---------------------------------------------------------------------------

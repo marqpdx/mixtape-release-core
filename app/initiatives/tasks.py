@@ -1,10 +1,51 @@
 # initiatives/tasks.py
 
 import logging
+import os
 
 from celery import shared_task
+from django.core.files.storage import default_storage
 
 logger = logging.getLogger(__name__)
+
+
+@shared_task(bind=True, max_retries=2, default_retry_delay=10)
+def transcribe_initiatives_job(self, job_id: str):
+    """
+    Transcribe uploaded voice audio for an Initiatives mobile command.
+    Updates AgentTranscriptionJob with the result and deletes the audio file.
+    """
+    from initiatives.models import AgentTranscriptionJob, AgentTranscriptionStatus
+    from concord.services.whisper import transcribe_audio
+
+    try:
+        job = AgentTranscriptionJob.objects.get(id=job_id)
+    except AgentTranscriptionJob.DoesNotExist:
+        logger.warning("transcribe_initiatives_job: job %s not found", job_id)
+        return
+
+    if job.status != AgentTranscriptionStatus.PROCESSING:
+        return
+
+    audio_path = job.audio_path
+    try:
+        result = transcribe_audio(audio_path)
+        job.transcription_text = result.text.strip()
+        job.status = AgentTranscriptionStatus.COMPLETE
+        job.save(update_fields=["transcription_text", "status", "updated_at"])
+        logger.info("transcribe_initiatives_job: complete job=%s chars=%d", job_id, len(result.text))
+    except Exception as exc:
+        logger.exception("transcribe_initiatives_job: failed job=%s", job_id)
+        job.status = AgentTranscriptionStatus.FAILED
+        job.failure_reason = str(exc)[:500]
+        job.save(update_fields=["status", "failure_reason", "updated_at"])
+        raise self.retry(exc=exc)
+    finally:
+        try:
+            if audio_path and default_storage.exists(audio_path):
+                default_storage.delete(audio_path)
+        except Exception:
+            pass
 
 
 @shared_task(bind=True, max_retries=3)
