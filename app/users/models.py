@@ -41,6 +41,12 @@ class CustomUser(AbstractUser, BaseModel):
 
     roles = models.ManyToManyField(Role, related_name="users")
 
+    stackroom_library_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="UUID of this user's personal Stackroom library. Set when the library is first created."
+    )
+
     autocomplete_search_field = "first_name"
 
     def autocomplete_label(self):
