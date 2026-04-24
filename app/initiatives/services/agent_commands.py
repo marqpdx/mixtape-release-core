@@ -396,6 +396,158 @@ def execute_agent_command(
             "deep_link_type": "tab",
             "target_screen": "Initiatives",
         }
+    elif command.parsed_verb == "find":
+        from initiatives.services.agent_stackroom import AgentStackroomError, retrieve_from_stackroom
+
+        query = payload.get("query") or command.parsed_title or command.raw_input
+        sponsor_obj = (
+            command.sponsor_content_type.get_object_for_this_type(pk=command.sponsor_object_id)
+            if command.sponsor_content_type
+            else None
+        )
+        library_id = getattr(sponsor_obj, "stackroom_library_id", None)
+
+        if not library_id:
+            result_payload = {
+                "object_type": "search_results",
+                "query": query,
+                "results": [],
+                "detail": "No searchable library is linked to this group yet.",
+            }
+        else:
+            try:
+                hits = retrieve_from_stackroom(query=query, library_id=library_id)
+            except AgentStackroomError as exc:
+                command.status = AgentCommandStatus.FAILED
+                command.error_payload = {"detail": exc.detail}
+                command.save(update_fields=["status", "error_payload", "updated_at"])
+                raise
+
+            result_payload = {
+                "object_type": "search_results",
+                "query": query,
+                "results": [
+                    {
+                        "text": h["text"],
+                        "score": h["score"],
+                        "artifact_type": h["artifact_type"],
+                    }
+                    for h in hits
+                ],
+            }
+
+        routing_metadata = {"deep_link_type": "tab", "target_screen": "Initiatives"}
+
+    elif command.parsed_verb == "summarize":
+        from initiatives.services.agent_research import AgentResearchError, summarize_via_inkwell
+        from initiatives.services.agent_stackroom import retrieve_from_stackroom
+
+        source_hint = payload.get("source_hint") or command.parsed_title or command.raw_input
+        words = int(payload.get("words") or 80)
+        style = payload.get("style") or "neutral"
+
+        sponsor_obj = (
+            command.sponsor_content_type.get_object_for_this_type(pk=command.sponsor_object_id)
+            if command.sponsor_content_type
+            else None
+        )
+        library_id = getattr(sponsor_obj, "stackroom_library_id", None)
+
+        if library_id:
+            try:
+                hits = retrieve_from_stackroom(query=source_hint, library_id=library_id, limit=5)
+                source_text = "\n\n".join(h["text"] for h in hits) if hits else source_hint
+            except Exception:
+                source_text = source_hint
+        else:
+            source_text = source_hint
+
+        try:
+            summary = summarize_via_inkwell(text=source_text, words=words, style=style)
+        except AgentResearchError as exc:
+            command.status = AgentCommandStatus.FAILED
+            command.error_payload = {"detail": exc.detail}
+            command.save(update_fields=["status", "error_payload", "updated_at"])
+            raise
+
+        result_payload = {
+            "object_type": "generated_artifact",
+            "source_hint": source_hint,
+            "summary": summary,
+            "generated_text": summary,
+        }
+        routing_metadata = {"deep_link_type": "tab", "target_screen": "Initiatives"}
+
+    elif command.parsed_verb == "draft":
+        import os
+        import anthropic
+        from initiatives.services.agent_stackroom import retrieve_from_stackroom
+
+        artifact_type = payload.get("artifact_type") or "document"
+        audience = payload.get("audience") or ""
+        topic = payload.get("topic") or command.parsed_title or command.raw_input
+        tone_hint = payload.get("tone") or ""
+
+        sponsor_obj = (
+            command.sponsor_content_type.get_object_for_this_type(pk=command.sponsor_object_id)
+            if command.sponsor_content_type
+            else None
+        )
+        library_id = getattr(sponsor_obj, "stackroom_library_id", None)
+
+        tone_context = ""
+        if library_id:
+            try:
+                tone_hits = retrieve_from_stackroom(
+                    query=f"tone persona writing style {tone_hint}".strip(),
+                    library_id=library_id,
+                    limit=3,
+                    artifact_types=["tone", "document", "guide"],
+                )
+                if tone_hits:
+                    tone_context = "\n\n".join(h["text"] for h in tone_hits)
+            except Exception:
+                pass
+
+        system_parts = [
+            "You are a professional writing assistant for a small business.",
+            "Write a concise, clear draft based on the user's request.",
+            f"Artifact type: {artifact_type}.",
+        ]
+        if audience:
+            system_parts.append(f"Audience: {audience}.")
+        if tone_context:
+            system_parts.append(
+                f"Use the following tone and style guidance from the business's Canon:\n\n{tone_context}"
+            )
+        system_prompt = " ".join(system_parts)
+
+        try:
+            api_key = os.getenv("ANTHROPIC_API_KEY")
+            if not api_key:
+                raise RuntimeError("ANTHROPIC_API_KEY is not set.")
+            client = anthropic.Anthropic(api_key=api_key)
+            message = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=1024,
+                system=system_prompt,
+                messages=[{"role": "user", "content": f"Draft: {topic}"}],
+            )
+            draft_text = message.content[0].text if message.content else ""
+        except Exception as exc:
+            command.status = AgentCommandStatus.FAILED
+            command.error_payload = {"detail": f"Draft generation failed: {exc}"}
+            command.save(update_fields=["status", "error_payload", "updated_at"])
+            raise RuntimeError(f"Draft generation failed: {exc}") from exc
+
+        result_payload = {
+            "object_type": "generated_artifact",
+            "artifact_type": artifact_type,
+            "topic": topic,
+            "generated_text": draft_text,
+        }
+        routing_metadata = {"deep_link_type": "tab", "target_screen": "Initiatives"}
+
     elif command.parsed_verb == "research":
         from initiatives.services.agent_research import AgentResearchError, research_via_inkwell
 
@@ -434,11 +586,14 @@ def execute_agent_command(
         command.save(update_fields=["status", "error_payload", "updated_at"])
         raise NotImplementedError(f"Unsupported agent command verb: {command.parsed_verb}")
 
-    result_type = (
-        AgentCommandResultType.GENERATED_ARTIFACT
-        if command.parsed_verb == "research"
-        else AgentCommandResultType.ACKNOWLEDGMENT
-    )
+    _generated_verbs = {"research", "summarize", "draft"}
+    _search_verbs = {"find"}
+    if command.parsed_verb in _generated_verbs:
+        result_type = AgentCommandResultType.GENERATED_ARTIFACT
+    elif command.parsed_verb in _search_verbs:
+        result_type = AgentCommandResultType.SEARCH_RESULTS
+    else:
+        result_type = AgentCommandResultType.ACKNOWLEDGMENT
 
     command.edited_fields = confirmed_fields or {}
     command.status = AgentCommandStatus.EXECUTED

@@ -5,7 +5,7 @@ import logging
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from rest_framework import permissions, status
+from rest_framework import parsers, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -1426,3 +1426,66 @@ class ApertureInitiativeTypeaheadView(APIView):
         ]
 
         return Response({"initiatives": results})
+
+
+# ============================================================================
+# Mobile voice transcription (IM-7c)
+# ============================================================================
+
+class MobileTranscribeUploadView(APIView):
+    """
+    POST /api/initiatives/mobile/transcribe
+    Accept a multipart audio upload, create a transcription job, queue Whisper.
+    Returns {"job_id": "<uuid>"}.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [parsers.MultiPartParser]
+
+    def post(self, request):
+        from initiatives.models import AgentTranscriptionJob
+        from initiatives.tasks import transcribe_initiatives_job
+        import uuid as _uuid
+
+        audio_file = request.FILES.get("audio")
+        if not audio_file:
+            return Response({"detail": "audio file is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        from django.core.files.storage import default_storage
+        from django.core.files.base import ContentFile
+
+        job_id = str(_uuid.uuid4())
+        ext = audio_file.name.rsplit(".", 1)[-1] if "." in audio_file.name else "m4a"
+        audio_path = f"initiatives/transcriptions/{job_id}.{ext}"
+        default_storage.save(audio_path, ContentFile(audio_file.read()))
+
+        job = AgentTranscriptionJob.objects.create(
+            id=job_id,
+            audio_path=audio_path,
+            created_by=request.user,
+        )
+
+        transcribe_initiatives_job.delay(job_id)
+        return Response({"job_id": str(job.id)}, status=status.HTTP_202_ACCEPTED)
+
+
+class MobileTranscribeStatusView(APIView):
+    """
+    GET /api/initiatives/mobile/transcribe/<job_id>
+    Return transcription job status and text when complete.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, job_id):
+        from initiatives.models import AgentTranscriptionJob
+
+        try:
+            job = AgentTranscriptionJob.objects.get(id=job_id, created_by=request.user)
+        except AgentTranscriptionJob.DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response({
+            "job_id": str(job.id),
+            "status": job.status,
+            "transcription_text": job.transcription_text or None,
+            "failure_reason": job.failure_reason or None,
+        })
