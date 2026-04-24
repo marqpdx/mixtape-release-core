@@ -121,6 +121,15 @@ class Group(LayoutParent, BaseContent):
         help_text="Direct permission grants for edge cases (use sparingly)"
     )
 
+    # ============================================================================
+    # STACKROOM INTEGRATION
+    # ============================================================================
+    stackroom_library_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="UUID of this group's Stackroom library. Set when the library is first created."
+    )
+
     def is_member(self, user):
         """
         Check if user is a member of this group.
