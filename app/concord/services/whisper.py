@@ -267,7 +267,7 @@ class WhisperService:
             audio_path,
             language=language,
             word_timestamps=word_timestamps,
-            vad_filter=True,  # Filter out silence
+            vad_filter=False,
         )
 
         segments = []

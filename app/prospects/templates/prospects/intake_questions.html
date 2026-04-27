@@ -9,6 +9,9 @@
     body { font-family: system-ui, sans-serif; background: #f9f9f7; color: #1a1a1a; }
     .container { max-width: 680px; margin: 48px auto; padding: 0 24px 80px; }
     h2 { font-size: 1.5rem; font-weight: 600; margin-bottom: 32px; }
+
+    .submitted-notice { background: #d1e7dd; color: #0a3622; border-radius: 6px; padding: 12px 16px; font-size: 0.9rem; margin-bottom: 32px; }
+
     .question { margin-bottom: 48px; border-top: 1px solid #e5e5e5; padding-top: 28px; }
     .question:first-of-type { border-top: none; }
     .question-label { font-size: 1.05rem; font-weight: 600; margin-bottom: 6px; }
@@ -18,16 +21,6 @@
     .save-status { font-size: 0.8rem; color: #888; margin-top: 4px; min-height: 18px; }
 
     .file-section { margin-top: 14px; }
-    .file-section-label { font-size: 0.85rem; font-weight: 500; color: #555; margin-bottom: 8px; }
-    .file-list { list-style: none; margin-bottom: 10px; }
-    .file-list li { display: flex; align-items: center; gap: 10px; font-size: 0.875rem; padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
-    .file-list li:last-child { border-bottom: none; }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
-    .badge-pending { background: #fff3cd; color: #856404; }
-    .badge-processing { background: #cfe2ff; color: #084298; }
-    .badge-done { background: #d1e7dd; color: #0a3622; }
-    .badge-failed { background: #f8d7da; color: #842029; }
-    .file-preview { font-size: 0.8rem; color: #555; max-height: 60px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 360px; }
 
     .upload-btn-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .btn-upload { display: inline-block; padding: 7px 16px; background: #fff; border: 1px solid #ccc; border-radius: 6px; font-size: 0.875rem; cursor: pointer; }
@@ -39,6 +32,21 @@
     .btn-record.recording { background: #f8d7da; border-color: #842029; color: #842029; }
     .record-timer { font-size: 0.8rem; color: #888; min-width: 40px; }
 
+    .file-list { list-style: none; margin-top: 12px; }
+    .file-list li { display: flex; flex-direction: column; gap: 6px; font-size: 0.875rem; padding: 10px 0; border-bottom: 1px solid #f0f0f0; }
+    .file-list li:last-child { border-bottom: none; }
+    .file-list-row { display: flex; align-items: center; gap: 10px; }
+
+    .badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
+    .badge-pending, .badge-processing { background: #cfe2ff; color: #084298; }
+    .badge-done { background: #d1e7dd; color: #0a3622; }
+    .badge-failed { background: #f8d7da; color: #842029; }
+
+    .spin-star { display: inline-block; width: 11px; height: 11px; animation: spin 1s linear infinite; }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+    .file-preview { font-size: 0.85rem; color: #444; white-space: pre-wrap; line-height: 1.5; padding: 8px 10px; background: #f5f5f3; border-radius: 4px; }
+
     .submit-area { margin-top: 48px; }
     .btn-submit { padding: 14px 40px; background: #1a1a1a; color: #fff; border: none; border-radius: 6px; font-size: 1rem; font-weight: 500; cursor: pointer; }
     .btn-submit:hover { background: #333; }
@@ -49,6 +57,10 @@
 <body>
   <div class="container">
     <h2>Tell us about {{ session.prospect.name }}</h2>
+
+    {% if submitted %}
+    <div class="submitted-notice">You've already submitted — feel free to update any answers and resubmit.</div>
+    {% endif %}
 
     {% for question in questions %}
     <div class="question" data-question-id="{{ question.id }}">
@@ -64,8 +76,6 @@
       <div class="save-status" id="text-status-{{ question.id }}"></div>
 
       <div class="file-section">
-        <div class="file-section-label">Or attach a file (md, pdf, docx)</div>
-        <ul class="file-list" id="file-list-{{ question.id }}"></ul>
         <div class="upload-btn-row">
           <label class="btn-upload" for="file-input-{{ question.id }}">+ Attach file</label>
           <input type="file" id="file-input-{{ question.id }}" accept=".md,.pdf,.docx,.doc" data-question-id="{{ question.id }}">
@@ -73,12 +83,13 @@
           <button class="btn-record" type="button" data-question-id="{{ question.id }}" id="rec-btn-{{ question.id }}">&#9679; Record voice</button>
           <span class="record-timer" id="rec-timer-{{ question.id }}"></span>
         </div>
+        <ul class="file-list" id="file-list-{{ question.id }}"></ul>
       </div>
     </div>
     {% endfor %}
 
     <div class="submit-area">
-      <button class="btn-submit" id="btn-submit">Submit</button>
+      <button class="btn-submit" id="btn-submit">{% if submitted %}Resubmit{% else %}Submit{% endif %}</button>
       <div class="error-msg" id="error-msg"></div>
     </div>
   </div>
@@ -87,6 +98,7 @@
     const TOKEN = "{{ token }}";
     const SAVE_URL = `/api/intake/${TOKEN}/responses/`;
     const FILE_URL = `/api/intake/${TOKEN}/files/`;
+    const VOICE_URL = `/api/intake/${TOKEN}/voices/`;
     const SUBMIT_URL = `/api/intake/${TOKEN}/submit/`;
     const SUBMITTED_URL = `/intake/${TOKEN}/submitted/`;
 
@@ -97,7 +109,7 @@
       if (existingResponses[qid]) ta.value = existingResponses[qid];
     });
 
-    // Load existing file responses
+    // Load existing file/voice responses
     const existingFiles = {{ existing_files_json|safe }};
     existingFiles.forEach(function(f) {
       addFileEntry(f.question_id, f.id, f.file_name || "Attached file", f.processing_status, f.response_text);
@@ -130,8 +142,25 @@
       });
     });
 
-    // ---- File upload ----
+    // ---- File / voice entry rendering ----
     const pollIntervals = {};
+
+    const spinSvg = `<svg class="spin-star" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <g stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+        <line x1="6" y1="1" x2="6" y2="11"/>
+        <line x1="1" y1="6" x2="11" y2="6"/>
+        <line x1="2.5" y1="2.5" x2="9.5" y2="9.5"/>
+        <line x1="9.5" y1="2.5" x2="2.5" y2="9.5"/>
+      </g>
+    </svg>`;
+
+    function badgeHTML(s) {
+      if (s === "pending" || s === "processing") {
+        return `<span class="badge badge-${s}">${spinSvg} Processing…</span>`;
+      }
+      if (s === "done") return `<span class="badge badge-done">Ready</span>`;
+      return `<span class="badge badge-failed">Failed</span>`;
+    }
 
     function addFileEntry(qid, responseId, fileName, processingStatus, responseText) {
       const list = document.getElementById("file-list-" + qid);
@@ -146,9 +175,11 @@
       const li = document.createElement("li");
       li.id = "file-entry-" + responseId;
       li.innerHTML = `
-        <span class="badge badge-${processingStatus}" id="file-badge-${responseId}">${badgeLabel(processingStatus)}</span>
-        <span>${fileName}</span>
-        <span class="file-preview" id="file-preview-${responseId}">${responseText ? responseText.slice(0, 120) : ""}</span>
+        <div class="file-list-row">
+          <span id="file-badge-${responseId}">${badgeHTML(processingStatus)}</span>
+          <span>${fileName}</span>
+        </div>
+        <div class="file-preview" id="file-preview-${responseId}" style="display:${responseText ? 'block' : 'none'}">${responseText || ""}</div>
       `;
       list.appendChild(li);
 
@@ -158,17 +189,14 @@
     }
 
     function updateFileEntry(responseId, processingStatus, responseText) {
-      const badge = document.getElementById("file-badge-" + responseId);
-      if (badge) {
-        badge.className = "badge badge-" + processingStatus;
-        badge.textContent = badgeLabel(processingStatus);
-      }
-      const preview = document.getElementById("file-preview-" + responseId);
-      if (preview && responseText) preview.textContent = responseText.slice(0, 120);
-    }
+      const badgeEl = document.getElementById("file-badge-" + responseId);
+      if (badgeEl) badgeEl.innerHTML = badgeHTML(processingStatus);
 
-    function badgeLabel(s) {
-      return { pending: "Processing…", processing: "Processing…", done: "Ready", failed: "Failed" }[s] || s;
+      const preview = document.getElementById("file-preview-" + responseId);
+      if (preview && responseText) {
+        preview.textContent = responseText;
+        preview.style.display = "block";
+      }
     }
 
     function startPolling(qid, responseId) {
@@ -187,6 +215,7 @@
       }, 2000);
     }
 
+    // ---- File upload ----
     document.querySelectorAll("input[type='file']").forEach(function(input) {
       input.addEventListener("change", function() {
         const file = input.files[0];
@@ -206,16 +235,13 @@
           .then(function(data) {
             addFileEntry(qid, data.id, file.name, data.processing_status, "");
           })
-          .catch(function() {
-            alert("Upload failed. Please try again.");
-          });
+          .catch(function() { alert("Upload failed. Please try again."); });
 
         input.value = "";
       });
     });
 
     // ---- Voice recording ----
-    const VOICE_URL = `/api/intake/${TOKEN}/voices/`;
     const activeRecorders = {};
 
     document.querySelectorAll(".btn-record[data-question-id]").forEach(function(btn) {
@@ -227,10 +253,8 @@
 
       btn.addEventListener("click", function() {
         if (activeRecorders[qid]) {
-          // Stop recording
           mediaRecorder.stop();
         } else {
-          // Start recording
           navigator.mediaDevices.getUserMedia({ audio: true })
             .then(function(stream) {
               chunks = [];
@@ -277,9 +301,7 @@
                   .then(function(data) {
                     addFileEntry(qid, data.id, `Voice note (${formatTime(seconds)})`, data.processing_status, "");
                   })
-                  .catch(function() {
-                    alert("Voice upload failed. Please try again.");
-                  });
+                  .catch(function() { alert("Voice upload failed. Please try again."); });
               };
 
               mediaRecorder.start();
@@ -326,7 +348,7 @@
               window.location.href = SUBMITTED_URL;
             } else {
               const errEl = document.getElementById("error-msg");
-              errEl.textContent = res.data.detail || "Please answer all questions before submitting.";
+              errEl.textContent = res.data.detail || "Something went wrong. Please try again.";
               errEl.style.display = "block";
               btn.disabled = false;
             }
