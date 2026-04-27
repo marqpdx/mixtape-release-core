@@ -1,4 +1,3 @@
-from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
 from django.utils.text import slugify
@@ -338,8 +337,7 @@ class IntakeSessionCreateView(APIView):
             created_by=request.user,
             meeting_date=request.data.get("meeting_date"),
         )
-        frontend_url = getattr(settings, "FRONTEND_URL", "").rstrip("/")
-        intake_url = f"{frontend_url}/intake/{session.resume_token}/questions/"
+        intake_url = request.build_absolute_uri(f"/intake/{session.resume_token}/questions/")
         data = ProspectIntakeSessionInternalSerializer(session).data
         data["intake_url"] = intake_url
         if active:
