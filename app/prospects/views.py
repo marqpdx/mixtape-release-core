@@ -27,9 +27,7 @@ class IntakeQuestionsView(View):
         session = get_object_or_404(ProspectIntakeSession, resume_token=token)
         if session.token_expires_at and session.token_expires_at < timezone.now():
             return render(request, "prospects/intake_expired.html", status=410)
-        if session.status == "submitted":
-            from django.shortcuts import redirect
-            return redirect("intake-submitted", token=token)
+        submitted = session.status == "submitted"
         questions = ProspectQuestion.objects.filter(is_active=True).order_by("order_index")
         all_responses = session.responses.select_related("question").all()
         typed = {str(r.question_id): r.response_text for r in all_responses if r.kind == "typed"}
@@ -57,6 +55,7 @@ class IntakeQuestionsView(View):
             "existing_responses_json": json.dumps(typed),
             "existing_files_json": json.dumps(files),
             "token": str(token),
+            "submitted": submitted,
         })
 
 

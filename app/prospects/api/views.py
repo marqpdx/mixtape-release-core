@@ -1,5 +1,4 @@
 from django.contrib.contenttypes.models import ContentType
-from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
 from rest_framework import permissions, status
@@ -101,26 +100,6 @@ class IntakeSubmitView(APIView):
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         if session.token_expires_at and session.token_expires_at < timezone.now():
             return Response({"detail": "This link has expired."}, status=status.HTTP_410_GONE)
-        if session.status == "submitted":
-            return Response({"detail": "Already submitted."}, status=status.HTTP_400_BAD_REQUEST)
-
-        active_questions = ProspectQuestion.objects.filter(is_active=True)
-        # A question is satisfied by any response with text OR a file still processing
-        satisfied_ids = set(
-            ProspectResponse.objects.filter(
-                intake_session=session,
-            ).filter(
-                models.Q(response_text__gt="") |
-                models.Q(processing_status__in=["pending", "processing"])
-            ).values_list("question_id", flat=True)
-        )
-        unanswered = [str(q.id) for q in active_questions if q.id not in satisfied_ids]
-        if unanswered:
-            return Response(
-                {"detail": "All questions must be answered.", "unanswered_question_ids": unanswered},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         session.status = "submitted"
         session.submitted_at = timezone.now()
         session.save(update_fields=["status", "submitted_at"])
@@ -323,6 +302,13 @@ class ProspectDetailView(APIView):
         serializer.save()
         return Response(serializer.data)
 
+    def delete(self, request, slug):
+        prospect = self._get(slug)
+        if prospect is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        prospect.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class IntakeSessionCreateView(APIView):
     permission_classes = [IsSuperUser]
@@ -370,6 +356,14 @@ class IntakeSessionDetailInternalView(APIView):
         except ProspectIntakeSession.DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(ProspectIntakeSessionInternalSerializer(session).data)
+
+    def delete(self, request, slug, session_id):
+        try:
+            session = ProspectIntakeSession.objects.get(id=session_id, prospect__slug=slug)
+        except ProspectIntakeSession.DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        session.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ResponseRefinementView(APIView):
