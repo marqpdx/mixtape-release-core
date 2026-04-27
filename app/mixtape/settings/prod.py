@@ -44,7 +44,7 @@ DATABASES = {
 }
 
 # for emailing
-FRONTEND_URL = "https://crossroads.place"
+FRONTEND_URL = "http://www.crossroads.place"
 
 
 # Static files
