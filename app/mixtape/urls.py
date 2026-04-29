@@ -56,6 +56,9 @@ urlpatterns = [
 
     # === PHASE 2 ENDPOINTS ===
 
+    # Business hub (Supplier, SupplyRequest, FixItem)
+    path("api/business/", include("business.api.urls")),
+
     # Groups
     path("api/groups/", include("groups.api.urls")),
     path("api/initiatives/", include(aperture_patterns)),
