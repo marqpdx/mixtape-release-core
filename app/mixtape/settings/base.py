@@ -83,6 +83,7 @@ INSTALLED_APPS = [
     "storages",            # S3 and cloud storage support
 
     # Local - MINIMAL for Phase 1
+    "business",        # Small business hub (Supplier, SupplyRequest, FixItem)
     "accounts",        # Authentication (JWT, login, /auth/me)
     "activity",        # User activity tracking and notifications
     "almanac",         # Events and calendar system
