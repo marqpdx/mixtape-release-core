@@ -18,6 +18,7 @@ from initiatives.models import (
     Task,
 )
 from lists.models import List as MixtapeList
+from business.models import FixItem, Supplier, SupplyRequest
 
 
 User = get_user_model()
@@ -237,6 +238,79 @@ def add_items_from_agent(
     lst.body_text = (lst.body_text.rstrip("\n") + "\n" + appended).lstrip("\n")
     lst.save(update_fields=["body_text", "updated_at"])
     return lst, items
+
+
+def create_fix_item_from_agent(
+    *,
+    created_by: User,
+    title: str,
+    description: str = "",
+    capture_mode: str = "typed",
+    raw_input: str = "",
+    parsed_metadata: dict | None = None,
+    initiative_id: UUID | None = None,
+    sponsor_model: str | None = None,
+    sponsor_id: UUID | None = None,
+) -> FixItem:
+    target = _resolve_target(
+        initiative_id=initiative_id,
+        sponsor_model=sponsor_model,
+        sponsor_id=sponsor_id,
+    )
+    return FixItem.objects.create(
+        sponsor_content_type=target.sponsor_content_type,
+        sponsor_object_id=target.sponsor_object_id,
+        title=title,
+        description=description,
+        capture_mode=capture_mode,
+        raw_input=raw_input,
+        parsed_metadata=parsed_metadata or {},
+        created_by=created_by,
+    )
+
+
+def create_supply_request_from_agent(
+    *,
+    created_by: User,
+    item_name: str,
+    quantity_note: str = "",
+    supplier_name: str = "",
+    capture_mode: str = "typed",
+    raw_input: str = "",
+    parsed_metadata: dict | None = None,
+    initiative_id: UUID | None = None,
+    sponsor_model: str | None = None,
+    sponsor_id: UUID | None = None,
+) -> SupplyRequest:
+    target = _resolve_target(
+        initiative_id=initiative_id,
+        sponsor_model=sponsor_model,
+        sponsor_id=sponsor_id,
+    )
+
+    supplier = None
+    if supplier_name:
+        supplier, _ = Supplier.objects.get_or_create(
+            sponsor_content_type=target.sponsor_content_type,
+            sponsor_object_id=target.sponsor_object_id,
+            name__iexact=supplier_name,
+            defaults={
+                "name": supplier_name,
+                "created_by": created_by,
+            },
+        )
+
+    return SupplyRequest.objects.create(
+        sponsor_content_type=target.sponsor_content_type,
+        sponsor_object_id=target.sponsor_object_id,
+        item_name=item_name,
+        quantity_note=quantity_note,
+        supplier=supplier,
+        capture_mode=capture_mode,
+        raw_input=raw_input,
+        parsed_metadata=parsed_metadata or {},
+        created_by=created_by,
+    )
 
 
 def summarize_parsed_command(parsed_result: dict) -> tuple[str, str, str, bool, str]:
@@ -578,6 +652,58 @@ def execute_agent_command(
             if first_url
             else {"deep_link_type": "tab", "target_screen": "Initiatives"}
         )
+    elif command.parsed_verb == "fix":
+        fix_item = create_fix_item_from_agent(
+            created_by=confirmed_by,
+            initiative_id=command.initiative_id,
+            sponsor_model=command.sponsor_content_type.model if command.sponsor_content_type else None,
+            sponsor_id=command.sponsor_object_id,
+            title=payload.get("title") or command.parsed_title or command.raw_input,
+            description=payload.get("description") or payload.get("body") or command.parsed_summary,
+            capture_mode=command.capture_mode,
+            raw_input=command.raw_input,
+            parsed_metadata=parsed_metadata,
+        )
+        result_payload = {
+            "object_type": "fix_item",
+            "fix_item": {
+                "id": str(fix_item.id),
+                "title": fix_item.title,
+                "description": fix_item.description,
+                "status": fix_item.status,
+            },
+        }
+        routing_metadata = {
+            "deep_link_type": "tab",
+            "target_screen": "BusinessHub",
+        }
+    elif command.parsed_verb == "need_more":
+        supply_request = create_supply_request_from_agent(
+            created_by=confirmed_by,
+            initiative_id=command.initiative_id,
+            sponsor_model=command.sponsor_content_type.model if command.sponsor_content_type else None,
+            sponsor_id=command.sponsor_object_id,
+            item_name=payload.get("item_name") or payload.get("title") or command.parsed_title or command.raw_input,
+            quantity_note=payload.get("quantity_note") or payload.get("quantity") or "",
+            supplier_name=payload.get("supplier_name") or payload.get("supplier") or "",
+            capture_mode=command.capture_mode,
+            raw_input=command.raw_input,
+            parsed_metadata=parsed_metadata,
+        )
+        result_payload = {
+            "object_type": "supply_request",
+            "supply_request": {
+                "id": str(supply_request.id),
+                "item_name": supply_request.item_name,
+                "quantity_note": supply_request.quantity_note,
+                "supplier_name": supply_request.supplier.name if supply_request.supplier else None,
+                "status": supply_request.status,
+            },
+        }
+        routing_metadata = {
+            "deep_link_type": "tab",
+            "target_screen": "BusinessHub",
+        }
     else:
         command.status = AgentCommandStatus.FAILED
         command.error_payload = {
