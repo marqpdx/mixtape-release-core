@@ -46,6 +46,11 @@ mobile_command_patterns = [
 # Included in groups/api/urls.py as:
 #   path("<slug:slug>/initiatives/", include(group_initiatives_patterns))
 
+worktable_group_patterns = [
+    path("<slug:slug>/reminders", views.GroupReminderListView.as_view(), name="group-reminder-list"),
+    path("<slug:slug>/tasks", views.GroupTaskListView.as_view(), name="group-task-list"),
+]
+
 group_initiatives_patterns = [
     # Initiative CRUD
     path("", views.InitiativeListCreateView.as_view(), name="initiative-list-create"),
