@@ -463,6 +463,44 @@ class NoteDetailView(APIView):
         return Response(NoteSerializer(note).data)
 
 
+class GroupReminderListView(APIView):
+    """GET /api/initiatives/groups/{slug}/reminders — all pending reminders for a group."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, slug):
+        group = _get_group(slug)
+        from django.contrib.contenttypes.models import ContentType
+        ct = ContentType.objects.get_for_model(group)
+
+        qs = Reminder.objects.filter(
+            sponsor_content_type=ct,
+            sponsor_object_id=group.pk,
+            deleted_at__isnull=True,
+        ).exclude(status="acknowledged")
+
+        serializer = ReminderSerializer(qs, many=True)
+        return Response(serializer.data)
+
+
+class GroupTaskListView(APIView):
+    """GET /api/initiatives/groups/{slug}/tasks — open tasks for a group."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, slug):
+        group = _get_group(slug)
+        from django.contrib.contenttypes.models import ContentType
+        ct = ContentType.objects.get_for_model(group)
+
+        qs = Task.objects.filter(
+            sponsor_content_type=ct,
+            sponsor_object_id=group.pk,
+            deleted_at__isnull=True,
+        ).exclude(status="done")
+
+        serializer = TaskSerializer(qs, many=True)
+        return Response(serializer.data)
+
+
 class ReminderListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 

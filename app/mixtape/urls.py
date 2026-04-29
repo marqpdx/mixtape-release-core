@@ -5,7 +5,7 @@ from django.urls import include, path
 from rest_framework import routers
 
 from accounts.api.views import UserViewSet
-from initiatives.api.urls import action_run_patterns, agent_object_patterns, aperture_patterns, mobile_command_patterns
+from initiatives.api.urls import action_run_patterns, agent_object_patterns, aperture_patterns, mobile_command_patterns, worktable_group_patterns
 from prospects.api.urls import intake_patterns, internal_patterns
 
 from . import views
@@ -58,6 +58,9 @@ urlpatterns = [
 
     # Business hub (Supplier, SupplyRequest, FixItem)
     path("api/business/", include("business.api.urls")),
+
+    # WorkTable group-scoped buckets (reminders, tasks)
+    path("api/worktable/groups/", include(worktable_group_patterns)),
 
     # Groups
     path("api/groups/", include("groups.api.urls")),
