@@ -1,18 +1,34 @@
 from django.contrib import admin
+from django.utils.text import slugify
 
 from .models import Group, GroupInvitation
 
 
 @admin.register(Group)
 class CircleAdmin(admin.ModelAdmin):
-    list_display = ["title", "group_type", "is_helper_group", "created_at"]
-    search_fields = ["title", "description"]
+    list_display = ["title", "slug", "group_type", "is_helper_group", "created_at"]
+    search_fields = ["title", "description", "slug"]
     list_filter = ["group_type", "is_helper_group"]
-    readonly_fields = ["slug"]
+    readonly_fields = ["slug", "slug_history"]
     fieldsets = [
-        (None, {"fields": ["title", "description", "group_type", "slug"]}),
+        (None, {"fields": ["title", "description", "group_type", "slug", "slug_history"]}),
         ("Helper / Beacon access", {"fields": ["is_helper_group"]}),
     ]
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def save_model(self, request, obj, form, change):
+        if change and "title" in form.changed_data:
+            old_slug = obj.slug
+            base = slugify(obj.title)
+            if base:
+                new_slug = obj._build_unique_slug(base)
+                if new_slug != old_slug:
+                    if old_slug and old_slug not in obj.slug_history:
+                        obj.slug_history.append(old_slug)
+                    obj.slug = new_slug
+        super().save_model(request, obj, form, change)
 
 
 @admin.register(GroupInvitation)
