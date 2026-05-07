@@ -2,10 +2,12 @@ from django.contrib import admin
 
 from .models import (
     BusinessProspect,
+    OnboardingQuestion,
     ProspectInsight,
     ProspectIntakeSession,
     ProspectNote,
     ProspectQuestion,
+    ProspectQuestionOnboardingMap,
     ProspectResponse,
 )
 
@@ -50,3 +52,20 @@ class ProspectInsightAdmin(admin.ModelAdmin):
 class ProspectNoteAdmin(admin.ModelAdmin):
     list_display = ("prospect", "created_by", "created_at")
     raw_id_fields = ("prospect",)
+
+
+@admin.register(OnboardingQuestion)
+class OnboardingQuestionAdmin(admin.ModelAdmin):
+    list_display = ("category", "order", "text_preview", "triggers_persona_creation", "is_active")
+    list_filter = ("category", "is_active", "triggers_persona_creation")
+    list_editable = ("order", "is_active")
+
+    def text_preview(self, obj):
+        return obj.text[:80]
+    text_preview.short_description = "text"
+
+
+@admin.register(ProspectQuestionOnboardingMap)
+class ProspectQuestionOnboardingMapAdmin(admin.ModelAdmin):
+    list_display = ("prospect_question", "onboarding_question")
+    raw_id_fields = ("prospect_question", "onboarding_question")
