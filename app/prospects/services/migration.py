@@ -7,10 +7,12 @@ pre-populates the Group's GroupContext. Stamps converted_at on each migrated
 ProspectResponse. Sets BusinessProspect.converted_to_group.
 
 Phase 1 field routing (flat model):
-  identity    → founding_story  (appended, line-separated)
-  presentation → voice_description (appended)
-  operations  → outward_feel    (appended)
-  relationships / knowledge → skipped (Phase 1 scope)
+  identity      → founding_story    (appended, double-newline separated)
+  presentation  → voice_description (appended) — covers "how you want to feel"
+                  outward_feel      (appended) — covers "how you'd describe voice/feel"
+  operations    → skipped (no Phase 1 flat field; will become Thread records Phase 3)
+  relationships → skipped
+  knowledge     → skipped
 
 The "non-negotiable" question maps to non_negotiables (JSONField, list of strings).
 """
@@ -118,13 +120,14 @@ class ProspectToGroupMigrationService:
                 group_context.founding_story = _append_field(group_context.founding_story, text)
 
             elif category == "presentation":
-                group_context.voice_description = _append_field(group_context.voice_description, text)
-
-            elif category == "operations":
-                group_context.outward_feel = _append_field(group_context.outward_feel, text)
+                # Route by question intent: voice → voice_description, feel → outward_feel
+                if "voice" in question_text or "describe" in question_text or "example" in question_text:
+                    group_context.voice_description = _append_field(group_context.voice_description, text)
+                else:
+                    group_context.outward_feel = _append_field(group_context.outward_feel, text)
 
             else:
-                # relationships / knowledge — out of scope for Phase 1 flat model
+                # operations / relationships / knowledge — no Phase 1 flat field; skip
                 skipped_count += 1
                 continue
 
