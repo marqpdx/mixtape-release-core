@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from django.contrib.contenttypes.models import ContentType
+from django.db import models
 from django.utils import timezone
 
 from .signals import SIGNAL_MARKER_NAMES, SIGNAL_MARKER_REGISTRY
@@ -211,9 +212,21 @@ def get_orientation(user):
         for m in memberships
     ]
 
+    # Capture counts by kind (open only, personal scope)
+    from console.models import HubCapture, HubCaptureStatus
+    capture_counts = {}
+    for row in (
+        HubCapture.objects
+        .filter(owner=user, status=HubCaptureStatus.OPEN, group__isnull=True)
+        .values("kind")
+        .annotate(count=models.Count("id"))
+    ):
+        capture_counts[row["kind"]] = row["count"]
+
     return {
         "initiatives": initiatives,
         "groups": groups,
+        "capture_counts": capture_counts,
     }
 
 
