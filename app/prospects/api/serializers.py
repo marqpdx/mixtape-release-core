@@ -32,15 +32,17 @@ class ProspectIntakeSessionSerializer(serializers.ModelSerializer):
 
 class BusinessProspectSerializer(serializers.ModelSerializer):
     sponsor_group_slug = serializers.SerializerMethodField()
+    converted_to_group_slug = serializers.SerializerMethodField()
 
     class Meta:
         model = BusinessProspect
         fields = [
             "id", "name", "slug", "business_type", "website",
             "primary_contact_name", "primary_contact_email", "primary_contact_phone",
-            "status", "summary", "sponsor_group_slug", "created_at",
+            "status", "summary", "sponsor_group_slug",
+            "converted_to_group_slug", "created_at",
         ]
-        read_only_fields = ["id", "slug", "sponsor_group_slug", "created_at"]
+        read_only_fields = ["id", "slug", "sponsor_group_slug", "converted_to_group_slug", "created_at"]
 
     def get_sponsor_group_slug(self, obj):
         if obj.sponsor_content_type and obj.sponsor_content_type.model == "group":
@@ -49,6 +51,11 @@ class BusinessProspectSerializer(serializers.ModelSerializer):
                 return Group.objects.get(pk=obj.sponsor_object_id).slug
             except Group.DoesNotExist:
                 return None
+        return None
+
+    def get_converted_to_group_slug(self, obj):
+        if obj.converted_to_group_id:
+            return obj.converted_to_group.slug
         return None
 
 
