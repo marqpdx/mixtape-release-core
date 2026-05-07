@@ -11,6 +11,7 @@ from .views import (
     IntakeSubmitView,
     IntakeVoiceUploadView,
     NoteCreateView,
+    ProspectConvertView,
     ProspectDetailView,
     ProspectListCreateView,
     ResponseRefinementView,
@@ -38,4 +39,5 @@ internal_patterns = [
     ),
     path("prospects/<slug:slug>/sessions/<uuid:session_id>/insights/", InsightCreateView.as_view()),
     path("prospects/<slug:slug>/notes/", NoteCreateView.as_view()),
+    path("prospects/<slug:slug>/convert/", ProspectConvertView.as_view()),
 ]

@@ -410,3 +410,60 @@ class NoteCreateView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         note = serializer.save(prospect=prospect, created_by=request.user)
         return Response(ProspectNoteSerializer(note).data, status=status.HTTP_201_CREATED)
+
+
+class ProspectConvertView(APIView):
+    """
+    EC-B11: POST /api/prospects/{slug}/convert/
+
+    Converts a BusinessProspect to a client Group by:
+      1. Looking up (or accepting) the target Group via group_slug in request body
+      2. Running ProspectToGroupMigrationService to clone intake responses
+         into GroupContext and stamp converted_at on each migrated response
+      3. Setting BusinessProspect.converted_to_group and status=won
+
+    Body: { "group_slug": "my-group-slug" }
+
+    Returns a summary of what was migrated.
+    """
+    permission_classes = [IsSuperUser]
+
+    def post(self, request, slug):
+        from groups.models import Group
+        from ..services.migration import ProspectToGroupMigrationService
+
+        try:
+            prospect = BusinessProspect.objects.get(slug=slug)
+        except BusinessProspect.DoesNotExist:
+            return Response({"detail": "Prospect not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if prospect.converted_to_group_id:
+            return Response(
+                {"detail": "Prospect has already been converted.", "converted_to_group": str(prospect.converted_to_group_id)},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        group_slug = request.data.get("group_slug")
+        if not group_slug:
+            return Response({"detail": "group_slug is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            group = Group.objects.get(slug=group_slug)
+        except Group.DoesNotExist:
+            return Response({"detail": "Group not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        result = ProspectToGroupMigrationService.convert(prospect=prospect, group=group)
+
+        return Response(
+            {
+                "prospect": slug,
+                "group": group_slug,
+                "group_context_id": result["group_context_id"],
+                "migrated_count": result["migrated_count"],
+                "skipped_count": result["skipped_count"],
+                "detail": result["detail"],
+                "note": "Brought-over answers are flagged converted_at on ProspectResponse. "
+                        "Group admin should review and confirm they still hold.",
+            },
+            status=status.HTTP_200_OK,
+        )
