@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.utils.text import slugify
 
-from .models import Group, GroupInvitation
+from .models import Group, GroupContext, GroupInvitation
 
 
 @admin.register(Group)
@@ -29,6 +29,19 @@ class CircleAdmin(admin.ModelAdmin):
                         obj.slug_history.append(old_slug)
                     obj.slug = new_slug
         super().save_model(request, obj, form, change)
+
+
+@admin.register(GroupContext)
+class GroupContextAdmin(admin.ModelAdmin):
+    list_display = ["group", "context_health_score", "last_prompted_at", "updated_at"]
+    search_fields = ["group__title", "founding_story", "voice_description"]
+    readonly_fields = ["context_health_score", "created_at", "updated_at"]
+    fieldsets = [
+        (None, {"fields": ["group"]}),
+        ("Context fields", {"fields": ["founding_story", "non_negotiables", "voice_description", "outward_feel"]}),
+        ("Health", {"fields": ["context_health_score", "last_prompted_at"]}),
+        ("Timestamps", {"fields": ["created_at", "updated_at"]}),
+    ]
 
 
 @admin.register(GroupInvitation)

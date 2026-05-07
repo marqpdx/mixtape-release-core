@@ -23,3 +23,6 @@ from .types import *
 
 # 7. Ownership change requests (depends on Group)
 from .ownership import *
+
+# 8. Group context extension (1:1 with Group)
+from .group_context import *

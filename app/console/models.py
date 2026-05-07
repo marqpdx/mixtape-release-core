@@ -68,3 +68,35 @@ class HubCapture(BaseModel):
 
     def __str__(self):
         return f"[{self.kind}] {self.body[:60]}"
+
+
+class AgentPersona(BaseModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    sponsor_content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE,
+        related_name="agent_personas",
+    )
+    sponsor_object_id = models.UUIDField()
+    sponsor = GenericForeignKey("sponsor_content_type", "sponsor_object_id")
+
+    name = models.CharField(max_length=128)
+    role = models.CharField(max_length=128)
+    tone_summary = models.TextField()
+    tone_tags = models.JSONField(default=list)
+    constraints = models.JSONField(default=list)
+    writing_sample = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta(BaseModel.Meta):
+        ordering = ["name"]
+        indexes = [
+            models.Index(
+                fields=["sponsor_content_type", "sponsor_object_id"],
+                name="agentpersona_sponsor_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.role})"

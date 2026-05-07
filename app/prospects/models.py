@@ -28,7 +28,13 @@ class BusinessProspect(models.Model):
     primary_contact_phone = models.CharField(max_length=50, blank=True)
     status = models.CharField(max_length=30, choices=STATUS_CHOICES, default="new")
     summary = models.TextField(blank=True)
-    converted_to_group_id = models.IntegerField(null=True, blank=True)
+    converted_to_group = models.ForeignKey(
+        "groups.Group",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="prospect_source",
+    )
     sponsor_content_type = models.ForeignKey(
         ContentType,
         on_delete=models.CASCADE,
@@ -101,6 +107,7 @@ class ProspectQuestion(models.Model):
     order_index = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
     question_kind = models.CharField(max_length=30, choices=KIND_CHOICES, default="long_text")
+    triggers_persona_creation = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -145,6 +152,7 @@ class ProspectResponse(models.Model):
     ai_summary_text = models.TextField(null=True, blank=True)
     transcript_text = models.TextField(null=True, blank=True)
     audio_file = models.FileField(upload_to="prospects/audio/", null=True, blank=True)
+    converted_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -213,3 +221,46 @@ class ProspectNote(models.Model):
 
     def __str__(self):
         return f"Note on {self.prospect.name} ({self.created_at.date()})"
+
+
+class OnboardingQuestion(models.Model):
+    CATEGORY_CHOICES = [
+        ("identity", "Identity & Founding"),
+        ("presentation", "Outward Presentation"),
+        ("operations", "Operational Character"),
+        ("relationships", "Relationships"),
+        ("knowledge", "Knowledge & People"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    text = models.TextField()
+    category = models.CharField(max_length=32, choices=CATEGORY_CHOICES)
+    order = models.PositiveIntegerField(default=0)
+    triggers_persona_creation = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["category", "order"]
+
+    def __str__(self):
+        return f"[{self.category}] {self.text[:80]}"
+
+
+class ProspectQuestionOnboardingMap(models.Model):
+    prospect_question = models.OneToOneField(
+        ProspectQuestion,
+        on_delete=models.CASCADE,
+        related_name="onboarding_map",
+    )
+    onboarding_question = models.ForeignKey(
+        OnboardingQuestion,
+        on_delete=models.CASCADE,
+        related_name="prospect_maps",
+    )
+
+    class Meta:
+        verbose_name = "Prospect → Onboarding Question Map"
+
+    def __str__(self):
+        return f"{self.prospect_question} → {self.onboarding_question}"
