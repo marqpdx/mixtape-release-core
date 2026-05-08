@@ -150,6 +150,9 @@ class ProspectToGroupMigrationService:
         prospect.status = "won"
         prospect.save(update_fields=["converted_to_group", "status", "updated_at"])
 
+        from prospects.signals import prospect_converted
+        prospect_converted.send(sender=prospect.__class__, prospect=prospect, group=group)
+
         return {
             "group_context_id": group_context.pk,
             "migrated_count": migrated_count,
