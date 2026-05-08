@@ -69,3 +69,39 @@ class LanternmailInvitation(BaseModel):
 
     def __str__(self):
         return f"{self.email} → {self.mailing_list.display_name} ({self.status})"
+
+
+class WelcomeEmailDraft(BaseModel):
+    """
+    Human-reviewed welcome email created when a prospect converts to a client group.
+    Sits in draft until an operator reviews, edits, and sends it manually.
+    Listmonk send_tx integration is a future step.
+    """
+    STATUS_CHOICES = [
+        ("draft", "Draft"),
+        ("sent", "Sent"),
+    ]
+
+    prospect = models.ForeignKey(
+        "prospects.BusinessProspect",
+        on_delete=models.CASCADE,
+        related_name="welcome_drafts",
+    )
+    group = models.ForeignKey(
+        Group,
+        on_delete=models.CASCADE,
+        related_name="welcome_drafts",
+    )
+    to_name = models.CharField(max_length=200)
+    to_email = models.EmailField()
+    subject = models.CharField(max_length=300)
+    body = models.TextField()
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="draft")
+    sent_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Welcome Email Draft"
+
+    def __str__(self):
+        return f"Welcome → {self.to_email} [{self.status}]"
