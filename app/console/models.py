@@ -20,11 +20,21 @@ class HubCaptureStatus(models.TextChoices):
     PROMOTED = "promoted", "Promoted"
 
 
+class HubCaptureVisibility(models.TextChoices):
+    PRIVATE = "private", "Private"
+    SHARED = "shared", "Shared"
+
+
 class HubCapture(BaseModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     kind = models.CharField(max_length=20, choices=HubCaptureKind.choices)
     body = models.TextField()
+    visibility = models.CharField(
+        max_length=10,
+        choices=HubCaptureVisibility.choices,
+        default=HubCaptureVisibility.PRIVATE,
+    )
     status = models.CharField(
         max_length=20,
         choices=HubCaptureStatus.choices,
