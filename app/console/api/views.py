@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from console import services
-from console.models import HubCapture, HubCaptureKind, HubCaptureStatus
+from console.models import HubCapture, HubCaptureKind, HubCaptureStatus, HubCaptureVisibility
 
 
 class ReentryView(APIView):
@@ -68,6 +68,7 @@ class HubCaptureListCreateView(APIView):
         body = (request.data.get("body") or "").strip()
         group_slug = request.data.get("group_slug")
         remind_at = request.data.get("remind_at")
+        visibility = request.data.get("visibility", HubCaptureVisibility.PRIVATE)
 
         if not kind or kind not in HubCaptureKind.values:
             return Response(
@@ -76,6 +77,8 @@ class HubCaptureListCreateView(APIView):
             )
         if not body:
             return Response({"error": "body is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if visibility not in HubCaptureVisibility.values:
+            visibility = HubCaptureVisibility.PRIVATE
 
         group = None
         if group_slug:
@@ -85,10 +88,15 @@ class HubCaptureListCreateView(APIView):
             except Group.DoesNotExist:
                 return Response({"error": "group not found"}, status=status.HTTP_404_NOT_FOUND)
 
+        # visibility only meaningful when group is set
+        if not group:
+            visibility = HubCaptureVisibility.PRIVATE
+
         capture = HubCapture.objects.create(
             owner=request.user,
             kind=kind,
             body=body,
+            visibility=visibility,
             group=group,
             remind_at=remind_at or None,
         )
@@ -308,7 +316,11 @@ class WorkTableStreamView(APIView):
         if scope == "personal":
             qs = qs.filter(group__isnull=True)
         elif scope == "group":
-            qs = qs.filter(group__slug=group_slug)
+            # Show shared captures from all group members + requesting user's own private captures
+            from django.db.models import Q
+            qs = qs.filter(group__slug=group_slug).filter(
+                Q(visibility=HubCaptureVisibility.SHARED) | Q(owner=request.user)
+            )
 
         if before:
             try:
@@ -353,6 +365,7 @@ def _serialize_capture(c: HubCapture) -> dict:
         "kind": c.kind,
         "body": c.body,
         "status": c.status,
+        "visibility": c.visibility,
         "group_id": str(c.group_id) if c.group_id else None,
         "remind_at": c.remind_at.isoformat() if c.remind_at else None,
         "resolved_at": c.resolved_at.isoformat() if c.resolved_at else None,
