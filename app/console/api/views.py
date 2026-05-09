@@ -251,6 +251,99 @@ class HubCapturePromoteView(APIView):
 
 
 # ---------------------------------------------------------------------------
+# WorkTable stream endpoint (WT-B1)
+# ---------------------------------------------------------------------------
+
+class WorkTableStreamView(APIView):
+    """
+    GET /api/worktable/stream/
+
+    Returns stream entries for the requesting user, scoped to personal, group,
+    or initiative context. Cursor-paginated (before= ISO8601 timestamp).
+
+    W1: entry_type=capture only (HubCaptures).
+    W2 will add prose and ledger entries from ApertureLogEntry.
+    W3 will wire initiative scope fully.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    DEFAULT_LIMIT = 50
+    MAX_LIMIT = 100
+
+    def get(self, request):
+        scope = request.query_params.get("scope", "personal")
+        group_slug = request.query_params.get("group_slug")
+        initiative_id = request.query_params.get("initiative_id")
+        before = request.query_params.get("before")
+        limit = min(int(request.query_params.get("limit", self.DEFAULT_LIMIT)), self.MAX_LIMIT)
+
+        # ── Scope validation ─────────────────────────────────────────────────
+        if scope == "group":
+            if not group_slug:
+                return Response({"error": "group_slug required for group scope"}, status=status.HTTP_400_BAD_REQUEST)
+            from groups.models import Group, GroupMembership
+            from django.contrib.contenttypes.models import ContentType
+            from django.contrib.auth import get_user_model
+            try:
+                group = Group.objects.get(slug=group_slug)
+            except Group.DoesNotExist:
+                return Response({"error": "group not found"}, status=status.HTTP_404_NOT_FOUND)
+            # Verify membership
+            user_ct = ContentType.objects.get_for_model(get_user_model())
+            if not GroupMembership.objects.filter(
+                group=group,
+                member_content_type=user_ct,
+                member_object_id=request.user.pk,
+                is_active=True,
+            ).exists():
+                return Response({"error": "not a member of this group"}, status=status.HTTP_403_FORBIDDEN)
+
+        elif scope == "initiative":
+            # WT-B2 stub: return empty stream, no error
+            return Response({"entries": [], "has_more": False, "cursor": None})
+
+        # ── Build queryset ───────────────────────────────────────────────────
+        qs = HubCapture.objects.filter(owner=request.user).order_by("created_at")
+
+        if scope == "personal":
+            qs = qs.filter(group__isnull=True)
+        elif scope == "group":
+            qs = qs.filter(group__slug=group_slug)
+
+        if before:
+            try:
+                from django.utils.dateparse import parse_datetime
+                cursor_dt = parse_datetime(before)
+                if cursor_dt:
+                    qs = qs.filter(created_at__lt=cursor_dt)
+            except Exception:
+                pass
+
+        # Fetch limit + 1 to determine has_more
+        captures = list(qs[: limit + 1])
+        has_more = len(captures) > limit
+        if has_more:
+            captures = captures[:limit]
+
+        cursor = captures[-1].created_at.isoformat() if captures else None
+
+        entries = [
+            {
+                "id": str(c.id),
+                "entry_type": "capture",
+                "kind": c.kind,
+                "body": c.body,
+                "status": c.status,
+                "created_at": c.created_at.isoformat(),
+                "metadata": {},
+            }
+            for c in captures
+        ]
+
+        return Response({"entries": entries, "has_more": has_more, "cursor": cursor})
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 

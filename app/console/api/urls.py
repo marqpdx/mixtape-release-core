@@ -9,6 +9,7 @@ from .views import (
     ReentryView,
     SignalsView,
     StewardshipView,
+    WorkTableStreamView,
 )
 
 urlpatterns = [

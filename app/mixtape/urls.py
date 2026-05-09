@@ -62,6 +62,9 @@ urlpatterns = [
     # WorkTable group-scoped buckets (reminders, tasks)
     path("api/worktable/groups/", include(worktable_group_patterns)),
 
+    # WorkTable stream endpoint (WT-B1/B2)
+    path("api/worktable/stream/", include("console.api.worktable_urls")),
+
     # Groups
     path("api/groups/", include("groups.api.urls")),
     path("api/initiatives/", include(aperture_patterns)),
