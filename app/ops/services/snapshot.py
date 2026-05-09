@@ -8,6 +8,9 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import unquote, urlparse
 
 from django.db import connection
+from django.utils import timezone as django_timezone
+
+from ops.services.postgres import latest_postgres_snapshot
 
 
 SCHEMA_VERSION = "1.0"
@@ -118,6 +121,25 @@ def _section_envelope(data: Any, errors: List[str], latency_ms: int) -> Dict[str
         "data": data,
         "errors": errors,
     }
+
+
+def _section_envelope_with_status(
+    *,
+    status: str,
+    data: Any,
+    errors: List[str],
+    latency_ms: int,
+    meta: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    payload = {
+        "status": status,
+        "latency_ms": latency_ms,
+        "data": data,
+        "errors": errors,
+    }
+    if meta:
+        payload.update(meta)
+    return payload
 
 
 def _read_file(path: str) -> Tuple[str, Optional[str]]:
@@ -457,12 +479,14 @@ def _collect_application() -> Tuple[Dict[str, Any], List[str]]:
     errors: List[str] = []
     rabbitmq_vhost = _resolve_rabbitmq_vhost()
     postgres_connections = None
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT COUNT(*) FROM pg_stat_activity;")
-            postgres_connections = cursor.fetchone()[0]
-    except Exception:
-        errors.append("postgres_stat_activity_error")
+    postgres_snapshot = latest_postgres_snapshot()
+    if postgres_snapshot is not None:
+        connection_breakdown = (postgres_snapshot.data or {}).get("connection_breakdown") or {}
+        active_connections = connection_breakdown.get("active")
+        if isinstance(active_connections, int):
+            postgres_connections = active_connections
+    else:
+        errors.append("postgres_snapshot_unavailable")
 
     rabbitmq_connections = None
     output, err = _run_command(ALLOWLIST["rabbitmq_list_connections"], extra_args=["-p", rabbitmq_vhost])
@@ -501,6 +525,37 @@ def _collect_application() -> Tuple[Dict[str, Any], List[str]]:
         "rabbitmq_vhost": rabbitmq_vhost,
         "postgres_active_connections": postgres_connections,
     }, errors
+
+
+def _postgres_detail_from_snapshot() -> Dict[str, Any]:
+    snapshot = latest_postgres_snapshot()
+    if snapshot is None:
+        return _section_envelope_with_status(
+            status=SECTION_WARN,
+            data={},
+            errors=["snapshot_unavailable"],
+            latency_ms=0,
+            meta={"collected_at": None, "expires_at": None, "source": None},
+        )
+
+    now = django_timezone.now()
+    is_stale = bool(snapshot.expires_at and snapshot.expires_at <= now)
+    status = "stale" if is_stale else snapshot.status
+    errors = list(snapshot.errors or [])
+    if is_stale:
+        errors = [*errors, "snapshot_stale"]
+
+    return _section_envelope_with_status(
+        status=status,
+        data=snapshot.data or {},
+        errors=errors,
+        latency_ms=snapshot.latency_ms or 0,
+        meta={
+            "collected_at": snapshot.collected_at.isoformat() if snapshot.collected_at else None,
+            "expires_at": snapshot.expires_at.isoformat() if snapshot.expires_at else None,
+            "source": snapshot.source,
+        },
+    )
 
 
 def _ownership_profile() -> Dict[str, Dict[str, str]]:
@@ -718,5 +773,6 @@ def build_health_snapshot(
     services_section["data"]["backups"]["summary"] = backups_summary
     result["services"] = services_section
     result["application"] = application_section
+    result["postgres_detail"] = _postgres_detail_from_snapshot()
 
     return result

@@ -10,6 +10,7 @@ class OpsHealthSnapshotSerializer(serializers.Serializer):
     network = serializers.DictField()
     services = serializers.DictField()
     application = serializers.DictField()
+    postgres_detail = serializers.DictField(required=False)
 
 
 class OpsSummarySerializer(serializers.Serializer):
