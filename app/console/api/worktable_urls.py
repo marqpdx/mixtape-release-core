@@ -1,6 +1,7 @@
 from django.urls import path
-from .views import WorkTableStreamView
+from .views import WorkTableProseView, WorkTableStreamView
 
 urlpatterns = [
-    path("", WorkTableStreamView.as_view(), name="worktable-stream"),
+    path("stream/", WorkTableStreamView.as_view(), name="worktable-stream"),
+    path("prose/", WorkTableProseView.as_view(), name="worktable-prose"),
 ]

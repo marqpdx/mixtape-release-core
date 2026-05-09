@@ -262,6 +262,54 @@ class HubCapturePromoteView(APIView):
 # WorkTable stream endpoint (WT-B1)
 # ---------------------------------------------------------------------------
 
+class WorkTableProseView(APIView):
+    """
+    POST /api/worktable/prose/
+    WT-B6: Create a prose ApertureLogEntry for the member's Personal Initiative
+    or a specified initiative. Thin wrapper over the existing ApertureLog entry API.
+
+    Body: { "initiative_id": "uuid", "body": "string" }
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        initiative_id = request.data.get("initiative_id")
+        body = (request.data.get("body") or "").strip()
+
+        if not initiative_id:
+            return Response({"error": "initiative_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not body:
+            return Response({"error": "body is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        from initiatives.models import ApertureLog, ApertureLogEntry, ApertureLogEntryKind, Initiative
+
+        try:
+            initiative = Initiative.objects.get(id=initiative_id)
+        except Initiative.DoesNotExist:
+            return Response({"error": "initiative not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        aperture_log, _ = ApertureLog.objects.get_or_create(initiative=initiative)
+        entry = ApertureLogEntry.objects.create(
+            aperture_log=aperture_log,
+            kind=ApertureLogEntryKind.PROSE,
+            body=body,
+            authored_by=request.user.username,
+            created_by=request.user,
+            is_system_generated=False,
+        )
+
+        return Response(
+            {
+                "id": str(entry.id),
+                "entry_type": "prose",
+                "kind": None,
+                "body": entry.body,
+                "created_at": entry.created_at.isoformat(),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
 class WorkTableStreamView(APIView):
     """
     GET /api/worktable/stream/
@@ -307,8 +355,47 @@ class WorkTableStreamView(APIView):
                 return Response({"error": "not a member of this group"}, status=status.HTTP_403_FORBIDDEN)
 
         elif scope == "initiative":
-            # WT-B2 stub: return empty stream, no error
-            return Response({"entries": [], "has_more": False, "cursor": None})
+            # WT-B8: return ApertureLogEntries interleaved with HubCaptures for the initiative
+            if not initiative_id:
+                return Response({"error": "initiative_id required for initiative scope"}, status=status.HTTP_400_BAD_REQUEST)
+
+            from initiatives.models import ApertureLog, ApertureLogEntry
+            try:
+                aperture_log = ApertureLog.objects.get(initiative_id=initiative_id)
+            except ApertureLog.DoesNotExist:
+                return Response({"entries": [], "has_more": False, "cursor": None})
+
+            log_entries_qs = aperture_log.entries.order_by("created_at")
+            if before:
+                try:
+                    from django.utils.dateparse import parse_datetime
+                    cursor_dt = parse_datetime(before)
+                    if cursor_dt:
+                        log_entries_qs = log_entries_qs.filter(created_at__lt=cursor_dt)
+                except Exception:
+                    pass
+
+            log_entries = list(log_entries_qs[:limit + 1])
+            has_more = len(log_entries) > limit
+            if has_more:
+                log_entries = log_entries[:limit]
+
+            cursor = log_entries[-1].created_at.isoformat() if log_entries else None
+
+            entries = [
+                {
+                    "id": str(e.id),
+                    "entry_type": e.kind,
+                    "kind": None,
+                    "body": e.body,
+                    "status": None,
+                    "created_at": e.created_at.isoformat(),
+                    "metadata": {"ledger_event_type": e.ledger_event_type} if e.ledger_event_type else {},
+                }
+                for e in log_entries
+            ]
+
+            return Response({"entries": entries, "has_more": has_more, "cursor": cursor})
 
         # ── Build queryset ───────────────────────────────────────────────────
         qs = HubCapture.objects.filter(owner=request.user).order_by("created_at")
