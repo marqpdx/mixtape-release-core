@@ -4,6 +4,7 @@ from .views import (
     HubCaptureDetailView,
     HubCaptureListCreateView,
     HubCapturePromoteView,
+    HubCaptureVoiceView,
     OrientationView,
     ReentryView,
     SignalsView,
@@ -19,4 +20,5 @@ urlpatterns = [
     path("hub/captures/", HubCaptureListCreateView.as_view(), name="hub-capture-list"),
     path("hub/captures/<uuid:capture_id>/", HubCaptureDetailView.as_view(), name="hub-capture-detail"),
     path("hub/captures/promote/", HubCapturePromoteView.as_view(), name="hub-capture-promote"),
+    path("hub/captures/voice/", HubCaptureVoiceView.as_view(), name="hub-capture-voice"),
 ]

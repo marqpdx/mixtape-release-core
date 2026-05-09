@@ -125,6 +125,92 @@ class HubCaptureDetailView(APIView):
         return Response(_serialize_capture(capture))
 
 
+class HubCaptureVoiceView(APIView):
+    """
+    POST /api/console/hub/captures/voice/
+    Accept an audio file, transcribe it via Whisper, parse into list items
+    for list-type kinds (need_more, fix), and create HubCapture(s) in one step.
+    Returns the created captures so the client never needs to poll or create Seeds.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes_override = None  # uses default parsers including MultiPartParser
+
+    LIST_PARSE_KINDS = {"need_more", "fix"}
+    MAX_WORD_THRESHOLD = 8
+
+    def post(self, request):
+        import re
+        import tempfile
+        import os
+
+        audio_file = request.FILES.get("audio")
+        kind = request.data.get("kind", "note")
+        group_slug = request.data.get("group_slug")
+
+        if not audio_file:
+            return Response({"error": "audio file required"}, status=status.HTTP_400_BAD_REQUEST)
+        if kind not in HubCaptureKind.values:
+            return Response({"error": f"kind must be one of: {', '.join(HubCaptureKind.values)}"}, status=status.HTTP_400_BAD_REQUEST)
+
+        group = None
+        if group_slug:
+            from groups.models import Group
+            try:
+                group = Group.objects.get(slug=group_slug)
+            except Group.DoesNotExist:
+                return Response({"error": "group not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Save audio to a temp file and transcribe
+        suffix = os.path.splitext(audio_file.name)[1] or ".m4a"
+        try:
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                for chunk in audio_file.chunks():
+                    tmp.write(chunk)
+                tmp_path = tmp.name
+
+            from concord.services.whisper import transcribe_audio
+            result = transcribe_audio(tmp_path)
+            transcript = result.text.strip()
+        except Exception as exc:
+            return Response({"error": f"Transcription failed: {exc}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+        if not transcript:
+            return Response({"error": "Transcription returned empty text"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Parse into list items if applicable
+        if kind in self.LIST_PARSE_KINDS:
+            items = self._parse_list(transcript)
+        else:
+            items = [transcript]
+
+        captures = [
+            HubCapture.objects.create(owner=request.user, kind=kind, body=item, group=group)
+            for item in items
+        ]
+
+        return Response({
+            "transcript": transcript,
+            "captures": [_serialize_capture(c) for c in captures],
+        }, status=status.HTTP_201_CREATED)
+
+    def _parse_list(self, text: str) -> list:
+        import re
+        parts = re.split(r"[,;]\s*|\n+", text)
+        parts = [re.sub(r"^\d+[.)]\s*", "", p.strip()) for p in parts]
+        parts = [re.sub(r"^[-•*]\s*", "", p).strip() for p in parts if p.strip()]
+
+        if len(parts) <= 1:
+            return [text.strip()] if text.strip() else []
+
+        avg_words = sum(len(p.split()) for p in parts) / len(parts)
+        return parts if avg_words <= self.MAX_WORD_THRESHOLD else [text.strip()]
+
+
 class HubCapturePromoteView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
