@@ -165,6 +165,9 @@ app.conf.task_routes = {
     "writing.tasks.cleanup_old_working_copies": {
         "queue": "polling", "routing_key": "polling"
     },
+    "ops.tasks.collect_postgres_snapshot": {
+        "queue": "polling", "routing_key": "polling"
+    },
 
     # --- Concord: audio interpretation ---
     "concord.tasks.interpretation.interpret_recording_task": {
@@ -237,6 +240,10 @@ app.conf.beat_schedule = {
     },
     "publish-scheduled-pieces": {
         "task": "writing.tasks.publish_scheduled_pieces",
+        "schedule": 60.0,
+    },
+    "collect-postgres-snapshot": {
+        "task": "ops.tasks.collect_postgres_snapshot",
         "schedule": 60.0,
     },
 }

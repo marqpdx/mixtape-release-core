@@ -28,6 +28,37 @@ class OpsIncidentSnapshot(models.Model):
         ordering = ["-created_at"]
 
 
+class OpsSnapshot(models.Model):
+    SOURCE_SCHEDULED = "scheduled"
+    SOURCE_MANUAL = "manual"
+    SOURCE_CHOICES = [
+        (SOURCE_SCHEDULED, "Scheduled"),
+        (SOURCE_MANUAL, "Manual"),
+    ]
+
+    server_name = models.CharField(max_length=64, db_index=True)
+    subsystem = models.CharField(max_length=64, db_index=True)
+    status = models.CharField(max_length=16, default="unavailable")
+    collected_at = models.DateTimeField(db_index=True)
+    expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    collector_version = models.CharField(max_length=32, default="1.0")
+    data = models.JSONField(default=dict, blank=True)
+    errors = models.JSONField(default=list, blank=True)
+    latency_ms = models.IntegerField(null=True, blank=True)
+    source = models.CharField(max_length=16, choices=SOURCE_CHOICES, default=SOURCE_SCHEDULED)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-collected_at", "-updated_at"]
+        indexes = [
+            models.Index(
+                fields=["server_name", "subsystem", "-collected_at"],
+                name="ops_snap_srv_subsys_idx",
+            ),
+        ]
+
+
 class OpsAuditLog(models.Model):
     actor = models.ForeignKey(
         settings.AUTH_USER_MODEL,
