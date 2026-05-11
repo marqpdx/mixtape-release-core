@@ -240,9 +240,15 @@ class HubCapturePromoteView(APIView):
 
         if target_kind == "list":
             from lists.models import List as MixtapeList
+            from django.contrib.contenttypes.models import ContentType
+            from django.contrib.auth import get_user_model
             body_lines = "\n".join(f"- {c.body}" for c in captures)
+            user_ct = ContentType.objects.get_for_model(get_user_model())
             lst = MixtapeList.objects.create(
-                owner=request.user,
+                sponsor_content_type=user_ct,
+                sponsor_object_id=request.user.pk,
+                author=request.user,
+                submitted_by=request.user,
                 title=target_title,
                 body_text=body_lines,
             )
@@ -332,6 +338,7 @@ class WorkTableStreamView(APIView):
         initiative_id = request.query_params.get("initiative_id")
         before = request.query_params.get("before")
         limit = min(int(request.query_params.get("limit", self.DEFAULT_LIMIT)), self.MAX_LIMIT)
+        include_archived = request.query_params.get("include_archived", "false").lower() == "true"
 
         # ── Scope validation ─────────────────────────────────────────────────
         if scope == "group":
@@ -365,7 +372,9 @@ class WorkTableStreamView(APIView):
             except ApertureLog.DoesNotExist:
                 return Response({"entries": [], "has_more": False, "cursor": None})
 
-            log_entries_qs = aperture_log.entries.order_by("created_at")
+            log_entries_qs = aperture_log.entries.filter(deleted_at__isnull=True).order_by("created_at")
+            if not include_archived:
+                log_entries_qs = log_entries_qs.filter(archived_at__isnull=True)
             if before:
                 try:
                     from django.utils.dateparse import parse_datetime
@@ -390,6 +399,7 @@ class WorkTableStreamView(APIView):
                     "body": e.body,
                     "status": None,
                     "created_at": e.created_at.isoformat(),
+                    "archived_at": e.archived_at.isoformat() if e.archived_at else None,
                     "metadata": {"ledger_event_type": e.ledger_event_type} if e.ledger_event_type else {},
                 }
                 for e in log_entries
@@ -398,7 +408,12 @@ class WorkTableStreamView(APIView):
             return Response({"entries": entries, "has_more": has_more, "cursor": cursor})
 
         # ── Build queryset ───────────────────────────────────────────────────
-        qs = HubCapture.objects.filter(owner=request.user).order_by("created_at")
+        qs = HubCapture.objects.filter(
+            owner=request.user,
+            deleted_at__isnull=True,
+        ).order_by("created_at")
+        if not include_archived:
+            qs = qs.filter(archived_at__isnull=True)
 
         if scope == "personal":
             qs = qs.filter(group__isnull=True)
@@ -433,13 +448,109 @@ class WorkTableStreamView(APIView):
                 "kind": c.kind,
                 "body": c.body,
                 "status": c.status,
+                "visibility": c.visibility,
                 "created_at": c.created_at.isoformat(),
+                "archived_at": c.archived_at.isoformat() if c.archived_at else None,
                 "metadata": {},
             }
             for c in captures
         ]
 
         return Response({"entries": entries, "has_more": has_more, "cursor": cursor})
+
+
+# ---------------------------------------------------------------------------
+# WorkTable entry actions — archive and soft-delete
+# ---------------------------------------------------------------------------
+
+def _get_stream_entry_for_user(entry_id: str, user):
+    """
+    Resolves a stream entry UUID to either a HubCapture or ApertureLogEntry and
+    verifies the requesting user has write access to it.
+
+    Returns (obj, "capture"|"log_entry").
+    Raises Http404 if not found, PermissionDenied if not owner/author.
+    """
+    from django.core.exceptions import PermissionDenied
+    from django.http import Http404
+    from initiatives.models import ApertureLogEntry
+
+    # Try HubCapture first
+    try:
+        capture = HubCapture.objects.get(id=entry_id, deleted_at__isnull=True)
+        if capture.owner_id != user.pk:
+            raise PermissionDenied
+        return capture, "capture"
+    except HubCapture.DoesNotExist:
+        pass
+
+    # Try ApertureLogEntry
+    try:
+        entry = ApertureLogEntry.objects.get(id=entry_id, deleted_at__isnull=True)
+        if not entry.is_system_generated and entry.created_by_id != user.pk:
+            raise PermissionDenied
+        return entry, "log_entry"
+    except ApertureLogEntry.DoesNotExist:
+        raise Http404
+
+
+class WorkTableEntryArchiveView(APIView):
+    """
+    POST /api/worktable/entries/{entry_id}/archive/
+
+    Sets archived_at on a HubCapture or ApertureLogEntry owned by the requesting
+    user. Archived entries are excluded from the default stream view but visible
+    when include_archived=true is passed to the stream endpoint.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, entry_id):
+        from django.core.exceptions import PermissionDenied
+        from django.http import Http404
+
+        try:
+            obj, _ = _get_stream_entry_for_user(entry_id, request.user)
+        except Http404:
+            return Response({"error": "entry not found"}, status=status.HTTP_404_NOT_FOUND)
+        except PermissionDenied:
+            return Response({"error": "forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        if obj.archived_at is None:
+            obj.archived_at = timezone.now()
+            obj.save(update_fields=["archived_at", "updated_at"])
+
+        return Response({"archived_at": obj.archived_at.isoformat()})
+
+
+class WorkTableEntryDeleteView(APIView):
+    """
+    DELETE /api/worktable/entries/{entry_id}/
+
+    Soft-deletes a HubCapture or user-authored ApertureLogEntry by setting
+    deleted_at. System-generated ledger entries cannot be deleted.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, entry_id):
+        from django.core.exceptions import PermissionDenied
+        from django.http import Http404
+        from initiatives.models import ApertureLogEntry
+
+        try:
+            obj, entry_type = _get_stream_entry_for_user(entry_id, request.user)
+        except Http404:
+            return Response({"error": "entry not found"}, status=status.HTTP_404_NOT_FOUND)
+        except PermissionDenied:
+            return Response({"error": "forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        if entry_type == "log_entry" and isinstance(obj, ApertureLogEntry) and obj.is_system_generated:
+            return Response({"error": "system-generated entries cannot be deleted"}, status=status.HTTP_403_FORBIDDEN)
+
+        if obj.deleted_at is None:
+            obj.deleted_at = timezone.now()
+            obj.save(update_fields=["deleted_at", "updated_at"])
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 # ---------------------------------------------------------------------------

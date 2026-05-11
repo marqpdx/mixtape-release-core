@@ -67,6 +67,7 @@ class HubCapture(BaseModel):
 
     remind_at = models.DateTimeField(null=True, blank=True)
     resolved_at = models.DateTimeField(null=True, blank=True)
+    archived_at = models.DateTimeField(null=True, blank=True, default=None)
 
     class Meta(BaseModel.Meta):
         indexes = [
