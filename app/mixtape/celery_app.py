@@ -70,9 +70,6 @@ app.conf.task_queues = (
 #   default_q → Livewire real-time events only (activity fanout, socket notifications)
 app.conf.task_routes = {
     # --- Beat-scheduled polling tasks → isolated polling worker ---
-    "stackroom.tasks.processing.process_pending_uploads": {
-        "queue": "polling", "routing_key": "polling"
-    },
     "groups.tasks.execute_due_ownership_requests": {
         "queue": "polling", "routing_key": "polling"
     },
@@ -168,6 +165,9 @@ app.conf.task_routes = {
     "ops.tasks.collect_postgres_snapshot": {
         "queue": "polling", "routing_key": "polling"
     },
+    "ops.tasks.collect_application_snapshot": {
+        "queue": "polling", "routing_key": "polling"
+    },
 
     # --- Concord: audio interpretation ---
     "concord.tasks.interpretation.interpret_recording_task": {
@@ -244,6 +244,10 @@ app.conf.beat_schedule = {
     },
     "collect-postgres-snapshot": {
         "task": "ops.tasks.collect_postgres_snapshot",
+        "schedule": 60.0,
+    },
+    "collect-application-snapshot": {
+        "task": "ops.tasks.collect_application_snapshot",
         "schedule": 60.0,
     },
 }

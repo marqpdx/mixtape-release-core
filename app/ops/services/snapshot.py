@@ -5,11 +5,10 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import unquote, urlparse
 
-from django.db import connection
 from django.utils import timezone as django_timezone
 
+from ops.services.application import latest_application_snapshot
 from ops.services.postgres import latest_postgres_snapshot
 
 
@@ -35,8 +34,6 @@ ALLOWLIST = {
     "ps_rss": CommandSpec(["ps", "-eo", "pid,comm,rss,pcpu,etimes", "--sort=-rss"]),
     "ps_cpu": CommandSpec(["ps", "-eo", "pid,comm,rss,pcpu,etimes", "--sort=-pcpu"]),
     "systemctl_show": CommandSpec(["systemctl", "show", "--no-page"]),
-    "rabbitmq_list_queues": CommandSpec(["rabbitmqctl", "list_queues", "-q", "name", "messages"]),
-    "rabbitmq_list_connections": CommandSpec(["rabbitmqctl", "list_connections", "-q", "name"]),
 }
 
 
@@ -65,24 +62,6 @@ SERVICE_UNITS = {
         "seaweed-backup-upload.service",
     ],
 }
-
-DEFAULT_RABBITMQ_VHOST = "/crossroads"
-
-
-def _resolve_rabbitmq_vhost() -> str:
-    explicit = os.getenv("OPS_RABBITMQ_VHOST")
-    if explicit:
-        return explicit
-    broker_url = os.getenv("CELERY_BROKER_URL") or ""
-    if broker_url:
-        try:
-            parsed = urlparse(broker_url)
-            if parsed.path:
-                return unquote(parsed.path.lstrip("/")) or "/"
-        except ValueError:
-            pass
-    return DEFAULT_RABBITMQ_VHOST
-
 
 def _now_iso() -> str:
     value = datetime.now(timezone.utc).isoformat()
@@ -475,56 +454,55 @@ def _collect_services(uptime_seconds: Optional[float]) -> Tuple[Dict[str, Any], 
     return services, errors
 
 
-def _collect_application() -> Tuple[Dict[str, Any], List[str]]:
-    errors: List[str] = []
-    rabbitmq_vhost = _resolve_rabbitmq_vhost()
-    postgres_connections = None
-    postgres_snapshot = latest_postgres_snapshot()
-    if postgres_snapshot is not None:
-        connection_breakdown = (postgres_snapshot.data or {}).get("connection_breakdown") or {}
-        active_connections = connection_breakdown.get("active")
-        if isinstance(active_connections, int):
-            postgres_connections = active_connections
-    else:
-        errors.append("postgres_snapshot_unavailable")
+def _postgres_active_connections() -> Optional[int]:
+    snapshot = latest_postgres_snapshot()
+    if snapshot is None:
+        return None
+    connection_breakdown = (snapshot.data or {}).get("connection_breakdown") or {}
+    active_connections = connection_breakdown.get("active")
+    if isinstance(active_connections, int):
+        return active_connections
+    return None
 
-    rabbitmq_connections = None
-    output, err = _run_command(ALLOWLIST["rabbitmq_list_connections"], extra_args=["-p", rabbitmq_vhost])
-    if err:
-        output, fallback_err = _run_command(ALLOWLIST["rabbitmq_list_connections"])
-        if fallback_err:
-            errors.append(f"rabbitmq_connections_{fallback_err}")
-        else:
-            errors.append("rabbitmq_connections_vhost_unsupported")
-            rabbitmq_connections = len([line for line in output.splitlines() if line.strip()])
-    else:
-        rabbitmq_connections = len([line for line in output.splitlines() if line.strip()])
 
-    celery_queue_messages = None
-    output, err = _run_command(ALLOWLIST["rabbitmq_list_queues"], extra_args=["-p", rabbitmq_vhost])
-    if err:
-        errors.append(f"rabbitmq_queues_{err}")
-    else:
-        total_messages = 0
-        for line in output.splitlines():
-            parts = line.split()
-            if len(parts) < 2:
-                continue
-            queue_name = parts[0]
-            try:
-                message_count = int(parts[1])
-            except ValueError:
-                continue
-            if "celery" in queue_name:
-                total_messages += message_count
-        celery_queue_messages = total_messages
+def _application_from_snapshot() -> Dict[str, Any]:
+    snapshot = latest_application_snapshot()
+    postgres_connections = _postgres_active_connections()
+    base_data = {"postgres_active_connections": postgres_connections}
 
-    return {
-        "celery_queue_depth": celery_queue_messages,
-        "rabbitmq_connection_count": rabbitmq_connections,
-        "rabbitmq_vhost": rabbitmq_vhost,
-        "postgres_active_connections": postgres_connections,
-    }, errors
+    if snapshot is None:
+        errors = ["snapshot_unavailable"]
+        if postgres_connections is None:
+            errors.append("postgres_snapshot_unavailable")
+        return _section_envelope_with_status(
+            status=SECTION_WARN,
+            data=base_data,
+            errors=errors,
+            latency_ms=0,
+            meta={"collected_at": None, "expires_at": None, "source": None},
+        )
+
+    now = django_timezone.now()
+    is_stale = bool(snapshot.expires_at and snapshot.expires_at <= now)
+    status = "stale" if is_stale else snapshot.status
+    data = {**(snapshot.data or {}), "postgres_active_connections": postgres_connections}
+    errors = list(snapshot.errors or [])
+    if is_stale:
+        errors = [*errors, "snapshot_stale"]
+    if postgres_connections is None:
+        errors = [*errors, "postgres_snapshot_unavailable"]
+
+    return _section_envelope_with_status(
+        status=status,
+        data=data,
+        errors=errors,
+        latency_ms=snapshot.latency_ms or 0,
+        meta={
+            "collected_at": snapshot.collected_at.isoformat() if snapshot.collected_at else None,
+            "expires_at": snapshot.expires_at.isoformat() if snapshot.expires_at else None,
+            "source": snapshot.source,
+        },
+    )
 
 
 def _postgres_detail_from_snapshot() -> Dict[str, Any]:
@@ -761,7 +739,7 @@ def build_health_snapshot(
     result["disk"] = disk_section
     result["network"] = _run_section(_collect_network)
     services_section = _run_section(_collect_services, uptime_seconds)
-    application_section = _run_section(_collect_application)
+    application_section = _application_from_snapshot()
     services_section["data"] = _annotate_services(
         services_section["data"],
         system_section["data"],
