@@ -801,6 +801,7 @@ class ApertureLogEntry(BaseModel):
         related_name="aperture_log_entries",
         help_text="Null for system-generated entries.",
     )
+    archived_at = models.DateTimeField(null=True, blank=True, default=None)
 
     class Meta(BaseModel.Meta):
         ordering = ["created_at"]
