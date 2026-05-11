@@ -1,3 +1,5 @@
+# worksessions/services.py
+
 """
 Service layer for Work Sessions (Artifact Stream Authoring).
 
