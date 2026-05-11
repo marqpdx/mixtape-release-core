@@ -1,3 +1,6 @@
+import uuid
+
+from django.core.files.storage import default_storage
 from django.utils import timezone
 from rest_framework import permissions, status
 from rest_framework.response import Response
@@ -5,6 +8,8 @@ from rest_framework.views import APIView
 
 from console import services
 from console.models import HubCapture, HubCaptureKind, HubCaptureStatus, HubCaptureVisibility
+from console.tasks import transcribe_hub_capture_task
+from files.models import StoredFile
 
 
 class ReentryView(APIView):
@@ -136,21 +141,13 @@ class HubCaptureDetailView(APIView):
 class HubCaptureVoiceView(APIView):
     """
     POST /api/console/hub/captures/voice/
-    Accept an audio file, transcribe it via Whisper, parse into list items
-    for list-type kinds (need_more, fix), and create HubCapture(s) in one step.
-    Returns the created captures so the client never needs to poll or create Seeds.
+    Accept an audio file, persist it, queue Whisper transcription, and return
+    immediately so the client can keep capture flow fast.
     """
     permission_classes = [permissions.IsAuthenticated]
     parser_classes_override = None  # uses default parsers including MultiPartParser
 
-    LIST_PARSE_KINDS = {"need_more", "fix"}
-    MAX_WORD_THRESHOLD = 8
-
     def post(self, request):
-        import re
-        import tempfile
-        import os
-
         audio_file = request.FILES.get("audio")
         kind = request.data.get("kind", "note")
         group_slug = request.data.get("group_slug")
@@ -168,55 +165,40 @@ class HubCaptureVoiceView(APIView):
             except Group.DoesNotExist:
                 return Response({"error": "group not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        # Save audio to a temp file and transcribe
-        suffix = os.path.splitext(audio_file.name)[1] or ".m4a"
-        try:
-            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-                for chunk in audio_file.chunks():
-                    tmp.write(chunk)
-                tmp_path = tmp.name
+        base_name = audio_file.name or "voice-note.m4a"
+        ext = (base_name.rsplit(".", 1)[-1].lower() if "." in base_name else "")
+        unique = f"{uuid.uuid4()}.{ext}" if ext else str(uuid.uuid4())
+        storage_key = f"console/audio/{request.user.id}/{unique}"
 
-            from concord.services.whisper import transcribe_audio
-            result = transcribe_audio(tmp_path)
-            transcript = result.text.strip()
-        except Exception as exc:
-            return Response({"error": f"Transcription failed: {exc}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        finally:
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
+        audio_file.seek(0)
+        saved_key = default_storage.save(storage_key, audio_file)
+        stored = StoredFile.objects.create(
+            file_path=saved_key,
+            file_name=base_name,
+            file_type=audio_file.content_type or "",
+            file_size=audio_file.size or 0,
+            uploaded_by=request.user,
+            source=request.data.get("source") or "mobile-ops",
+        )
 
-        if not transcript:
-            return Response({"error": "Transcription returned empty text"}, status=status.HTTP_400_BAD_REQUEST)
+        capture = HubCapture.objects.create(
+            owner=request.user,
+            kind=kind,
+            body="Processing voice capture…",
+            status=HubCaptureStatus.PROCESSING,
+            group=group,
+            audio_file=stored,
+        )
 
-        # Parse into list items if applicable
-        if kind in self.LIST_PARSE_KINDS:
-            items = self._parse_list(transcript)
-        else:
-            items = [transcript]
+        transcribe_hub_capture_task.delay(str(capture.id))
 
-        captures = [
-            HubCapture.objects.create(owner=request.user, kind=kind, body=item, group=group)
-            for item in items
-        ]
-
-        return Response({
-            "transcript": transcript,
-            "captures": [_serialize_capture(c) for c in captures],
-        }, status=status.HTTP_201_CREATED)
-
-    def _parse_list(self, text: str) -> list:
-        import re
-        parts = re.split(r"[,;]\s*|\n+", text)
-        parts = [re.sub(r"^\d+[.)]\s*", "", p.strip()) for p in parts]
-        parts = [re.sub(r"^[-•*]\s*", "", p).strip() for p in parts if p.strip()]
-
-        if len(parts) <= 1:
-            return [text.strip()] if text.strip() else []
-
-        avg_words = sum(len(p.split()) for p in parts) / len(parts)
-        return parts if avg_words <= self.MAX_WORD_THRESHOLD else [text.strip()]
+        return Response(
+            {
+                "capture": _serialize_capture(capture),
+                "accepted": True,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
 
 
 class HubCapturePromoteView(APIView):
@@ -563,6 +545,7 @@ def _serialize_capture(c: HubCapture) -> dict:
         "kind": c.kind,
         "body": c.body,
         "status": c.status,
+        "transcript_error": c.transcript_error,
         "visibility": c.visibility,
         "group_id": str(c.group_id) if c.group_id else None,
         "remind_at": c.remind_at.isoformat() if c.remind_at else None,
