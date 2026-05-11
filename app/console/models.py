@@ -15,7 +15,9 @@ class HubCaptureKind(models.TextChoices):
 
 
 class HubCaptureStatus(models.TextChoices):
+    PROCESSING = "processing", "Processing"
     OPEN = "open", "Open"
+    FAILED = "failed", "Failed"
     RESOLVED = "resolved", "Resolved"
     PROMOTED = "promoted", "Promoted"
 
@@ -46,6 +48,13 @@ class HubCapture(BaseModel):
         on_delete=models.CASCADE,
         related_name="hub_captures",
     )
+    audio_file = models.ForeignKey(
+        "files.StoredFile",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="hub_capture_audio",
+    )
     group = models.ForeignKey(
         "groups.Group",
         null=True,
@@ -68,6 +77,7 @@ class HubCapture(BaseModel):
     remind_at = models.DateTimeField(null=True, blank=True)
     resolved_at = models.DateTimeField(null=True, blank=True)
     archived_at = models.DateTimeField(null=True, blank=True, default=None)
+    transcript_error = models.TextField(blank=True, default="")
 
     class Meta(BaseModel.Meta):
         indexes = [
