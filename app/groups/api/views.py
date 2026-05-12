@@ -48,6 +48,7 @@ from groups.models import (
     GroupMembership,
     GroupOverviewLayout,
 )
+from groups.models.group_context import GroupContext
 from groups.models.group import InvitationKind, InvitationStatus
 from groups.permissions import IsGroupAdminOrSteward, canUserModerateGroupUser
 from groups.services.groups import GroupService
@@ -444,6 +445,49 @@ class GroupOverviewLayoutView(generics.RetrieveUpdateAPIView):
         if not membership or not (membership.is_admin() or membership.is_steward()):
             return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
         return super().update(request, *args, **kwargs)
+
+
+class GroupContextView(generics.GenericAPIView):
+    """
+    GET  /api/groups/<slug>/context  — return the group's AI context fields
+    PATCH /api/groups/<slug>/context  — update them (admin/steward only)
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    WRITABLE_FIELDS = ("founding_story", "non_negotiables", "voice_description", "outward_feel")
+
+    def _get_group(self):
+        return get_object_or_404(Group, slug=self.kwargs["slug"], is_active=True)
+
+    def _serialize(self, ctx):
+        return {
+            "founding_story": ctx.founding_story,
+            "non_negotiables": ctx.non_negotiables,
+            "voice_description": ctx.voice_description,
+            "outward_feel": ctx.outward_feel,
+            "context_health_score": ctx.context_health_score,
+            "updated_at": ctx.updated_at.isoformat() if ctx.updated_at else None,
+        }
+
+    def get(self, request, slug):
+        group = self._get_group()
+        membership = GroupService.get_user_membership(group, request.user)
+        if not membership or not membership.is_active:
+            return Response({"detail": "Not a member."}, status=status.HTTP_403_FORBIDDEN)
+        ctx, _ = GroupContext.objects.get_or_create(group=group)
+        return Response(self._serialize(ctx))
+
+    def patch(self, request, slug):
+        group = self._get_group()
+        membership = GroupService.get_user_membership(group, request.user)
+        if not membership or not (membership.is_admin() or membership.is_steward()):
+            return Response({"detail": "Admin or steward required."}, status=status.HTTP_403_FORBIDDEN)
+        ctx, _ = GroupContext.objects.get_or_create(group=group)
+        for field in self.WRITABLE_FIELDS:
+            if field in request.data:
+                setattr(ctx, field, request.data[field])
+        ctx.save()
+        return Response(self._serialize(ctx))
 
 
 class GroupInvitationDetailView(generics.RetrieveAPIView):
