@@ -9,6 +9,7 @@ from .views import (
     GroupCirclesListCreateView,
     GroupCoalitionInvitationsListView,
     GroupCoalitionInvitationsReceivedListView,
+    GroupContextView,
     DefaultGroupView,
     GroupDetailView,
     GroupEmblemAttachView,
@@ -90,6 +91,7 @@ urlpatterns = [
     path("<slug:slug>/emblem/attach", GroupEmblemAttachView.as_view(), name="group-emblem-attach"),
     path("<slug:slug>/emblem/reset", GroupEmblemResetView.as_view(), name="group-emblem-reset"),
     path("<slug:slug>/overview-layout", GroupOverviewLayoutView.as_view(), name="group-overview-layout"),
+    path("<slug:slug>/context", GroupContextView.as_view(), name="group-context"),
 
     # Group membership - consolidated single endpoint
     path("<slug:slug>/members", GroupMembersView.as_view(), name="group-members"),
