@@ -448,7 +448,7 @@ class GroupOverviewLayoutView(generics.RetrieveUpdateAPIView):
 
 class GroupInvitationDetailView(generics.RetrieveAPIView):
     serializer_class = GroupInvitationSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, CanInviteMembers]
     lookup_field = "pk"
 
     def get_queryset(self):
@@ -785,7 +785,7 @@ class GroupMembershipListView(generics.ListCreateAPIView):
 
 
 class GroupInvitationsListView(generics.ListAPIView):
-    permission_classes = [permissions.IsAuthenticated, IsGroupAdminOrSteward]
+    permission_classes = [permissions.IsAuthenticated, CanInviteMembers]
     serializer_class = GroupInvitationSerializer
     pagination_class = None
 

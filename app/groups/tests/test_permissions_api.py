@@ -4,7 +4,7 @@ from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from groups.models import Group, GroupMembership
+from groups.models import Group, GroupInvitation, GroupMembership
 
 
 User = get_user_model()
@@ -77,3 +77,44 @@ class MemberRoleManageApiTests(TestCase):
         self.target_membership.refresh_from_db()
         self.assertNotIn("admin", self.target_membership.roles)
         self.assertIn("steward", self.target_membership.roles)
+
+
+class GroupInvitationPermissionsApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = User.objects.create_user(
+            username="invite_admin",
+            email="invite_admin@test.com",
+            password="testpass123",
+        )
+        self.member_with_invite_permission = User.objects.create_user(
+            username="invite_member",
+            email="invite_member@test.com",
+            password="testpass123",
+        )
+        self.group = _create_group(
+            sponsor_user=self.admin,
+            title="Invite Group",
+            slug="invite-group",
+        )
+        _create_membership(group=self.group, user=self.admin, roles=["admin"])
+        self.member_membership = _create_membership(
+            group=self.group,
+            user=self.member_with_invite_permission,
+            roles=["member"],
+        )
+        self.member_membership.add_decorator("can__InviteMembers", assigned_by=self.admin)
+        GroupInvitation.objects.create(
+            group=self.group,
+            invited_by=self.admin,
+            invited_email="newmember@example.com",
+            message="Please join",
+        )
+
+    def test_member_with_invite_decorator_can_list_invitations(self):
+        self.client.force_authenticate(user=self.member_with_invite_permission)
+
+        response = self.client.get(f"/api/groups/{self.group.slug}/invitations")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
