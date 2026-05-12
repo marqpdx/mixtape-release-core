@@ -512,6 +512,26 @@ class MemberRoleManageView(generics.GenericAPIView):
         response_serializer = MemberPermissionsSerializer(membership)
         return Response(response_serializer.data)
 
+    def delete(self, request, slug, user_id):
+        _, membership, error_response = self._get_memberships(request, slug, user_id)
+        if error_response:
+            return error_response
+
+        role = (request.data or {}).get("role")
+        if role not in ("admin", "steward"):
+            return Response({"error": "Invalid role"}, status=400)
+
+        if str(user_id) == str(request.user.id) and role == "admin":
+            return Response(
+                {"error": "You cannot remove your own admin role here"},
+                status=403
+            )
+
+        membership.revoke_role(role)
+
+        response_serializer = MemberPermissionsSerializer(membership)
+        return Response(response_serializer.data)
+
 
 class MemberHelperManageView(generics.GenericAPIView):
     """
@@ -580,26 +600,6 @@ class MemberHelperManageView(generics.GenericAPIView):
         helper_role = Role.objects.filter(name="helper").first()
         if helper_role:
             target_user.roles.remove(helper_role)
-
-        response_serializer = MemberPermissionsSerializer(membership)
-        return Response(response_serializer.data)
-
-    def delete(self, request, slug, user_id):
-        _, membership, error_response = self._get_memberships(request, slug, user_id)
-        if error_response:
-            return error_response
-
-        role = (request.data or {}).get("role")
-        if role not in ("admin", "steward"):
-            return Response({"error": "Invalid role"}, status=400)
-
-        if str(user_id) == str(request.user.id) and role == "admin":
-            return Response(
-                {"error": "You cannot remove your own admin role here"},
-                status=403
-            )
-
-        membership.revoke_role(role)
 
         response_serializer = MemberPermissionsSerializer(membership)
         return Response(response_serializer.data)
