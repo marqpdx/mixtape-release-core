@@ -196,3 +196,57 @@ class FixItem(BaseModel):
 
     def __str__(self):
         return f"{self.title} [{self.status}]"
+
+
+class Client(BaseModel):
+    """
+    A Mindful Brilliance client — an organisation we have a direct relationship
+    with, invoice, and do knowledge-building work for.
+
+    Always linked to a Group (the operational unit) and optionally to the
+    BusinessProspect that became this client via the convert flow.
+
+    Contact fields are intentionally here, not on Group or GroupContext.
+    Group = structural unit. GroupContext = AI prompt substrate.
+    Client = relationship / CRM layer.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    group = models.OneToOneField(
+        "groups.Group",
+        on_delete=models.PROTECT,
+        related_name="client",
+    )
+    prospect = models.OneToOneField(
+        "prospects.BusinessProspect",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="client",
+    )
+
+    # Contact info — comes from prospect on conversion, editable after
+    primary_contact_name = models.CharField(max_length=200, blank=True)
+    primary_contact_email = models.EmailField(blank=True)
+    primary_contact_phone = models.CharField(max_length=50, blank=True)
+    website = models.URLField(blank=True)
+    business_type = models.CharField(max_length=200, blank=True)
+
+    # Relationship notes (internal, not shown to client)
+    contract_notes = models.TextField(blank=True)
+    billing_notes = models.TextField(blank=True)
+
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_clients",
+    )
+
+    class Meta(BaseModel.Meta):
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.group.title} (client)"

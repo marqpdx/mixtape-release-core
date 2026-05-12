@@ -34,7 +34,7 @@ class InvitationService:
     """Service for handling group invitations."""
 
     @staticmethod
-    def create_invitation(group, user, email, invited_by, message=""):
+    def create_invitation(group, user, email, invited_by, message="", roles=None):
         """
         Create an invitation for a user to join a group.
         This is your vetted, working code moved to service layer.
@@ -102,6 +102,8 @@ class InvitationService:
             pending_invitation.invited_by = invited_by
             pending_invitation.message = message
             pending_invitation.email_status = "sending"
+            if roles:
+                pending_invitation.intended_roles = roles
             pending_invitation.save()
             return pending_invitation, is_existing_user
 
@@ -121,6 +123,7 @@ class InvitationService:
             invited_by=invited_by,
             message=message,
             invited_user=user,
+            intended_roles=roles or ["member"],
         )
 
         # Different URLs for different flows
@@ -304,13 +307,18 @@ class InvitationService:
         if not invitation:
             raise ValidationError("No pending invitation found.")
 
+        # Use intended_roles from the invitation; fall back to ["member"]
+        intended = invitation.intended_roles or ["member"]
+        if "member" not in intended:
+            intended = ["member"] + intended
+
         # Create or update membership with new roles system
         membership, created = GroupMembership.objects.get_or_create(
             member_content_type=user_ct,
             member_object_id=user.id,
             group=group,
             defaults={
-                "roles": ["member"],  # New: use roles array
+                "roles": intended,
                 "is_active": True,
                 "is_pending": False,
                 "invited_by": invitation.invited_by,
@@ -318,11 +326,12 @@ class InvitationService:
         )
 
         if not created:
-            # Reactivate if previously existed
+            # Reactivate and merge any new roles
             membership.is_active = True
             membership.is_pending = False
-            if "member" not in membership.roles:
-                membership.roles.append("member")
+            for r in intended:
+                if r not in membership.roles:
+                    membership.roles.append(r)
             membership.save()
 
         # Update invitation status

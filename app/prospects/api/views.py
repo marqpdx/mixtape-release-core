@@ -430,8 +430,10 @@ class ProspectConvertView(APIView):
     permission_classes = [IsSuperUser]
 
     def post(self, request, slug):
+        from business.models import Client
         from groups.models import Group
         from groups.services.groups import GroupService
+        from groups.services.invitations import InvitationService
         from ..services.migration import ProspectToGroupMigrationService
 
         try:
@@ -472,14 +474,58 @@ class ProspectConvertView(APIView):
 
         result = ProspectToGroupMigrationService.convert(prospect=prospect, group=group)
 
+        # Create Client record from prospect contact data
+        client = Client.objects.create(
+            group=group,
+            prospect=prospect,
+            primary_contact_name=prospect.primary_contact_name,
+            primary_contact_email=prospect.primary_contact_email,
+            primary_contact_phone=prospect.primary_contact_phone,
+            website=prospect.website,
+            business_type=prospect.business_type,
+            created_by=request.user,
+        )
+
+        # Provision the primary contact as group admin if email is present
+        invitation_queued = False
+        contact_email = prospect.primary_contact_email.strip()
+        if contact_email:
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            from utils.email.invitations import generate_username_from_email
+            contact_user, _ = User.objects.get_or_create(
+                email=contact_email,
+                defaults={
+                    "username": generate_username_from_email(contact_email),
+                    "is_active": False,
+                },
+            )
+            invitation, _ = InvitationService.create_invitation(
+                group=group,
+                user=contact_user,
+                email=contact_email,
+                invited_by=request.user,
+                message=f"Welcome to your new group on Mixtape — {group.title}.",
+                roles=["member", "admin"],
+            )
+            InvitationService.send_batch_invitations(
+                [(invitation, contact_user.is_active)],
+                group,
+                request.user,
+                "",
+            )
+            invitation_queued = True
+
         return Response(
             {
                 "prospect": slug,
                 "group": group.slug,
+                "client_id": str(client.id),
                 "group_context_id": result["group_context_id"],
                 "migrated_count": result["migrated_count"],
                 "skipped_count": result["skipped_count"],
                 "detail": result["detail"],
+                "contact_invited": invitation_queued,
                 "note": "Brought-over answers are flagged converted_at on ProspectResponse. "
                         "Group admin should review and confirm they still hold.",
             },

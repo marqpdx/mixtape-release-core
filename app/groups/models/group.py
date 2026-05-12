@@ -6,6 +6,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils import timezone
 from django.utils.crypto import get_random_string
@@ -268,6 +269,14 @@ class GroupInvitation(BaseModel):
     )
 
     expires_at = models.DateTimeField(null=True, blank=True)
+
+    # Roles the invited user should receive upon accepting.
+    # Default is ["member"]; client-admin invitations use ["member", "admin"].
+    intended_roles = ArrayField(
+        models.CharField(max_length=50),
+        default=list,
+        blank=True,
+    )
 
     # Delivery tracking (populated by send_invitation_email task)
     provider = models.CharField(max_length=50, default="mailjet")
