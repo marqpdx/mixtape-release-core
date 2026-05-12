@@ -36,6 +36,7 @@ class GroupService:
         decorator_codes: list[str] = None,
         sponsor=None,  # ✅ NEW: sponsor can be User or Group (or any sponsorable model)
         add_creator_membership: bool = True,  # ✅ NEW: let sponsor-scoped flows opt out
+        slug: str = None,  # optional: caller-supplied slug; freezes slug_is_custom
     ):
         """
         Create a new group with the creator as admin.
@@ -64,6 +65,9 @@ class GroupService:
             escrow_owner=created_by,
             is_active=True
         )
+        if slug:
+            group.slug = slug
+            group.slug_is_custom = True
         sponsor_obj = sponsor or created_by
         group.set_sponsor(sponsor_obj)
         group.save()

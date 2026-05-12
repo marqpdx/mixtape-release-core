@@ -417,12 +417,13 @@ class ProspectConvertView(APIView):
     EC-B11: POST /api/prospects/{slug}/convert/
 
     Converts a BusinessProspect to a client Group by:
-      1. Looking up (or accepting) the target Group via group_slug in request body
+      1. Creating a new Group via GroupService.create_group (same path as GroupListCreateView)
       2. Running ProspectToGroupMigrationService to clone intake responses
          into GroupContext and stamp converted_at on each migrated response
       3. Setting BusinessProspect.converted_to_group and status=won
 
-    Body: { "group_slug": "my-group-slug" }
+    Body: { "title": "Acme Co", "group_type": "community", "slug": "acme-co", "visibility": "public" }
+    slug and visibility are optional; title and group_type are required.
 
     Returns a summary of what was migrated.
     """
@@ -430,6 +431,7 @@ class ProspectConvertView(APIView):
 
     def post(self, request, slug):
         from groups.models import Group
+        from groups.services.groups import GroupService
         from ..services.migration import ProspectToGroupMigrationService
 
         try:
@@ -443,21 +445,37 @@ class ProspectConvertView(APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
-        group_slug = request.data.get("group_slug")
-        if not group_slug:
-            return Response({"detail": "group_slug is required."}, status=status.HTTP_400_BAD_REQUEST)
+        title = request.data.get("title", "").strip()
+        group_type = request.data.get("group_type", "").strip()
+        proposed_slug = request.data.get("slug", "").strip() or None
+        visibility = request.data.get("visibility", "public").strip()
 
-        try:
-            group = Group.objects.get(slug=group_slug)
-        except Group.DoesNotExist:
-            return Response({"detail": "Group not found."}, status=status.HTTP_404_NOT_FOUND)
+        if not title:
+            return Response({"detail": "title is required."}, status=status.HTTP_400_BAD_REQUEST)
+        if not group_type:
+            return Response({"detail": "group_type is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        valid_types = {"persona", "circle", "community", "coalition"}
+        if group_type not in valid_types:
+            return Response({"detail": f"group_type must be one of: {', '.join(sorted(valid_types))}."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if proposed_slug and Group.objects.filter(slug=proposed_slug).exists():
+            return Response({"detail": f"A group with slug '{proposed_slug}' already exists."}, status=status.HTTP_409_CONFLICT)
+
+        group = GroupService.create_group(
+            title=title,
+            group_type=group_type,
+            created_by=request.user,
+            visibility=visibility,
+            slug=proposed_slug,
+        )
 
         result = ProspectToGroupMigrationService.convert(prospect=prospect, group=group)
 
         return Response(
             {
                 "prospect": slug,
-                "group": group_slug,
+                "group": group.slug,
                 "group_context_id": result["group_context_id"],
                 "migrated_count": result["migrated_count"],
                 "skipped_count": result["skipped_count"],
