@@ -12,6 +12,11 @@ from django.contrib.contenttypes.models import ContentType
 from groups.models import GroupMembership
 
 
+DECORATOR_PERMISSIONS = {
+    "can__InviteMembers": ["invite_members"],
+}
+
+
 # Phase 1: Simple role → permissions mapping (hardcoded)
 # Will be replaced by permission tree in Phase 2A
 ROLE_PERMISSIONS = {
@@ -212,7 +217,7 @@ class PermissionService:
             is_pending=False,
             is_banned=False,
             is_evicted=False
-        ).select_related("group")
+        ).select_related("group").prefetch_related("decorator_links__decorator")
 
         all_permissions: set[str] = set()
         groups_data: dict[str, dict] = {}
@@ -227,6 +232,10 @@ class PermissionService:
             for role in roles:
                 role_perms = ROLE_PERMISSIONS.get(role, [])
                 group_permissions.update(role_perms)
+
+            for decorator_code in membership.get_decorator_codes():
+                decorator_permissions = DECORATOR_PERMISSIONS.get(decorator_code, [])
+                group_permissions.update(decorator_permissions)
 
             # Store per-group data
             groups_data[group_slug] = {
