@@ -6,6 +6,9 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    # Operator-level
+    path("clients", views.ClientListView.as_view(), name="business-client-list"),
+
     # Suppliers
     path("<slug:slug>/suppliers", views.SupplierListCreateView.as_view(), name="business-supplier-list"),
     path("<slug:slug>/suppliers/<uuid:supplier_id>", views.SupplierDetailView.as_view(), name="business-supplier-detail"),

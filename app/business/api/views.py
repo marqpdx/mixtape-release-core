@@ -9,7 +9,7 @@ from rest_framework.views import APIView
 from groups.models.group import Group
 from groups.services.groups import GroupService
 
-from business.models import FixItem, FixItemStatus, Supplier, SupplyRequest, SupplyRequestStatus
+from business.models import Client, FixItem, FixItemStatus, Supplier, SupplyRequest, SupplyRequestStatus
 from .serializers import FixItemSerializer, SupplierSerializer, SupplyRequestSerializer
 
 
@@ -250,3 +250,41 @@ class FixItemDetailView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         serializer.save()
         return Response(serializer.data)
+
+
+# ---------------------------------------------------------------------------
+# Clients (operator-only)
+# ---------------------------------------------------------------------------
+
+class ClientListView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        if not (request.user.is_staff or request.user.is_superuser):
+            return Response({"detail": "Staff access required."}, status=status.HTTP_403_FORBIDDEN)
+
+        clients = (
+            Client.objects
+            .select_related("group", "prospect")
+            .filter(group__deleted_at__isnull=True)
+            .order_by("-created_at")
+        )
+
+        data = [
+            {
+                "id": str(c.id),
+                "group_slug": c.group.slug,
+                "group_title": c.group.title,
+                "primary_contact_name": c.primary_contact_name,
+                "primary_contact_email": c.primary_contact_email,
+                "primary_contact_phone": c.primary_contact_phone,
+                "website": c.website,
+                "business_type": c.business_type,
+                "contract_notes": c.contract_notes,
+                "billing_notes": c.billing_notes,
+                "prospect_slug": c.prospect.slug if c.prospect_id else None,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+            for c in clients
+        ]
+        return Response(data)
