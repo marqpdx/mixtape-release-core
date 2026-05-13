@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from django.utils import timezone
 from rest_framework import status
+from rest_framework.permissions import BasePermission
 from rest_framework.decorators import api_view, permission_classes, throttle_classes, authentication_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -28,20 +29,18 @@ def _is_beacon_active(beacon: FeedbackBeacon) -> bool:
     return True
 
 
-@api_view(["GET"])
-@permission_classes([AllowAny])
-def get_beacon(request, key: str) -> Response:
-    beacon = FeedbackBeacon.objects.filter(key=key).first()
-    if not beacon or not _is_beacon_active(beacon):
-        return Response({"error": "Beacon not active"}, status=status.HTTP_404_NOT_FOUND)
-    return Response({"data": FeedbackBeaconSerializer(beacon).data})
+class FeedbackItemsPermission(BasePermission):
+    """
+    Allow public feedback submission while keeping the feedback queue private.
+    """
+
+    def has_permission(self, request, view) -> bool:
+        if request.method == "POST":
+            return True
+        return bool(request.user and request.user.is_authenticated)
 
 
-@api_view(["POST"])
-@permission_classes([AllowAny])
-@authentication_classes([OAuth2Authentication, JWTAuthentication])
-@throttle_classes([FeedbackIPThrottle])
-def create_feedback_item(request) -> Response:
+def _create_feedback_item(request) -> Response:
     serializer = FeedbackItemCreateSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -62,16 +61,30 @@ def create_feedback_item(request) -> Response:
     return Response({"message": "Feedback received"}, status=status.HTTP_201_CREATED)
 
 
-@api_view(["GET", "POST"])
+@api_view(["GET"])
 @permission_classes([AllowAny])
+def get_beacon(request, key: str) -> Response:
+    beacon = FeedbackBeacon.objects.filter(key=key).first()
+    if not beacon or not _is_beacon_active(beacon):
+        return Response({"error": "Beacon not active"}, status=status.HTTP_404_NOT_FOUND)
+    return Response({"data": FeedbackBeaconSerializer(beacon).data})
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+@authentication_classes([OAuth2Authentication, JWTAuthentication])
+@throttle_classes([FeedbackIPThrottle])
+def create_feedback_item(request) -> Response:
+    return _create_feedback_item(request)
+
+
+@api_view(["GET", "POST"])
+@permission_classes([FeedbackItemsPermission])
 @authentication_classes([OAuth2Authentication, JWTAuthentication])
 @throttle_classes([FeedbackIPThrottle])
 def feedback_items(request) -> Response:
     if request.method == "POST":
-        return create_feedback_item(request)
-
-    if not request.user or not request.user.is_authenticated:
-        return Response({"error": "Authentication required"}, status=status.HTTP_401_UNAUTHORIZED)
+        return _create_feedback_item(request)
 
     try:
         page = max(int(request.query_params.get("page", 1)), 1)
