@@ -150,6 +150,36 @@ DATABASES = {
 # for emailing
 FRONTEND_URL = "http://127.0.0.1:3011"
 
+OPS_APPLICATION_SURFACES = {
+    "mixtape-web": {
+        "label": "Mixtape Web",
+        "surface_type": "nextjs",
+        "provider": "local-next",
+        "environment": "local",
+        "endpoint": "http://127.0.0.1:3011",
+        "port": 3011,
+        "probe_paths": ["/app/api/help/manifest"],
+    },
+    "crossroads-web": {
+        "label": "Crossroads Web",
+        "surface_type": "nextjs",
+        "provider": "local-next",
+        "environment": "local",
+        "endpoint": "http://127.0.0.1:3010",
+        "port": 3010,
+        "probe_paths": ["/"],
+    },
+    "django-api": {
+        "label": "Django API",
+        "surface_type": "api",
+        "provider": "runserver",
+        "environment": "local",
+        "endpoint": "http://127.0.0.1:8010",
+        "port": 8010,
+        "probe_paths": ["/health/"],
+    },
+}
+
 
 # ============================================================================
 # DEFERRED SETTINGS (Phase 2+)

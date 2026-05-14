@@ -1,11 +1,11 @@
 from datetime import timedelta
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from ops.models import OpsSnapshot
-from ops.services.snapshot import build_health_snapshot
+from ops.services.snapshot import _application_surfaces_section, build_health_snapshot
 
 
 class OpsSnapshotTests(TestCase):
@@ -227,3 +227,39 @@ class OpsSnapshotTests(TestCase):
         self.assertIn("application_surfaces", snapshot)
         self.assertEqual(snapshot["application_surfaces"]["status"], "healthy")
         self.assertIn("mixtape-web", snapshot["application_surfaces"]["data"]["surfaces"])
+
+    @override_settings(
+        OPS_APPLICATION_SURFACES={
+            "django-api": {
+                "label": "Django API",
+                "surface_type": "api",
+                "provider": "runserver",
+                "environment": "local",
+                "endpoint": "http://127.0.0.1:8010",
+                "probe_paths": ["/health/"],
+            }
+        }
+    )
+    @patch("ops.services.snapshot._probe_http")
+    @patch("ops.services.snapshot._probe_port")
+    def test_application_surfaces_section_uses_settings_config(
+        self,
+        mock_probe_port,
+        mock_probe_http,
+    ):
+        mock_probe_port.return_value = True
+        mock_probe_http.return_value = (200, 42, None)
+
+        section = _application_surfaces_section()
+
+        self.assertEqual(section["status"], "healthy")
+        self.assertEqual(section["source"], "live")
+        self.assertEqual(section["data"]["surfaces"]["django-api"]["label"], "Django API")
+        self.assertEqual(section["data"]["surfaces"]["django-api"]["provider"], "runserver")
+        self.assertEqual(section["data"]["surfaces"]["django-api"]["endpoint"], "http://127.0.0.1:8010")
+        self.assertEqual(
+            section["data"]["surfaces"]["django-api"]["probes"][0]["url"],
+            "http://127.0.0.1:8010/health/",
+        )
+        mock_probe_port.assert_called_once_with("127.0.0.1", 8010)
+        mock_probe_http.assert_called_once_with("http://127.0.0.1:8010/health/")
