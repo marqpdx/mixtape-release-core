@@ -22,6 +22,11 @@ class Forum(BaseContent):
         ("group", "Group Only")
     ]
 
+    AUDIENCE_CHOICES = [
+        ("all_members", "All Group Members"),
+        ("subset", "Specific Members"),
+    ]
+
     description = models.TextField(blank=True)
     visibility = models.CharField(
         max_length=10,
@@ -29,6 +34,22 @@ class Forum(BaseContent):
         default="group"
     )
     is_archived = models.BooleanField(default=False)
+
+    audience_type = models.CharField(
+        max_length=20,
+        choices=AUDIENCE_CHOICES,
+        default="all_members",
+    )
+    auto_add_new_members = models.BooleanField(
+        default=True,
+        help_text="When audience is All Group Members, automatically include new group members.",
+    )
+    audience_members = models.ManyToManyField(
+        CustomUser,
+        related_name="subset_forums",
+        blank=True,
+        help_text="Explicit member list used when audience_type='subset'.",
+    )
 
     class Meta:
         ordering = ['-updated_at']
