@@ -368,12 +368,12 @@ class EmailOrUsernameTokenSerializer(serializers.Serializer):
         identifier = attrs.get("identifier")
         password = attrs.get("password")
 
-        # Normalize identifier to username
+        # Normalize identifier to canonical username (case-insensitive)
         username = identifier
         if "@" in identifier:
             try:
-                user = CustomUser.objects.get(email__iexact=identifier.lower())
-                username = user.username
+                found = CustomUser.objects.get(email__iexact=identifier.lower())
+                username = found.username
                 logger.info(f"Login attempt via email for user: {username}")
             except CustomUser.DoesNotExist:
                 logger.warning(f"Login failed: no user with email {identifier}")
@@ -381,6 +381,12 @@ class EmailOrUsernameTokenSerializer(serializers.Serializer):
                     "Invalid credentials",
                     code="invalid_credentials"
                 )
+        else:
+            try:
+                found = CustomUser.objects.get(username__iexact=identifier)
+                username = found.username  # use canonical casing for authenticate()
+            except CustomUser.DoesNotExist:
+                pass  # let authenticate() fail naturally
 
         # Authenticate
         user = authenticate(username=username, password=password)
