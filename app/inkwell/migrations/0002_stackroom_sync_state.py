@@ -32,7 +32,7 @@ class Migration(migrations.Migration):
             ],
             options={
                 'indexes': [models.Index(fields=['content_type', 'object_id'], name='inkwell_sta_content_12e280_idx'), models.Index(fields=['adapter_name', 'status'], name='inkwell_sta_adapter_1be5d6_idx')],
-                'constraints': [models.UniqueConstraint(fields=('content_type', 'object_id', 'adapter_name'), name='uniq_stackroom_sync_state_object_adapter')],
+                'constraints': [models.UniqueConstraint(fields=('content_type', 'object_id', 'adapter_name'), name='uniq_inkwell_stackroom_sync_state_object_adapter')],
             },
         ),
     ]
