@@ -138,18 +138,19 @@ def conversation_messages(request, slug):
     conversation = get_object_or_404(Conversation, slug=slug)
 
     # Must be a participant for any access
-    is_participant = ConversationParticipant.objects.filter(
-        user=user, conversation=conversation
-    ).exists()
-    if not is_participant:
+    try:
+        participant = ConversationParticipant.objects.get(user=user, conversation=conversation)
+    except ConversationParticipant.DoesNotExist:
         return Response(
             {"detail": "Not a participant of this conversation."},
             status=status.HTTP_403_FORBIDDEN,
         )
 
     if request.method == "GET":
+        # History is gated to the participant's join date — new members never see past messages.
         messages = ChatMessage.objects.filter(
-            conversation=conversation
+            conversation=conversation,
+            created_at__gte=participant.joined_at,
         ).select_related("sender").prefetch_related("reactions__user", "mentions").order_by("-created_at")
 
         # Apply pagination
