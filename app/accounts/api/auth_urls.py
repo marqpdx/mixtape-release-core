@@ -6,7 +6,7 @@ from django.urls import path
 
 from groups.api.views import accept_invite
 
-from . import jwt_views, views
+from . import jwt_views, views, password_reset_views
 
 
 urlpatterns = [
@@ -32,6 +32,10 @@ urlpatterns = [
 
     # Registration
     path("signup", views.user_create_view, name="user-register"),
+
+    # Password reset
+    path("password-reset", password_reset_views.PasswordResetRequestView.as_view(), name="password-reset-request"),
+    path("password-reset/confirm", password_reset_views.PasswordResetConfirmView.as_view(), name="password-reset-confirm"),
 
     # Utilities
     path("csrf", views.csrf, name="csrf-token"),
