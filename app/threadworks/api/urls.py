@@ -60,6 +60,7 @@ group_threadworks_patterns = [
     # Forums (group-scoped)
     path('', views.GroupForumListCreateView.as_view(), name='group-forum-list-create'),
     path('<slug:forum_slug>', views.GroupForumDetailView.as_view(), name='group-forum-detail'),
+    path('<slug:forum_slug>/audience', views.GroupForumAudienceView.as_view(), name='group-forum-audience'),
 
     # Discussions (group-scoped)
     path('<slug:forum_slug>/discussions', views.GroupDiscussionListCreateView.as_view(), name='group-discussion-list-create'),

@@ -221,13 +221,21 @@ class DiscussionCreateSerializer(serializers.Serializer):
 # FORUM SERIALIZERS
 # ============================================================================
 
+class ForumAudienceMemberSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CustomUser
+        fields = ['id', 'username', 'first_name', 'last_name']
+
+
 class ForumSerializer(serializers.ModelSerializer):
     """List view - includes discussions but not posts"""
     submitted_by = ThreadworksUserSerializer(read_only=True)
-    discussions = DiscussionSerializer(many=True, read_only=True)  # ADD THIS
+    discussions = DiscussionSerializer(many=True, read_only=True)
     recent_participants = ThreadworksUserSerializer(many=True, read_only=True)
     discussion_count = serializers.SerializerMethodField()
     visibility_label = serializers.SerializerMethodField()
+    audience_member_count = serializers.SerializerMethodField()
+    audience_members = ForumAudienceMemberSerializer(many=True, read_only=True)
 
     class Meta:
         model = Forum
@@ -241,11 +249,15 @@ class ForumSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
             'submitted_by',
-            'discussions',  # ADD THIS
+            'discussions',
             'discussion_count',
             'recent_participants',
             'last_activity',
             'is_archived',
+            'audience_type',
+            'auto_add_new_members',
+            'audience_member_count',
+            'audience_members',
         ]
         read_only_fields = [
             'id',
@@ -256,6 +268,8 @@ class ForumSerializer(serializers.ModelSerializer):
             'discussion_count',
             'recent_participants',
             'last_activity',
+            'audience_member_count',
+            'audience_members',
         ]
 
     def get_discussion_count(self, obj):
@@ -269,11 +283,19 @@ class ForumSerializer(serializers.ModelSerializer):
         }
         return labels.get(obj.visibility, obj.visibility)
 
+    def get_audience_member_count(self, obj):
+        if obj.audience_type == 'subset':
+            return obj.audience_members.count()
+        return None
+
 
 class ForumCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating forums"""
     sponsor_type = serializers.CharField(write_only=True, required=False)
     sponsor_slug = serializers.CharField(write_only=True, required=False)
+    member_ids = serializers.ListField(
+        child=serializers.UUIDField(), write_only=True, required=False
+    )
 
     class Meta:
         model = Forum
@@ -283,16 +305,18 @@ class ForumCreateSerializer(serializers.ModelSerializer):
             'visibility',
             'sponsor_type',
             'sponsor_slug',
+            'audience_type',
+            'auto_add_new_members',
+            'member_ids',
         ]
 
     def create(self, validated_data):
         from django.contrib.contenttypes.models import ContentType
 
-        # Extract sponsor params
         sponsor_type = validated_data.pop('sponsor_type', None)
         sponsor_slug = validated_data.pop('sponsor_slug', None)
+        member_ids = validated_data.pop('member_ids', [])
 
-        # Set sponsor if provided
         if sponsor_type and sponsor_slug:
             if sponsor_type == 'group':
                 from groups.models import Group
@@ -310,7 +334,14 @@ class ForumCreateSerializer(serializers.ModelSerializer):
             validated_data['sponsor_object_id'] = sponsor.id
 
         validated_data['submitted_by'] = self.context['request'].user
-        return super().create(validated_data)
+        forum = super().create(validated_data)
+
+        # Populate subset audience members if provided
+        if forum.audience_type == 'subset' and member_ids:
+            users = CustomUser.objects.filter(id__in=member_ids)
+            forum.audience_members.set(users)
+
+        return forum
 
 
 # ============================================================================

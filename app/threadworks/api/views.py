@@ -10,8 +10,11 @@ from django.utils import timezone
 from django.http import Http404
 from django.contrib.contenttypes.models import ContentType
 
+from django.contrib.auth import get_user_model
 from groups.models import Group
 from groups.permissions import canUserModerateGroupUser, isGroupMemberUser
+
+CustomUser = get_user_model()
 
 from ..models import (
     Forum, Discussion, Post, PostReaction, PostFlag,
@@ -29,6 +32,7 @@ from .serializers import (
     PostFlagSerializer,
     NotificationSerializer,
     ParticipantSerializer,
+    ForumAudienceMemberSerializer,
 )
 
 # ============================================================================
@@ -573,6 +577,13 @@ def get_group_forum_queryset(group):
     ).order_by('-updated_at')
 
 
+def _user_can_access_forum(user, forum):
+    """Return True if the user has audience access to this forum."""
+    if forum.audience_type == 'all_members':
+        return True
+    return forum.audience_members.filter(pk=user.pk).exists()
+
+
 class GroupForumListCreateView(generics.ListCreateAPIView):
     """
     List all forums for a group, or create a new one.
@@ -589,21 +600,76 @@ class GroupForumListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         group = get_group_or_404(self.kwargs['slug'])
-        return get_group_forum_queryset(group)
+        qs = get_group_forum_queryset(group)
+        user = self.request.user
+        if user.is_authenticated:
+            # Show all_members forums + subset forums the user belongs to
+            qs = qs.filter(
+                Q(audience_type='all_members') |
+                Q(audience_type='subset', audience_members=user)
+            ).distinct()
+        else:
+            qs = qs.filter(audience_type='all_members')
+        return qs
 
     def perform_create(self, serializer):
         group = get_group_or_404(self.kwargs['slug'])
 
-        # Check permission
+        can_manage = (
+            canUserModerateGroupUser(self.request.user, group)
+            or isGroupMemberUser(self.request.user, group)
+            and hasattr(self.request.user, 'group_permissions')
+        )
         if not canUserModerateGroupUser(self.request.user, group) and not self.request.user.is_staff:
             raise permissions.PermissionDenied("You don't have permission to create forums in this group.")
 
-        # Set sponsor to group
         serializer.save(
             submitted_by=self.request.user,
             sponsor_content_type=ContentType.objects.get_for_model(Group),
             sponsor_object_id=group.id,
         )
+
+
+class GroupForumAudienceView(generics.GenericAPIView):
+    """
+    PATCH /api/groups/<slug>/threadworks/<forum_slug>/audience
+    Update a forum's audience type, auto_add flag, and member list.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ForumSerializer
+
+    def get_forum(self):
+        group = get_group_or_404(self.kwargs['slug'])
+        return get_object_or_404(get_group_forum_queryset(group), slug=self.kwargs['forum_slug'])
+
+    def patch(self, request, slug, forum_slug):
+        group = get_group_or_404(slug)
+        if not canUserModerateGroupUser(request.user, group) and not request.user.is_staff:
+            raise permissions.PermissionDenied("You don't have permission to manage this forum's audience.")
+
+        forum = self.get_forum()
+
+        audience_type = request.data.get('audience_type')
+        auto_add = request.data.get('auto_add_new_members')
+        member_ids = request.data.get('member_ids')
+
+        update_fields = []
+        if audience_type in ('all_members', 'subset'):
+            forum.audience_type = audience_type
+            update_fields.append('audience_type')
+        if auto_add is not None:
+            forum.auto_add_new_members = bool(auto_add)
+            update_fields.append('auto_add_new_members')
+        if update_fields:
+            forum.save(update_fields=update_fields)
+
+        if member_ids is not None and forum.audience_type == 'subset':
+            users = CustomUser.objects.filter(id__in=member_ids)
+            forum.audience_members.set(users)
+        elif forum.audience_type == 'all_members':
+            forum.audience_members.clear()
+
+        return Response(ForumSerializer(forum, context={'request': request}).data)
 
 
 class GroupForumDetailView(generics.RetrieveUpdateDestroyAPIView):
