@@ -9,6 +9,7 @@ from ops.services.snapshot import build_health_snapshot
 
 
 class OpsSnapshotTests(TestCase):
+    @patch("ops.services.snapshot._application_surfaces_section")
     @patch("ops.services.snapshot._collect_services")
     @patch("ops.services.snapshot._collect_network")
     @patch("ops.services.snapshot._collect_disk")
@@ -21,7 +22,17 @@ class OpsSnapshotTests(TestCase):
         mock_disk,
         mock_network,
         mock_services,
+        mock_application_surfaces,
     ):
+        mock_application_surfaces.return_value = {
+            "status": "healthy",
+            "data": {"surfaces": {}},
+            "errors": [],
+            "latency_ms": 0,
+            "collected_at": None,
+            "expires_at": None,
+            "source": "live",
+        }
         mock_system.return_value = ({"uptime_seconds": 123.0, "swap_bytes": {"used": 0, "total": 0}}, [])
         mock_processes.return_value = ({"top_rss": [], "top_cpu": [], "limit": 10}, [])
         mock_disk.return_value = ({"root": {"free_percent": 40.0}}, [])
@@ -72,6 +83,7 @@ class OpsSnapshotTests(TestCase):
         self.assertEqual(snapshot["application"]["status"], "healthy")
         self.assertEqual(snapshot["application"]["data"]["postgres_active_connections"], 6)
 
+    @patch("ops.services.snapshot._application_surfaces_section")
     @patch("ops.services.snapshot._collect_services")
     @patch("ops.services.snapshot._collect_network")
     @patch("ops.services.snapshot._collect_disk")
@@ -84,7 +96,17 @@ class OpsSnapshotTests(TestCase):
         mock_disk,
         mock_network,
         mock_services,
+        mock_application_surfaces,
     ):
+        mock_application_surfaces.return_value = {
+            "status": "healthy",
+            "data": {"surfaces": {}},
+            "errors": [],
+            "latency_ms": 0,
+            "collected_at": None,
+            "expires_at": None,
+            "source": "live",
+        }
         mock_system.return_value = ({"uptime_seconds": 123.0, "swap_bytes": {"used": 0, "total": 0}}, [])
         mock_processes.return_value = ({"top_rss": [], "top_cpu": [], "limit": 10}, [])
         mock_disk.return_value = ({"root": {"free_percent": 40.0}}, [])
@@ -111,6 +133,7 @@ class OpsSnapshotTests(TestCase):
         self.assertEqual(snapshot["postgres_detail"]["status"], "stale")
         self.assertIn("snapshot_stale", snapshot["postgres_detail"]["errors"])
 
+    @patch("ops.services.snapshot._application_surfaces_section")
     @patch("ops.services.snapshot._collect_services")
     @patch("ops.services.snapshot._collect_network")
     @patch("ops.services.snapshot._collect_disk")
@@ -123,7 +146,17 @@ class OpsSnapshotTests(TestCase):
         mock_disk,
         mock_network,
         mock_services,
+        mock_application_surfaces,
     ):
+        mock_application_surfaces.return_value = {
+            "status": "healthy",
+            "data": {"surfaces": {}},
+            "errors": [],
+            "latency_ms": 0,
+            "collected_at": None,
+            "expires_at": None,
+            "source": "live",
+        }
         mock_system.return_value = ({"uptime_seconds": 123.0, "swap_bytes": {"used": 0, "total": 0}}, [])
         mock_processes.return_value = ({"top_rss": [], "top_cpu": [], "limit": 10}, [])
         mock_disk.return_value = ({"root": {"free_percent": 40.0}}, [])
@@ -150,3 +183,47 @@ class OpsSnapshotTests(TestCase):
         self.assertEqual(snapshot["application"]["status"], "healthy")
         self.assertEqual(snapshot["application"]["data"]["celery_queue_depth"], 8)
         self.assertEqual(snapshot["application"]["data"]["rabbitmq_connection_count"], 4)
+
+    @patch("ops.services.snapshot._application_surfaces_section")
+    @patch("ops.services.snapshot._collect_services")
+    @patch("ops.services.snapshot._collect_network")
+    @patch("ops.services.snapshot._collect_disk")
+    @patch("ops.services.snapshot._collect_processes")
+    @patch("ops.services.snapshot._collect_system")
+    def test_build_health_snapshot_includes_application_surfaces(
+        self,
+        mock_system,
+        mock_processes,
+        mock_disk,
+        mock_network,
+        mock_services,
+        mock_application_surfaces,
+    ):
+        mock_application_surfaces.return_value = {
+            "status": "healthy",
+            "data": {
+                "surfaces": {
+                    "mixtape-web": {
+                        "label": "Mixtape Web",
+                        "status": "healthy",
+                        "provider": "local-next",
+                    }
+                }
+            },
+            "errors": [],
+            "latency_ms": 12,
+            "collected_at": "2026-05-14T20:00:00Z",
+            "expires_at": None,
+            "source": "live",
+        }
+        mock_system.return_value = ({"uptime_seconds": 123.0, "swap_bytes": {"used": 0, "total": 0}}, [])
+        mock_processes.return_value = ({"top_rss": [], "top_cpu": [], "limit": 10}, [])
+        mock_disk.return_value = ({"root": {"free_percent": 40.0}}, [])
+        mock_network.return_value = ({}, [])
+        mock_services.return_value = ({"backups": {"units": {}}}, [])
+
+        snapshot = build_health_snapshot()
+
+        self.assertIn("application_surfaces", snapshot)
+        self.assertEqual(snapshot["application_surfaces"]["status"], "healthy")
+        self.assertIn("mixtape-web", snapshot["application_surfaces"]["data"]["surfaces"])

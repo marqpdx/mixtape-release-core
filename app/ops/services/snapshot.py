@@ -1,13 +1,18 @@
 import os
 import shutil
+import socket
 import subprocess
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+from urllib import error as urllib_error
+from urllib import request as urllib_request
+from urllib.parse import urlparse
 
 from django.utils import timezone as django_timezone
 
+from ops.models import OpsSnapshot
 from ops.services.application import latest_application_snapshot
 from ops.services.postgres import latest_postgres_snapshot
 
@@ -21,6 +26,29 @@ DEFAULT_PER_CHECK_TIMEOUT = 0.25
 DEFAULT_GLOBAL_BUDGET = 0.9
 BACKUP_WARN_AGE_SECONDS = 36 * 3600
 BACKUP_CRIT_AGE_SECONDS = 72 * 3600
+APPLICATION_SURFACE_HTTP_TIMEOUT = 10.0
+APPLICATION_SURFACE_PORT_TIMEOUT = 0.2
+
+APPLICATION_SURFACES = {
+    "mixtape-web": {
+        "label": "Mixtape Web",
+        "surface_type": "nextjs",
+        "provider": "local-next",
+        "environment": "local",
+        "endpoint": "http://127.0.0.1:3011",
+        "port": 3011,
+        "probe_paths": ["/app/api/help/manifest"],
+    },
+    "crossroads-web": {
+        "label": "Crossroads Web",
+        "surface_type": "nextjs",
+        "provider": "local-next",
+        "environment": "local",
+        "endpoint": "http://127.0.0.1:3010",
+        "port": 3010,
+        "probe_paths": ["/"],
+    },
+}
 
 
 @dataclass
@@ -536,6 +564,146 @@ def _postgres_detail_from_snapshot() -> Dict[str, Any]:
     )
 
 
+def _surface_status_from_http(http_status: Optional[int], port_open: bool) -> str:
+    if not port_open:
+        return "critical"
+    if http_status is None:
+        return "degraded"
+    if 200 <= http_status < 400 or http_status in (401, 403):
+        return "healthy"
+    if http_status >= 500:
+        return "critical"
+    return "degraded"
+
+
+def _probe_port(host: str, port: int) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=APPLICATION_SURFACE_PORT_TIMEOUT):
+            return True
+    except OSError:
+        return False
+
+
+def _probe_http(url: str) -> Tuple[Optional[int], Optional[int], Optional[str]]:
+    start = time.monotonic()
+    request = urllib_request.Request(
+        url,
+        headers={"User-Agent": "crossroads-ops-snapshot/1.0"},
+    )
+    try:
+        with urllib_request.urlopen(request, timeout=APPLICATION_SURFACE_HTTP_TIMEOUT) as response:
+            latency_ms = int((time.monotonic() - start) * 1000)
+            return response.getcode(), latency_ms, None
+    except urllib_error.HTTPError as exc:
+        latency_ms = int((time.monotonic() - start) * 1000)
+        return exc.code, latency_ms, f"http_{exc.code}"
+    except urllib_error.URLError:
+        return None, None, "connection_error"
+    except TimeoutError:
+        return None, None, "timeout"
+
+
+def _collect_application_surfaces() -> Tuple[Dict[str, Any], List[str]]:
+    errors: List[str] = []
+    surfaces: Dict[str, Any] = {}
+
+    for surface_key, config in APPLICATION_SURFACES.items():
+        endpoint = config["endpoint"]
+        port = config["port"]
+        parsed = urlparse(endpoint)
+        host = parsed.hostname or "127.0.0.1"
+        port_open = _probe_port(host, port)
+        probe_rows: List[Dict[str, Any]] = []
+        surface_errors: List[str] = []
+        surface_statuses: List[str] = []
+
+        for probe_path in config.get("probe_paths", ["/"]):
+            probe_url = f"{endpoint.rstrip('/')}{probe_path}"
+            http_status, latency_ms, probe_error = _probe_http(probe_url)
+            probe_status = _surface_status_from_http(http_status, port_open)
+            surface_statuses.append(probe_status)
+            probe_rows.append({
+                "name": probe_path.strip("/") or "root",
+                "url": probe_url,
+                "status": probe_status,
+                "http_status": http_status,
+                "latency_ms": latency_ms,
+                "detail": probe_error,
+            })
+            if probe_error:
+                surface_errors.append(probe_error)
+
+        if not port_open:
+            surface_errors.append("port_unreachable")
+
+        surface_status = "healthy"
+        if any(status == "critical" for status in surface_statuses):
+            surface_status = "critical"
+        elif any(status == "degraded" for status in surface_statuses):
+            surface_status = "degraded"
+
+        if not probe_rows:
+            summary_headline = "No probes configured"
+            summary_detail = "This surface does not yet define any health probes."
+        elif surface_status == "healthy":
+            summary_headline = "Surface reachable"
+            summary_detail = f"{port} responding normally"
+        elif port_open:
+            summary_headline = "Probe returned warnings"
+            summary_detail = f"{port} reachable but HTTP probe needs attention"
+        else:
+            summary_headline = "Surface unreachable"
+            summary_detail = f"No response on {port}"
+
+        surfaces[surface_key] = {
+            "label": config["label"],
+            "surface_type": config["surface_type"],
+            "provider": config["provider"],
+            "environment": config["environment"],
+            "status": surface_status,
+            "endpoint": endpoint,
+            "summary": {
+                "headline": summary_headline,
+                "detail": summary_detail,
+            },
+            "probes": probe_rows,
+            "runtime": {
+                "process_detected": port_open,
+                "port": port,
+            },
+            "notes": ["Local development surface probe"],
+            "errors": surface_errors,
+        }
+        if surface_errors:
+            errors.extend([f"{surface_key}:{error}" for error in surface_errors])
+
+    return {"surfaces": surfaces}, errors
+
+
+def _application_surfaces_section() -> Dict[str, Any]:
+    start = time.monotonic()
+    collected_at = django_timezone.now().isoformat()
+    data, errors = _collect_application_surfaces()
+    surface_values = list((data.get("surfaces") or {}).values())
+    status = "healthy"
+    if any(surface.get("status") == "critical" for surface in surface_values):
+        status = "critical"
+    elif any(surface.get("status") == "degraded" for surface in surface_values):
+        status = "degraded"
+    latency_ms = int((time.monotonic() - start) * 1000)
+    return _section_envelope_with_status(
+        status=status,
+        data=data,
+        errors=errors,
+        latency_ms=latency_ms,
+        meta={
+            "collected_at": collected_at,
+            "expires_at": None,
+            "source": "live",
+        },
+    )
+
+
 def _ownership_profile() -> Dict[str, Dict[str, str]]:
     return {
         "inkwell": {
@@ -752,5 +920,6 @@ def build_health_snapshot(
     result["services"] = services_section
     result["application"] = application_section
     result["postgres_detail"] = _postgres_detail_from_snapshot()
+    result["application_surfaces"] = _application_surfaces_section()
 
     return result
