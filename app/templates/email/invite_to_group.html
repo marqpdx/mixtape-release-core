@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>You're invited to join {{ group_name }}</title>
+    <title>You're invited to join {{ group_name }} at Crossroads</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -58,7 +58,7 @@
 </head>
 <body>
     <div class="header">
-        <h1>You're invited to join {{ group_name }}</h1>
+        <h1>You're invited.</h1>
     </div>
 
     <div class="content">
@@ -70,12 +70,12 @@
             {% else %}
                 You've been invited
             {% endif %}
-            to join <strong>{{ group_name }}</strong> on Mixtape.
+            to join <strong>{{ group_name }}</strong> on Crossroads.
         </p>
 
         {% if message %}
         <div class="message-box">
-            <strong>Personal message:</strong>
+            <strong>Message from {{ invited_by_name }}:</strong>
             <p>{{ message }}</p>
         </div>
         {% endif %}
@@ -106,7 +106,7 @@
 
     <div class="footer">
         <p>If you have any questions, please don't hesitate to reach out.</p>
-        <p>Best regards,<br>The Mixtape Team</p>
+        <p>Best regards,<br>The Crossroads Team</p>
     </div>
 </body>
 </html>

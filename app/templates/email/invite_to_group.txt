@@ -1,11 +1,11 @@
-You're invited to join {{ group_name }}
+You're invited to join {{ group_name }} at Crossroads
 
 Hi there,
 
-{% if invited_by_name %}{{ invited_by_name }} has invited you{% else %}You've been invited{% endif %} to join {{ group_name }} on Mixtape.
+{% if invited_by_name %}{{ invited_by_name }} has invited you{% else %}You've been invited{% endif %} to join {{ group_name }} on Crossroads.
 
 {% if message %}
-Personal message:
+Message from {{ invited_by_name }}:
 {{ message }}
 {% endif %}
 
@@ -20,4 +20,4 @@ Click the link below to create your account and join the group:
 If you have any questions, please don't hesitate to reach out.
 
 Best regards,
-The Mixtape Team
+The Crossroads Team
