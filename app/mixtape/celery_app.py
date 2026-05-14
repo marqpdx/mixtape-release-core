@@ -120,6 +120,14 @@ app.conf.task_routes = {
         "queue": "commons", "routing_key": "commons"
     },
 
+    # --- Stackroom integration: ingest + deactivation ---
+    "inkwell.tasks.stackroom_integration.ingest_object_task": {
+        "queue": "commons", "routing_key": "commons"
+    },
+    "inkwell.tasks.stackroom_integration.deactivate_object_task": {
+        "queue": "commons", "routing_key": "commons"
+    },
+
     # --- Prospects: file parsing + voice transcription ---
     "prospects.tasks.parse_prospect_file_task": {
         "queue": "commons", "routing_key": "commons"
