@@ -77,3 +77,27 @@ class MemberDetailUpdateDeleteView(generics.RetrieveUpdateDestroyAPIView):
         instance.deleted_at = instance.deleted_at or timezone.now()
         instance.save(update_fields=["deleted_at", "updated_at"])
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class MemberPreferencesView(generics.GenericAPIView):
+    """
+    GET  /api/members/me/preferences  — return current preferences dict
+    PATCH /api/members/me/preferences — merge updates into preferences dict
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get_profile(self):
+        return UserProfile.objects.get(user=self.request.user, deleted_at__isnull=True)
+
+    def get(self, request):
+        profile = self.get_profile()
+        return Response(profile.preferences or {})
+
+    def patch(self, request):
+        profile = self.get_profile()
+        updates = request.data
+        if not isinstance(updates, dict):
+            return Response({"detail": "Expected a JSON object."}, status=status.HTTP_400_BAD_REQUEST)
+        profile.preferences = {**(profile.preferences or {}), **updates}
+        profile.save(update_fields=["preferences", "updated_at"])
+        return Response(profile.preferences)
