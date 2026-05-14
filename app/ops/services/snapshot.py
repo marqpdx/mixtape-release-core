@@ -10,6 +10,7 @@ from urllib import error as urllib_error
 from urllib import request as urllib_request
 from urllib.parse import urlparse
 
+from django.conf import settings
 from django.utils import timezone as django_timezone
 
 from ops.models import OpsSnapshot
@@ -28,27 +29,6 @@ BACKUP_WARN_AGE_SECONDS = 36 * 3600
 BACKUP_CRIT_AGE_SECONDS = 72 * 3600
 APPLICATION_SURFACE_HTTP_TIMEOUT = 10.0
 APPLICATION_SURFACE_PORT_TIMEOUT = 0.2
-
-APPLICATION_SURFACES = {
-    "mixtape-web": {
-        "label": "Mixtape Web",
-        "surface_type": "nextjs",
-        "provider": "local-next",
-        "environment": "local",
-        "endpoint": "http://127.0.0.1:3011",
-        "port": 3011,
-        "probe_paths": ["/app/api/help/manifest"],
-    },
-    "crossroads-web": {
-        "label": "Crossroads Web",
-        "surface_type": "nextjs",
-        "provider": "local-next",
-        "environment": "local",
-        "endpoint": "http://127.0.0.1:3010",
-        "port": 3010,
-        "probe_paths": ["/"],
-    },
-}
 
 
 @dataclass
@@ -568,12 +548,30 @@ def _surface_status_from_http(http_status: Optional[int], port_open: bool) -> st
     if not port_open:
         return "critical"
     if http_status is None:
-        return "degraded"
-    if 200 <= http_status < 400 or http_status in (401, 403):
-        return "healthy"
-    if http_status >= 500:
         return "critical"
-    return "degraded"
+    if 200 <= http_status < 400:
+        return "healthy"
+    if 400 <= http_status < 500:
+        return "degraded"
+    return "critical"
+
+
+def _application_surfaces_config() -> Dict[str, Dict[str, Any]]:
+    config = getattr(settings, "OPS_APPLICATION_SURFACES", None)
+    if not isinstance(config, dict):
+        return {}
+    return config
+
+
+def _surface_port(config: Dict[str, Any], parsed) -> int:
+    explicit_port = config.get("port")
+    if isinstance(explicit_port, int):
+        return explicit_port
+    if parsed.port:
+        return parsed.port
+    if parsed.scheme == "https":
+        return 443
+    return 80
 
 
 def _probe_port(host: str, port: int) -> bool:
@@ -607,11 +605,11 @@ def _collect_application_surfaces() -> Tuple[Dict[str, Any], List[str]]:
     errors: List[str] = []
     surfaces: Dict[str, Any] = {}
 
-    for surface_key, config in APPLICATION_SURFACES.items():
+    for surface_key, config in _application_surfaces_config().items():
         endpoint = config["endpoint"]
-        port = config["port"]
         parsed = urlparse(endpoint)
         host = parsed.hostname or "127.0.0.1"
+        port = _surface_port(config, parsed)
         port_open = _probe_port(host, port)
         probe_rows: List[Dict[str, Any]] = []
         surface_errors: List[str] = []
@@ -671,7 +669,7 @@ def _collect_application_surfaces() -> Tuple[Dict[str, Any], List[str]]:
                 "process_detected": port_open,
                 "port": port,
             },
-            "notes": ["Local development surface probe"],
+            "notes": config.get("notes") or ["Configured application surface probe"],
             "errors": surface_errors,
         }
         if surface_errors:

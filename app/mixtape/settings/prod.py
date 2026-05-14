@@ -44,7 +44,34 @@ DATABASES = {
 }
 
 # for emailing
-FRONTEND_URL = "http://www.crossroads.place"
+FRONTEND_URL = "https://www.crossroads.place"
+
+OPS_APPLICATION_SURFACES = {
+    "mixtape-web": {
+        "label": "Mixtape Web",
+        "surface_type": "nextjs",
+        "provider": "vercel",
+        "environment": "production",
+        "endpoint": "https://www.crossroads.place/app",
+        "probe_paths": ["/login"],
+    },
+    "crossroads-web": {
+        "label": "Crossroads Web",
+        "surface_type": "nextjs",
+        "provider": "vercel",
+        "environment": "production",
+        "endpoint": "https://www.crossroads.place",
+        "probe_paths": ["/"],
+    },
+    "django-api": {
+        "label": "Django API",
+        "surface_type": "api",
+        "provider": "systemd",
+        "environment": "production",
+        "endpoint": "https://api.crossroads.place",
+        "probe_paths": ["/health/"],
+    },
+}
 
 
 # Static files
