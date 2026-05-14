@@ -46,9 +46,15 @@ def _create_feedback_item(request) -> Response:
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     beacon_key = serializer.validated_data.get("beacon_key")
-    beacon = FeedbackBeacon.objects.filter(key=beacon_key).first()
-    if not beacon or not _is_beacon_active(beacon):
-        return Response({"error": "Beacon not active"}, status=status.HTTP_400_BAD_REQUEST)
+    beacon, _ = FeedbackBeacon.objects.get_or_create(
+        key=beacon_key,
+        defaults={
+            "title": beacon_key.replace("_", " ").title(),
+            "body_markdown": "",
+            "scope": FeedbackBeacon.Scope.COMPONENT,
+            "is_active": True,
+        },
+    )
 
     FeedbackItem.objects.create(
         beacon=beacon,
