@@ -14,7 +14,6 @@ fi
 
 export DJANGO_SETTINGS_MODULE=mixtape.settings.test
 PYTHON="REDACTED-LOCAL-PATH/mixtape-release-core/env/bin/python"
-PIP="REDACTED-LOCAL-PATH/mixtape-release-core/env/bin/pip"
 
 LOG_DIR="$(mktemp -d -t mixtape-tests)"
 echo "logs: ${LOG_DIR}"
@@ -28,24 +27,9 @@ if [[ "${CODEX_SANDBOX_NETWORK_DISABLED:-}" == "1" ]]; then
   echo "note: CODEX sandbox network is disabled; DB connections to ${TEST_DB_HOST:-localhost}:${TEST_DB_PORT:-} may fail unless you rerun with elevated permissions."
 fi
 
-REQ_FILE="${ROOT_DIR}/requirements-dev.txt"
-if [[ ! -f "${REQ_FILE}" ]]; then
-  echo "missing ${REQ_FILE}; update run_tests_quiet.sh to point at the correct requirements file"
-  exit 1
-fi
-${PIP} install -r "${REQ_FILE}" >"${LOG_DIR}/pip_install.log" 2>&1
-./reset_test_db.sh
-${PYTHON} manage.py migrate >"${LOG_DIR}/migrate.log" 2>&1
-
 tests=(
-  "stackroom.tests.test_collection_views"
-  "stackroom.tests.test_collection_serializers stackroom.tests.test_library_item_model"
-  "stackroom.tests.test_puddlejump_api"
-  "stackroom.tests.test_puddlejump_phase2_api"
-  "stackroom.tests.test_library_publish_shelves"
-  "stackroom.tests.test_puddlejump_utilities_api"
-  "stackroom.tests.test_puddlejump_security_fixes_api"
   "concord.tests.test_recording_api concord.tests.test_recording_models concord.tests.test_session_models concord.tests.test_speaker_anchor_models concord.tests.test_transcription_models"
+  "feedback.tests_api"
   "groups.tests"
   "lists"
   "mindmap.tests"
@@ -81,6 +65,19 @@ if [[ ${#selected_tests[@]} -gt 0 ]]; then
   tests=("${selected_tests[@]}")
 elif [[ $run_all -eq 1 ]]; then
   tests=("")
+fi
+
+${PYTHON} manage.py migrate --run-syncdb >"${LOG_DIR}/migrate.log" 2>&1
+
+should_reset=1
+if [[ ${#selected_tests[@]} -gt 0 && "${FORCE_RESET_DB:-0}" != "1" ]]; then
+  should_reset=0
+fi
+
+if [[ $should_reset -eq 1 ]]; then
+  ./reset_test_db.sh >"${LOG_DIR}/reset_db.log" 2>&1
+else
+  echo "skipping reset_db for targeted test run"
 fi
 
 for test_cmd in "${tests[@]}"; do
