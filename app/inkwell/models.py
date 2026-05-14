@@ -266,7 +266,7 @@ class StackroomSyncState(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["content_type", "object_id", "adapter_name"],
-                name="uniq_stackroom_sync_state_object_adapter",
+                name="uniq_inkwell_stackroom_sync_state_object_adapter",
             ),
         ]
 
