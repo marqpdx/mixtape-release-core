@@ -38,6 +38,7 @@ class UserProfile(BaseModel):
     background_image = models.CharField(max_length=512, default="", blank=True, help_text="Background image storage key")
     bio_json = models.JSONField(blank=True, default=dict)
     bio_markdown = models.TextField(max_length=2000, blank=True, default="")
+    preferences = models.JSONField(blank=True, default=dict, help_text="User UI preferences (e.g. dashboard settings).")
 
     def save(self, *args, **kwargs):
         # Auto-generate slug from display_name or username
