@@ -7,6 +7,7 @@ from rest_framework import routers
 from accounts.api.views import UserViewSet
 from initiatives.api.urls import action_run_patterns, agent_object_patterns, aperture_patterns, mobile_command_patterns, worktable_group_patterns
 from prospects.api.urls import intake_patterns, internal_patterns
+from profiles.api.profile_revamp_urls import public_profile_patterns, me_profile_patterns
 
 from . import views
 
@@ -47,7 +48,9 @@ urlpatterns = [
     # Members (User + Profile combined)
     path("api/members/", include("profiles.api.urls")),
 
-    # Endpoints: /api/members/, /api/members/<slug>
+    # Profile revamp — public read + owner write
+    path("api/profiles/", include(public_profile_patterns)),
+    path("api/me/profile/", include(me_profile_patterns)),
 
     # === END PHASE 1 ENDPOINTS ===
 
