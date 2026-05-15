@@ -197,7 +197,7 @@ class PublicProfileSerializer(serializers.ModelSerializer):
         ct = ContentType.objects.get_for_model(User)
         qs = Action.objects.filter(
             actor_content_type=ct,
-            actor_object_id=obj.user.pk,
+            actor_id=str(obj.user.pk),
         ).order_by('-when')[:10]
         return [
             {'when': a.when.isoformat(), 'verb': a.verb, 'what': str(a)}
