@@ -117,8 +117,8 @@ def _friendly_summary(snapshot: dict) -> dict:
         _business_tile(
             "Backups",
             backup_summary.get("status", "healthy"),
-            "Automated database and file backups.",
-            "We expect daily runs; delays should be investigated.",
+            backup_summary.get("issues", [None])[0] or "Automated database and file backups.",
+            "Timers wake daily; backup scripts may skip until 72h since the last successful archive.",
         ),
     ]
 

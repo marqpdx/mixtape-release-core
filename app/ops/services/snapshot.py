@@ -574,6 +574,13 @@ def _surface_port(config: Dict[str, Any], parsed) -> int:
     return 80
 
 
+def _livewire_monitor_config() -> Dict[str, Any]:
+    config = getattr(settings, "OPS_LIVEWIRE_MONITOR", None)
+    if not isinstance(config, dict):
+        return {}
+    return config
+
+
 def _probe_port(host: str, port: int) -> bool:
     try:
         with socket.create_connection((host, port), timeout=APPLICATION_SURFACE_PORT_TIMEOUT):
@@ -692,6 +699,80 @@ def _application_surfaces_section() -> Dict[str, Any]:
     return _section_envelope_with_status(
         status=status,
         data=data,
+        errors=errors,
+        latency_ms=latency_ms,
+        meta={
+            "collected_at": collected_at,
+            "expires_at": None,
+            "source": "live",
+        },
+    )
+
+
+def _livewire_detail_section() -> Dict[str, Any]:
+    config = _livewire_monitor_config()
+    if not config:
+        return _section_envelope_with_status(
+            status="unavailable",
+            data={},
+            errors=["monitor_unconfigured"],
+            latency_ms=0,
+            meta={"collected_at": None, "expires_at": None, "source": None},
+        )
+
+    start = time.monotonic()
+    collected_at = django_timezone.now().isoformat()
+    endpoint = config["endpoint"]
+    parsed = urlparse(endpoint)
+    host = parsed.hostname or "127.0.0.1"
+    port = _surface_port(config, parsed)
+    port_open = _probe_port(host, port)
+    probe_path = config.get("probe_path", "/socket.io/?EIO=4&transport=polling")
+    probe_url = f"{endpoint.rstrip('/')}{probe_path}"
+    http_status, probe_latency_ms, probe_error = _probe_http(probe_url)
+    status = _surface_status_from_http(http_status, port_open)
+
+    summary_headline = "Livewire reachable"
+    summary_detail = f"{port} responding to Socket.IO handshake"
+    if status == "degraded":
+        summary_headline = "Livewire responded with warnings"
+        summary_detail = "Socket.IO handshake returned a non-success HTTP response"
+    elif status == "critical":
+        summary_headline = "Livewire unreachable"
+        summary_detail = f"No successful Socket.IO handshake on {port}"
+
+    errors: List[str] = []
+    if probe_error:
+        errors.append(probe_error)
+    if not port_open:
+        errors.append("port_unreachable")
+
+    latency_ms = int((time.monotonic() - start) * 1000)
+    return _section_envelope_with_status(
+        status=status,
+        data={
+            "label": config.get("label", "Livewire"),
+            "provider": config.get("provider", "unknown"),
+            "environment": config.get("environment", "unknown"),
+            "endpoint": endpoint,
+            "probe": {
+                "name": "socketio_handshake",
+                "url": probe_url,
+                "status": status,
+                "http_status": http_status,
+                "latency_ms": probe_latency_ms,
+                "detail": probe_error,
+            },
+            "runtime": {
+                "process_detected": port_open,
+                "port": port,
+            },
+            "summary": {
+                "headline": summary_headline,
+                "detail": summary_detail,
+            },
+            "notes": config.get("notes") or [],
+        },
         errors=errors,
         latency_ms=latency_ms,
         meta={
@@ -919,5 +1000,6 @@ def build_health_snapshot(
     result["application"] = application_section
     result["postgres_detail"] = _postgres_detail_from_snapshot()
     result["application_surfaces"] = _application_surfaces_section()
+    result["livewire_detail"] = _livewire_detail_section()
 
     return result

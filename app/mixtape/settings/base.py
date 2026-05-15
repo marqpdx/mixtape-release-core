@@ -152,6 +152,7 @@ MIXTAPE_DEFAULT_GROUP_SLUG = os.getenv("MIXTAPE_DEFAULT_GROUP_SLUG", "crossroads
 MIXTAPE_DEFAULT_GROUP_UUID_NAMESPACE = os.getenv("MIXTAPE_DEFAULT_GROUP_UUID_NAMESPACE", "mixtape://default-group")
 
 OPS_APPLICATION_SURFACES = {}
+OPS_LIVEWIRE_MONITOR = {}
 
 
 # ============================================================================
