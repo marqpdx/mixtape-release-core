@@ -180,6 +180,19 @@ OPS_APPLICATION_SURFACES = {
     },
 }
 
+OPS_LIVEWIRE_MONITOR = {
+    "label": "Livewire",
+    "provider": "local-socketio",
+    "environment": "local",
+    "endpoint": "http://127.0.0.1:5001",
+    "port": 5001,
+    "probe_path": "/socket.io/?EIO=4&transport=polling",
+    "notes": [
+        "Probes the Socket.IO polling handshake directly.",
+        "This does not validate authenticated chat traffic or room subscriptions.",
+    ],
+}
+
 
 # ============================================================================
 # DEFERRED SETTINGS (Phase 2+)

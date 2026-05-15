@@ -73,6 +73,18 @@ OPS_APPLICATION_SURFACES = {
     },
 }
 
+OPS_LIVEWIRE_MONITOR = {
+    "label": "Livewire",
+    "provider": "socketio",
+    "environment": "production",
+    "endpoint": "https://chat.crossroads.place",
+    "probe_path": "/socket.io/?EIO=4&transport=polling",
+    "notes": [
+        "Probes the public Socket.IO handshake through the deployed chat endpoint.",
+        "This does not validate authenticated chat traffic or room subscriptions.",
+    ],
+}
+
 
 # Static files
 STATIC_ROOT = os.path.join(BASE_DIR, "static")

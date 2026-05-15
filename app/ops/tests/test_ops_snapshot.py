@@ -9,6 +9,7 @@ from ops.services.snapshot import _application_surfaces_section, build_health_sn
 
 
 class OpsSnapshotTests(TestCase):
+    @patch("ops.services.snapshot._livewire_detail_section")
     @patch("ops.services.snapshot._application_surfaces_section")
     @patch("ops.services.snapshot._collect_services")
     @patch("ops.services.snapshot._collect_network")
@@ -23,7 +24,17 @@ class OpsSnapshotTests(TestCase):
         mock_network,
         mock_services,
         mock_application_surfaces,
+        mock_livewire_detail,
     ):
+        mock_livewire_detail.return_value = {
+            "status": "healthy",
+            "data": {},
+            "errors": [],
+            "latency_ms": 0,
+            "collected_at": None,
+            "expires_at": None,
+            "source": "live",
+        }
         mock_application_surfaces.return_value = {
             "status": "healthy",
             "data": {"surfaces": {}},
@@ -83,6 +94,7 @@ class OpsSnapshotTests(TestCase):
         self.assertEqual(snapshot["application"]["status"], "healthy")
         self.assertEqual(snapshot["application"]["data"]["postgres_active_connections"], 6)
 
+    @patch("ops.services.snapshot._livewire_detail_section")
     @patch("ops.services.snapshot._application_surfaces_section")
     @patch("ops.services.snapshot._collect_services")
     @patch("ops.services.snapshot._collect_network")
@@ -97,7 +109,17 @@ class OpsSnapshotTests(TestCase):
         mock_network,
         mock_services,
         mock_application_surfaces,
+        mock_livewire_detail,
     ):
+        mock_livewire_detail.return_value = {
+            "status": "healthy",
+            "data": {},
+            "errors": [],
+            "latency_ms": 0,
+            "collected_at": None,
+            "expires_at": None,
+            "source": "live",
+        }
         mock_application_surfaces.return_value = {
             "status": "healthy",
             "data": {"surfaces": {}},
@@ -133,6 +155,7 @@ class OpsSnapshotTests(TestCase):
         self.assertEqual(snapshot["postgres_detail"]["status"], "stale")
         self.assertIn("snapshot_stale", snapshot["postgres_detail"]["errors"])
 
+    @patch("ops.services.snapshot._livewire_detail_section")
     @patch("ops.services.snapshot._application_surfaces_section")
     @patch("ops.services.snapshot._collect_services")
     @patch("ops.services.snapshot._collect_network")
@@ -147,7 +170,17 @@ class OpsSnapshotTests(TestCase):
         mock_network,
         mock_services,
         mock_application_surfaces,
+        mock_livewire_detail,
     ):
+        mock_livewire_detail.return_value = {
+            "status": "healthy",
+            "data": {},
+            "errors": [],
+            "latency_ms": 0,
+            "collected_at": None,
+            "expires_at": None,
+            "source": "live",
+        }
         mock_application_surfaces.return_value = {
             "status": "healthy",
             "data": {"surfaces": {}},
@@ -184,6 +217,7 @@ class OpsSnapshotTests(TestCase):
         self.assertEqual(snapshot["application"]["data"]["celery_queue_depth"], 8)
         self.assertEqual(snapshot["application"]["data"]["rabbitmq_connection_count"], 4)
 
+    @patch("ops.services.snapshot._livewire_detail_section")
     @patch("ops.services.snapshot._application_surfaces_section")
     @patch("ops.services.snapshot._collect_services")
     @patch("ops.services.snapshot._collect_network")
@@ -198,7 +232,17 @@ class OpsSnapshotTests(TestCase):
         mock_network,
         mock_services,
         mock_application_surfaces,
+        mock_livewire_detail,
     ):
+        mock_livewire_detail.return_value = {
+            "status": "healthy",
+            "data": {},
+            "errors": [],
+            "latency_ms": 0,
+            "collected_at": None,
+            "expires_at": None,
+            "source": "live",
+        }
         mock_application_surfaces.return_value = {
             "status": "healthy",
             "data": {
@@ -227,6 +271,57 @@ class OpsSnapshotTests(TestCase):
         self.assertIn("application_surfaces", snapshot)
         self.assertEqual(snapshot["application_surfaces"]["status"], "healthy")
         self.assertIn("mixtape-web", snapshot["application_surfaces"]["data"]["surfaces"])
+
+    @patch("ops.services.snapshot._livewire_detail_section")
+    @patch("ops.services.snapshot._application_surfaces_section")
+    @patch("ops.services.snapshot._collect_services")
+    @patch("ops.services.snapshot._collect_network")
+    @patch("ops.services.snapshot._collect_disk")
+    @patch("ops.services.snapshot._collect_processes")
+    @patch("ops.services.snapshot._collect_system")
+    def test_build_health_snapshot_includes_livewire_detail(
+        self,
+        mock_system,
+        mock_processes,
+        mock_disk,
+        mock_network,
+        mock_services,
+        mock_application_surfaces,
+        mock_livewire_detail,
+    ):
+        mock_livewire_detail.return_value = {
+            "status": "healthy",
+            "data": {
+                "label": "Livewire",
+                "provider": "socketio",
+                "probe": {"url": "https://chat.crossroads.place/socket.io/?EIO=4&transport=polling"},
+            },
+            "errors": [],
+            "latency_ms": 18,
+            "collected_at": "2026-05-14T20:00:00Z",
+            "expires_at": None,
+            "source": "live",
+        }
+        mock_application_surfaces.return_value = {
+            "status": "healthy",
+            "data": {"surfaces": {}},
+            "errors": [],
+            "latency_ms": 0,
+            "collected_at": None,
+            "expires_at": None,
+            "source": "live",
+        }
+        mock_system.return_value = ({"uptime_seconds": 123.0, "swap_bytes": {"used": 0, "total": 0}}, [])
+        mock_processes.return_value = ({"top_rss": [], "top_cpu": [], "limit": 10}, [])
+        mock_disk.return_value = ({"root": {"free_percent": 40.0}}, [])
+        mock_network.return_value = ({}, [])
+        mock_services.return_value = ({"backups": {"units": {}}}, [])
+
+        snapshot = build_health_snapshot()
+
+        self.assertIn("livewire_detail", snapshot)
+        self.assertEqual(snapshot["livewire_detail"]["status"], "healthy")
+        self.assertEqual(snapshot["livewire_detail"]["data"]["label"], "Livewire")
 
     @override_settings(
         OPS_APPLICATION_SURFACES={
@@ -263,3 +358,38 @@ class OpsSnapshotTests(TestCase):
         )
         mock_probe_port.assert_called_once_with("127.0.0.1", 8010)
         mock_probe_http.assert_called_once_with("http://127.0.0.1:8010/health/")
+
+    @override_settings(
+        OPS_LIVEWIRE_MONITOR={
+            "label": "Livewire",
+            "provider": "local-socketio",
+            "environment": "local",
+            "endpoint": "http://127.0.0.1:5001",
+            "probe_path": "/socket.io/?EIO=4&transport=polling",
+        }
+    )
+    @patch("ops.services.snapshot._probe_http")
+    @patch("ops.services.snapshot._probe_port")
+    def test_livewire_detail_section_uses_settings_config(
+        self,
+        mock_probe_port,
+        mock_probe_http,
+    ):
+        from ops.services.snapshot import _livewire_detail_section
+
+        mock_probe_port.return_value = True
+        mock_probe_http.return_value = (200, 35, None)
+
+        section = _livewire_detail_section()
+
+        self.assertEqual(section["status"], "healthy")
+        self.assertEqual(section["source"], "live")
+        self.assertEqual(section["data"]["provider"], "local-socketio")
+        self.assertEqual(
+            section["data"]["probe"]["url"],
+            "http://127.0.0.1:5001/socket.io/?EIO=4&transport=polling",
+        )
+        mock_probe_port.assert_called_once_with("127.0.0.1", 5001)
+        mock_probe_http.assert_called_once_with(
+            "http://127.0.0.1:5001/socket.io/?EIO=4&transport=polling"
+        )
