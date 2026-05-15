@@ -142,6 +142,64 @@ def summarize_async_proxy(request):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+def think_cluster_async_proxy(request):
+    if not request.user.is_superuser:
+        return JsonResponse({"detail": "Superuser access required."}, status=403)
+
+    initiative_id_raw = (request.data.get("initiative_id") or "").strip()
+    entries = request.data.get("entries") or []
+
+    if not initiative_id_raw:
+        return JsonResponse({"detail": "initiative_id is required."}, status=400)
+    if not isinstance(entries, list):
+        return JsonResponse({"detail": "entries must be a list."}, status=400)
+
+    from initiatives.models import Initiative
+    from django.shortcuts import get_object_or_404
+    initiative = get_object_or_404(Initiative, pk=initiative_id_raw)
+
+    tenant_id = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_ID", _DEFAULT_TENANT_ID))
+    tenant_namespace = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", _DEFAULT_TENANT_NAMESPACE))
+
+    action_run = ActionRun.objects.create(
+        tool_name="think.cluster",
+        status=ActionRunStatus.PENDING,
+        execution_mode=ActionRunExecutionMode.LOCAL,
+        initiative=initiative,
+        tenant_id=tenant_id,
+        tenant_namespace=tenant_namespace,
+        initiator_type=ActionRunInitiatorType.HUMAN,
+        initiator_id=str(request.user.pk),
+        request_payload={"initiative_id": initiative_id_raw, "entry_count": len(entries)},
+    )
+
+    celery_app.send_task(
+        "switchboard.think_cluster_async",
+        kwargs={
+            "action_run_id": str(action_run.id),
+            "tenant_id": tenant_id,
+            "tenant_namespace": tenant_namespace,
+            "principal_user_id": str(request.user.pk),
+            "principal_service_token_id": None,
+            "initiative_id": initiative_id_raw,
+            "entries": entries,
+        },
+        queue="switchboard",
+    )
+
+    logger.info(
+        "Enqueued think.cluster action_run=%s initiative=%s user=%s entries=%d",
+        action_run.id,
+        initiative_id_raw,
+        request.user.pk,
+        len(entries),
+    )
+
+    return JsonResponse({"action_run_id": str(action_run.id), "initiative_id": initiative_id_raw}, status=202)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
 def agent_parse_proxy(request):
     if not request.user.is_superuser:
         return JsonResponse({"detail": "Superuser access required."}, status=403)
