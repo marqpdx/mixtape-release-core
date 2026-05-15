@@ -185,6 +185,8 @@ def think_cluster_async_proxy(request):
             "entries": entries,
         },
         queue="switchboard",
+        exchange="switchboard",
+        routing_key="switchboard",
     )
 
     logger.info(

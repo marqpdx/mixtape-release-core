@@ -52,6 +52,9 @@ app.conf.task_queues = (
     # ---- External integrations ----
     Queue("commons", routing_key="commons"),       # URL extraction via Inkwell
     Queue("synopsis_results", routing_key="synopsis_results"),  # FastAPI → Django synopsis
+
+    # ---- Switchboard: AI worker (summarize, classify, think) ----
+    Queue("switchboard", routing_key="switchboard"),
 )
 
 # ---- Task routing ----
