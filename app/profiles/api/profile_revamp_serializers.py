@@ -198,9 +198,9 @@ class PublicProfileSerializer(serializers.ModelSerializer):
         qs = Action.objects.filter(
             actor_content_type=ct,
             actor_id=str(obj.user.pk),
-        ).order_by('-when')[:10]
+        ).order_by('-occurs_at')[:10]
         return [
-            {'when': a.when.isoformat(), 'verb': a.verb, 'what': str(a)}
+            {'when': a.occurs_at.isoformat(), 'verb': a.verb, 'what': str(a)}
             for a in qs
         ]
 
