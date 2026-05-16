@@ -147,16 +147,45 @@ def think_cluster_async_proxy(request):
         return JsonResponse({"detail": "Superuser access required."}, status=403)
 
     initiative_id_raw = (request.data.get("initiative_id") or "").strip()
-    entries = request.data.get("entries") or []
 
     if not initiative_id_raw:
         return JsonResponse({"detail": "initiative_id is required."}, status=400)
-    if not isinstance(entries, list):
-        return JsonResponse({"detail": "entries must be a list."}, status=400)
 
-    from initiatives.models import Initiative
+    from initiatives.models import ApertureLog, ApertureLogEntry, ApertureLogEntryKind, Initiative
     from django.shortcuts import get_object_or_404
     initiative = get_object_or_404(Initiative, pk=initiative_id_raw)
+
+    # Collect content entries from the current run window (since last RUN_BOUNDARY).
+    try:
+        aperture_log = ApertureLog.objects.get(initiative=initiative)
+    except ApertureLog.DoesNotExist:
+        return JsonResponse({"detail": "Initiative has no ApertureLog — add entries first."}, status=422)
+
+    last_boundary = (
+        ApertureLogEntry.objects
+        .filter(aperture_log=aperture_log, kind=ApertureLogEntryKind.RUN_BOUNDARY)
+        .order_by("-created_at")
+        .first()
+    )
+    qs = ApertureLogEntry.objects.filter(
+        aperture_log=aperture_log,
+        kind__in=[ApertureLogEntryKind.PROSE, ApertureLogEntryKind.EMPH],
+        archived_at__isnull=True,
+    ).order_by("created_at")
+    if last_boundary:
+        qs = qs.filter(created_at__gt=last_boundary.created_at)
+
+    entries = []
+    for entry in qs:
+        text = entry.emph_note if entry.kind == ApertureLogEntryKind.EMPH else entry.body
+        if text and text.strip():
+            entries.append(text.strip())
+
+    if not entries:
+        return JsonResponse(
+            {"detail": "No content entries in the current run window. Add prose or /emph entries, then run /run before clustering."},
+            status=422,
+        )
 
     tenant_id = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_ID", _DEFAULT_TENANT_ID))
     tenant_namespace = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", _DEFAULT_TENANT_NAMESPACE))
