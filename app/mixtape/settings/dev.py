@@ -193,6 +193,27 @@ OPS_LIVEWIRE_MONITOR = {
     ],
 }
 
+OPS_BACKUP_MONITORS = {
+    "postgres": {
+        "label": "Postgres Backups",
+        "timer_unit": "pg-backup.timer",
+        "service_unit": "pg-backup.service",
+        "upload_unit": "pg-backup-upload.service",
+        "stamp_file": "/var/lib/backup-stamps/pg-backup.last_success",
+        "interval_seconds": 72 * 3600,
+        "off_host_required": True,
+    },
+    "seaweedfs": {
+        "label": "SeaweedFS Backups",
+        "timer_unit": "seaweed-backup.timer",
+        "service_unit": "seaweed-backup.service",
+        "upload_unit": "seaweed-backup-upload.service",
+        "stamp_file": "/var/lib/backup-stamps/seaweed-backup.last_success",
+        "interval_seconds": 72 * 3600,
+        "off_host_required": True,
+    },
+}
+
 
 # ============================================================================
 # DEFERRED SETTINGS (Phase 2+)

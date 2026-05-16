@@ -13,6 +13,7 @@ class OpsHealthSnapshotSerializer(serializers.Serializer):
     postgres_detail = serializers.DictField(required=False)
     application_surfaces = serializers.DictField(required=False)
     livewire_detail = serializers.DictField(required=False)
+    backups_detail = serializers.DictField(required=False)
 
 
 class OpsSummarySerializer(serializers.Serializer):
