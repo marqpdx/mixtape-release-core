@@ -10,6 +10,7 @@ from . import views
 # ---------------------------------------------------------------------------
 
 aperture_patterns = [
+    path("search", views.ApertureInitiativeTypeaheadView.as_view(), name="initiative-search"),
     path("<uuid:initiative_id>/aperture-log", views.ApertureLogView.as_view(), name="aperture-log"),
     path("<uuid:initiative_id>/aperture-log/entries", views.ApertureLogEntryCreateView.as_view(), name="aperture-log-entries"),
     path("<uuid:initiative_id>/aperture-log/entries/<uuid:entry_id>", views.ApertureLogEntryDetailView.as_view(), name="aperture-log-entry-detail"),
