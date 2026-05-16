@@ -9,6 +9,7 @@ from ops.services.snapshot import _application_surfaces_section, build_health_sn
 
 
 class OpsSnapshotTests(TestCase):
+    @patch("ops.services.snapshot._backup_detail_section")
     @patch("ops.services.snapshot._livewire_detail_section")
     @patch("ops.services.snapshot._application_surfaces_section")
     @patch("ops.services.snapshot._collect_services")
@@ -25,7 +26,17 @@ class OpsSnapshotTests(TestCase):
         mock_services,
         mock_application_surfaces,
         mock_livewire_detail,
+        mock_backup_detail,
     ):
+        mock_backup_detail.return_value = {
+            "status": "healthy",
+            "data": {"monitors": {}},
+            "errors": [],
+            "latency_ms": 0,
+            "collected_at": None,
+            "expires_at": None,
+            "source": "live",
+        }
         mock_livewire_detail.return_value = {
             "status": "healthy",
             "data": {},
@@ -95,6 +106,7 @@ class OpsSnapshotTests(TestCase):
         self.assertEqual(snapshot["application"]["data"]["postgres_active_connections"], 6)
 
     @patch("ops.services.snapshot._livewire_detail_section")
+    @patch("ops.services.snapshot._backup_detail_section")
     @patch("ops.services.snapshot._application_surfaces_section")
     @patch("ops.services.snapshot._collect_services")
     @patch("ops.services.snapshot._collect_network")
@@ -110,7 +122,17 @@ class OpsSnapshotTests(TestCase):
         mock_services,
         mock_application_surfaces,
         mock_livewire_detail,
+        mock_backup_detail,
     ):
+        mock_backup_detail.return_value = {
+            "status": "healthy",
+            "data": {"monitors": {}},
+            "errors": [],
+            "latency_ms": 0,
+            "collected_at": None,
+            "expires_at": None,
+            "source": "live",
+        }
         mock_livewire_detail.return_value = {
             "status": "healthy",
             "data": {},
@@ -156,6 +178,7 @@ class OpsSnapshotTests(TestCase):
         self.assertIn("snapshot_stale", snapshot["postgres_detail"]["errors"])
 
     @patch("ops.services.snapshot._livewire_detail_section")
+    @patch("ops.services.snapshot._backup_detail_section")
     @patch("ops.services.snapshot._application_surfaces_section")
     @patch("ops.services.snapshot._collect_services")
     @patch("ops.services.snapshot._collect_network")
@@ -171,7 +194,17 @@ class OpsSnapshotTests(TestCase):
         mock_services,
         mock_application_surfaces,
         mock_livewire_detail,
+        mock_backup_detail,
     ):
+        mock_backup_detail.return_value = {
+            "status": "healthy",
+            "data": {"monitors": {}},
+            "errors": [],
+            "latency_ms": 0,
+            "collected_at": None,
+            "expires_at": None,
+            "source": "live",
+        }
         mock_livewire_detail.return_value = {
             "status": "healthy",
             "data": {},
@@ -218,6 +251,7 @@ class OpsSnapshotTests(TestCase):
         self.assertEqual(snapshot["application"]["data"]["rabbitmq_connection_count"], 4)
 
     @patch("ops.services.snapshot._livewire_detail_section")
+    @patch("ops.services.snapshot._backup_detail_section")
     @patch("ops.services.snapshot._application_surfaces_section")
     @patch("ops.services.snapshot._collect_services")
     @patch("ops.services.snapshot._collect_network")
@@ -233,7 +267,17 @@ class OpsSnapshotTests(TestCase):
         mock_services,
         mock_application_surfaces,
         mock_livewire_detail,
+        mock_backup_detail,
     ):
+        mock_backup_detail.return_value = {
+            "status": "healthy",
+            "data": {"monitors": {}},
+            "errors": [],
+            "latency_ms": 0,
+            "collected_at": None,
+            "expires_at": None,
+            "source": "live",
+        }
         mock_livewire_detail.return_value = {
             "status": "healthy",
             "data": {},
@@ -272,6 +316,7 @@ class OpsSnapshotTests(TestCase):
         self.assertEqual(snapshot["application_surfaces"]["status"], "healthy")
         self.assertIn("mixtape-web", snapshot["application_surfaces"]["data"]["surfaces"])
 
+    @patch("ops.services.snapshot._backup_detail_section")
     @patch("ops.services.snapshot._livewire_detail_section")
     @patch("ops.services.snapshot._application_surfaces_section")
     @patch("ops.services.snapshot._collect_services")
@@ -288,7 +333,17 @@ class OpsSnapshotTests(TestCase):
         mock_services,
         mock_application_surfaces,
         mock_livewire_detail,
+        mock_backup_detail,
     ):
+        mock_backup_detail.return_value = {
+            "status": "healthy",
+            "data": {"monitors": {}},
+            "errors": [],
+            "latency_ms": 0,
+            "collected_at": None,
+            "expires_at": None,
+            "source": "live",
+        }
         mock_livewire_detail.return_value = {
             "status": "healthy",
             "data": {
@@ -322,6 +377,64 @@ class OpsSnapshotTests(TestCase):
         self.assertIn("livewire_detail", snapshot)
         self.assertEqual(snapshot["livewire_detail"]["status"], "healthy")
         self.assertEqual(snapshot["livewire_detail"]["data"]["label"], "Livewire")
+
+    @patch("ops.services.snapshot._backup_detail_section")
+    @patch("ops.services.snapshot._livewire_detail_section")
+    @patch("ops.services.snapshot._application_surfaces_section")
+    @patch("ops.services.snapshot._collect_services")
+    @patch("ops.services.snapshot._collect_network")
+    @patch("ops.services.snapshot._collect_disk")
+    @patch("ops.services.snapshot._collect_processes")
+    @patch("ops.services.snapshot._collect_system")
+    def test_build_health_snapshot_includes_backups_detail(
+        self,
+        mock_system,
+        mock_processes,
+        mock_disk,
+        mock_network,
+        mock_services,
+        mock_application_surfaces,
+        mock_livewire_detail,
+        mock_backup_detail,
+    ):
+        mock_backup_detail.return_value = {
+            "status": "degraded",
+            "data": {"monitors": {"postgres": {"label": "Postgres Backups"}}},
+            "errors": [],
+            "latency_ms": 7,
+            "collected_at": "2026-05-15T18:00:00Z",
+            "expires_at": None,
+            "source": "live",
+        }
+        mock_livewire_detail.return_value = {
+            "status": "healthy",
+            "data": {},
+            "errors": [],
+            "latency_ms": 0,
+            "collected_at": None,
+            "expires_at": None,
+            "source": "live",
+        }
+        mock_application_surfaces.return_value = {
+            "status": "healthy",
+            "data": {"surfaces": {}},
+            "errors": [],
+            "latency_ms": 0,
+            "collected_at": None,
+            "expires_at": None,
+            "source": "live",
+        }
+        mock_system.return_value = ({"uptime_seconds": 123.0, "swap_bytes": {"used": 0, "total": 0}}, [])
+        mock_processes.return_value = ({"top_rss": [], "top_cpu": [], "limit": 10}, [])
+        mock_disk.return_value = ({"root": {"free_percent": 40.0}}, [])
+        mock_network.return_value = ({}, [])
+        mock_services.return_value = ({"backups": {"units": {}}}, [])
+
+        snapshot = build_health_snapshot()
+
+        self.assertIn("backups_detail", snapshot)
+        self.assertEqual(snapshot["backups_detail"]["status"], "degraded")
+        self.assertIn("postgres", snapshot["backups_detail"]["data"]["monitors"])
 
     @override_settings(
         OPS_APPLICATION_SURFACES={
@@ -393,3 +506,39 @@ class OpsSnapshotTests(TestCase):
         mock_probe_http.assert_called_once_with(
             "http://127.0.0.1:5001/socket.io/?EIO=4&transport=polling"
         )
+
+    @override_settings(
+        OPS_BACKUP_MONITORS={
+            "postgres": {
+                "label": "Postgres Backups",
+                "timer_unit": "pg-backup.timer",
+                "service_unit": "pg-backup.service",
+                "upload_unit": "pg-backup-upload.service",
+                "stamp_file": "/var/lib/backup-stamps/pg-backup.last_success",
+                "interval_seconds": 72 * 3600,
+                "off_host_required": True,
+            }
+        }
+    )
+    @patch("ops.services.snapshot._read_file", return_value=("1715800000\n", None))
+    def test_backup_detail_section_reads_success_stamp(self, mock_read_file):
+        from ops.services.snapshot import _backup_detail_section
+
+        services = {
+            "backups": {
+                "units": {
+                    "pg-backup.timer": {"active_state": "active"},
+                    "pg-backup.service": {"active_state": "inactive", "result": "success"},
+                    "pg-backup-upload.service": {"active_state": "inactive", "result": "success"},
+                }
+            }
+        }
+
+        section = _backup_detail_section(services)
+
+        self.assertIn("postgres", section["data"]["monitors"])
+        monitor = section["data"]["monitors"]["postgres"]
+        self.assertEqual(monitor["label"], "Postgres Backups")
+        self.assertEqual(monitor["off_host_status"], "healthy")
+        self.assertEqual(monitor["stamp_file"], "/var/lib/backup-stamps/pg-backup.last_success")
+        self.assertIsNotNone(monitor["last_success_at"])

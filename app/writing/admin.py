@@ -1,6 +1,15 @@
 from django.contrib import admin
 
-from writing.models import Leaf, LeafComment, WorkingDocument, WritingPiece, WritingSeries, WritingSynopsis
+from writing.models import (
+    Leaf,
+    LeafComment,
+    Seed,
+    SeedDispatch,
+    WorkingDocument,
+    WritingPiece,
+    WritingSeries,
+    WritingSynopsis,
+)
 
 
 @admin.register(WorkingDocument)
@@ -19,6 +28,24 @@ class WritingSeriesAdmin(admin.ModelAdmin):
 @admin.register(WritingPiece)
 class WritingPieceAdmin(admin.ModelAdmin):
     list_display = ["id", "title", "status", "writing_kind", "author", "series"]
+
+
+@admin.register(Seed)
+class SeedAdmin(admin.ModelAdmin):
+    list_display = ["id", "author", "kind", "status", "updated_at", "promoted_to", "source"]
+    list_filter = ["kind", "status", "source", "edited_after_transcription"]
+    search_fields = ["id", "author__username", "author__email", "body_text", "transcript_text"]
+    readonly_fields = [
+        "id", "created_at", "updated_at", "body_hash", "transcript_hash", "transcript_created_at",
+    ]
+    raw_id_fields = ["author", "audio_file", "promoted_to"]
+
+
+@admin.register(SeedDispatch)
+class SeedDispatchAdmin(admin.ModelAdmin):
+    list_display = ["id", "seed", "destination_type", "destination_id", "verb", "outcome", "dispatched_at"]
+    list_filter = ["destination_type", "verb", "outcome"]
+    raw_id_fields = ["seed"]
 
 
 @admin.register(WritingSynopsis)

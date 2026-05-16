@@ -581,6 +581,13 @@ def _livewire_monitor_config() -> Dict[str, Any]:
     return config
 
 
+def _backup_monitors_config() -> Dict[str, Dict[str, Any]]:
+    config = getattr(settings, "OPS_BACKUP_MONITORS", None)
+    if not isinstance(config, dict):
+        return {}
+    return config
+
+
 def _probe_port(host: str, port: int) -> bool:
     try:
         with socket.create_connection((host, port), timeout=APPLICATION_SURFACE_PORT_TIMEOUT):
@@ -606,6 +613,16 @@ def _probe_http(url: str) -> Tuple[Optional[int], Optional[int], Optional[str]]:
         return None, None, "connection_error"
     except TimeoutError:
         return None, None, "timeout"
+
+
+def _read_epoch_file(path: str) -> Tuple[Optional[int], Optional[str]]:
+    text, err = _read_file(path)
+    if err:
+        return None, err
+    try:
+        return int(text.strip()), None
+    except ValueError:
+        return None, "parse_error"
 
 
 def _collect_application_surfaces() -> Tuple[Dict[str, Any], List[str]]:
@@ -777,6 +794,136 @@ def _livewire_detail_section() -> Dict[str, Any]:
         latency_ms=latency_ms,
         meta={
             "collected_at": collected_at,
+            "expires_at": None,
+            "source": "live",
+        },
+    )
+
+
+def _backup_detail_section(services: Dict[str, Any]) -> Dict[str, Any]:
+    config_map = _backup_monitors_config()
+    if not config_map:
+        return _section_envelope_with_status(
+            status="unavailable",
+            data={},
+            errors=["monitor_unconfigured"],
+            latency_ms=0,
+            meta={"collected_at": None, "expires_at": None, "source": None},
+        )
+
+    start = time.monotonic()
+    collected_at = django_timezone.now()
+    units = ((services.get("backups") or {}).get("units") or {}) if isinstance(services, dict) else {}
+    monitors: Dict[str, Any] = {}
+    section_status = "healthy"
+    errors: List[str] = []
+
+    for key, config in config_map.items():
+        timer_unit = config.get("timer_unit")
+        service_unit = config.get("service_unit")
+        upload_unit = config.get("upload_unit")
+        interval_seconds = int(config.get("interval_seconds") or BACKUP_CRIT_AGE_SECONDS)
+        stamp_file = config.get("stamp_file")
+        timer_state = units.get(timer_unit, {}) if timer_unit else {}
+        service_state = units.get(service_unit, {}) if service_unit else {}
+        upload_state = units.get(upload_unit, {}) if upload_unit else {}
+
+        monitor_errors: List[str] = []
+        stamp_epoch = None
+        stamp_error = None
+        if stamp_file:
+            stamp_epoch, stamp_error = _read_epoch_file(stamp_file)
+            if stamp_error:
+                monitor_errors.append(f"stamp_{stamp_error}")
+
+        last_success_at = None
+        last_success_age_seconds = None
+        if stamp_epoch is not None:
+            dt = datetime.fromtimestamp(stamp_epoch, tz=timezone.utc)
+            last_success_at = dt.isoformat().replace("+00:00", "Z")
+            last_success_age_seconds = max(0, int((collected_at - dt).total_seconds()))
+
+        next_expected_at = None
+        window_elapsed = None
+        if stamp_epoch is not None:
+            next_expected_epoch = stamp_epoch + interval_seconds
+            next_expected_at = datetime.fromtimestamp(next_expected_epoch, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+            window_elapsed = collected_at.timestamp() >= next_expected_epoch
+
+        status = "healthy"
+        if timer_state.get("active_state") != "active":
+            status = "critical"
+            monitor_errors.append("timer_inactive")
+        elif last_success_age_seconds is None:
+            status = "degraded"
+        elif last_success_age_seconds >= interval_seconds:
+            status = "critical"
+        elif last_success_age_seconds >= int(interval_seconds * 0.75):
+            status = "degraded"
+
+        service_result = service_state.get("result")
+        upload_result = upload_state.get("result")
+        if service_state.get("active_state") == "failed" or service_result == "failed":
+            status = "critical"
+            monitor_errors.append("backup_failed")
+        if upload_unit and (upload_state.get("active_state") == "failed" or upload_result == "failed"):
+            status = "critical"
+            monitor_errors.append("upload_failed")
+
+        off_host_status = "required" if config.get("off_host_required") else "optional"
+        if config.get("off_host_required") and upload_unit:
+            if upload_state.get("active_state") == "failed" or upload_result == "failed":
+                off_host_status = "failed"
+            elif upload_result == "success":
+                off_host_status = "healthy"
+            elif upload_state:
+                off_host_status = "unknown"
+
+        summary_headline = "Backups within expected window"
+        summary_detail = "Recent successful archive recorded."
+        if status == "degraded":
+            summary_headline = "Backup window approaching"
+            summary_detail = "The last successful archive is aging toward the configured 72-hour window."
+        elif status == "critical":
+            summary_headline = "Backup attention required"
+            summary_detail = "A timer, backup run, upload step, or success stamp is outside the expected contract."
+
+        monitors[key] = {
+            "label": config.get("label", key),
+            "status": status,
+            "interval_seconds": interval_seconds,
+            "stamp_file": stamp_file,
+            "last_success_at": last_success_at,
+            "last_success_age_seconds": last_success_age_seconds,
+            "next_expected_at": next_expected_at,
+            "window_elapsed": window_elapsed,
+            "off_host_status": off_host_status,
+            "summary": {
+                "headline": summary_headline,
+                "detail": summary_detail,
+            },
+            "units": {
+                "timer": {"name": timer_unit, "state": timer_state},
+                "service": {"name": service_unit, "state": service_state},
+                "upload": {"name": upload_unit, "state": upload_state} if upload_unit else None,
+            },
+            "errors": monitor_errors,
+        }
+        if monitor_errors:
+            errors.extend([f"{key}:{error}" for error in monitor_errors])
+        if status == "critical":
+            section_status = "critical"
+        elif status == "degraded" and section_status != "critical":
+            section_status = "degraded"
+
+    latency_ms = int((time.monotonic() - start) * 1000)
+    return _section_envelope_with_status(
+        status=section_status,
+        data={"monitors": monitors},
+        errors=errors,
+        latency_ms=latency_ms,
+        meta={
+            "collected_at": collected_at.isoformat(),
             "expires_at": None,
             "source": "live",
         },
@@ -996,6 +1143,7 @@ def build_health_snapshot(
     backups_summary = _evaluate_backups(services_section["data"])
     services_section["data"].setdefault("backups", {})
     services_section["data"]["backups"]["summary"] = backups_summary
+    result["backups_detail"] = _backup_detail_section(services_section["data"])
     result["services"] = services_section
     result["application"] = application_section
     result["postgres_detail"] = _postgres_detail_from_snapshot()
