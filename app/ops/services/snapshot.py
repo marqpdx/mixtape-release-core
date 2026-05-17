@@ -625,6 +625,94 @@ def _read_epoch_file(path: str) -> Tuple[Optional[int], Optional[str]]:
         return None, "parse_error"
 
 
+def _iso_from_epoch(epoch_seconds: int) -> str:
+    return datetime.fromtimestamp(epoch_seconds, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _collect_archive_inventory(
+    directory: Optional[str],
+    expected_archives: List[Dict[str, Any]],
+) -> Tuple[Optional[Dict[str, Any]], List[str]]:
+    if not directory:
+        return None, ["archive_directory_unconfigured"]
+    if not os.path.isdir(directory):
+        return None, ["archive_directory_missing"]
+
+    rows: List[Dict[str, Any]] = []
+    inventory_errors: List[str] = []
+
+    try:
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                if not entry.is_file():
+                    continue
+                try:
+                    stat = entry.stat()
+                except OSError:
+                    inventory_errors.append(f"archive_stat_failed:{entry.name}")
+                    continue
+                modified_epoch = int(stat.st_mtime)
+                rows.append({
+                    "name": entry.name,
+                    "size_bytes": stat.st_size,
+                    "modified_at": _iso_from_epoch(modified_epoch),
+                    "modified_epoch": modified_epoch,
+                })
+    except OSError:
+        return None, ["archive_directory_read_error"]
+
+    rows.sort(key=lambda row: row["modified_epoch"], reverse=True)
+    total_bytes = sum(int(row["size_bytes"]) for row in rows)
+    newest = rows[0] if rows else None
+    oldest = rows[-1] if rows else None
+
+    expected_rows: List[Dict[str, Any]] = []
+    for expected in expected_archives:
+        prefix = expected.get("prefix")
+        suffix = expected.get("suffix")
+        match = next(
+            (
+                row for row in rows
+                if (not prefix or row["name"].startswith(prefix))
+                and (not suffix or row["name"].endswith(suffix))
+            ),
+            None,
+        )
+        expected_rows.append({
+            "label": expected.get("label") or prefix or "archive",
+            "prefix": prefix,
+            "suffix": suffix,
+            "present": match is not None,
+            "latest_file": match["name"] if match else None,
+            "latest_modified_at": match["modified_at"] if match else None,
+            "latest_age_seconds": None if match is None else max(0, int(time.time() - match["modified_epoch"])),
+            "size_bytes": None if match is None else match["size_bytes"],
+        })
+        if match is None:
+            inventory_errors.append(f"archive_missing:{expected.get('label') or prefix or 'archive'}")
+
+    inventory = {
+        "path": directory,
+        "file_count": len(rows),
+        "total_bytes": total_bytes,
+        "newest_file": None if newest is None else newest["name"],
+        "newest_modified_at": None if newest is None else newest["modified_at"],
+        "newest_age_seconds": None if newest is None else max(0, int(time.time() - newest["modified_epoch"])),
+        "oldest_file": None if oldest is None else oldest["name"],
+        "oldest_modified_at": None if oldest is None else oldest["modified_at"],
+        "expected_archives": expected_rows,
+        "recent_files": [
+            {
+                "name": row["name"],
+                "size_bytes": row["size_bytes"],
+                "modified_at": row["modified_at"],
+            }
+            for row in rows[:5]
+        ],
+    }
+    return inventory, inventory_errors
+
+
 def _collect_application_surfaces() -> Tuple[Dict[str, Any], List[str]]:
     errors: List[str] = []
     surfaces: Dict[str, Any] = {}
@@ -824,6 +912,8 @@ def _backup_detail_section(services: Dict[str, Any]) -> Dict[str, Any]:
         upload_unit = config.get("upload_unit")
         interval_seconds = int(config.get("interval_seconds") or BACKUP_CRIT_AGE_SECONDS)
         stamp_file = config.get("stamp_file")
+        archive_directory = config.get("archive_directory")
+        expected_archives = config.get("expected_archives") or []
         timer_state = units.get(timer_unit, {}) if timer_unit else {}
         service_state = units.get(service_unit, {}) if service_unit else {}
         upload_state = units.get(upload_unit, {}) if upload_unit else {}
@@ -835,6 +925,26 @@ def _backup_detail_section(services: Dict[str, Any]) -> Dict[str, Any]:
             stamp_epoch, stamp_error = _read_epoch_file(stamp_file)
             if stamp_error:
                 monitor_errors.append(f"stamp_{stamp_error}")
+
+        archive_inventory, archive_errors = _collect_archive_inventory(
+            archive_directory,
+            expected_archives if isinstance(expected_archives, list) else [],
+        )
+        monitor_errors.extend(archive_errors)
+
+        success_source = "stamp"
+        fallback_in_use = False
+        if stamp_epoch is None and archive_inventory and archive_inventory.get("newest_modified_at"):
+            newest_age_seconds = archive_inventory.get("newest_age_seconds")
+            newest_modified_at = archive_inventory.get("newest_modified_at")
+            if isinstance(newest_age_seconds, int) and newest_modified_at:
+                parsed = datetime.fromisoformat(newest_modified_at.replace("Z", "+00:00"))
+                stamp_epoch = int(parsed.timestamp())
+                success_source = "local_archive_fallback"
+                fallback_in_use = True
+                monitor_errors.append("success_signal_fallback_to_archive")
+        elif stamp_epoch is None:
+            success_source = "none"
 
         last_success_at = None
         last_success_age_seconds = None
@@ -861,6 +971,13 @@ def _backup_detail_section(services: Dict[str, Any]) -> Dict[str, Any]:
         elif last_success_age_seconds >= int(interval_seconds * 0.75):
             status = "degraded"
 
+        if fallback_in_use and status == "healthy":
+            status = "degraded"
+
+        if archive_inventory and archive_inventory.get("file_count", 0) == 0:
+            status = "critical"
+            monitor_errors.append("archive_directory_empty")
+
         service_result = service_state.get("result")
         upload_result = upload_state.get("result")
         if service_state.get("active_state") == "failed" or service_result == "failed":
@@ -881,23 +998,28 @@ def _backup_detail_section(services: Dict[str, Any]) -> Dict[str, Any]:
 
         summary_headline = "Backups within expected window"
         summary_detail = "Recent successful archive recorded."
-        if status == "degraded":
-            summary_headline = "Backup window approaching"
-            summary_detail = "The last successful archive is aging toward the configured 72-hour window."
-        elif status == "critical":
+        if status == "critical":
             summary_headline = "Backup attention required"
             summary_detail = "A timer, backup run, upload step, or success stamp is outside the expected contract."
+        elif fallback_in_use:
+            summary_headline = "Backup evidence found, contract drift detected"
+            summary_detail = "The success stamp is missing, so health is being inferred from archive timestamps instead."
+        elif status == "degraded":
+            summary_headline = "Backup window approaching"
+            summary_detail = "The last successful archive is aging toward the configured 72-hour window."
 
         monitors[key] = {
             "label": config.get("label", key),
             "status": status,
             "interval_seconds": interval_seconds,
             "stamp_file": stamp_file,
+            "success_source": success_source,
             "last_success_at": last_success_at,
             "last_success_age_seconds": last_success_age_seconds,
             "next_expected_at": next_expected_at,
             "window_elapsed": window_elapsed,
             "off_host_status": off_host_status,
+            "archive_inventory": archive_inventory,
             "summary": {
                 "headline": summary_headline,
                 "detail": summary_detail,

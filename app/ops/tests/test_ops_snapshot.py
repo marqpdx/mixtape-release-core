@@ -515,13 +515,36 @@ class OpsSnapshotTests(TestCase):
                 "service_unit": "pg-backup.service",
                 "upload_unit": "pg-backup-upload.service",
                 "stamp_file": "/var/lib/backup-stamps/pg-backup.last_success",
+                "archive_directory": "/var/backups/postgres",
+                "expected_archives": [
+                    {"label": "crossroads_prod", "prefix": "crossroads_prod_", "suffix": ".sql.gz"},
+                    {"label": "listmonk_prod", "prefix": "listmonk_prod_", "suffix": ".sql.gz"},
+                ],
                 "interval_seconds": 72 * 3600,
                 "off_host_required": True,
             }
         }
     )
+    @patch(
+        "ops.services.snapshot._collect_archive_inventory",
+        return_value=(
+            {
+                "path": "/var/backups/postgres",
+                "file_count": 2,
+                "total_bytes": 123456,
+                "newest_file": "crossroads_prod_20260516T031234Z.sql.gz",
+                "newest_modified_at": "2026-05-16T03:12:34Z",
+                "newest_age_seconds": 120,
+                "oldest_file": "listmonk_prod_20260516T031234Z.sql.gz",
+                "oldest_modified_at": "2026-05-16T03:12:35Z",
+                "expected_archives": [],
+                "recent_files": [],
+            },
+            [],
+        ),
+    )
     @patch("ops.services.snapshot._read_file", return_value=("1715800000\n", None))
-    def test_backup_detail_section_reads_success_stamp(self, mock_read_file):
+    def test_backup_detail_section_reads_success_stamp(self, mock_read_file, mock_collect_archive_inventory):
         from ops.services.snapshot import _backup_detail_section
 
         services = {
@@ -541,4 +564,91 @@ class OpsSnapshotTests(TestCase):
         self.assertEqual(monitor["label"], "Postgres Backups")
         self.assertEqual(monitor["off_host_status"], "healthy")
         self.assertEqual(monitor["stamp_file"], "/var/lib/backup-stamps/pg-backup.last_success")
+        self.assertEqual(monitor["success_source"], "stamp")
         self.assertIsNotNone(monitor["last_success_at"])
+        self.assertEqual(monitor["archive_inventory"]["path"], "/var/backups/postgres")
+        mock_collect_archive_inventory.assert_called_once()
+
+    @override_settings(
+        OPS_BACKUP_MONITORS={
+            "postgres": {
+                "label": "Postgres Backups",
+                "timer_unit": "pg-backup.timer",
+                "service_unit": "pg-backup.service",
+                "upload_unit": "pg-backup-upload.service",
+                "stamp_file": "/var/lib/backup-stamps/pg-backup.last_success",
+                "archive_directory": "/var/backups/postgres",
+                "expected_archives": [
+                    {"label": "crossroads_prod", "prefix": "crossroads_prod_", "suffix": ".sql.gz"},
+                    {"label": "listmonk_prod", "prefix": "listmonk_prod_", "suffix": ".sql.gz"},
+                ],
+                "interval_seconds": 72 * 3600,
+                "off_host_required": True,
+            }
+        }
+    )
+    @patch(
+        "ops.services.snapshot._collect_archive_inventory",
+        return_value=(
+            {
+                "path": "/var/backups/postgres",
+                "file_count": 2,
+                "total_bytes": 2222222,
+                "newest_file": "crossroads_prod_20260516T031234Z.sql.gz",
+                "newest_modified_at": "2026-05-16T03:12:34Z",
+                "newest_age_seconds": 1800,
+                "oldest_file": "listmonk_prod_20260516T031234Z.sql.gz",
+                "oldest_modified_at": "2026-05-16T03:12:35Z",
+                "expected_archives": [
+                    {
+                        "label": "crossroads_prod",
+                        "present": True,
+                        "latest_file": "crossroads_prod_20260516T031234Z.sql.gz",
+                        "latest_modified_at": "2026-05-16T03:12:34Z",
+                        "latest_age_seconds": 1800,
+                        "size_bytes": 2123456,
+                    },
+                    {
+                        "label": "listmonk_prod",
+                        "present": True,
+                        "latest_file": "listmonk_prod_20260516T031234Z.sql.gz",
+                        "latest_modified_at": "2026-05-16T03:12:35Z",
+                        "latest_age_seconds": 1799,
+                        "size_bytes": 10944,
+                    },
+                ],
+                "recent_files": [],
+            },
+            [],
+        ),
+    )
+    @patch("ops.services.snapshot._read_file", return_value=("", "not_available"))
+    def test_backup_detail_section_falls_back_to_archive_inventory_when_stamp_missing(
+        self,
+        mock_read_file,
+        mock_collect_archive_inventory,
+    ):
+        from ops.services.snapshot import _backup_detail_section
+
+        services = {
+            "backups": {
+                "units": {
+                    "pg-backup.timer": {"active_state": "active"},
+                    "pg-backup.service": {"active_state": "inactive", "result": "success"},
+                    "pg-backup-upload.service": {"active_state": "inactive", "result": "success"},
+                }
+            }
+        }
+
+        section = _backup_detail_section(services)
+
+        monitor = section["data"]["monitors"]["postgres"]
+        self.assertEqual(section["status"], "degraded")
+        self.assertEqual(monitor["status"], "degraded")
+        self.assertEqual(monitor["success_source"], "local_archive_fallback")
+        self.assertEqual(monitor["off_host_status"], "healthy")
+        self.assertEqual(monitor["archive_inventory"]["file_count"], 2)
+        self.assertIn("stamp_not_available", monitor["errors"])
+        self.assertIn("success_signal_fallback_to_archive", monitor["errors"])
+        mock_read_file.assert_called_once_with("/var/lib/backup-stamps/pg-backup.last_success")
+        mock_collect_archive_inventory.assert_called_once()

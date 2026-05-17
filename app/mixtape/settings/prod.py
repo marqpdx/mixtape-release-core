@@ -92,6 +92,11 @@ OPS_BACKUP_MONITORS = {
         "service_unit": "pg-backup.service",
         "upload_unit": "pg-backup-upload.service",
         "stamp_file": "/var/lib/backup-stamps/pg-backup.last_success",
+        "archive_directory": "/var/backups/postgres",
+        "expected_archives": [
+            {"label": "crossroads_prod", "prefix": "crossroads_prod_", "suffix": ".sql.gz"},
+            {"label": "listmonk_prod", "prefix": "listmonk_prod_", "suffix": ".sql.gz"},
+        ],
         "interval_seconds": 72 * 3600,
         "off_host_required": True,
     },
@@ -101,6 +106,10 @@ OPS_BACKUP_MONITORS = {
         "service_unit": "seaweed-backup.service",
         "upload_unit": "seaweed-backup-upload.service",
         "stamp_file": "/var/lib/backup-stamps/seaweed-backup.last_success",
+        "archive_directory": "/var/backups/seaweed",
+        "expected_archives": [
+            {"label": "seaweed_snapshot", "prefix": "seaweed_", "suffix": ".tar.gz"},
+        ],
         "interval_seconds": 72 * 3600,
         "off_host_required": True,
     },
