@@ -287,7 +287,24 @@ class WorkTableProseView(APIView):
                 .first()
             )
             if not initiative:
-                return Response({"error": "No personal initiative found — create one first."}, status=status.HTTP_404_NOT_FOUND)
+                display_name = (
+                    request.user.get_full_name()
+                    or request.user.username
+                    or "Personal"
+                )
+                initiative = Initiative.objects.create(
+                    title=f"{display_name}'s Personal Initiative",
+                    sponsor_content_type=user_ct,
+                    sponsor_object_id=request.user.id,
+                    created_by=request.user,
+                    is_personal=True,
+                    rolling_summary={
+                        "current_direction": "",
+                        "key_decisions": [],
+                        "open_questions": [],
+                        "where_we_are_now": "",
+                    },
+                )
 
         aperture_log, _ = ApertureLog.objects.get_or_create(initiative=initiative)
         entry = ApertureLogEntry.objects.create(
