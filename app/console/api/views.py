@@ -264,17 +264,30 @@ class WorkTableProseView(APIView):
         initiative_id = request.data.get("initiative_id")
         body = (request.data.get("body") or "").strip()
 
-        if not initiative_id:
-            return Response({"error": "initiative_id is required"}, status=status.HTTP_400_BAD_REQUEST)
         if not body:
             return Response({"error": "body is required"}, status=status.HTTP_400_BAD_REQUEST)
 
+        from django.contrib.contenttypes.models import ContentType
         from initiatives.models import ApertureLog, ApertureLogEntry, ApertureLogEntryKind, Initiative
 
-        try:
-            initiative = Initiative.objects.get(id=initiative_id)
-        except Initiative.DoesNotExist:
-            return Response({"error": "initiative not found"}, status=status.HTTP_404_NOT_FOUND)
+        if initiative_id:
+            try:
+                initiative = Initiative.objects.get(id=initiative_id)
+            except Initiative.DoesNotExist:
+                return Response({"error": "initiative not found"}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            user_ct = ContentType.objects.get_for_model(request.user.__class__)
+            initiative = (
+                Initiative.objects
+                .filter(
+                    is_personal=True,
+                    sponsor_content_type=user_ct,
+                    sponsor_object_id=request.user.id,
+                )
+                .first()
+            )
+            if not initiative:
+                return Response({"error": "No personal initiative found — create one first."}, status=status.HTTP_404_NOT_FOUND)
 
         aperture_log, _ = ApertureLog.objects.get_or_create(initiative=initiative)
         entry = ApertureLogEntry.objects.create(
