@@ -1466,6 +1466,50 @@ class ApertureInitiativeTypeaheadView(APIView):
         return Response({"initiatives": results})
 
 
+class PersonalInitiativeCreateView(APIView):
+    """
+    POST /api/initiatives/personal
+    Create a personal initiative (requesting user as sponsor).
+    Body: { "title": str }
+    Returns: { id, title, status, is_personal }
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        from django.contrib.contenttypes.models import ContentType
+
+        title = (request.data.get("title") or "").strip()
+        if not title:
+            return Response({"detail": "title is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = request.user
+        user_ct = ContentType.objects.get_for_model(user.__class__)
+
+        initiative = Initiative.objects.create(
+            title=title,
+            sponsor_content_type=user_ct,
+            sponsor_object_id=user.id,
+            created_by=user,
+            is_personal=True,
+            rolling_summary={
+                "current_direction": "",
+                "key_decisions": [],
+                "open_questions": [],
+                "where_we_are_now": "",
+            },
+        )
+
+        return Response(
+            {
+                "id": str(initiative.id),
+                "title": initiative.title,
+                "status": initiative.status,
+                "is_personal": initiative.is_personal,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
 # ============================================================================
 # Mobile voice transcription (IM-7c)
 # ============================================================================
