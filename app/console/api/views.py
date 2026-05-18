@@ -447,26 +447,78 @@ class WorkTableStreamView(APIView):
 
         # Fetch limit + 1 to determine has_more
         captures = list(qs[: limit + 1])
-        has_more = len(captures) > limit
+
+        # W2: merge ApertureLogEntries from personal initiative into personal scope stream
+        log_entries = []
+        if scope == "personal":
+            from django.contrib.contenttypes.models import ContentType
+            from django.contrib.auth import get_user_model
+            from initiatives.models import ApertureLog, ApertureLogEntry, Initiative
+            user_ct = ContentType.objects.get_for_model(get_user_model())
+            personal_initiative = (
+                Initiative.objects
+                .filter(
+                    is_personal=True,
+                    sponsor_content_type=user_ct,
+                    sponsor_object_id=request.user.pk,
+                    deleted_at__isnull=True,
+                )
+                .first()
+            )
+            if personal_initiative:
+                try:
+                    aperture_log = ApertureLog.objects.get(initiative=personal_initiative)
+                    log_qs = aperture_log.entries.filter(deleted_at__isnull=True).order_by("created_at")
+                    if not include_archived:
+                        log_qs = log_qs.filter(archived_at__isnull=True)
+                    if before:
+                        try:
+                            from django.utils.dateparse import parse_datetime as _parse_dt
+                            cursor_dt = _parse_dt(before)
+                            if cursor_dt:
+                                log_qs = log_qs.filter(created_at__lt=cursor_dt)
+                        except Exception:
+                            pass
+                    log_entries = list(log_qs[: limit + 1])
+                except ApertureLog.DoesNotExist:
+                    pass
+
+        # Merge captures and log entries, sort by created_at, paginate
+        combined = [(c.created_at, "capture", c) for c in captures] + \
+                   [(e.created_at, "log", e) for e in log_entries]
+        combined.sort(key=lambda x: x[0])
+
+        has_more = len(combined) > limit
         if has_more:
-            captures = captures[:limit]
+            combined = combined[:limit]
 
-        cursor = captures[-1].created_at.isoformat() if captures else None
+        cursor = combined[-1][0].isoformat() if combined else None
 
-        entries = [
-            {
-                "id": str(c.id),
-                "entry_type": "capture",
-                "kind": c.kind,
-                "body": c.body,
-                "status": c.status,
-                "visibility": c.visibility,
-                "created_at": c.created_at.isoformat(),
-                "archived_at": c.archived_at.isoformat() if c.archived_at else None,
-                "metadata": {},
-            }
-            for c in captures
-        ]
+        entries = []
+        for _ts, kind, item in combined:
+            if kind == "capture":
+                entries.append({
+                    "id": str(item.id),
+                    "entry_type": "capture",
+                    "kind": item.kind,
+                    "body": item.body,
+                    "status": item.status,
+                    "visibility": item.visibility,
+                    "created_at": item.created_at.isoformat(),
+                    "archived_at": item.archived_at.isoformat() if item.archived_at else None,
+                    "metadata": {},
+                })
+            else:
+                entries.append({
+                    "id": str(item.id),
+                    "entry_type": item.kind,
+                    "kind": None,
+                    "body": item.body,
+                    "status": None,
+                    "created_at": item.created_at.isoformat(),
+                    "archived_at": item.archived_at.isoformat() if item.archived_at else None,
+                    "metadata": {"ledger_event_type": item.ledger_event_type} if item.ledger_event_type else {},
+                })
 
         return Response({"entries": entries, "has_more": has_more, "cursor": cursor})
 
