@@ -822,10 +822,11 @@ class ApertureLogEntry(BaseModel):
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
-        # Keep ApertureLog.last_handoff_at in sync
         if self.kind == ApertureLogEntryKind.HANDOFF:
+            # Sync last_handoff_at and clear the consumed draft
             ApertureLog.objects.filter(pk=self.aperture_log_id).update(
-                last_handoff_at=self.created_at
+                last_handoff_at=self.created_at,
+                handover_draft=None,
             )
 
 

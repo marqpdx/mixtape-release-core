@@ -199,3 +199,46 @@ def generate_metadata(text: str, max_tags: int = 5, candidate_tags: list = None)
         raise InkwellUnavailableError(f"Inkwell /v1/metadata returned {resp.status_code}")
 
     return resp.json()
+
+
+def synthesize(
+    *,
+    corpus: list,
+    synthesis_goal: str,
+    synthesis_mode: str = "handover",
+    group_context: dict | None = None,
+    output_template: str | None = None,
+) -> dict:
+    """
+    POST /v1/synthesize → {synthesis, source_ids, synthesis_mode, coverage_score,
+                            gaps_detected, local_preprocess_hash, model, ...}
+
+    Governed by the synthesize_v1 schema contract (reference/prompts/synthesize.schema.yaml).
+    Raises InkwellUnavailableError on any transport or HTTP error.
+    """
+    payload: dict = {
+        "corpus": corpus,
+        "synthesis_goal": synthesis_goal,
+        "synthesis_mode": synthesis_mode,
+    }
+    if group_context:
+        payload["group_context"] = group_context
+    if output_template:
+        payload["output_template"] = output_template
+
+    try:
+        resp = requests.post(
+            f"{_base_url()}/v1/synthesize",
+            json=payload,
+            timeout=TIMEOUT_SECONDS,
+        )
+    except requests.exceptions.ReadTimeout:
+        raise InkwellUnavailableError("Inkwell /v1/synthesize timed out")
+    except requests.RequestException as e:
+        raise InkwellUnavailableError(f"Inkwell unreachable: {e}")
+
+    if resp.status_code != 200:
+        logger.error("Inkwell /v1/synthesize error %s: %s", resp.status_code, resp.text[:500])
+        raise InkwellUnavailableError(f"Inkwell /v1/synthesize returned {resp.status_code}")
+
+    return resp.json()
