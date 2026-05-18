@@ -16,6 +16,7 @@ aperture_patterns = [
     path("<uuid:initiative_id>/aperture-log/entries", views.ApertureLogEntryCreateView.as_view(), name="aperture-log-entries"),
     path("<uuid:initiative_id>/aperture-log/entries/<uuid:entry_id>", views.ApertureLogEntryDetailView.as_view(), name="aperture-log-entry-detail"),
     path("<uuid:initiative_id>/aperture-log/handoffs", views.ApertureLogHandoffsView.as_view(), name="aperture-log-handoffs"),
+    path("<uuid:initiative_id>/aperture-log/handover-draft", views.ApertureLogHandoverDraftView.as_view(), name="aperture-log-handover-draft"),
 ]
 
 action_run_patterns = [

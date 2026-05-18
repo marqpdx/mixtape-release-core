@@ -717,6 +717,12 @@ class ApertureLog(BaseModel):
         blank=True,
         help_text="Denormalized — updated on every ApertureLogEntry with kind='handoff'.",
     )
+    handover_draft = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="AI-generated handover draft written by handover_task. Cleared after a handoff entry is approved.",
+    )
 
     class Meta(BaseModel.Meta):
         pass

@@ -1368,6 +1368,22 @@ class ApertureLogHandoffsView(APIView):
         return Response(ApertureLogEntrySerializer(entries, many=True).data)
 
 
+class ApertureLogHandoverDraftView(APIView):
+    """
+    GET /api/initiatives/<id>/aperture-log/handover-draft
+    Return the current AI-generated handover draft, or {"draft": null} if none exists.
+    Read-only — the draft is written exclusively by the handover_task Celery task.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, initiative_id):
+        initiative, err = _get_initiative_for_aperture(request, initiative_id)
+        if err:
+            return err
+        aperture_log = get_object_or_404(ApertureLog, initiative=initiative)
+        return Response({"draft": aperture_log.handover_draft})
+
+
 class ApertureOrientationView(APIView):
     """
     GET /api/members/me/aperture/orientation
