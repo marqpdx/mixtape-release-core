@@ -173,18 +173,38 @@ def get_orientation(user):
     from initiatives.models import Initiative, InitiativeStatus
 
     # Initiatives
+    from django.contrib.auth import get_user_model
+    from groups.models import Group
     active_statuses = [InitiativeStatus.ACTIVE, InitiativeStatus.SIMMERING]
-    initiatives_qs = (
+    initiatives_qs = list(
         Initiative.objects
         .filter(created_by=user, status__in=active_statuses)
         .order_by("-updated_at")[:ORIENTATION_LIMIT]
     )
+
+    group_ct = ContentType.objects.get_for_model(Group)
+    user_ct_for_check = ContentType.objects.get_for_model(get_user_model())
+
+    # Batch-resolve group slugs for group-sponsored initiatives
+    group_sponsored_ids = [
+        i.sponsor_object_id for i in initiatives_qs
+        if not i.is_personal and i.sponsor_content_type_id == group_ct.id
+    ]
+    group_id_to_slug = {}
+    if group_sponsored_ids:
+        group_id_to_slug = {
+            str(g.id): g.slug
+            for g in Group.objects.filter(id__in=group_sponsored_ids).only("id", "slug")
+        }
+
     initiatives = [
         {
             "id": str(i.id),
             "title": i.title,
             "status": i.status,
             "updated_at": i.updated_at.isoformat(),
+            "sponsor_type": "personal" if i.is_personal else "group",
+            "sponsor_slug": group_id_to_slug.get(str(i.sponsor_object_id)) if not i.is_personal else None,
         }
         for i in initiatives_qs
     ]
