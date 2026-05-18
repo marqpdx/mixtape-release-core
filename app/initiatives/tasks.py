@@ -8,6 +8,108 @@ from django.core.files.storage import default_storage
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Handover task
+# ---------------------------------------------------------------------------
+
+HANDOVER_LOCK_TTL = 300  # 5 minutes — debounce window between consecutive runs
+
+
+@shared_task(
+    name="initiatives.tasks.handover_task",
+    bind=True,
+    max_retries=0,
+    ignore_result=True,
+)
+def handover_task(self, log_id: str):
+    """
+    Lock-debounced task that generates an AI handover draft for an ApertureLog.
+
+    Triggered by post_save on ApertureLogEntry (any non-handoff entry). Acquires a
+    5-minute cache lock so rapid bursts don't cause redundant generation — the first
+    call wins, subsequent calls within the window are no-ops. The lock expires and
+    the next new entry triggers a fresh run.
+
+    On Inkwell failure: logs the error and leaves the existing draft unchanged.
+    On no entries since last handoff: exits silently (no-op, no lock acquired).
+    """
+    from django.core.cache import cache
+
+    lock_key = f"handover_draft_lock:{log_id}"
+    acquired = cache.add(lock_key, "1", HANDOVER_LOCK_TTL)
+    if not acquired:
+        return
+
+    _generate_handover_draft(log_id)
+
+
+def _generate_handover_draft(log_id: str) -> None:
+    from django.utils import timezone
+    from initiatives.models import ApertureLog, ApertureLogEntryKind
+
+    try:
+        aperture_log = ApertureLog.objects.select_related("initiative").get(id=log_id)
+    except ApertureLog.DoesNotExist:
+        logger.warning("handover_task: ApertureLog %s not found", log_id)
+        return
+
+    window_from = aperture_log.last_handoff_at or aperture_log.created_at
+    window_to = timezone.now()
+
+    entries = list(
+        aperture_log.entries
+        .filter(created_at__gt=window_from, deleted_at__isnull=True)
+        .exclude(kind=ApertureLogEntryKind.HANDOFF)
+        .order_by("created_at")
+    )
+
+    if not entries:
+        logger.info("handover_task: no entries in window for log %s — skip", log_id)
+        return
+
+    corpus = [
+        {
+            "id": str(e.id),
+            "kind": e.kind,
+            "body": e.body,
+            "created_at": e.created_at.isoformat(),
+        }
+        for e in entries
+    ]
+
+    initiative = aperture_log.initiative
+    try:
+        from inkwell.client import InkwellUnavailableError, synthesize
+        result = synthesize(
+            corpus=corpus,
+            synthesis_goal="Generate a handover note for this Initiative session window.",
+            synthesis_mode="handover",
+            group_context={
+                "initiative_id": str(initiative.id),
+                "initiative_title": initiative.title,
+            },
+        )
+    except Exception as exc:
+        logger.error(
+            "handover_task: Inkwell call failed for log %s: %s",
+            log_id, exc,
+        )
+        return
+
+    draft = {
+        "generated_at": window_to.isoformat(),
+        "entry_window_from": window_from.isoformat(),
+        "entry_window_to": window_to.isoformat(),
+        "draft_body": result.get("synthesis", ""),
+        "entry_count": len(entries),
+        "model": result.get("model", "inkwell/synthesize"),
+    }
+    ApertureLog.objects.filter(pk=log_id).update(handover_draft=draft)
+    logger.info(
+        "handover_task: draft written log=%s entries=%d",
+        log_id, len(entries),
+    )
+
 
 @shared_task(bind=True, max_retries=2, default_retry_delay=10)
 def transcribe_initiatives_job(self, job_id: str):

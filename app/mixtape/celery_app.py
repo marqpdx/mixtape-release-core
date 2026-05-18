@@ -139,11 +139,14 @@ app.conf.task_routes = {
         "queue": "transcription", "routing_key": "transcription"
     },
 
-    # --- Initiatives: AI-backed quality scan and rolling summary ---
+    # --- Initiatives: AI-backed quality scan, rolling summary, handover draft ---
     "initiatives.tasks.run_artifact_quality_scan": {
         "queue": "commons", "routing_key": "commons"
     },
     "initiatives.tasks.update_rolling_summary": {
+        "queue": "commons", "routing_key": "commons"
+    },
+    "initiatives.tasks.handover_task": {
         "queue": "commons", "routing_key": "commons"
     },
 

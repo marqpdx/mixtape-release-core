@@ -36,6 +36,21 @@ def ledger_session_started(sender, instance, created, **kwargs):
     )
 
 
+@receiver(post_save, sender="initiatives.ApertureLogEntry")
+def schedule_handover_on_new_entry(sender, instance, created, **kwargs):
+    """
+    Trigger the lock-debounced handover_task whenever a new ApertureLogEntry is saved.
+    Skips handoff entries — a fresh handoff clears the draft; no generation needed.
+    """
+    if not created:
+        return
+    from initiatives.models import ApertureLogEntryKind
+    if instance.kind == ApertureLogEntryKind.HANDOFF:
+        return
+    from initiatives.tasks import handover_task
+    handover_task.delay(str(instance.aperture_log_id))
+
+
 def _append_ledger(initiative, event_type: str, body: str, data: dict | None = None):
     """Create a ledger ApertureLogEntry for an initiative, auto-creating the ApertureLog if needed."""
     from initiatives.models import ApertureLog, ApertureLogEntry, ApertureLogEntryKind
