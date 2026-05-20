@@ -165,6 +165,71 @@ class MemberContactView(APIView):
         return Response({"status": "sent"})
 
 
+class MemberVoiceUploadView(APIView):
+    """
+    POST /api/members/me/voice   — upload intro voice note (multipart)
+    DELETE /api/members/me/voice — remove intro voice note
+    """
+    permission_classes = [IsAuthenticated]
+
+    def _get_profile(self):
+        return UserProfile.objects.get(user=self.request.user, deleted_at__isnull=True)
+
+    def post(self, request):
+        from django.core.files.storage import default_storage
+        from django.core.files.base import ContentFile
+        from pathlib import Path
+
+        audio_file = request.FILES.get("audio")
+        if not audio_file:
+            return Response({"detail": "audio file is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        allowed_types = {"audio/mpeg", "audio/mp4", "audio/m4a", "audio/wav", "audio/ogg", "audio/webm", "audio/aac"}
+        if audio_file.content_type not in allowed_types:
+            return Response({"detail": "Unsupported audio format."}, status=status.HTTP_400_BAD_REQUEST)
+
+        max_size = 25 * 1024 * 1024  # 25 MB
+        if audio_file.size > max_size:
+            return Response({"detail": "Audio file must be under 25 MB."}, status=status.HTTP_400_BAD_REQUEST)
+
+        profile = self._get_profile()
+
+        # Delete previous audio if it exists
+        if profile.intro_voice:
+            try:
+                default_storage.delete(profile.intro_voice)
+            except Exception:
+                pass
+
+        ext = Path(audio_file.name).suffix or ".audio"
+        storage_key = f"profiles/voice/{profile.id}{ext}"
+        default_storage.save(storage_key, ContentFile(audio_file.read()))
+
+        profile.intro_voice = storage_key
+        profile.intro_voice_transcript = ""
+        profile.save(update_fields=["intro_voice", "intro_voice_transcript", "updated_at"])
+
+        from profiles.tasks import transcribe_intro_voice_task
+        transcribe_intro_voice_task.delay(str(profile.id))
+
+        from utils.storage.storage_utils import key_to_url
+        return Response({"key": storage_key, "url": key_to_url(storage_key)}, status=status.HTTP_201_CREATED)
+
+    def delete(self, request):
+        from django.core.files.storage import default_storage
+
+        profile = self._get_profile()
+        if profile.intro_voice:
+            try:
+                default_storage.delete(profile.intro_voice)
+            except Exception:
+                pass
+        profile.intro_voice = ""
+        profile.intro_voice_transcript = ""
+        profile.save(update_fields=["intro_voice", "intro_voice_transcript", "updated_at"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class MemberPreferencesView(generics.GenericAPIView):
     """
     GET  /api/members/me/preferences  — return current preferences dict

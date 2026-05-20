@@ -9,6 +9,7 @@ from .views import (
     MemberDetailUpdateDeleteView,
     MemberContactView,
     MemberPreferencesView,
+    MemberVoiceUploadView,
 )
 
 
@@ -17,6 +18,7 @@ from .views import (
 urlpatterns = [
     path("", MemberListView.as_view(), name="member-list"),
     path("me", MemberMeView.as_view(), name="member-me"),
+    path("me/voice", MemberVoiceUploadView.as_view(), name="member-voice"),
     path("me/preferences", MemberPreferencesView.as_view(), name="member-preferences"),
     path("me/aperture/orientation", ApertureOrientationView.as_view(), name="aperture-orientation"),
     path("me/aperture/initiatives", ApertureInitiativeTypeaheadView.as_view(), name="aperture-initiatives-typeahead"),
