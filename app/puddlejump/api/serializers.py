@@ -11,7 +11,8 @@ class LibraryItemSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'is_folder', 'title', 'folder_path', 'tags', 'notes',
             'is_featured', 'order_index', 'content_type', 'content_id',
-            'filename', 'size_bytes', 'source_file_id', 'latest_version_id',
+            'filename', 'size_bytes', 'hash_sha256', 's3_key',
+            'source_file_id', 'latest_version_id',
             'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']

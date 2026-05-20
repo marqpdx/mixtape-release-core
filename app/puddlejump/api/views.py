@@ -1,11 +1,18 @@
 import logging
+import os
 
 from django.contrib.contenttypes.models import ContentType
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from rest_framework import status
+from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from inkwell.stackroom_http_client import ingest_text
 
 from groups.models import Group
 from groups.services.permissions import PermissionService
@@ -63,21 +70,44 @@ class SyncStatusView(APIView):
         try:
             library = Library.objects.get(owner_content_type=user_ct, owner_object_id=user.id)
         except Library.DoesNotExist:
-            return Response({'synced': False, 'file_count': 0, 'last_synced_at': None})
+            return Response({
+                'library_id': None,
+                'synced': False,
+                'file_count': 0,
+                'last_synced_at': None,
+                'files': [],
+            })
+
+        files = [
+            {
+                'id': str(item.id),
+                'source_file_id': str(item.source_file_id) if item.source_file_id else '',
+                'path': item.folder_path,
+                'hash': item.hash_sha256 or None,
+                'size_bytes': item.size_bytes,
+                'modified_at': item.updated_at.isoformat(),
+            }
+            for item in library.items.filter(is_folder=False)
+        ]
 
         return Response({
+            'library_id': str(library.id),
             'synced': library.last_synced_at is not None,
             'file_count': library.file_count,
-            'total_size_bytes': library.total_size_bytes,
             'last_synced_at': library.last_synced_at,
+            'files': files,
         })
 
 
 class SyncUploadView(APIView):
-    """POST /api/puddlejump/sync/upload — register a file in the member's library."""
+    """POST /api/puddlejump/sync/upload — store a file in S3 and ingest it into Stackroom IR."""
     permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser]
 
     def post(self, request):
+        if 'file' not in request.FILES:
+            return Response({'detail': 'No file uploaded.'}, status=status.HTTP_400_BAD_REQUEST)
+
         user = request.user
         user_ct = ContentType.objects.get_for_model(user)
         library, _ = Library.objects.get_or_create(
@@ -85,25 +115,56 @@ class SyncUploadView(APIView):
             owner_object_id=user.id,
             defaults={'title': f"{user.get_full_name() or user.username}'s Library"},
         )
-        data = request.data
-        item = LibraryItem.objects.create(
+
+        uploaded = request.FILES['file']
+        path = request.data.get('path', uploaded.name)
+        client_hash = request.data.get('hash', '')
+
+        file_bytes = uploaded.read()
+        try:
+            text = file_bytes.decode('utf-8')
+        except UnicodeDecodeError:
+            return Response({'detail': 'File must be UTF-8 text.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        filename = os.path.basename(path)
+        s3_key = f"puddlejump/{library.id}/{path}"
+        default_storage.save(s3_key, ContentFile(file_bytes))
+
+        source_file_id = None
+        try:
+            ingest_result = ingest_text(
+                library_id=library.id,
+                source_path=path,
+                filename=filename,
+                text=text,
+            )
+            source_file_id = ingest_result.get('source_file_id')
+        except Exception:
+            logger.exception("ingest_text failed for path=%s", path)
+
+        item, _ = LibraryItem.objects.update_or_create(
             library=library,
-            title=data.get('title', ''),
-            filename=data.get('filename', ''),
-            folder_path=data.get('folder_path', ''),
-            size_bytes=data.get('size_bytes'),
-            content_type_str=data.get('content_type', ''),
-            source_file_id=data.get('source_file_id'),
-            tags=data.get('tags', []),
-            notes=data.get('notes', ''),
-            order_index=data.get('order_index', 0),
+            folder_path=path,
+            defaults={
+                'filename': filename,
+                'size_bytes': len(file_bytes),
+                'hash_sha256': client_hash,
+                's3_key': s3_key,
+                'source_file_id': source_file_id,
+            },
         )
-        from .serializers import LibraryItemSerializer
-        return Response(LibraryItemSerializer(item).data, status=status.HTTP_201_CREATED)
+
+        return Response({
+            'id': str(item.id),
+            'path': path,
+            'hash': item.hash_sha256,
+            'size_bytes': item.size_bytes,
+            'created': item.created_at.isoformat(),
+        }, status=status.HTTP_201_CREATED)
 
 
 class SyncDownloadView(APIView):
-    """GET /api/puddlejump/sync/download/<id>/ — fetch item metadata for sync."""
+    """GET /api/puddlejump/sync/download/<id>/ — serve raw file bytes from S3."""
     permission_classes = [IsAuthenticated]
 
     def get(self, request, item_id):
@@ -115,8 +176,16 @@ class SyncDownloadView(APIView):
             library__owner_content_type=user_ct,
             library__owner_object_id=user.id,
         )
-        from .serializers import LibraryItemSerializer
-        return Response(LibraryItemSerializer(item).data)
+        if not item.s3_key:
+            raise Http404
+        try:
+            f = default_storage.open(item.s3_key)
+            content = f.read()
+            f.close()
+        except Exception:
+            logger.exception("S3 download failed for s3_key=%s", item.s3_key)
+            raise Http404
+        return HttpResponse(content, content_type='text/markdown')
 
 
 class SyncDeleteView(APIView):
