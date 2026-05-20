@@ -7,6 +7,7 @@ from .views import (
     MemberListView,
     MemberMeView,
     MemberDetailUpdateDeleteView,
+    MemberContactView,
     MemberPreferencesView,
 )
 
@@ -20,4 +21,5 @@ urlpatterns = [
     path("me/aperture/orientation", ApertureOrientationView.as_view(), name="aperture-orientation"),
     path("me/aperture/initiatives", ApertureInitiativeTypeaheadView.as_view(), name="aperture-initiatives-typeahead"),
     path("<str:username>", MemberDetailUpdateDeleteView.as_view(), name="member-detail"),
+    path("<str:username>/contact", MemberContactView.as_view(), name="member-contact"),
 ]

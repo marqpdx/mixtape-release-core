@@ -381,6 +381,9 @@ class GroupMembershipListSerializer(serializers.ModelSerializer):
     is_active_user = serializers.SerializerMethodField()
     profile_image = serializers.SerializerMethodField()
     right_now = serializers.SerializerMethodField()
+    quick_intro = serializers.SerializerMethodField()
+    location = serializers.SerializerMethodField()
+    quick_link = serializers.SerializerMethodField()
 
     # Roles - returns all roles as array for frontend
     roles = serializers.SerializerMethodField()
@@ -452,6 +455,18 @@ class GroupMembershipListSerializer(serializers.ModelSerializer):
         profile = getattr(member, "profile", None)
         return getattr(profile, "right_now", "") if profile else ""
 
+    def get_quick_intro(self, obj):
+        profile = getattr(obj.member_object, "profile", None)
+        return getattr(profile, "quick_intro", "") if profile else ""
+
+    def get_location(self, obj):
+        profile = getattr(obj.member_object, "profile", None)
+        return getattr(profile, "location", "") if profile else ""
+
+    def get_quick_link(self, obj):
+        profile = getattr(obj.member_object, "profile", None)
+        return getattr(profile, "quick_link", "") if profile else ""
+
     def get_roles(self, obj):
         """
         Return all roles as array for frontend.
@@ -483,6 +498,7 @@ class GroupMembershipListSerializer(serializers.ModelSerializer):
             "member_id", "member_type", "username", "email",
             "first_name", "last_name", "display_name",
             "is_active_user", "profile_image", "right_now",
+            "quick_intro", "location", "quick_link",
 
             # Membership data
             "roles", "date_joined", "is_active", "is_pending",
