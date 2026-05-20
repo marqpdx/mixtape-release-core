@@ -84,6 +84,7 @@ urlpatterns = [
     path("api/classifications/", include("classifications.api.urls")),
     path("api/feedback/", include("feedback.api.urls")),
     path("api/collections/", include("curation.urls")),  # Collection curation layer (CP5)
+    path("api/puddlejump/", include("puddlejump.urls")),  # Puddlejump library
     path("api/dispatch/", include("dispatch.api.urls")),
     path("api/gristmill/", include("gristmill.api.urls")),
     path("api/identity/", include("identity.api.urls")),

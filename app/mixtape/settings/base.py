@@ -124,6 +124,7 @@ INSTALLED_APPS = [
     "initiatives",     # Initiatives — group-scoped AI-assisted inquiry sessions
     "workbench",       # Workbench curation — WorkingItem assembly and promotion
     "curation",        # Django-native Collection curation layer (CP5)
+    "puddlejump",      # Puddlejump — personal and group file library
     "distribution",    # External distribution — Source channels, PublishEvent, ShareRecord
     "switchboard",     # Switchboard proxy — async tool submission surface
     "reading",         # Reading — Dart annotations and ReadingStats
