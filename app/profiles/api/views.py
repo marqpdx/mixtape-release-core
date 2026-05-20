@@ -1,7 +1,8 @@
 # profiles/api/views.py
 
+import re
+
 from rest_framework import generics, status
-from django.core.mail import send_mail
 from django.utils import timezone
 from django.db import transaction
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -121,15 +122,41 @@ class MemberContactView(APIView):
             )
 
         subject = f"Message via Crossroads from {sender_name or sender_email}"
-        body = f"{message}\n\n---\nSent via Crossroads\nFrom: {sender_name or '(not provided)'} <{sender_email}>"
-
-        send_mail(
-            subject=subject,
-            message=body,
-            from_email=sender_email,
-            recipient_list=[recipient_email],
-            fail_silently=False,
+        text_body = (
+            f"{message}\n\n"
+            f"---\nSent via Crossroads\n"
+            f"From: {sender_name or '(not provided)'} <{sender_email}>"
         )
+
+        from django.conf import settings
+        from mailjet_rest import Client
+
+        raw_from = settings.DEFAULT_FROM_EMAIL
+        match = re.match(r"^(.+?)\s*<(.+?)>\s*$", raw_from)
+        from_addr = match.group(2) if match else raw_from
+        from_name = match.group(1).strip() if match else ""
+
+        mailjet = Client(
+            auth=(settings.EMAIL_HOST_USER, settings.EMAIL_HOST_PASSWORD),
+            version="v3.1",
+        )
+        mj_payload = {
+            "Messages": [
+                {
+                    "From": {"Email": from_addr, "Name": from_name},
+                    "To": [{"Email": recipient_email}],
+                    "ReplyTo": {"Email": sender_email, "Name": sender_name or sender_email},
+                    "Subject": subject,
+                    "TextPart": text_body,
+                }
+            ]
+        }
+        mj_response = mailjet.send.create(data=mj_payload)
+        if mj_response.status_code != 200:
+            return Response(
+                {"detail": "Failed to deliver message. Please try again."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
 
         if save_email and not request.user.email:
             User = get_user_model()
