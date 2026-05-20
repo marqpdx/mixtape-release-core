@@ -71,6 +71,8 @@ class LibraryItem(BaseModel):
 
     filename = models.CharField(max_length=255, blank=True)
     size_bytes = models.PositiveIntegerField(null=True, blank=True)
+    hash_sha256 = models.CharField(max_length=64, blank=True)
+    s3_key = models.TextField(blank=True)
 
     # FK to files app's stored file
     source_file_id = models.UUIDField(null=True, blank=True)
