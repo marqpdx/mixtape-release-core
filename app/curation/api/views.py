@@ -267,13 +267,24 @@ class CollectionAvailableDocumentsView(APIView):
         _check_read(request.user, collection)
 
         from writing.models import WritingPiece
+        from dispatch.models import Post
+
         writing_pieces = WritingPiece.objects.filter(
             status='published',
             sponsor_content_type=collection.sponsor_content_type,
             sponsor_object_id=collection.sponsor_object_id,
         ).order_by('-published_at')
 
+        posts = Post.objects.filter(
+            published_at__isnull=False,
+            deleted_at__isnull=True,
+            sponsor_content_type=collection.sponsor_content_type,
+            sponsor_object_id=collection.sponsor_object_id,
+        ).order_by('-published_at')
+
         wp_ct = ContentType.objects.get_for_model(WritingPiece)
+        post_ct = ContentType.objects.get_for_model(Post)
+
         docs_data = []
         for wp in writing_pieces:
             item_count = collection.items.filter(
@@ -283,10 +294,11 @@ class CollectionAvailableDocumentsView(APIView):
             docs_data.append({
                 'id': wp.id,
                 'title': wp.title,
-                'slug': wp.slug,
+                'slug': getattr(wp, 'slug', ''),
                 'summary': getattr(wp, 'summary', ''),
                 'writing_kind': wp.writing_kind,
                 'status': wp.status,
+                'doc_type': 'writing_piece',
                 'author_name': wp.author_name,
                 'published_at': wp.published_at,
                 'created_at': wp.created_at,
@@ -294,6 +306,27 @@ class CollectionAvailableDocumentsView(APIView):
                 'item_count': item_count,
             })
 
+        for post in posts:
+            item_count = collection.items.filter(
+                content_type=post_ct,
+                content_object_id=post.id,
+            ).count()
+            docs_data.append({
+                'id': post.id,
+                'title': post.title or '(untitled dispatch)',
+                'slug': getattr(post, 'slug', ''),
+                'summary': getattr(post, 'summary', ''),
+                'writing_kind': 'dispatch',
+                'status': 'published',
+                'doc_type': 'dispatch_post',
+                'author_name': getattr(post, 'author_display', ''),
+                'published_at': post.published_at,
+                'created_at': post.created_at,
+                'in_collection': item_count > 0,
+                'item_count': item_count,
+            })
+
+        docs_data.sort(key=lambda d: d['published_at'] or d['created_at'], reverse=True)
         return Response(WritingPieceMinimalSerializer(docs_data, many=True).data)
 
 
@@ -344,6 +377,22 @@ class CollectionItemListView(APIView):
                 )
             content_model = WritingPiece
 
+        elif content_type_label == 'dispatch_post':
+            from dispatch.models import Post
+            content_obj = get_object_or_404(Post, id=data['content_id'])
+            if not content_obj.published_at:
+                return Response(
+                    {'detail': 'Only published Dispatch posts can be added to Collections'},
+                    status=drf_status.HTTP_400_BAD_REQUEST,
+                )
+            if (content_obj.sponsor_content_type != collection.sponsor_content_type or
+                    content_obj.sponsor_object_id != collection.sponsor_object_id):
+                return Response(
+                    {'detail': 'Dispatch post sponsor must match Collection sponsor'},
+                    status=drf_status.HTTP_400_BAD_REQUEST,
+                )
+            content_model = Post
+
         elif content_type_label == 'collection':
             content_obj = get_object_or_404(Collection, id=data['content_id'])
             if content_obj.id == collection.id:
@@ -367,7 +416,7 @@ class CollectionItemListView(APIView):
             content_model = None
         else:
             return Response(
-                {'detail': "Invalid content_type. Must be 'writing_piece', 'collection', or 'source_file'"},
+                {'detail': "Invalid content_type. Must be 'writing_piece', 'dispatch_post', 'collection', or 'source_file'"},
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
 

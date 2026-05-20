@@ -31,6 +31,9 @@ class UserProfile(BaseModel):
     work_areas = models.TextField(max_length=400, default="", blank=True, help_text="Work areas, focus areas, or domains of current activity.")
     practice_area = models.CharField(max_length=120, default="", blank=True, help_text="Primary practice area or discipline (e.g. Product, Engineering, Design).")
     location = models.CharField(max_length=120, default="", blank=True, help_text="City, region, or remote.")
+    quick_link = models.URLField(max_length=512, default="", blank=True, help_text="Personal or work link (website, IG, etc.)")
+    who_are_you = models.CharField(max_length=512, default="", blank=True, help_text="How you'd describe yourself to the group.")
+    why_are_you_here = models.CharField(max_length=512, default="", blank=True, help_text="Why you joined / what you're looking for.")
 
     # Placeholder for avatar/images (next phase - will use actual file storage)
     avatar_url = models.CharField(max_length=512, default="", blank=True, help_text="Avatar image URL")
