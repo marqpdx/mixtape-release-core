@@ -31,6 +31,7 @@ class MemberSerializer(serializers.ModelSerializer):
     # slug, display_name, quick_intro, avatar_url are from Meta.fields
     profile_image_url = serializers.SerializerMethodField()
     background_image_url = serializers.SerializerMethodField()
+    intro_voice_url = serializers.SerializerMethodField()
 
     class Meta:
         model = UserProfile
@@ -45,6 +46,7 @@ class MemberSerializer(serializers.ModelSerializer):
             "who_are_you", "why_are_you_here", "avatar_url",
             "profile_image", "background_image", "bio_json", "bio_markdown",
             "profile_image_url", "background_image_url",
+            "intro_voice", "intro_voice_url", "intro_voice_transcript",
             "created_at", "updated_at",
         ]
         read_only_fields = ["slug", "created_at", "updated_at"]
@@ -60,6 +62,9 @@ class MemberSerializer(serializers.ModelSerializer):
 
     def get_background_image_url(self, obj):
         return key_to_url(obj.background_image) if obj.background_image else None
+
+    def get_intro_voice_url(self, obj):
+        return key_to_url(obj.intro_voice) if obj.intro_voice else None
 
 
 class MemberUpdateSerializer(serializers.ModelSerializer):

@@ -34,6 +34,8 @@ class UserProfile(BaseModel):
     quick_link = models.URLField(max_length=512, default="", blank=True, help_text="Personal or work link (website, IG, etc.)")
     who_are_you = models.CharField(max_length=512, default="", blank=True, help_text="How you'd describe yourself to the group.")
     why_are_you_here = models.CharField(max_length=512, default="", blank=True, help_text="Why you joined / what you're looking for.")
+    intro_voice = models.CharField(max_length=512, default="", blank=True, help_text="Storage key for intro voice note audio file.")
+    intro_voice_transcript = models.TextField(default="", blank=True, help_text="Auto-generated transcript of intro voice note.")
 
     # Placeholder for avatar/images (next phase - will use actual file storage)
     avatar_url = models.CharField(max_length=512, default="", blank=True, help_text="Avatar image URL")
