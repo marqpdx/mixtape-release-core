@@ -17,7 +17,7 @@ from inkwell.stackroom_http_client import ingest_text
 
 from groups.models import Group
 from groups.services.permissions import PermissionService
-from ..models import Library, LibraryItem, LibraryItemVersion, ManifestEvent
+from ..models import Library, LibraryItem, LibraryItemVersion, ManifestEvent, SnapshotConfig, LibrarySnapshot
 from .serializers import PersonalPuddlejumpSerializer
 
 logger = logging.getLogger(__name__)
@@ -178,6 +178,14 @@ class SyncUploadView(APIView):
             triggered_by=request.user,
         )
 
+        try:
+            config = library.snapshot_config
+            if config.is_enabled and config.frequency == 'on_transaction':
+                from ..tasks import generate_snapshot
+                generate_snapshot.delay(str(library.id))
+        except SnapshotConfig.DoesNotExist:
+            pass
+
         return Response({
             'id': str(item.id),
             'path': path,
@@ -310,6 +318,75 @@ class ManifestAtTimeView(APIView):
             'library_id': str(library.id),
             'as_of': as_of.isoformat(),
             'files': list(manifest.values()),
+        })
+
+
+class SnapshotTriggerView(APIView):
+    """POST /api/puddlejump/snapshots/trigger/ — manually fire a snapshot for the member's library."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        user_ct = ContentType.objects.get_for_model(user)
+        try:
+            library = Library.objects.get(owner_content_type=user_ct, owner_object_id=user.id)
+        except Library.DoesNotExist:
+            return Response({'detail': 'No library found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        from ..tasks import generate_snapshot
+        generate_snapshot.delay(str(library.id))
+        return Response({'queued': True, 'library_id': str(library.id)}, status=status.HTTP_202_ACCEPTED)
+
+
+class SnapshotListView(APIView):
+    """GET /api/puddlejump/snapshots/ — list snapshots for the member's library."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        user_ct = ContentType.objects.get_for_model(user)
+        try:
+            library = Library.objects.get(owner_content_type=user_ct, owner_object_id=user.id)
+        except Library.DoesNotExist:
+            return Response({'snapshots': []})
+
+        snapshots = library.snapshots.order_by('-snapshot_at')
+        data = [
+            {
+                'id': str(s.id),
+                'snapshot_at': s.snapshot_at.isoformat(),
+                'file_count': s.file_count,
+                'total_size_bytes': s.total_size_bytes,
+                'delivered_to': s.delivered_to,
+                'status': s.status,
+            }
+            for s in snapshots
+        ]
+        return Response({'library_id': str(library.id), 'snapshots': data})
+
+
+class SnapshotDetailView(APIView):
+    """GET /api/puddlejump/snapshots/<id>/ — retrieve manifest JSON for a specific snapshot."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, snapshot_id):
+        user = request.user
+        user_ct = ContentType.objects.get_for_model(user)
+        snapshot = get_object_or_404(
+            LibrarySnapshot,
+            id=snapshot_id,
+            library__owner_content_type=user_ct,
+            library__owner_object_id=user.id,
+        )
+        return Response({
+            'id': str(snapshot.id),
+            'library_id': str(snapshot.library_id),
+            'snapshot_at': snapshot.snapshot_at.isoformat(),
+            'file_count': snapshot.file_count,
+            'total_size_bytes': snapshot.total_size_bytes,
+            'delivered_to': snapshot.delivered_to,
+            'status': snapshot.status,
+            'manifest': snapshot.manifest_json,
         })
 
 
