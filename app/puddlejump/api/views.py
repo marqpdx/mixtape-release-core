@@ -17,7 +17,7 @@ from inkwell.stackroom_http_client import ingest_text
 
 from groups.models import Group
 from groups.services.permissions import PermissionService
-from ..models import Library, LibraryItem, LibraryItemVersion
+from ..models import Library, LibraryItem, LibraryItemVersion, ManifestEvent
 from .serializers import PersonalPuddlejumpSerializer
 
 logger = logging.getLogger(__name__)
@@ -168,6 +168,16 @@ class SyncUploadView(APIView):
         item.current_version = version
         item.save(update_fields=['current_version', 'updated_at'])
 
+        ManifestEvent.objects.create(
+            library=library,
+            event_type='upload',
+            library_item=item,
+            version=version,
+            path=path,
+            hash_sha256=client_hash,
+            triggered_by=request.user,
+        )
+
         return Response({
             'id': str(item.id),
             'path': path,
@@ -216,6 +226,15 @@ class SyncDeleteView(APIView):
             library__owner_content_type=user_ct,
             library__owner_object_id=user.id,
         )
+        ManifestEvent.objects.create(
+            library=item.library,
+            event_type='delete',
+            library_item=item,
+            version=item.current_version,
+            path=item.folder_path,
+            hash_sha256=item.hash_sha256,
+            triggered_by=request.user,
+        )
         item.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -236,6 +255,62 @@ class SyncCompleteView(APIView):
         library.last_synced_at = timezone.now()
         library.save(update_fields=['last_synced_at', 'updated_at'])
         return Response({'last_synced_at': library.last_synced_at})
+
+
+class ManifestAtTimeView(APIView):
+    """GET /api/puddlejump/manifest/?at={iso_timestamp} — reconstruct the library manifest at a point in time."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from django.utils.dateparse import parse_datetime
+        from django.utils import timezone
+
+        user = request.user
+        user_ct = ContentType.objects.get_for_model(user)
+        try:
+            library = Library.objects.get(owner_content_type=user_ct, owner_object_id=user.id)
+        except Library.DoesNotExist:
+            return Response({'library_id': None, 'as_of': None, 'files': []})
+
+        at_param = request.query_params.get('at')
+        if at_param:
+            as_of = parse_datetime(at_param)
+            if as_of is None:
+                return Response({'detail': 'Invalid `at` timestamp.'}, status=status.HTTP_400_BAD_REQUEST)
+            if as_of.tzinfo is None:
+                as_of = timezone.make_aware(as_of)
+        else:
+            as_of = timezone.now()
+
+        events = (
+            ManifestEvent.objects
+            .filter(library=library, created_at__lte=as_of)
+            .order_by('library_item_id', 'created_at')
+            .select_related('version')
+        )
+
+        manifest = {}
+        for event in events:
+            item_id = str(event.library_item_id) if event.library_item_id else None
+            if item_id is None:
+                continue
+            if event.event_type == 'delete':
+                manifest.pop(item_id, None)
+            else:
+                manifest[item_id] = {
+                    'id': item_id,
+                    'path': event.path,
+                    'version_id': str(event.version_id) if event.version_id else None,
+                    'hash': event.hash_sha256,
+                    'size_bytes': event.version.size_bytes if event.version else None,
+                    'event_type': event.event_type,
+                }
+
+        return Response({
+            'library_id': str(library.id),
+            'as_of': as_of.isoformat(),
+            'files': list(manifest.values()),
+        })
 
 
 class SyncVersionListView(APIView):

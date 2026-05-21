@@ -9,6 +9,7 @@ urlpatterns = [
     path('sync/download/<uuid:item_id>/', views.SyncDownloadView.as_view(), name='puddlejump-sync-download'),
     path('sync/delete/<uuid:item_id>/', views.SyncDeleteView.as_view(), name='puddlejump-sync-delete'),
     path('sync/complete', views.SyncCompleteView.as_view(), name='puddlejump-sync-complete'),
+    path('manifest/', views.ManifestAtTimeView.as_view(), name='puddlejump-manifest'),
     path('sync/versions/<uuid:item_id>/', views.SyncVersionListView.as_view(), name='puddlejump-sync-versions'),
     path('sync/restore/<uuid:item_id>/', views.SyncRestoreView.as_view(), name='puddlejump-sync-restore'),
     path('<slug:group_slug>/', views.GroupPuddlejumpView.as_view(), name='puddlejump-group'),
