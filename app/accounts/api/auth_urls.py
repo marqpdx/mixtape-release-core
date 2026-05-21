@@ -4,7 +4,7 @@
 
 from django.urls import path
 
-from groups.api.views import accept_invite
+from groups.api.views import accept_invite, invite_info
 
 from . import jwt_views, views, password_reset_views
 
@@ -41,4 +41,5 @@ urlpatterns = [
     path("csrf", views.csrf, name="csrf-token"),
     path("check-username/<str:username>", views.check_username, name="check-username"),
     path("accept-invite", accept_invite, name="accept-invite"),
+    path("invite-info/<str:shortcode>", invite_info, name="invite-info"),
 ]

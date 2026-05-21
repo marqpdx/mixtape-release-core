@@ -1183,13 +1183,15 @@ def accept_invite(request):
         )
 
         # Return success response
+        grp = result["group"]
         return JsonResponse({
             "detail": "Successfully joined group.",
             "user_was_new": result["user_was_new"],
             "group": {
-                "id": str(result["group"].id),
-                "title": result["group"].title,
-                "slug": result["group"].slug,
+                "id": str(grp.id),
+                "title": grp.title,
+                "slug": grp.slug,
+                "profile_image_url": grp.profile_image_url,
             }
         }, status=200)
 
@@ -1203,6 +1205,33 @@ def accept_invite(request):
             {"error": "An unexpected error occurred."},
             status=500
         )
+
+
+@api_view(["GET"])
+@permission_classes([permissions.AllowAny])
+def invite_info(request, shortcode):
+    """
+    Return public group info for an invite link shortcode.
+    Used by the accept-invite page to render the group name and image before submission.
+
+    GET /api/auth/invite-info/{shortcode}
+    """
+    try:
+        invite = InviteLink.objects.select_related("group").get(shortcode=shortcode)
+    except InviteLink.DoesNotExist:
+        return JsonResponse({"error": "Invalid or expired invite link."}, status=404)
+
+    if invite.is_used:
+        return JsonResponse({"error": "This invitation has already been used."}, status=410)
+
+    grp = invite.group
+    return JsonResponse({
+        "group": {
+            "title": grp.title,
+            "slug": grp.slug,
+            "profile_image_url": grp.profile_image_url,
+        }
+    }, status=200)
 
 
 # ============================================================================
