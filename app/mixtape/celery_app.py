@@ -188,12 +188,15 @@ app.conf.task_routes = {
         "queue": "polling", "routing_key": "polling"
     },
 
-    # --- Puddlejump: snapshot generation + beat scan ---
+    # --- Puddlejump: snapshot generation + beat scan + Stackroom ingest ---
     "puddlejump.tasks.generate_snapshot": {
         "queue": "push", "routing_key": "push"
     },
     "puddlejump.tasks.run_scheduled_snapshots": {
         "queue": "polling", "routing_key": "polling"
+    },
+    "puddlejump.tasks.ingest_library_item": {
+        "queue": "commons", "routing_key": "commons"
     },
 
     # --- Concord: audio interpretation ---

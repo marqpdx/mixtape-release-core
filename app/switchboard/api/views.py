@@ -4,6 +4,7 @@ import logging
 
 from django.conf import settings
 from django.http import JsonResponse
+from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -273,11 +274,33 @@ def agent_note_proxy(request):
 
     serializer = AgentNoteCommandSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
-    note = create_note_from_agent(
-        created_by=request.user,
-        **serializer.validated_data,
+
+    action_run = ActionRun.objects.create(
+        tool_name="agent.note",
+        status=ActionRunStatus.RUNNING,
+        execution_mode=ActionRunExecutionMode.LOCAL,
+        tenant_id=_DEFAULT_TENANT_ID,
+        tenant_namespace=_DEFAULT_TENANT_NAMESPACE,
+        initiator_type=ActionRunInitiatorType.HUMAN,
+        initiator_id=str(request.user.pk),
+        request_payload=serializer.validated_data,
+        started_at=timezone.now(),
     )
-    return JsonResponse(NoteSerializer(note).data, status=201)
+    try:
+        note = create_note_from_agent(created_by=request.user, **serializer.validated_data)
+        action_run.status = ActionRunStatus.SUCCEEDED
+        action_run.result_payload = {"object_id": str(note.id), "object_type": "note"}
+        action_run.completed_at = timezone.now()
+        action_run.save(update_fields=["status", "result_payload", "completed_at", "updated_at"])
+        data = NoteSerializer(note).data
+        data["action_run_id"] = str(action_run.id)
+        return JsonResponse(data, status=201)
+    except Exception as exc:
+        action_run.status = ActionRunStatus.FAILED
+        action_run.error_payload = {"error": str(exc)}
+        action_run.completed_at = timezone.now()
+        action_run.save(update_fields=["status", "error_payload", "completed_at", "updated_at"])
+        raise
 
 
 @api_view(["POST"])
@@ -288,11 +311,33 @@ def agent_reminder_proxy(request):
 
     serializer = AgentReminderCommandSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
-    reminder = create_reminder_from_agent(
-        created_by=request.user,
-        **serializer.validated_data,
+
+    action_run = ActionRun.objects.create(
+        tool_name="agent.remind",
+        status=ActionRunStatus.RUNNING,
+        execution_mode=ActionRunExecutionMode.LOCAL,
+        tenant_id=_DEFAULT_TENANT_ID,
+        tenant_namespace=_DEFAULT_TENANT_NAMESPACE,
+        initiator_type=ActionRunInitiatorType.HUMAN,
+        initiator_id=str(request.user.pk),
+        request_payload=serializer.validated_data,
+        started_at=timezone.now(),
     )
-    return JsonResponse(ReminderSerializer(reminder).data, status=201)
+    try:
+        reminder = create_reminder_from_agent(created_by=request.user, **serializer.validated_data)
+        action_run.status = ActionRunStatus.SUCCEEDED
+        action_run.result_payload = {"object_id": str(reminder.id), "object_type": "reminder"}
+        action_run.completed_at = timezone.now()
+        action_run.save(update_fields=["status", "result_payload", "completed_at", "updated_at"])
+        data = ReminderSerializer(reminder).data
+        data["action_run_id"] = str(action_run.id)
+        return JsonResponse(data, status=201)
+    except Exception as exc:
+        action_run.status = ActionRunStatus.FAILED
+        action_run.error_payload = {"error": str(exc)}
+        action_run.completed_at = timezone.now()
+        action_run.save(update_fields=["status", "error_payload", "completed_at", "updated_at"])
+        raise
 
 
 @api_view(["POST"])
@@ -303,8 +348,30 @@ def agent_task_proxy(request):
 
     serializer = AgentTaskCommandSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
-    task = create_task_from_agent(
-        created_by=request.user,
-        **serializer.validated_data,
+
+    action_run = ActionRun.objects.create(
+        tool_name="agent.task",
+        status=ActionRunStatus.RUNNING,
+        execution_mode=ActionRunExecutionMode.LOCAL,
+        tenant_id=_DEFAULT_TENANT_ID,
+        tenant_namespace=_DEFAULT_TENANT_NAMESPACE,
+        initiator_type=ActionRunInitiatorType.HUMAN,
+        initiator_id=str(request.user.pk),
+        request_payload=serializer.validated_data,
+        started_at=timezone.now(),
     )
-    return JsonResponse(TaskSerializer(task).data, status=201)
+    try:
+        task = create_task_from_agent(created_by=request.user, **serializer.validated_data)
+        action_run.status = ActionRunStatus.SUCCEEDED
+        action_run.result_payload = {"object_id": str(task.id), "object_type": "task"}
+        action_run.completed_at = timezone.now()
+        action_run.save(update_fields=["status", "result_payload", "completed_at", "updated_at"])
+        data = TaskSerializer(task).data
+        data["action_run_id"] = str(action_run.id)
+        return JsonResponse(data, status=201)
+    except Exception as exc:
+        action_run.status = ActionRunStatus.FAILED
+        action_run.error_payload = {"error": str(exc)}
+        action_run.completed_at = timezone.now()
+        action_run.save(update_fields=["status", "error_payload", "completed_at", "updated_at"])
+        raise
