@@ -23,6 +23,7 @@ class PublicMemberSerializer(serializers.ModelSerializer):
     date_joined = serializers.DateTimeField(source="user.date_joined", read_only=True)
     profile_image_url = serializers.SerializerMethodField()
     background_image_url = serializers.SerializerMethodField()
+    intro_voice_url = serializers.SerializerMethodField()
     groups = serializers.SerializerMethodField()
 
     class Meta:
@@ -36,6 +37,8 @@ class PublicMemberSerializer(serializers.ModelSerializer):
             "bio_json",
             "profile_image_url",
             "background_image_url",
+            "intro_voice_url",
+            "intro_voice_transcript",
             "date_joined",
             "groups",
         ]
@@ -45,6 +48,9 @@ class PublicMemberSerializer(serializers.ModelSerializer):
 
     def get_background_image_url(self, obj):
         return key_to_url(obj.background_image) if obj.background_image else None
+
+    def get_intro_voice_url(self, obj):
+        return key_to_url(obj.intro_voice) if obj.intro_voice else None
 
     def get_groups(self, obj):
         """Return public group affiliations for this member."""
