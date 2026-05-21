@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from ops.models import BuildLogEntry
+
 
 class OpsHealthSnapshotSerializer(serializers.Serializer):
     schema_version = serializers.CharField()
@@ -27,3 +29,19 @@ class OpsSummarySerializer(serializers.Serializer):
 class OpsTilesSerializer(serializers.Serializer):
     timestamp = serializers.DateTimeField()
     tiles = serializers.ListField(child=serializers.DictField())
+
+
+class BuildLogEntrySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BuildLogEntry
+        fields = (
+            "id",
+            "commit_hash",
+            "commit_message",
+            "repo",
+            "date",
+            "work_effort",
+            "body",
+            "source_filename",
+            "ingested_at",
+        )

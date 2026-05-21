@@ -1,9 +1,12 @@
+from django.db.models import Q
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ops.api.permissions import IsSuperuser
-from ops.api.serializers import OpsSummarySerializer, OpsTilesSerializer
+from ops.api.serializers import BuildLogEntrySerializer, OpsSummarySerializer, OpsTilesSerializer
+from ops.models import BuildLogEntry
 from ops.services.snapshot import build_health_snapshot
 
 
@@ -155,3 +158,71 @@ class OpsTilesView(APIView):
         serializer = OpsTilesSerializer(data=payload)
         serializer.is_valid(raise_exception=True)
         return _no_cache_response(serializer.data)
+
+
+class BuildLogEntryListView(APIView):
+    permission_classes = [IsAuthenticated, IsSuperuser]
+
+    DEFAULT_LIMIT = 25
+    MAX_LIMIT = 100
+
+    def get(self, request):
+        queryset = BuildLogEntry.objects.all()
+
+        query = (request.query_params.get("q") or "").strip()
+        repo = (request.query_params.get("repo") or "").strip()
+        limit = self._parse_limit(request.query_params.get("limit"))
+        offset = self._parse_offset(request.query_params.get("offset"))
+
+        if query:
+            queryset = queryset.filter(
+                Q(commit_hash__icontains=query)
+                | Q(commit_message__icontains=query)
+                | Q(work_effort__icontains=query)
+                | Q(body__icontains=query)
+            )
+        if repo:
+            queryset = queryset.filter(repo=repo)
+
+        total_count = queryset.count()
+        entries = queryset[offset : offset + limit]
+        serializer = BuildLogEntrySerializer(entries, many=True)
+
+        payload = {
+            "count": total_count,
+            "next": self._build_page_link(request, limit, offset + limit) if offset + limit < total_count else None,
+            "previous": self._build_page_link(request, limit, max(offset - limit, 0)) if offset > 0 else None,
+            "repo_choices": list(
+                BuildLogEntry.objects.order_by("repo").values_list("repo", flat=True).distinct()
+            ),
+            "results": serializer.data,
+        }
+        return _no_cache_response(payload)
+
+    def _parse_limit(self, raw_limit):
+        if raw_limit in (None, ""):
+            return self.DEFAULT_LIMIT
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError) as exc:
+            raise ValidationError({"limit": "Must be an integer."}) from exc
+        if limit < 1:
+            raise ValidationError({"limit": "Must be at least 1."})
+        return min(limit, self.MAX_LIMIT)
+
+    def _parse_offset(self, raw_offset):
+        if raw_offset in (None, ""):
+            return 0
+        try:
+            offset = int(raw_offset)
+        except (TypeError, ValueError) as exc:
+            raise ValidationError({"offset": "Must be an integer."}) from exc
+        if offset < 0:
+            raise ValidationError({"offset": "Must be 0 or greater."})
+        return offset
+
+    def _build_page_link(self, request, limit, offset):
+        params = request.query_params.copy()
+        params["limit"] = str(limit)
+        params["offset"] = str(offset)
+        return f"{request.path}?{params.urlencode()}"
