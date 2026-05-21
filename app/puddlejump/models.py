@@ -1,5 +1,6 @@
 import uuid
 
+from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
@@ -76,7 +77,13 @@ class LibraryItem(BaseModel):
 
     # FK to files app's stored file
     source_file_id = models.UUIDField(null=True, blank=True)
-    latest_version_id = models.UUIDField(null=True, blank=True)
+    current_version = models.ForeignKey(
+        'LibraryItemVersion',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+    )
 
     class Meta:
         ordering = ['order_index']
@@ -87,3 +94,27 @@ class LibraryItem(BaseModel):
 
     def __str__(self):
         return self.title or f'LibraryItem {self.id}'
+
+
+class LibraryItemVersion(BaseModel):
+    """Immutable version record for a single file upload. Parent-linked for history traversal."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    library_item = models.ForeignKey(LibraryItem, on_delete=models.CASCADE, related_name='versions')
+    parent_version = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='children')
+    hash_sha256 = models.CharField(max_length=64)
+    seaweed_key = models.TextField()  # puddlejump/{library_id}/{version_id}/{filename}
+    size_bytes = models.PositiveIntegerField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+    )
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Version {self.id} of {self.library_item_id}'
