@@ -37,11 +37,17 @@ _DEFAULT_TENANT_ID = getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_ID", "0000000
 _DEFAULT_TENANT_NAMESPACE = getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", "platform:crossroads")
 
 
+_VALID_SURFACES = {"console", "puddlejump"}
+
+
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def classify_async_proxy(request):
     text = (request.data.get("text") or "").strip()
     max_tags = int(request.data.get("max_tags") or 8)
+    surface = (request.data.get("surface") or "console").strip()
+    if surface not in _VALID_SURFACES:
+        surface = "console"
 
     if not text:
         return JsonResponse({"detail": "text is required."}, status=400)
@@ -52,14 +58,14 @@ def classify_async_proxy(request):
     tenant_namespace = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", _DEFAULT_TENANT_NAMESPACE))
 
     action_run = ActionRun.objects.create(
-        tool_name="inkwell.classify",
+        tool_name=f"{surface}.classify",
         status=ActionRunStatus.PENDING,
         execution_mode=ActionRunExecutionMode.LOCAL,
         tenant_id=tenant_id,
         tenant_namespace=tenant_namespace,
         initiator_type=ActionRunInitiatorType.HUMAN,
         initiator_id=str(request.user.pk),
-        request_payload={"text_length": len(text), "max_tags": max_tags},
+        request_payload={"text_length": len(text), "max_tags": max_tags, "surface": surface},
     )
 
     classify_payload = {"text": text, "max_tags": max_tags}
@@ -88,34 +94,62 @@ def classify_async_proxy(request):
     return JsonResponse({"action_run_id": str(action_run.id)}, status=202)
 
 
+_VALID_CONTENT_TYPES = {"writing.piece", "puddlejump.item", "puddlejump.snapshot"}
+_VALID_SUMMARY_STYLES = {"brief", "standard", "extended"}
+
+
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def summarize_async_proxy(request):
-    if not request.user.is_superuser:
-        return JsonResponse({"detail": "Superuser access required."}, status=403)
-
     text = (request.data.get("text") or "").strip()
+    content_type = (request.data.get("content_type") or "").strip()
+    surface = (request.data.get("surface") or "console").strip()
+    if surface not in _VALID_SURFACES:
+        surface = "console"
     words = int(request.data.get("words") or 40)
     style = (request.data.get("style") or "neutral").strip()
+    summary_style = (request.data.get("summary_style") or "standard").strip()
+    if summary_style not in _VALID_SUMMARY_STYLES:
+        summary_style = "standard"
+    source_id = (request.data.get("source_id") or "").strip() or None
 
     if not text:
         return JsonResponse({"detail": "text is required."}, status=400)
+    if not content_type:
+        return JsonResponse({"detail": "content_type is required (writing.piece | puddlejump.item | puddlejump.snapshot)."}, status=400)
+    if content_type not in _VALID_CONTENT_TYPES:
+        return JsonResponse({"detail": f"content_type must be one of: {', '.join(sorted(_VALID_CONTENT_TYPES))}"}, status=400)
 
     tenant_id = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_ID", _DEFAULT_TENANT_ID))
     tenant_namespace = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", _DEFAULT_TENANT_NAMESPACE))
 
     action_run = ActionRun.objects.create(
-        tool_name="inkwell.summarize",
+        tool_name=f"{surface}.summarize",
         status=ActionRunStatus.PENDING,
         execution_mode=ActionRunExecutionMode.LOCAL,
         tenant_id=tenant_id,
         tenant_namespace=tenant_namespace,
         initiator_type=ActionRunInitiatorType.HUMAN,
         initiator_id=str(request.user.pk),
-        request_payload={"text_length": len(text), "words": words, "style": style},
+        request_payload={
+            "text_length": len(text),
+            "content_type": content_type,
+            "surface": surface,
+            "words": words,
+            "style": style,
+            "summary_style": summary_style,
+            "source_id": source_id,
+        },
     )
 
-    summarize_payload = {"text": text, "words": words, "style": style}
+    summarize_payload = {
+        "text": text,
+        "content_type": content_type,
+        "words": words,
+        "style": style,
+        "summary_style": summary_style,
+        "source_id": source_id,
+    }
 
     celery_app.send_task(
         "switchboard.summarize_async",
@@ -132,10 +166,68 @@ def summarize_async_proxy(request):
     )
 
     logger.info(
-        "Enqueued async summarize action_run=%s user=%s text_len=%s",
+        "Enqueued async summarize action_run=%s user=%s content_type=%s text_len=%s",
+        action_run.id,
+        request.user.pk,
+        content_type,
+        len(text),
+    )
+
+    return JsonResponse({"action_run_id": str(action_run.id)}, status=202)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def context_shape_async_proxy(request):
+    text = (request.data.get("text") or "").strip()
+    surface = (request.data.get("surface") or "console").strip()
+    if surface not in _VALID_SURFACES:
+        surface = "console"
+    group_context = (request.data.get("group_context") or "").strip() or None
+
+    if not text:
+        return JsonResponse({"detail": "text is required."}, status=400)
+
+    tenant_id = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_ID", _DEFAULT_TENANT_ID))
+    tenant_namespace = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", _DEFAULT_TENANT_NAMESPACE))
+
+    action_run = ActionRun.objects.create(
+        tool_name=f"{surface}.context_shape",
+        status=ActionRunStatus.PENDING,
+        execution_mode=ActionRunExecutionMode.LOCAL,
+        tenant_id=tenant_id,
+        tenant_namespace=tenant_namespace,
+        initiator_type=ActionRunInitiatorType.HUMAN,
+        initiator_id=str(request.user.pk),
+        request_payload={
+            "text_length": len(text),
+            "surface": surface,
+            "has_group_context": bool(group_context),
+        },
+    )
+
+    shape_payload = {"text": text, "group_context": group_context}
+
+    celery_app.send_task(
+        "switchboard.context_shape_async",
+        kwargs={
+            "action_run_id": str(action_run.id),
+            "tenant_id": tenant_id,
+            "tenant_namespace": tenant_namespace,
+            "principal_user_id": str(request.user.pk),
+            "principal_service_token_id": None,
+            "request_payload": shape_payload,
+            "shape_payload": shape_payload,
+        },
+        queue="switchboard",
+    )
+
+    logger.info(
+        "Enqueued context_shape action_run=%s user=%s text_len=%s surface=%s",
         action_run.id,
         request.user.pk,
         len(text),
+        surface,
     )
 
     return JsonResponse({"action_run_id": str(action_run.id)}, status=202)
