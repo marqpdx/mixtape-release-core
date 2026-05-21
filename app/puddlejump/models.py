@@ -118,3 +118,28 @@ class LibraryItemVersion(BaseModel):
 
     def __str__(self):
         return f'Version {self.id} of {self.library_item_id}'
+
+
+class ManifestEvent(BaseModel):
+    """Append-only log of every mutation to a library's file manifest."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    library = models.ForeignKey(Library, on_delete=models.CASCADE, related_name='manifest_events')
+    event_type = models.CharField(max_length=50)  # 'upload', 'delete', 'rename', 'restore'
+    library_item = models.ForeignKey(
+        LibraryItem, on_delete=models.SET_NULL, null=True, blank=True, related_name='manifest_events',
+    )
+    version = models.ForeignKey(
+        LibraryItemVersion, on_delete=models.SET_NULL, null=True, blank=True, related_name='manifest_events',
+    )
+    path = models.TextField()
+    hash_sha256 = models.CharField(max_length=64, blank=True)
+    triggered_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f'ManifestEvent {self.event_type} on {self.library_id} at {self.created_at}'
