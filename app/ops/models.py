@@ -75,3 +75,19 @@ class OpsAuditLog(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+
+
+class BuildLogEntry(models.Model):
+    commit_hash = models.CharField(max_length=12, unique=True, db_index=True)
+    commit_message = models.TextField(blank=True)
+    repo = models.CharField(max_length=100)
+    date = models.DateField()
+    work_effort = models.CharField(max_length=255, blank=True)
+    body = models.TextField(blank=True)
+    source_filename = models.CharField(max_length=255, blank=True)
+    ingested_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-date", "-ingested_at"]
+        verbose_name = "Build Log Entry"
+        verbose_name_plural = "Build Log Entries"
