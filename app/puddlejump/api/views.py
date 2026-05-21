@@ -1,5 +1,6 @@
 import logging
 import os
+import uuid
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.files.base import ContentFile
@@ -16,7 +17,7 @@ from inkwell.stackroom_http_client import ingest_text
 
 from groups.models import Group
 from groups.services.permissions import PermissionService
-from ..models import Library, LibraryItem
+from ..models import Library, LibraryItem, LibraryItemVersion
 from .serializers import PersonalPuddlejumpSerializer
 
 logger = logging.getLogger(__name__)
@@ -127,8 +128,9 @@ class SyncUploadView(APIView):
             return Response({'detail': 'File must be UTF-8 text.'}, status=status.HTTP_400_BAD_REQUEST)
 
         filename = os.path.basename(path)
-        s3_key = f"puddlejump/{library.id}/{path}"
-        default_storage.save(s3_key, ContentFile(file_bytes))
+        version_id = uuid.uuid4()
+        seaweed_key = f"puddlejump/{library.id}/{version_id}/{filename}"
+        default_storage.save(seaweed_key, ContentFile(file_bytes))
 
         source_file_id = None
         try:
@@ -149,16 +151,29 @@ class SyncUploadView(APIView):
                 'filename': filename,
                 'size_bytes': len(file_bytes),
                 'hash_sha256': client_hash,
-                's3_key': s3_key,
+                's3_key': seaweed_key,
                 'source_file_id': source_file_id,
             },
         )
+
+        version = LibraryItemVersion.objects.create(
+            id=version_id,
+            library_item=item,
+            parent_version=item.current_version,
+            hash_sha256=client_hash,
+            seaweed_key=seaweed_key,
+            size_bytes=len(file_bytes),
+            created_by=request.user,
+        )
+        item.current_version = version
+        item.save(update_fields=['current_version', 'updated_at'])
 
         return Response({
             'id': str(item.id),
             'path': path,
             'hash': item.hash_sha256,
             'size_bytes': item.size_bytes,
+            'version_id': str(version.id),
             'created': item.created_at.isoformat(),
         }, status=status.HTTP_201_CREATED)
 
@@ -221,3 +236,61 @@ class SyncCompleteView(APIView):
         library.last_synced_at = timezone.now()
         library.save(update_fields=['last_synced_at', 'updated_at'])
         return Response({'last_synced_at': library.last_synced_at})
+
+
+class SyncVersionListView(APIView):
+    """GET /api/puddlejump/sync/versions/<item_id>/ — list all versions for a library item."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, item_id):
+        user = request.user
+        user_ct = ContentType.objects.get_for_model(user)
+        item = get_object_or_404(
+            LibraryItem,
+            id=item_id,
+            library__owner_content_type=user_ct,
+            library__owner_object_id=user.id,
+        )
+        versions = item.versions.select_related('created_by').order_by('-created_at')
+        data = [
+            {
+                'id': str(v.id),
+                'hash_sha256': v.hash_sha256,
+                'size_bytes': v.size_bytes,
+                'created_at': v.created_at.isoformat(),
+                'created_by': v.created_by.get_full_name() if v.created_by else None,
+                'is_current': item.current_version_id == v.id,
+            }
+            for v in versions
+        ]
+        return Response({'item_id': str(item.id), 'versions': data})
+
+
+class SyncRestoreView(APIView):
+    """POST /api/puddlejump/sync/restore/<item_id>/ — serve bytes for a specific version."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, item_id):
+        user = request.user
+        user_ct = ContentType.objects.get_for_model(user)
+        item = get_object_or_404(
+            LibraryItem,
+            id=item_id,
+            library__owner_content_type=user_ct,
+            library__owner_object_id=user.id,
+        )
+        version_id = request.data.get('version_id')
+        if not version_id:
+            return Response({'detail': 'version_id required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        version = get_object_or_404(LibraryItemVersion, id=version_id, library_item=item)
+
+        try:
+            f = default_storage.open(version.seaweed_key)
+            content = f.read()
+            f.close()
+        except Exception:
+            logger.exception("Restore download failed for seaweed_key=%s", version.seaweed_key)
+            raise Http404
+
+        return HttpResponse(content, content_type='text/markdown')
