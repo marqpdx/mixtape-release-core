@@ -8,6 +8,7 @@ from .views import (
     agent_reminder_proxy,
     agent_task_proxy,
     classify_async_proxy,
+    context_shape_async_proxy,
     summarize_async_proxy,
     think_cluster_async_proxy,
 )
@@ -15,6 +16,7 @@ from .views import (
 urlpatterns = [
     path("summarize/async", summarize_async_proxy, name="switchboard-summarize-async"),
     path("classify/async", classify_async_proxy, name="switchboard-classify-async"),
+    path("context-shape/async", context_shape_async_proxy, name="switchboard-context-shape-async"),
     path("think/cluster", think_cluster_async_proxy, name="switchboard-think-cluster"),
     path("agent/parse", agent_parse_proxy, name="switchboard-agent-parse"),
     path("agent/note", agent_note_proxy, name="switchboard-agent-note"),

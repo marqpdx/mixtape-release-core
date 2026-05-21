@@ -188,6 +188,20 @@ app.conf.task_routes = {
         "queue": "polling", "routing_key": "polling"
     },
 
+    # --- Switchboard: AI worker tasks (classify, summarize, context_shape, think) ---
+    "switchboard.classify_async": {
+        "queue": "switchboard", "routing_key": "switchboard"
+    },
+    "switchboard.summarize_async": {
+        "queue": "switchboard", "routing_key": "switchboard"
+    },
+    "switchboard.context_shape_async": {
+        "queue": "switchboard", "routing_key": "switchboard"
+    },
+    "switchboard.think_cluster_async": {
+        "queue": "switchboard", "routing_key": "switchboard"
+    },
+
     # --- Puddlejump: snapshot generation + beat scan + Stackroom ingest ---
     "puddlejump.tasks.generate_snapshot": {
         "queue": "push", "routing_key": "push"
