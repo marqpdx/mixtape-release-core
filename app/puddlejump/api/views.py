@@ -13,8 +13,6 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from inkwell.stackroom_http_client import ingest_text
-
 from groups.models import Group
 from groups.services.permissions import PermissionService
 from ..models import Library, LibraryItem, LibraryItemVersion, ManifestEvent, SnapshotConfig, LibrarySnapshot
@@ -123,7 +121,7 @@ class SyncUploadView(APIView):
 
         file_bytes = uploaded.read()
         try:
-            text = file_bytes.decode('utf-8')
+            file_bytes.decode('utf-8')
         except UnicodeDecodeError:
             return Response({'detail': 'File must be UTF-8 text.'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -131,18 +129,6 @@ class SyncUploadView(APIView):
         version_id = uuid.uuid4()
         seaweed_key = f"puddlejump/{library.id}/{version_id}/{filename}"
         default_storage.save(seaweed_key, ContentFile(file_bytes))
-
-        source_file_id = None
-        try:
-            ingest_result = ingest_text(
-                library_id=library.id,
-                source_path=path,
-                filename=filename,
-                text=text,
-            )
-            source_file_id = ingest_result.get('source_file_id')
-        except Exception:
-            logger.exception("ingest_text failed for path=%s", path)
 
         item, _ = LibraryItem.objects.update_or_create(
             library=library,
@@ -152,7 +138,6 @@ class SyncUploadView(APIView):
                 'size_bytes': len(file_bytes),
                 'hash_sha256': client_hash,
                 's3_key': seaweed_key,
-                'source_file_id': source_file_id,
             },
         )
 
@@ -178,11 +163,13 @@ class SyncUploadView(APIView):
             triggered_by=request.user,
         )
 
+        from ..tasks import ingest_library_item, generate_snapshot
+        ingest_library_item.delay(str(item.id), triggered_by_id=str(request.user.pk))
+
         try:
             config = library.snapshot_config
             if config.is_enabled and config.frequency == 'on_transaction':
-                from ..tasks import generate_snapshot
-                generate_snapshot.delay(str(library.id))
+                generate_snapshot.delay(str(library.id), triggered_by_id=str(request.user.pk))
         except SnapshotConfig.DoesNotExist:
             pass
 
