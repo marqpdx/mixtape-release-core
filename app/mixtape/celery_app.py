@@ -188,6 +188,14 @@ app.conf.task_routes = {
         "queue": "polling", "routing_key": "polling"
     },
 
+    # --- Puddlejump: snapshot generation + beat scan ---
+    "puddlejump.tasks.generate_snapshot": {
+        "queue": "push", "routing_key": "push"
+    },
+    "puddlejump.tasks.run_scheduled_snapshots": {
+        "queue": "polling", "routing_key": "polling"
+    },
+
     # --- Concord: audio interpretation ---
     "concord.tasks.interpretation.interpret_recording_task": {
         "queue": "transcription", "routing_key": "transcription"
@@ -268,6 +276,10 @@ app.conf.beat_schedule = {
     "collect-application-snapshot": {
         "task": "ops.tasks.collect_application_snapshot",
         "schedule": 60.0,
+    },
+    "run-scheduled-snapshots": {
+        "task": "puddlejump.tasks.run_scheduled_snapshots",
+        "schedule": 3600.0,  # hourly — covers all frequencies (hourly checks are still gated by last_snapshot_at)
     },
 }
 

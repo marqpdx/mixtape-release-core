@@ -143,3 +143,43 @@ class ManifestEvent(BaseModel):
 
     def __str__(self):
         return f'ManifestEvent {self.event_type} on {self.library_id} at {self.created_at}'
+
+
+class SnapshotConfig(BaseModel):
+    """Per-library snapshot configuration — frequency, destination, retention."""
+
+    library = models.OneToOneField(Library, on_delete=models.CASCADE, related_name='snapshot_config')
+    is_enabled = models.BooleanField(default=False)
+    frequency = models.CharField(max_length=20, default='weekly')  # 'weekly', 'daily', 'hourly', 'on_transaction'
+    endpoint_type = models.CharField(max_length=20, default='internal')  # 'internal', 's3', 'nas'
+    endpoint_url = models.TextField(blank=True)
+    endpoint_credentials = models.JSONField(default=dict, blank=True)
+    retain_count = models.IntegerField(default=4)
+    last_snapshot_at = models.DateTimeField(null=True, blank=True)
+    tier = models.CharField(max_length=20, default='standard')  # 'standard', 'premium'
+
+    class Meta:
+        verbose_name = 'Snapshot Config'
+
+    def __str__(self):
+        return f'SnapshotConfig for {self.library_id}'
+
+
+class LibrarySnapshot(BaseModel):
+    """Immutable point-in-time snapshot of a library's file manifest."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    library = models.ForeignKey(Library, on_delete=models.CASCADE, related_name='snapshots')
+    snapshot_at = models.DateTimeField()
+    manifest_json = models.JSONField()
+    file_count = models.IntegerField()
+    total_size_bytes = models.BigIntegerField()
+    delivered_to = models.CharField(max_length=20)  # 'internal', 's3', 'nas'
+    delivery_key = models.TextField(blank=True)
+    status = models.CharField(max_length=20, default='pending')  # 'pending', 'complete', 'failed'
+
+    class Meta:
+        ordering = ['-snapshot_at']
+
+    def __str__(self):
+        return f'LibrarySnapshot {self.id} at {self.snapshot_at}'
