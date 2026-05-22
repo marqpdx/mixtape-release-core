@@ -3,6 +3,8 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    path('retrieve/', views.retrieve_async_proxy, name='puddlejump-retrieve'),
+    path('find/', views.find_async_proxy, name='puddlejump-find'),
     path('personal', views.PersonalPuddlejumpView.as_view(), name='puddlejump-personal'),
     path('sync/status', views.SyncStatusView.as_view(), name='puddlejump-sync-status'),
     path('sync/upload', views.SyncUploadView.as_view(), name='puddlejump-sync-upload'),

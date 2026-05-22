@@ -2,12 +2,14 @@ import logging
 import os
 import uuid
 
+from django.conf import settings as django_settings
 from django.contrib.contenttypes.models import ContentType
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
 from rest_framework import status
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -433,3 +435,176 @@ class SyncRestoreView(APIView):
             raise Http404
 
         return HttpResponse(content, content_type='text/markdown')
+
+
+# ── Switchboard-mediated retrieve / find ──────────────────────────────────────
+
+_DEFAULT_TENANT_ID = getattr(django_settings, "SWITCHBOARD_DEFAULT_TENANT_ID", "00000000-0000-0000-0000-000000000001")
+_DEFAULT_TENANT_NAMESPACE = getattr(django_settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", "platform:crossroads")
+
+
+def _get_user_library(request):
+    """Return the personal Library for the requesting user, or None."""
+    user_ct = ContentType.objects.get_for_model(request.user)
+    return Library.objects.filter(
+        owner_content_type=user_ct,
+        owner_object_id=request.user.id,
+    ).first()
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def retrieve_async_proxy(request):
+    from initiatives.models import ActionRun, ActionRunExecutionMode, ActionRunInitiatorType, ActionRunStatus
+    from mixtape.celery_app import app as celery_app
+
+    query = (request.data.get("query") or "").strip()
+    library_id_raw = (request.data.get("library_id") or "").strip() or None
+    limit = min(int(request.data.get("limit") or 10), 50)
+    score_threshold_raw = request.data.get("score_threshold")
+    score_threshold = float(score_threshold_raw) if score_threshold_raw is not None else None
+
+    if not query:
+        return JsonResponse({"detail": "query is required."}, status=400)
+
+    if library_id_raw:
+        try:
+            library_id = str(uuid.UUID(library_id_raw))
+        except ValueError:
+            return JsonResponse({"detail": "library_id must be a valid UUID."}, status=400)
+    else:
+        library = _get_user_library(request)
+        if not library:
+            return JsonResponse({"detail": "No library found for this user."}, status=404)
+        library_id = str(library.id)
+
+    tenant_id = str(_DEFAULT_TENANT_ID)
+    tenant_namespace = str(_DEFAULT_TENANT_NAMESPACE)
+
+    action_run = ActionRun.objects.create(
+        tool_name="puddlejump.retrieve",
+        status=ActionRunStatus.PENDING,
+        execution_mode=ActionRunExecutionMode.LOCAL,
+        tenant_id=tenant_id,
+        tenant_namespace=tenant_namespace,
+        initiator_type=ActionRunInitiatorType.HUMAN,
+        initiator_id=str(request.user.pk),
+        request_payload={
+            "query_length": len(query),
+            "library_id": library_id,
+            "limit": limit,
+            "score_threshold": score_threshold,
+        },
+    )
+
+    retrieve_payload = {
+        "query": query,
+        "library_id": library_id,
+        "limit": limit,
+        "score_threshold": score_threshold,
+    }
+
+    celery_app.send_task(
+        "switchboard.retrieve_async",
+        kwargs={
+            "action_run_id": str(action_run.id),
+            "tenant_id": tenant_id,
+            "tenant_namespace": tenant_namespace,
+            "principal_user_id": str(request.user.pk),
+            "principal_service_token_id": None,
+            "request_payload": retrieve_payload,
+            "retrieve_payload": retrieve_payload,
+        },
+        queue="switchboard",
+    )
+
+    logger.info(
+        "Enqueued retrieve action_run=%s user=%s library=%s query_len=%s",
+        action_run.id, request.user.pk, library_id, len(query),
+    )
+
+    return JsonResponse({"action_run_id": str(action_run.id)}, status=202)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def find_async_proxy(request):
+    from initiatives.models import ActionRun, ActionRunExecutionMode, ActionRunInitiatorType, ActionRunStatus
+    from mixtape.celery_app import app as celery_app
+
+    query = (request.data.get("query") or "").strip()
+    library_id_raw = (request.data.get("library_id") or "").strip() or None
+    limit = min(int(request.data.get("limit") or 10), 50)
+    score_threshold_raw = request.data.get("score_threshold")
+    score_threshold = float(score_threshold_raw) if score_threshold_raw is not None else None
+    source_file_ids_raw = request.data.get("source_file_ids") or []
+
+    if not query:
+        return JsonResponse({"detail": "query is required."}, status=400)
+
+    if library_id_raw:
+        try:
+            library_id = str(uuid.UUID(library_id_raw))
+        except ValueError:
+            return JsonResponse({"detail": "library_id must be a valid UUID."}, status=400)
+    else:
+        library = _get_user_library(request)
+        if not library:
+            return JsonResponse({"detail": "No library found for this user."}, status=404)
+        library_id = str(library.id)
+
+    source_file_ids = []
+    for fid in source_file_ids_raw:
+        try:
+            source_file_ids.append(str(uuid.UUID(str(fid))))
+        except ValueError:
+            return JsonResponse({"detail": f"Invalid UUID in source_file_ids: {fid}"}, status=400)
+
+    tenant_id = str(_DEFAULT_TENANT_ID)
+    tenant_namespace = str(_DEFAULT_TENANT_NAMESPACE)
+
+    action_run = ActionRun.objects.create(
+        tool_name="puddlejump.find",
+        status=ActionRunStatus.PENDING,
+        execution_mode=ActionRunExecutionMode.LOCAL,
+        tenant_id=tenant_id,
+        tenant_namespace=tenant_namespace,
+        initiator_type=ActionRunInitiatorType.HUMAN,
+        initiator_id=str(request.user.pk),
+        request_payload={
+            "query_length": len(query),
+            "library_id": library_id,
+            "limit": limit,
+            "score_threshold": score_threshold,
+            "source_file_count": len(source_file_ids),
+        },
+    )
+
+    retrieve_payload = {
+        "query": query,
+        "library_id": library_id,
+        "limit": limit,
+        "score_threshold": score_threshold,
+        "source_file_ids": source_file_ids or None,
+    }
+
+    celery_app.send_task(
+        "switchboard.retrieve_async",
+        kwargs={
+            "action_run_id": str(action_run.id),
+            "tenant_id": tenant_id,
+            "tenant_namespace": tenant_namespace,
+            "principal_user_id": str(request.user.pk),
+            "principal_service_token_id": None,
+            "request_payload": retrieve_payload,
+            "retrieve_payload": retrieve_payload,
+        },
+        queue="switchboard",
+    )
+
+    logger.info(
+        "Enqueued find action_run=%s user=%s library=%s source_files=%d query_len=%s",
+        action_run.id, request.user.pk, library_id, len(source_file_ids), len(query),
+    )
+
+    return JsonResponse({"action_run_id": str(action_run.id)}, status=202)
