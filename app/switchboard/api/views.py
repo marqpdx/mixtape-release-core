@@ -361,9 +361,6 @@ def agent_parse_proxy(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def agent_note_proxy(request):
-    if not request.user.is_superuser:
-        return JsonResponse({"detail": "Superuser access required."}, status=403)
-
     serializer = AgentNoteCommandSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
 
@@ -398,9 +395,6 @@ def agent_note_proxy(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def agent_reminder_proxy(request):
-    if not request.user.is_superuser:
-        return JsonResponse({"detail": "Superuser access required."}, status=403)
-
     serializer = AgentReminderCommandSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
 
@@ -435,9 +429,6 @@ def agent_reminder_proxy(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def agent_task_proxy(request):
-    if not request.user.is_superuser:
-        return JsonResponse({"detail": "Superuser access required."}, status=403)
-
     serializer = AgentTaskCommandSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
 
