@@ -49,7 +49,7 @@ from groups.models import (
     GroupOverviewLayout,
 )
 from groups.models.group_context import GroupContext
-from groups.models.group import InvitationKind, InvitationStatus
+from groups.models.group import InvitationKind, InvitationStatus, InviteLink
 from groups.permissions import IsGroupAdminOrSteward, canUserModerateGroupUser
 from groups.services.groups import GroupService
 from identity.models import EmblemAvatar
