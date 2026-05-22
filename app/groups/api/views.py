@@ -723,6 +723,12 @@ class GroupMemberRemoveView(generics.GenericAPIView):
         target_membership.is_active = False
         target_membership.save(update_fields=["is_evicted", "is_active"])
 
+        # Remove any open group invitations for this user
+        GroupInvitation.objects.filter(
+            group=group,
+            invited_user_id=target_membership.member_object_id,
+        ).delete()
+
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
