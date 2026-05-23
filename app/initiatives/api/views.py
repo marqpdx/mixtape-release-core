@@ -370,9 +370,6 @@ class ActionRunApproveView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, action_run_id):
-        if not _superuser_required(request):
-            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
-
         action_run = get_object_or_404(ActionRun, pk=action_run_id)
 
         if action_run.initiator_id != str(request.user.pk):
