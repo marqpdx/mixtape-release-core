@@ -341,6 +341,27 @@ def _dispatch_approved_action_run(action_run, user):
             },
             queue="switchboard",
         )
+    elif ".refine" in tool:
+        refine_payload = {
+            "source_text": payload.get("source_text"),
+            "refinement_instruction": payload.get("refinement_instruction"),
+            "target_length": payload.get("target_length"),
+            "additional_context": payload.get("additional_context"),
+        }
+        celery_app.send_task(
+            "switchboard.refine_async",
+            kwargs={
+                "action_run_id": str(action_run.id),
+                "tenant_id": str(action_run.tenant_id),
+                "tenant_namespace": action_run.tenant_namespace,
+                "principal_user_id": str(user.pk),
+                "principal_service_token_id": None,
+                "request_payload": refine_payload,
+                "refine_payload": refine_payload,
+                "cloud_mode": True,
+            },
+            queue="switchboard",
+        )
     else:
         raise ValueError(f"No dispatch handler for tool '{tool}'")
 
