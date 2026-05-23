@@ -25,6 +25,7 @@ from initiatives.models import (
 )
 from mixtape.celery_app import app as celery_app
 from switchboard.api.serializers import (
+    AgentAddCommandSerializer,
     AgentNoteCommandSerializer,
     AgentParseRequestSerializer,
     AgentReminderCommandSerializer,
@@ -452,6 +453,86 @@ def agent_task_proxy(request):
         data = TaskSerializer(task).data
         data["action_run_id"] = str(action_run.id)
         return JsonResponse(data, status=201)
+    except Exception as exc:
+        action_run.status = ActionRunStatus.FAILED
+        action_run.error_payload = {"error": str(exc)}
+        action_run.completed_at = timezone.now()
+        action_run.save(update_fields=["status", "error_payload", "completed_at", "updated_at"])
+        raise
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def agent_add_proxy(request):
+    serializer = AgentAddCommandSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    data = serializer.validated_data
+    list_title = data["list_title"]
+    new_items = data["items"]
+    create_if_missing = data["create_if_missing"]
+
+    from django.contrib.contenttypes.models import ContentType
+    from lists.models import List as UserList
+    from lists.api.serializers import ListSerializer as UserListSerializer
+
+    user = request.user
+    user_ct = ContentType.objects.get_for_model(user.__class__)
+
+    action_run = ActionRun.objects.create(
+        tool_name="agent.add",
+        status=ActionRunStatus.RUNNING,
+        execution_mode=ActionRunExecutionMode.LOCAL,
+        tenant_id=_DEFAULT_TENANT_ID,
+        tenant_namespace=_DEFAULT_TENANT_NAMESPACE,
+        initiator_type=ActionRunInitiatorType.HUMAN,
+        initiator_id=str(user.pk),
+        request_payload={"list_title": list_title, "items": new_items},
+        started_at=timezone.now(),
+    )
+    try:
+        lst = UserList.objects.filter(
+            sponsor_content_type=user_ct,
+            sponsor_object_id=str(user.pk),
+            title=list_title,
+        ).first()
+
+        if lst is None:
+            if not create_if_missing:
+                action_run.status = ActionRunStatus.FAILED
+                action_run.error_payload = {"error": f"List '{list_title}' not found"}
+                action_run.completed_at = timezone.now()
+                action_run.save(update_fields=["status", "error_payload", "completed_at", "updated_at"])
+                return JsonResponse(
+                    {"detail": f"List '{list_title}' not found and create_if_missing is false."},
+                    status=404,
+                )
+            lst = UserList.objects.create(
+                title=list_title,
+                body_text="",
+                submitted_by=user,
+                author=user,
+                sponsor_content_type=user_ct,
+                sponsor_object_id=str(user.pk),
+            )
+
+        appended_lines = "\n".join(f"- {item.strip()}" for item in new_items if item.strip())
+        lst.body_text = (lst.body_text.rstrip("\n") + "\n" + appended_lines).lstrip("\n")
+        lst.save(update_fields=["body_text", "updated_at"])
+
+        action_run.status = ActionRunStatus.SUCCEEDED
+        action_run.result_payload = {
+            "object_id": str(lst.id),
+            "object_type": "list",
+            "items_added": len(new_items),
+        }
+        action_run.completed_at = timezone.now()
+        action_run.save(update_fields=["status", "result_payload", "completed_at", "updated_at"])
+
+        result = UserListSerializer(lst).data
+        result["action_run_id"] = str(action_run.id)
+        result["items_added"] = len(new_items)
+        return JsonResponse(result, status=200)
     except Exception as exc:
         action_run.status = ActionRunStatus.FAILED
         action_run.error_payload = {"error": str(exc)}
