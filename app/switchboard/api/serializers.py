@@ -72,6 +72,13 @@ class AgentTaskCommandSerializer(serializers.Serializer):
     parsed_metadata = serializers.DictField(required=False, default=dict)
 
 
+class AgentAddCommandSerializer(serializers.Serializer):
+    list_title = serializers.CharField()
+    items = serializers.ListField(child=serializers.CharField(), min_length=1)
+    create_if_missing = serializers.BooleanField(default=True)
+    surface = serializers.ChoiceField(choices=["mobile", "desktop"], default="mobile")
+
+
 class AgentParseUnavailableSerializer(serializers.Serializer):
     detail = serializers.CharField()
     parse_route = serializers.CharField()

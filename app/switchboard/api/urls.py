@@ -3,6 +3,7 @@
 from django.urls import path
 
 from .views import (
+    agent_add_proxy,
     agent_note_proxy,
     agent_parse_proxy,
     agent_reminder_proxy,
@@ -23,6 +24,7 @@ urlpatterns = [
     path("refine/async", refine_async_proxy, name="switchboard-refine-async"),
     path("think/cluster", think_cluster_async_proxy, name="switchboard-think-cluster"),
     path("agent/parse", agent_parse_proxy, name="switchboard-agent-parse"),
+    path("agent/add", agent_add_proxy, name="switchboard-agent-add"),
     path("agent/note", agent_note_proxy, name="switchboard-agent-note"),
     path("agent/remind", agent_reminder_proxy, name="switchboard-agent-remind"),
     path("agent/task", agent_task_proxy, name="switchboard-agent-task"),
