@@ -460,6 +460,93 @@ def agent_task_proxy(request):
         raise
 
 
+_VALID_REFINE_LENGTHS = frozenset({"preserve", "shorten", "expand"})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def refine_async_proxy(request):
+    source_text = (request.data.get("source_text") or "").strip()
+    refinement_instruction = (request.data.get("refinement_instruction") or "").strip()
+    target_length = (request.data.get("target_length") or "").strip().lower() or None
+    additional_context = (request.data.get("additional_context") or "").strip() or None
+    surface = (request.data.get("surface") or "console").strip()
+    deferred = bool(request.data.get("deferred", False))
+
+    if not source_text:
+        return JsonResponse({"detail": "source_text is required."}, status=400)
+    if not refinement_instruction:
+        return JsonResponse({"detail": "refinement_instruction is required."}, status=400)
+    if target_length and target_length not in _VALID_REFINE_LENGTHS:
+        return JsonResponse(
+            {"detail": f"target_length must be one of: {', '.join(sorted(_VALID_REFINE_LENGTHS))}."},
+            status=400,
+        )
+    if surface not in _VALID_SURFACES:
+        surface = "console"
+
+    tenant_id = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_ID", _DEFAULT_TENANT_ID))
+    tenant_namespace = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", _DEFAULT_TENANT_NAMESPACE))
+
+    refine_payload = {
+        "source_text": source_text,
+        "refinement_instruction": refinement_instruction,
+        "target_length": target_length,
+        "additional_context": additional_context,
+    }
+
+    execution_mode = ActionRunExecutionMode.CLOUD if deferred else ActionRunExecutionMode.LOCAL
+
+    action_run = ActionRun.objects.create(
+        tool_name=f"{surface}.refine",
+        status=ActionRunStatus.PENDING,
+        execution_mode=execution_mode,
+        tenant_id=tenant_id,
+        tenant_namespace=tenant_namespace,
+        initiator_type=ActionRunInitiatorType.HUMAN,
+        initiator_id=str(request.user.pk),
+        request_payload={
+            "source_text": source_text if deferred else None,
+            "source_text_length": len(source_text),
+            "refinement_instruction": refinement_instruction,
+            "target_length": target_length,
+            "additional_context": additional_context,
+            "surface": surface,
+            "deferred": deferred,
+        },
+    )
+
+    if not deferred:
+        celery_app.send_task(
+            "switchboard.refine_async",
+            kwargs={
+                "action_run_id": str(action_run.id),
+                "tenant_id": tenant_id,
+                "tenant_namespace": tenant_namespace,
+                "principal_user_id": str(request.user.pk),
+                "principal_service_token_id": None,
+                "request_payload": refine_payload,
+                "refine_payload": refine_payload,
+            },
+            queue="switchboard",
+        )
+        logger.info(
+            "Enqueued refine action_run=%s user=%s surface=%s",
+            action_run.id,
+            request.user.pk,
+            surface,
+        )
+    else:
+        logger.info(
+            "Created deferred refine action_run=%s user=%s surface=%s (awaiting approval)",
+            action_run.id,
+            request.user.pk,
+            surface,
+        )
+
+    return JsonResponse({"action_run_id": str(action_run.id)}, status=202)
+
+
 _VALID_CONTENT_TYPES = frozenset({"email", "sop", "summary", "message", "document", "proposal"})
 _VALID_TONES = frozenset({"professional", "friendly", "direct", "formal", "casual"})
 _VALID_LENGTHS = frozenset({"brief", "standard", "detailed"})
