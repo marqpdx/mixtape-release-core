@@ -653,6 +653,7 @@ class GroupInvitationSerializer(serializers.ModelSerializer):
     invited_username = serializers.CharField(required=False, write_only=True)  # Add this field
     invited_group = serializers.SerializerMethodField()
     group_detail = serializers.SerializerMethodField()
+    accept_url = serializers.SerializerMethodField()
     invitation_kind = serializers.ChoiceField(
         choices=InvitationKind.choices,
         required=False,
@@ -705,6 +706,7 @@ class GroupInvitationSerializer(serializers.ModelSerializer):
             "invited_username",  # Add this
             "invited_group",
             "group_detail",
+            "accept_url",
             "message",
             "invitation_status",
             "invitation_kind",
@@ -719,6 +721,7 @@ class GroupInvitationSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "invited_by",
+            "accept_url",
             "group",
             "created_at",
             "updated_at",
@@ -749,6 +752,28 @@ class GroupInvitationSerializer(serializers.ModelSerializer):
         if not obj.group:
             return None
         return GroupMinimalSerializer(obj.group).data
+
+    def get_accept_url(self, obj):
+        if not obj.invited_user:
+            return None
+        from groups.models.group import InviteLink
+        from django.conf import settings
+        link = (
+            InviteLink.objects.filter(
+                user=obj.invited_user,
+                group=obj.group,
+                is_used=False,
+            )
+            .order_by("-id")
+            .first()
+        )
+        if not link:
+            return None
+        is_existing = obj.invited_user.is_active
+        path = f"/app/invitations/accept/{link.shortcode}"
+        if not is_existing:
+            path += "/new"
+        return f"{settings.FRONTEND_URL}{path}"
 
 
 
