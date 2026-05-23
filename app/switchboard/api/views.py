@@ -458,3 +458,95 @@ def agent_task_proxy(request):
         action_run.completed_at = timezone.now()
         action_run.save(update_fields=["status", "error_payload", "completed_at", "updated_at"])
         raise
+
+
+_VALID_CONTENT_TYPES = frozenset({"email", "sop", "summary", "message", "document", "proposal"})
+_VALID_TONES = frozenset({"professional", "friendly", "direct", "formal", "casual"})
+_VALID_LENGTHS = frozenset({"brief", "standard", "detailed"})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def draft_async_proxy(request):
+    content_type = (request.data.get("content_type") or "").strip().lower()
+    source_text = (request.data.get("source_text") or "").strip()
+    tone = (request.data.get("tone") or "").strip().lower() or None
+    target_length = (request.data.get("target_length") or "").strip().lower() or None
+    audience = (request.data.get("audience") or "").strip() or None
+    additional_context = (request.data.get("additional_context") or "").strip() or None
+    surface = (request.data.get("surface") or "console").strip()
+
+    if not content_type:
+        return JsonResponse({"detail": "content_type is required."}, status=400)
+    if content_type not in _VALID_CONTENT_TYPES:
+        return JsonResponse(
+            {"detail": f"content_type must be one of: {', '.join(sorted(_VALID_CONTENT_TYPES))}."},
+            status=400,
+        )
+    if not source_text:
+        return JsonResponse({"detail": "source_text is required."}, status=400)
+    if tone and tone not in _VALID_TONES:
+        return JsonResponse(
+            {"detail": f"tone must be one of: {', '.join(sorted(_VALID_TONES))}."},
+            status=400,
+        )
+    if target_length and target_length not in _VALID_LENGTHS:
+        return JsonResponse(
+            {"detail": f"target_length must be one of: {', '.join(sorted(_VALID_LENGTHS))}."},
+            status=400,
+        )
+    if surface not in _VALID_SURFACES:
+        surface = "console"
+
+    tenant_id = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_ID", _DEFAULT_TENANT_ID))
+    tenant_namespace = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", _DEFAULT_TENANT_NAMESPACE))
+
+    draft_payload = {
+        "content_type": content_type,
+        "source_text": source_text,
+        "tone": tone,
+        "target_length": target_length,
+        "audience": audience,
+        "additional_context": additional_context,
+    }
+
+    action_run = ActionRun.objects.create(
+        tool_name=f"{surface}.draft",
+        status=ActionRunStatus.PENDING,
+        execution_mode=ActionRunExecutionMode.LOCAL,
+        tenant_id=tenant_id,
+        tenant_namespace=tenant_namespace,
+        initiator_type=ActionRunInitiatorType.HUMAN,
+        initiator_id=str(request.user.pk),
+        request_payload={
+            "content_type": content_type,
+            "source_text_length": len(source_text),
+            "tone": tone,
+            "target_length": target_length,
+            "surface": surface,
+        },
+    )
+
+    celery_app.send_task(
+        "switchboard.draft_async",
+        kwargs={
+            "action_run_id": str(action_run.id),
+            "tenant_id": tenant_id,
+            "tenant_namespace": tenant_namespace,
+            "principal_user_id": str(request.user.pk),
+            "principal_service_token_id": None,
+            "request_payload": draft_payload,
+            "draft_payload": draft_payload,
+        },
+        queue="switchboard",
+    )
+
+    logger.info(
+        "Enqueued draft action_run=%s user=%s content_type=%s surface=%s",
+        action_run.id,
+        request.user.pk,
+        content_type,
+        surface,
+    )
+
+    return JsonResponse({"action_run_id": str(action_run.id)}, status=202)

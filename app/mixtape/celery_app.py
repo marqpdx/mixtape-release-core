@@ -188,7 +188,7 @@ app.conf.task_routes = {
         "queue": "polling", "routing_key": "polling"
     },
 
-    # --- Switchboard: AI worker tasks (classify, summarize, context_shape, think, retrieve) ---
+    # --- Switchboard: AI worker tasks (classify, summarize, context_shape, think, retrieve, draft) ---
     "switchboard.classify_async": {
         "queue": "switchboard", "routing_key": "switchboard"
     },
@@ -202,6 +202,9 @@ app.conf.task_routes = {
         "queue": "switchboard", "routing_key": "switchboard"
     },
     "switchboard.retrieve_async": {
+        "queue": "switchboard", "routing_key": "switchboard"
+    },
+    "switchboard.draft_async": {
         "queue": "switchboard", "routing_key": "switchboard"
     },
 
