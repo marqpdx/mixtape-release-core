@@ -15,6 +15,8 @@ from initiatives.models import (
     AgentCommand,
     AgentCommandStatus,
     ActionRun,
+    ActionRunExecutionMode,
+    ActionRunStatus,
     Artifact,
     ApertureLog,
     ApertureLogEntry,
@@ -305,6 +307,92 @@ class ActionRunDetailView(APIView):
 
         updated = serializer.save()
         return Response(ActionRunSummarySerializer(updated).data)
+
+
+_VALID_APPROVAL_MODES = frozenset({"standard", "reviewed_default", "trusted_default"})
+
+
+def _dispatch_approved_action_run(action_run, user):
+    from mixtape.celery_app import app as celery_app
+
+    payload = action_run.request_payload or {}
+    tool = action_run.tool_name
+
+    if ".draft" in tool:
+        draft_payload = {
+            "content_type": payload.get("content_type"),
+            "source_text": payload.get("source_text"),
+            "tone": payload.get("tone"),
+            "target_length": payload.get("target_length"),
+            "audience": payload.get("audience"),
+            "additional_context": payload.get("additional_context"),
+        }
+        celery_app.send_task(
+            "switchboard.draft_async",
+            kwargs={
+                "action_run_id": str(action_run.id),
+                "tenant_id": str(action_run.tenant_id),
+                "tenant_namespace": action_run.tenant_namespace,
+                "principal_user_id": str(user.pk),
+                "principal_service_token_id": None,
+                "request_payload": draft_payload,
+                "draft_payload": draft_payload,
+                "cloud_mode": True,
+            },
+            queue="switchboard",
+        )
+    else:
+        raise ValueError(f"No dispatch handler for tool '{tool}'")
+
+
+class ActionRunApproveView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, action_run_id):
+        if not _superuser_required(request):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        action_run = get_object_or_404(ActionRun, pk=action_run_id)
+
+        if action_run.initiator_id != str(request.user.pk):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        if action_run.cloud_approved:
+            return Response({"detail": "Already approved."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if action_run.status != ActionRunStatus.PENDING:
+            return Response(
+                {"detail": f"Cannot approve run in status '{action_run.status}'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        approval_mode = (request.data.get("approval_mode") or "standard").strip()
+        if approval_mode not in _VALID_APPROVAL_MODES:
+            approval_mode = "standard"
+
+        action_run.cloud_approved = True
+        action_run.execution_mode = ActionRunExecutionMode.CLOUD
+        action_run.approval_payload = {
+            "approved_by": request.user.username,
+            "approved_at": timezone.now().isoformat(),
+            "approval_mode": approval_mode,
+        }
+        action_run.save(update_fields=["cloud_approved", "execution_mode", "approval_payload", "updated_at"])
+
+        try:
+            _dispatch_approved_action_run(action_run, request.user)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        logger.info(
+            "action_run_approved action_run=%s user=%s tool=%s mode=%s",
+            action_run.id,
+            request.user.pk,
+            action_run.tool_name,
+            approval_mode,
+        )
+
+        return Response(ActionRunDetailSerializer(action_run).data)
 
 
 def _resolve_mobile_command_target(*, initiative_id=None, sponsor_model=None, sponsor_id=None):

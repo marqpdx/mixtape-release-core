@@ -475,6 +475,8 @@ def draft_async_proxy(request):
     audience = (request.data.get("audience") or "").strip() or None
     additional_context = (request.data.get("additional_context") or "").strip() or None
     surface = (request.data.get("surface") or "console").strip()
+    # deferred=true: create ActionRun without dispatching; caller approves via approve endpoint
+    deferred = bool(request.data.get("deferred", False))
 
     if not content_type:
         return JsonResponse({"detail": "content_type is required."}, status=400)
@@ -510,43 +512,58 @@ def draft_async_proxy(request):
         "additional_context": additional_context,
     }
 
+    execution_mode = ActionRunExecutionMode.CLOUD if deferred else ActionRunExecutionMode.LOCAL
+
     action_run = ActionRun.objects.create(
         tool_name=f"{surface}.draft",
         status=ActionRunStatus.PENDING,
-        execution_mode=ActionRunExecutionMode.LOCAL,
+        execution_mode=execution_mode,
         tenant_id=tenant_id,
         tenant_namespace=tenant_namespace,
         initiator_type=ActionRunInitiatorType.HUMAN,
         initiator_id=str(request.user.pk),
         request_payload={
             "content_type": content_type,
+            # Store full source_text for deferred runs — approve endpoint needs it to redispatch
+            "source_text": source_text if deferred else None,
             "source_text_length": len(source_text),
             "tone": tone,
             "target_length": target_length,
+            "audience": audience,
+            "additional_context": additional_context,
             "surface": surface,
+            "deferred": deferred,
         },
     )
 
-    celery_app.send_task(
-        "switchboard.draft_async",
-        kwargs={
-            "action_run_id": str(action_run.id),
-            "tenant_id": tenant_id,
-            "tenant_namespace": tenant_namespace,
-            "principal_user_id": str(request.user.pk),
-            "principal_service_token_id": None,
-            "request_payload": draft_payload,
-            "draft_payload": draft_payload,
-        },
-        queue="switchboard",
-    )
-
-    logger.info(
-        "Enqueued draft action_run=%s user=%s content_type=%s surface=%s",
-        action_run.id,
-        request.user.pk,
-        content_type,
-        surface,
-    )
+    if not deferred:
+        celery_app.send_task(
+            "switchboard.draft_async",
+            kwargs={
+                "action_run_id": str(action_run.id),
+                "tenant_id": tenant_id,
+                "tenant_namespace": tenant_namespace,
+                "principal_user_id": str(request.user.pk),
+                "principal_service_token_id": None,
+                "request_payload": draft_payload,
+                "draft_payload": draft_payload,
+            },
+            queue="switchboard",
+        )
+        logger.info(
+            "Enqueued draft action_run=%s user=%s content_type=%s surface=%s",
+            action_run.id,
+            request.user.pk,
+            content_type,
+            surface,
+        )
+    else:
+        logger.info(
+            "Created deferred draft action_run=%s user=%s content_type=%s surface=%s (awaiting approval)",
+            action_run.id,
+            request.user.pk,
+            content_type,
+            surface,
+        )
 
     return JsonResponse({"action_run_id": str(action_run.id)}, status=202)
