@@ -529,6 +529,9 @@ class ActionRun(BaseModel):
             models.Index(fields=["status", "-started_at"], name="initiatives_ar_status_idx"),
             models.Index(fields=["initiator_type", "initiator_id"], name="initiatives_ar_init_idx"),
         ]
+        permissions = [
+            ("approve_cloud_dispatch", "Can approve cloud AI dispatch"),
+        ]
 
     def __str__(self):
         return f"ActionRun [{self.tool_name}] {self.status}"

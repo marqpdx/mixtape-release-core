@@ -100,6 +100,17 @@ class AgentPatternCommandSerializer(serializers.Serializer):
     surface = serializers.ChoiceField(choices=["mobile", "desktop"], default="desktop")
 
 
+class AgentSynthesizeCommandSerializer(serializers.Serializer):
+    query = serializers.CharField()
+    library_id = serializers.UUIDField(required=False, allow_null=True)
+    max_sources = serializers.IntegerField(default=15, min_value=5, max_value=30)
+    surface = serializers.ChoiceField(choices=["mobile", "desktop"], default="desktop")
+
+
+class AgentSynthesizeNarrativeCommandSerializer(serializers.Serializer):
+    action_run_id = serializers.UUIDField()
+
+
 class AgentParseUnavailableSerializer(serializers.Serializer):
     detail = serializers.CharField()
     parse_route = serializers.CharField()
