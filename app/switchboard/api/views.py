@@ -32,6 +32,8 @@ from switchboard.api.serializers import (
     AgentPatternCommandSerializer,
     AgentReminderCommandSerializer,
     AgentResearchCommandSerializer,
+    AgentSynthesizeCommandSerializer,
+    AgentSynthesizeNarrativeCommandSerializer,
     AgentTaskCommandSerializer,
 )
 
@@ -763,6 +765,183 @@ def agent_pattern_proxy(request):
     )
 
     return JsonResponse({"action_run_id": str(action_run.id)}, status=202)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def agent_synthesize_proxy(request):
+    if not request.user.has_perm("initiatives.approve_cloud_dispatch"):
+        return JsonResponse(
+            {"detail": "You don't have permission to approve cloud AI dispatch."},
+            status=403,
+        )
+
+    serializer = AgentSynthesizeCommandSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    data = serializer.validated_data
+    query = data["query"]
+    library_id = data.get("library_id")
+    max_sources = data["max_sources"]
+    surface = data["surface"]
+
+    from django.contrib.contenttypes.models import ContentType
+    from initiatives.services.agent_stackroom import AgentStackroomError, retrieve_from_stackroom
+    from puddlejump.models import Library
+
+    user = request.user
+
+    if library_id is None:
+        user_ct = ContentType.objects.get_for_model(user.__class__)
+        try:
+            lib = Library.objects.get(owner_content_type=user_ct, owner_object_id=user.id)
+            library_id = lib.id
+        except Library.DoesNotExist:
+            return JsonResponse(
+                {"detail": "No library found for this user. Upload files first."},
+                status=404,
+            )
+
+    try:
+        corpus_items = retrieve_from_stackroom(
+            query=query,
+            library_id=library_id,
+            limit=max_sources,
+        )
+    except AgentStackroomError as exc:
+        http_status = 504 if exc.status_code == 504 else 502
+        return JsonResponse({"detail": exc.detail}, status=http_status)
+
+    tenant_id = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_ID", _DEFAULT_TENANT_ID))
+    tenant_namespace = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", _DEFAULT_TENANT_NAMESPACE))
+
+    synthesize_payload = {"query": query, "library_id": str(library_id), "max_sources": max_sources}
+
+    action_run = ActionRun.objects.create(
+        tool_name=f"{surface}.synthesize",
+        status=ActionRunStatus.PENDING,
+        execution_mode=ActionRunExecutionMode.CLOUD,
+        tenant_id=tenant_id,
+        tenant_namespace=tenant_namespace,
+        initiator_type=ActionRunInitiatorType.HUMAN,
+        initiator_id=str(user.pk),
+        cloud_approved=True,
+        request_payload={
+            "query": query,
+            "library_id": str(library_id),
+            "max_sources": max_sources,
+            "surface": surface,
+            "corpus_count": len(corpus_items),
+        },
+    )
+
+    celery_app.send_task(
+        "switchboard.synthesize_async",
+        kwargs={
+            "action_run_id": str(action_run.id),
+            "tenant_id": tenant_id,
+            "tenant_namespace": tenant_namespace,
+            "principal_user_id": str(user.pk),
+            "principal_service_token_id": None,
+            "request_payload": synthesize_payload,
+            "synthesize_payload": synthesize_payload,
+            "corpus_items": corpus_items,
+        },
+        queue="switchboard",
+    )
+
+    logger.info(
+        "Enqueued synthesize action_run=%s user=%s query_len=%d corpus=%d",
+        action_run.id,
+        user.pk,
+        len(query),
+        len(corpus_items),
+    )
+
+    return JsonResponse({"action_run_id": str(action_run.id)}, status=202)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def agent_synthesize_narrative_proxy(request):
+    if not request.user.has_perm("initiatives.approve_cloud_dispatch"):
+        return JsonResponse(
+            {"detail": "You don't have permission to approve cloud AI dispatch."},
+            status=403,
+        )
+
+    serializer = AgentSynthesizeNarrativeCommandSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    action_run_id = str(serializer.validated_data["action_run_id"])
+
+    try:
+        brief_run = ActionRun.objects.get(pk=action_run_id)
+    except ActionRun.DoesNotExist:
+        return JsonResponse({"detail": "Brief ActionRun not found."}, status=404)
+
+    if brief_run.initiator_id != str(request.user.pk):
+        return JsonResponse({"detail": "Not found."}, status=404)
+
+    if brief_run.status != ActionRunStatus.SUCCEEDED:
+        return JsonResponse(
+            {"detail": "Brief run has not succeeded yet. Wait for it to complete before generating a narrative."},
+            status=422,
+        )
+
+    if ".synthesize" not in (brief_run.tool_name or ""):
+        return JsonResponse({"detail": "Referenced run is not a synthesize result."}, status=422)
+
+    brief = brief_run.result_payload or {}
+    narrative_payload = {
+        "query": brief.get("query", ""),
+        "key_points": brief.get("key_points", []),
+        "tensions": brief.get("tensions", []),
+        "synthesis_statement": brief.get("synthesis_statement", ""),
+        "open_questions": brief.get("open_questions", []),
+    }
+
+    if not narrative_payload["query"]:
+        return JsonResponse({"detail": "Brief run result is missing query field."}, status=422)
+
+    tenant_id = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_ID", _DEFAULT_TENANT_ID))
+    tenant_namespace = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", _DEFAULT_TENANT_NAMESPACE))
+
+    narrative_run = ActionRun.objects.create(
+        tool_name=brief_run.tool_name.replace(".synthesize", ".synthesize_narrative"),
+        status=ActionRunStatus.PENDING,
+        execution_mode=ActionRunExecutionMode.CLOUD,
+        tenant_id=tenant_id,
+        tenant_namespace=tenant_namespace,
+        initiator_type=ActionRunInitiatorType.HUMAN,
+        initiator_id=str(request.user.pk),
+        cloud_approved=True,
+        parent_action=brief_run,
+        request_payload={"brief_action_run_id": action_run_id, "query": narrative_payload["query"]},
+    )
+
+    celery_app.send_task(
+        "switchboard.synthesize_narrative_async",
+        kwargs={
+            "action_run_id": str(narrative_run.id),
+            "tenant_id": tenant_id,
+            "tenant_namespace": tenant_namespace,
+            "principal_user_id": str(request.user.pk),
+            "principal_service_token_id": None,
+            "request_payload": narrative_payload,
+            "narrative_payload": narrative_payload,
+        },
+        queue="switchboard",
+    )
+
+    logger.info(
+        "Enqueued synthesize_narrative action_run=%s brief_run=%s user=%s",
+        narrative_run.id,
+        action_run_id,
+        request.user.pk,
+    )
+
+    return JsonResponse({"action_run_id": str(narrative_run.id)}, status=202)
 
 
 _VALID_REFINE_LENGTHS = frozenset({"preserve", "shorten", "expand"})
