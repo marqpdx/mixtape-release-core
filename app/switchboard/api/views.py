@@ -29,6 +29,7 @@ from switchboard.api.serializers import (
     AgentFindCommandSerializer,
     AgentNoteCommandSerializer,
     AgentParseRequestSerializer,
+    AgentPatternCommandSerializer,
     AgentReminderCommandSerializer,
     AgentResearchCommandSerializer,
     AgentTaskCommandSerializer,
@@ -671,6 +672,94 @@ def agent_research_proxy(request):
         action_run.id,
         request.user.pk,
         len(query),
+    )
+
+    return JsonResponse({"action_run_id": str(action_run.id)}, status=202)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def agent_pattern_proxy(request):
+    serializer = AgentPatternCommandSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    data = serializer.validated_data
+    query = data["query"]
+    library_id = data.get("library_id")
+    max_sources = data["max_sources"]
+    surface = data["surface"]
+
+    from django.contrib.contenttypes.models import ContentType
+    from initiatives.services.agent_stackroom import AgentStackroomError, retrieve_from_stackroom
+    from puddlejump.models import Library
+
+    user = request.user
+
+    if library_id is None:
+        user_ct = ContentType.objects.get_for_model(user.__class__)
+        try:
+            lib = Library.objects.get(owner_content_type=user_ct, owner_object_id=user.id)
+            library_id = lib.id
+        except Library.DoesNotExist:
+            return JsonResponse(
+                {"detail": "No library found for this user. Upload files first."},
+                status=404,
+            )
+
+    # Fetch corpus here — Core owns the Stackroom integration; task receives pre-fetched items
+    try:
+        corpus_items = retrieve_from_stackroom(
+            query=query,
+            library_id=library_id,
+            limit=max_sources,
+        )
+    except AgentStackroomError as exc:
+        http_status = 504 if exc.status_code == 504 else 502
+        return JsonResponse({"detail": exc.detail}, status=http_status)
+
+    tenant_id = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_ID", _DEFAULT_TENANT_ID))
+    tenant_namespace = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", _DEFAULT_TENANT_NAMESPACE))
+
+    pattern_payload = {"query": query, "library_id": str(library_id), "max_sources": max_sources}
+
+    action_run = ActionRun.objects.create(
+        tool_name=f"{surface}.pattern",
+        status=ActionRunStatus.PENDING,
+        execution_mode=ActionRunExecutionMode.LOCAL,
+        tenant_id=tenant_id,
+        tenant_namespace=tenant_namespace,
+        initiator_type=ActionRunInitiatorType.HUMAN,
+        initiator_id=str(user.pk),
+        request_payload={
+            "query": query,
+            "library_id": str(library_id),
+            "max_sources": max_sources,
+            "surface": surface,
+            "corpus_count": len(corpus_items),
+        },
+    )
+
+    celery_app.send_task(
+        "switchboard.pattern_async",
+        kwargs={
+            "action_run_id": str(action_run.id),
+            "tenant_id": tenant_id,
+            "tenant_namespace": tenant_namespace,
+            "principal_user_id": str(user.pk),
+            "principal_service_token_id": None,
+            "request_payload": pattern_payload,
+            "pattern_payload": pattern_payload,
+            "corpus_items": corpus_items,
+        },
+        queue="switchboard",
+    )
+
+    logger.info(
+        "Enqueued pattern action_run=%s user=%s query_len=%d corpus=%d",
+        action_run.id,
+        user.pk,
+        len(query),
+        len(corpus_items),
     )
 
     return JsonResponse({"action_run_id": str(action_run.id)}, status=202)
