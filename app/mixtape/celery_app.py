@@ -207,6 +207,12 @@ app.conf.task_routes = {
     "switchboard.draft_async": {
         "queue": "switchboard", "routing_key": "switchboard"
     },
+    "switchboard.refine_async": {
+        "queue": "switchboard", "routing_key": "switchboard"
+    },
+    "switchboard.research_async": {
+        "queue": "switchboard", "routing_key": "switchboard"
+    },
 
     # --- Puddlejump: snapshot generation + beat scan + Stackroom ingest + retrieve/find ---
     "puddlejump.tasks.generate_snapshot": {
