@@ -26,9 +26,11 @@ from initiatives.models import (
 from mixtape.celery_app import app as celery_app
 from switchboard.api.serializers import (
     AgentAddCommandSerializer,
+    AgentFindCommandSerializer,
     AgentNoteCommandSerializer,
     AgentParseRequestSerializer,
     AgentReminderCommandSerializer,
+    AgentResearchCommandSerializer,
     AgentTaskCommandSerializer,
 )
 
@@ -539,6 +541,139 @@ def agent_add_proxy(request):
         action_run.completed_at = timezone.now()
         action_run.save(update_fields=["status", "error_payload", "completed_at", "updated_at"])
         raise
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def agent_find_proxy(request):
+    serializer = AgentFindCommandSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    data = serializer.validated_data
+    query = data["query"]
+    library_id = data.get("library_id")
+    limit = data["limit"]
+    score_threshold = data["score_threshold"]
+
+    from django.contrib.contenttypes.models import ContentType
+    from initiatives.services.agent_stackroom import AgentStackroomError, retrieve_from_stackroom
+    from puddlejump.models import Library
+
+    user = request.user
+
+    if library_id is None:
+        user_ct = ContentType.objects.get_for_model(user.__class__)
+        try:
+            lib = Library.objects.get(owner_content_type=user_ct, owner_object_id=user.id)
+            library_id = lib.id
+        except Library.DoesNotExist:
+            return JsonResponse(
+                {"detail": "No library found for this user. Upload files first."},
+                status=404,
+            )
+
+    action_run = ActionRun.objects.create(
+        tool_name="agent.find",
+        status=ActionRunStatus.RUNNING,
+        execution_mode=ActionRunExecutionMode.LOCAL,
+        tenant_id=_DEFAULT_TENANT_ID,
+        tenant_namespace=_DEFAULT_TENANT_NAMESPACE,
+        initiator_type=ActionRunInitiatorType.HUMAN,
+        initiator_id=str(user.pk),
+        request_payload={"query": query, "library_id": str(library_id), "limit": limit},
+        started_at=timezone.now(),
+    )
+    try:
+        raw_results = retrieve_from_stackroom(
+            query=query,
+            library_id=library_id,
+            limit=limit,
+        )
+        filtered = [r for r in raw_results if r["score"] >= score_threshold]
+
+        action_run.status = ActionRunStatus.SUCCEEDED
+        action_run.result_payload = {
+            "result_count": len(filtered),
+            "library_id": str(library_id),
+            "query": query,
+        }
+        action_run.completed_at = timezone.now()
+        action_run.save(update_fields=["status", "result_payload", "completed_at", "updated_at"])
+
+        return JsonResponse(
+            {
+                "results": filtered,
+                "query": query,
+                "library_id": str(library_id),
+                "result_count": len(filtered),
+                "action_run_id": str(action_run.id),
+            },
+            status=200,
+        )
+    except AgentStackroomError as exc:
+        action_run.status = ActionRunStatus.FAILED
+        action_run.error_payload = {"error": str(exc), "status_code": exc.status_code}
+        action_run.completed_at = timezone.now()
+        action_run.save(update_fields=["status", "error_payload", "completed_at", "updated_at"])
+        http_status = 504 if exc.status_code == 504 else 502
+        return JsonResponse({"detail": exc.detail}, status=http_status)
+    except Exception as exc:
+        action_run.status = ActionRunStatus.FAILED
+        action_run.error_payload = {"error": str(exc)}
+        action_run.completed_at = timezone.now()
+        action_run.save(update_fields=["status", "error_payload", "completed_at", "updated_at"])
+        raise
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def agent_research_proxy(request):
+    serializer = AgentResearchCommandSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    data = serializer.validated_data
+    query = data["query"]
+    max_sources = data["max_sources"]
+    surface = data["surface"]
+
+    tenant_id = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_ID", _DEFAULT_TENANT_ID))
+    tenant_namespace = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", _DEFAULT_TENANT_NAMESPACE))
+
+    research_payload = {"query": query, "max_sources": max_sources}
+
+    action_run = ActionRun.objects.create(
+        tool_name=f"{surface}.research",
+        status=ActionRunStatus.PENDING,
+        execution_mode=ActionRunExecutionMode.LOCAL,
+        tenant_id=tenant_id,
+        tenant_namespace=tenant_namespace,
+        initiator_type=ActionRunInitiatorType.HUMAN,
+        initiator_id=str(request.user.pk),
+        request_payload={"query": query, "max_sources": max_sources, "surface": surface},
+    )
+
+    celery_app.send_task(
+        "switchboard.research_async",
+        kwargs={
+            "action_run_id": str(action_run.id),
+            "tenant_id": tenant_id,
+            "tenant_namespace": tenant_namespace,
+            "principal_user_id": str(request.user.pk),
+            "principal_service_token_id": None,
+            "request_payload": research_payload,
+            "research_payload": research_payload,
+        },
+        queue="switchboard",
+    )
+
+    logger.info(
+        "Enqueued research action_run=%s user=%s query_len=%d",
+        action_run.id,
+        request.user.pk,
+        len(query),
+    )
+
+    return JsonResponse({"action_run_id": str(action_run.id)}, status=202)
 
 
 _VALID_REFINE_LENGTHS = frozenset({"preserve", "shorten", "expand"})

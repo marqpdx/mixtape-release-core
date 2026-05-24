@@ -4,9 +4,11 @@ from django.urls import path
 
 from .views import (
     agent_add_proxy,
+    agent_find_proxy,
     agent_note_proxy,
     agent_parse_proxy,
     agent_reminder_proxy,
+    agent_research_proxy,
     agent_task_proxy,
     classify_async_proxy,
     context_shape_async_proxy,
@@ -25,6 +27,8 @@ urlpatterns = [
     path("think/cluster", think_cluster_async_proxy, name="switchboard-think-cluster"),
     path("agent/parse", agent_parse_proxy, name="switchboard-agent-parse"),
     path("agent/add", agent_add_proxy, name="switchboard-agent-add"),
+    path("agent/find", agent_find_proxy, name="switchboard-agent-find"),
+    path("agent/research", agent_research_proxy, name="switchboard-agent-research"),
     path("agent/note", agent_note_proxy, name="switchboard-agent-note"),
     path("agent/remind", agent_reminder_proxy, name="switchboard-agent-remind"),
     path("agent/task", agent_task_proxy, name="switchboard-agent-task"),

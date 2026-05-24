@@ -79,6 +79,20 @@ class AgentAddCommandSerializer(serializers.Serializer):
     surface = serializers.ChoiceField(choices=["mobile", "desktop"], default="mobile")
 
 
+class AgentFindCommandSerializer(serializers.Serializer):
+    query = serializers.CharField()
+    library_id = serializers.UUIDField(required=False, allow_null=True)
+    limit = serializers.IntegerField(default=8, min_value=1, max_value=20)
+    score_threshold = serializers.FloatField(default=0.0)
+    surface = serializers.ChoiceField(choices=["mobile", "desktop"], default="desktop")
+
+
+class AgentResearchCommandSerializer(serializers.Serializer):
+    query = serializers.CharField()
+    max_sources = serializers.IntegerField(default=3, min_value=1, max_value=5)
+    surface = serializers.ChoiceField(choices=["mobile", "desktop"], default="desktop")
+
+
 class AgentParseUnavailableSerializer(serializers.Serializer):
     detail = serializers.CharField()
     parse_route = serializers.CharField()
