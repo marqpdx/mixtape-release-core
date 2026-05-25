@@ -148,6 +148,11 @@ def publish_and_place(piece: WritingPiece, user, data: dict) -> dict:
             SynopsisGenerationService.generate_for_piece(piece)
         except Exception:
             logger.exception("Synopsis generation failed for piece %s — skipping", piece.id)
+        try:
+            from writing.tasks import enqueue_writing_piece_synopsis_task
+            enqueue_writing_piece_synopsis_task.delay(str(piece.id))
+        except Exception:
+            logger.exception("AI synopsis enqueue failed for piece %s — skipping", piece.id)
 
     # --- Placement creation ---
     ct_piece = ContentType.objects.get_for_model(WritingPiece)

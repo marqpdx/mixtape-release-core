@@ -172,6 +172,9 @@ app.conf.task_routes = {
     "writing.tasks.generate_split_suggestion_task": {
         "queue": "commons", "routing_key": "commons"
     },
+    "writing.tasks.enqueue_writing_piece_synopsis_task": {
+        "queue": "commons", "routing_key": "commons"
+    },
     "writing.tasks.transcribe_seed_task": {
         "queue": "transcription", "routing_key": "transcription"
     },
