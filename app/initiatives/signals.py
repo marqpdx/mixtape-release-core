@@ -5,8 +5,12 @@ Signal handlers for the Initiatives app.
 Wired in initiatives/apps.py ready().
 """
 
+import logging
+
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+
+logger = logging.getLogger(__name__)
 
 
 @receiver(post_save, sender="initiatives.Initiative")
@@ -49,6 +53,45 @@ def schedule_handover_on_new_entry(sender, instance, created, **kwargs):
         return
     from initiatives.tasks import handover_task
     handover_task.delay(str(instance.aperture_log_id))
+
+
+@receiver(post_save, sender="initiatives.ActionRun")
+def on_action_run_saved(sender, instance, created, **kwargs):
+    if instance.status != "succeeded":
+        return
+    if instance.tool_name == "writing.synopsis_linkedin":
+        _persist_synopsis_linkedin(instance)
+
+
+def _persist_synopsis_linkedin(action_run):
+    result = action_run.result_payload or {}
+    piece_id = (action_run.request_payload or {}).get("piece_id")
+    if not piece_id:
+        logger.warning("synopsis_linkedin action_run=%s missing piece_id in request_payload", action_run.id)
+        return
+    try:
+        from writing.models import WritingPiece
+        from writing.synopsis_service import SynopsisGenerationService
+        piece = WritingPiece.objects.select_related("synopsis").get(pk=piece_id)
+        synopsis = getattr(piece, "synopsis", None)
+        if synopsis is None:
+            synopsis = SynopsisGenerationService.generate_for_piece(piece)
+        if synopsis is None:
+            logger.error("synopsis_linkedin could not bootstrap WritingSynopsis for piece %s", piece_id)
+            return
+        synopsis.linkedin_copy = result.get("hook", "")
+        synopsis.linkedin_copy_generated_by = "ai"
+        synopsis.linkedin_copy_extended = {
+            "hook": result.get("hook", ""),
+            "short_synopsis": result.get("short_synopsis", ""),
+            "one_line_takeaway": result.get("one_line_takeaway", ""),
+            "alt_hook": result.get("alt_hook", ""),
+            "action_run_id": str(action_run.id),
+        }
+        synopsis.save(update_fields=["linkedin_copy", "linkedin_copy_generated_by", "linkedin_copy_extended", "updated_at"])
+        logger.info("synopsis_linkedin persisted to WritingSynopsis piece=%s action_run=%s", piece_id, action_run.id)
+    except Exception:
+        logger.exception("synopsis_linkedin signal failed for piece=%s action_run=%s", piece_id, action_run.id)
 
 
 def _append_ledger(initiative, event_type: str, body: str, data: dict | None = None):
