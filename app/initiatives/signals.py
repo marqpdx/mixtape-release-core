@@ -61,6 +61,8 @@ def on_action_run_saved(sender, instance, created, **kwargs):
         return
     if instance.tool_name == "writing.synopsis_linkedin":
         _persist_synopsis_linkedin(instance)
+    elif instance.tool_name == "writing.summarize":
+        _persist_writing_piece_synopsis(instance)
 
 
 def _persist_synopsis_linkedin(action_run):
@@ -92,6 +94,31 @@ def _persist_synopsis_linkedin(action_run):
         logger.info("synopsis_linkedin persisted to WritingSynopsis piece=%s action_run=%s", piece_id, action_run.id)
     except Exception:
         logger.exception("synopsis_linkedin signal failed for piece=%s action_run=%s", piece_id, action_run.id)
+
+
+def _persist_writing_piece_synopsis(action_run):
+    result = action_run.result_payload or {}
+    piece_id = (action_run.request_payload or {}).get("piece_id")
+    summary = result.get("summary", "")
+    if not piece_id or not summary:
+        return
+    try:
+        from writing.models import WritingPiece
+        from writing.synopsis_service import SynopsisGenerationService
+        piece = WritingPiece.objects.select_related("synopsis").get(pk=piece_id)
+        synopsis = getattr(piece, "synopsis", None)
+        if synopsis is None:
+            synopsis = SynopsisGenerationService.generate_for_piece(piece)
+        if synopsis is None:
+            logger.error("writing.summarize could not find WritingSynopsis for piece %s", piece_id)
+            return
+        synopsis.teaser = summary[:220]
+        synopsis.description = summary[:500]
+        synopsis.generated_by = "ai"
+        synopsis.save(update_fields=["teaser", "description", "generated_by", "updated_at"])
+        logger.info("writing.summarize persisted to WritingSynopsis piece=%s action_run=%s", piece_id, action_run.id)
+    except Exception:
+        logger.exception("writing.summarize signal failed for piece=%s action_run=%s", piece_id, action_run.id)
 
 
 def _append_ledger(initiative, event_type: str, body: str, data: dict | None = None):

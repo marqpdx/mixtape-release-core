@@ -206,3 +206,70 @@ def generate_split_suggestion_task(self, suggestion_id: str):
         suggestion.status = "dismissed"
         suggestion.save(update_fields=["status", "updated_at"])
         raise self.retry(exc=exc)
+
+
+@shared_task(name="writing.tasks.enqueue_writing_piece_synopsis_task")
+def enqueue_writing_piece_synopsis_task(piece_id: str):
+    """
+    Create an ActionRun and enqueue switchboard.summarize_async for a published WritingPiece.
+    Fires after SynopsisGenerationService runs (rule-based pass). The Switchboard result
+    writes back to WritingSynopsis.teaser / description via the on_action_run_saved signal.
+    """
+    from django.conf import settings
+    from writing.models import WritingPiece
+    from writing.synopsis_service import _extract_plain_text
+    from initiatives.models import ActionRun, ActionRunStatus, ActionRunExecutionMode, ActionRunInitiatorType
+    from mixtape.celery_app import app as celery_app
+
+    _DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000001"
+    _DEFAULT_TENANT_NAMESPACE = "platform:crossroads"
+
+    try:
+        piece = WritingPiece.objects.get(id=piece_id)
+    except WritingPiece.DoesNotExist:
+        logger.warning("[synopsis_ai] WritingPiece %s not found — skipping", piece_id)
+        return
+
+    text = _extract_plain_text(piece.body_json or {}, char_limit=600)
+    if not text or len(text.split()) < 30:
+        logger.info("[synopsis_ai] Piece %s too short for AI synopsis — skipping", piece_id)
+        return
+
+    tenant_id = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_ID", _DEFAULT_TENANT_ID))
+    tenant_namespace = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", _DEFAULT_TENANT_NAMESPACE))
+
+    summarize_payload = {
+        "text": text,
+        "content_type": "writing.piece",
+        "words": 120,
+        "style": "neutral",
+        "summary_style": "standard",
+        "source_id": str(piece_id),
+    }
+
+    action_run = ActionRun.objects.create(
+        tool_name="writing.summarize",
+        status=ActionRunStatus.PENDING,
+        execution_mode=ActionRunExecutionMode.LOCAL,
+        tenant_id=tenant_id,
+        tenant_namespace=tenant_namespace,
+        initiator_type=ActionRunInitiatorType.SYSTEM,
+        initiator_id=str(piece_id),
+        request_payload={"piece_id": str(piece_id), "content_type": "writing.piece"},
+    )
+
+    celery_app.send_task(
+        "switchboard.summarize_async",
+        kwargs={
+            "action_run_id": str(action_run.id),
+            "tenant_id": tenant_id,
+            "tenant_namespace": tenant_namespace,
+            "principal_user_id": None,
+            "principal_service_token_id": None,
+            "request_payload": summarize_payload,
+            "summarize_payload": summarize_payload,
+        },
+        queue="switchboard",
+    )
+
+    logger.info("[synopsis_ai] Enqueued summarize action_run=%s for piece=%s", action_run.id, piece_id)
