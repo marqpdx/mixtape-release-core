@@ -111,6 +111,11 @@ class AgentSynthesizeNarrativeCommandSerializer(serializers.Serializer):
     action_run_id = serializers.UUIDField()
 
 
+class AgentSynopsisLinkedInCommandSerializer(serializers.Serializer):
+    piece_id = serializers.UUIDField()
+    surface = serializers.ChoiceField(choices=["console", "puddlejump", "writing"], default="writing")
+
+
 class AgentParseUnavailableSerializer(serializers.Serializer):
     detail = serializers.CharField()
     parse_route = serializers.CharField()

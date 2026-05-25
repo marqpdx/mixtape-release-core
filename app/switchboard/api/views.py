@@ -34,6 +34,7 @@ from switchboard.api.serializers import (
     AgentResearchCommandSerializer,
     AgentSynthesizeCommandSerializer,
     AgentSynthesizeNarrativeCommandSerializer,
+    AgentSynopsisLinkedInCommandSerializer,
     AgentTaskCommandSerializer,
 )
 
@@ -942,6 +943,93 @@ def agent_synthesize_narrative_proxy(request):
     )
 
     return JsonResponse({"action_run_id": str(narrative_run.id)}, status=202)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def agent_synopsis_linkedin_proxy(request):
+    if not request.user.has_perm("initiatives.approve_cloud_dispatch"):
+        return JsonResponse(
+            {"detail": "You don't have permission to approve cloud AI dispatch."},
+            status=403,
+        )
+
+    serializer = AgentSynopsisLinkedInCommandSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    piece_id = str(serializer.validated_data["piece_id"])
+    surface = serializer.validated_data["surface"]
+
+    from django.shortcuts import get_object_or_404
+    from writing.models import WritingPiece
+    from writing.synopsis_service import SynopsisGenerationService, _extract_plain_text
+
+    user = request.user
+    piece = get_object_or_404(WritingPiece, pk=piece_id)
+
+    if piece.author != user and not user.is_staff:
+        return JsonResponse({"detail": "Not found."}, status=404)
+
+    synopsis = getattr(piece, "synopsis", None)
+    if synopsis is None:
+        synopsis = SynopsisGenerationService.generate_for_piece(piece)
+    if synopsis is None:
+        return JsonResponse(
+            {"detail": "Could not initialise synopsis for this piece."},
+            status=500,
+        )
+
+    title = piece.title or ""
+    excerpt = piece.excerpt or ""
+    body_preview = _extract_plain_text(piece.body_json or {}, char_limit=400)
+
+    tenant_id = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_ID", _DEFAULT_TENANT_ID))
+    tenant_namespace = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", _DEFAULT_TENANT_NAMESPACE))
+
+    synopsis_payload = {
+        "title": title,
+        "excerpt": excerpt,
+        "body_preview": body_preview,
+    }
+
+    action_run = ActionRun.objects.create(
+        tool_name="writing.synopsis_linkedin",
+        status=ActionRunStatus.PENDING,
+        execution_mode=ActionRunExecutionMode.CLOUD,
+        tenant_id=tenant_id,
+        tenant_namespace=tenant_namespace,
+        initiator_type=ActionRunInitiatorType.HUMAN,
+        initiator_id=str(user.pk),
+        cloud_approved=True,
+        request_payload={
+            "piece_id": piece_id,
+            "title": title,
+            "surface": surface,
+        },
+    )
+
+    celery_app.send_task(
+        "switchboard.synopsis_linkedin_async",
+        kwargs={
+            "action_run_id": str(action_run.id),
+            "tenant_id": tenant_id,
+            "tenant_namespace": tenant_namespace,
+            "principal_user_id": str(user.pk),
+            "principal_service_token_id": None,
+            "request_payload": synopsis_payload,
+            "synopsis_payload": synopsis_payload,
+        },
+        queue="switchboard",
+    )
+
+    logger.info(
+        "Enqueued synopsis_linkedin action_run=%s user=%s piece=%s",
+        action_run.id,
+        user.pk,
+        piece_id,
+    )
+
+    return JsonResponse({"action_run_id": str(action_run.id)}, status=202)
 
 
 _VALID_REFINE_LENGTHS = frozenset({"preserve", "shorten", "expand"})
