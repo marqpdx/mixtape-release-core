@@ -144,6 +144,27 @@ def ingest_text(
 # Deactivation
 # ---------------------------------------------------------------------------
 
+def get_library_source_files(library_id: UUID) -> list[dict]:
+    """
+    GET /libraries/{library_id}/source-files
+    Returns a list of source file dicts: id, filename, content_type,
+    size_bytes, origin, created_at.
+    """
+    resp = requests.get(
+        f"{_base_url()}/libraries/{library_id}/source-files",
+        headers=_headers(),
+        timeout=15,
+    )
+    if resp.status_code == 404:
+        return []
+    if resp.status_code != 200:
+        raise StackroomClientError(
+            f"Source file list failed: {resp.status_code} {resp.text}",
+            status_code=resp.status_code,
+        )
+    return resp.json().get("files", [])
+
+
 def delete_source_file(source_file_id: UUID) -> None:
     """DELETE /source-files/{source_file_id} — remove from Stackroom IR."""
     resp = requests.delete(
