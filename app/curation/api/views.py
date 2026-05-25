@@ -259,26 +259,33 @@ class CollectionDetailView(APIView):
         return Response(status=drf_status.HTTP_204_NO_CONTENT)
 
 
+def _resolve_sponsor_library(collection):
+    """Return the Stackroom library UUID for a collection's sponsor, provisioning it if needed."""
+    from django.contrib.auth import get_user_model
+    from inkwell.stackroom_http_client import get_or_create_group_library, get_or_create_user_library
+
+    User = get_user_model()
+    sponsor_model = collection.sponsor_content_type.model_class()
+    try:
+        sponsor = sponsor_model.objects.get(pk=collection.sponsor_object_id)
+    except sponsor_model.DoesNotExist:
+        return None, None
+
+    if isinstance(sponsor, User):
+        return sponsor, get_or_create_user_library(sponsor)
+    return sponsor, get_or_create_group_library(sponsor)
+
+
 class CollectionAvailableFilesView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, collection_id):
         from inkwell.stackroom_http_client import get_library_source_files, StackroomClientError
-        from django.contrib.contenttypes.models import ContentType
 
         collection = get_object_or_404(Collection, id=collection_id)
         _check_read(request.user, collection)
 
-        # Resolve sponsor → stackroom_library_id
-        sponsor_ct = collection.sponsor_content_type
-        sponsor_id = collection.sponsor_object_id
-        sponsor_model = sponsor_ct.model_class()
-        try:
-            sponsor = sponsor_model.objects.get(pk=sponsor_id)
-        except sponsor_model.DoesNotExist:
-            return Response([])
-
-        library_id = getattr(sponsor, "stackroom_library_id", None)
+        _, library_id = _resolve_sponsor_library(collection)
         if not library_id:
             return Response([])
 
@@ -310,6 +317,41 @@ class CollectionAvailableFilesView(APIView):
             })
 
         return Response(files_data)
+
+
+class CollectionUploadView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, collection_id):
+        from inkwell.stackroom_http_client import upload_library_file, StackroomClientError
+
+        collection = get_object_or_404(Collection, id=collection_id)
+        _check_admin(request.user, collection)
+
+        uploaded = request.FILES.get("file")
+        if not uploaded:
+            return Response({"detail": "No file provided."}, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        _, library_id = _resolve_sponsor_library(collection)
+        if not library_id:
+            return Response({"detail": "Collection sponsor not found."}, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        try:
+            result = upload_library_file(
+                library_id=library_id,
+                file_bytes=uploaded.read(),
+                filename=uploaded.name,
+                content_type=uploaded.content_type or "application/octet-stream",
+            )
+        except StackroomClientError as exc:
+            if exc.status_code == 409:
+                return Response(
+                    {"detail": "File already exists in this library.", "source_file_id": exc.extra.get("source_file_id")},
+                    status=drf_status.HTTP_409_CONFLICT,
+                )
+            return Response({"detail": str(exc)}, status=drf_status.HTTP_502_BAD_GATEWAY)
+
+        return Response(result, status=drf_status.HTTP_201_CREATED)
 
 
 class CollectionAvailableDocumentsView(APIView):

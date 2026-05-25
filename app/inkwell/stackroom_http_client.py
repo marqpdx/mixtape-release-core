@@ -19,10 +19,11 @@ logger = logging.getLogger(__name__)
 
 
 class StackroomClientError(RuntimeError):
-    def __init__(self, detail: str, *, status_code: int | None = None):
+    def __init__(self, detail: str, *, status_code: int | None = None, extra: dict | None = None):
         super().__init__(detail)
         self.detail = detail
         self.status_code = status_code
+        self.extra = extra or {}
 
 
 def _base_url() -> str:
@@ -163,6 +164,33 @@ def get_library_source_files(library_id: UUID) -> list[dict]:
             status_code=resp.status_code,
         )
     return resp.json().get("files", [])
+
+
+def upload_library_file(library_id: UUID, file_bytes: bytes, filename: str, content_type: str) -> dict:
+    """
+    POST /libraries/{library_id}/upload
+    Returns: { source_file_id, filename, status }
+    Raises StackroomClientError with status_code=409 if file already exists.
+    """
+    resp = requests.post(
+        f"{_base_url()}/libraries/{library_id}/upload",
+        headers=_headers(),
+        files={"file": (filename, file_bytes, content_type)},
+        timeout=60,
+    )
+    if resp.status_code == 201:
+        return resp.json()
+    if resp.status_code == 409:
+        existing_id = resp.headers.get("X-Source-File-Id")
+        raise StackroomClientError(
+            "File already exists in this library",
+            status_code=409,
+            extra={"source_file_id": existing_id},
+        )
+    raise StackroomClientError(
+        f"Upload failed: {resp.status_code} {resp.text}",
+        status_code=resp.status_code,
+    )
 
 
 def delete_source_file(source_file_id: UUID) -> None:

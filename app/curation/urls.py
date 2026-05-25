@@ -7,6 +7,7 @@ from .api.views import (
     CollectionDetailView,
     CollectionAvailableFilesView,
     CollectionAvailableDocumentsView,
+    CollectionUploadView,
     CollectionItemListView,
     CollectionItemDetailView,
     CollectionItemReorderView,
@@ -22,6 +23,9 @@ urlpatterns = [
 
     # Available files (SourceFiles in the sponsor's Stackroom library)
     path('<uuid:collection_id>/available-files/', CollectionAvailableFilesView.as_view(), name='collection-available-files'),
+
+    # Upload a new file into the sponsor's Stackroom library
+    path('<uuid:collection_id>/upload', CollectionUploadView.as_view(), name='collection-upload'),
 
     # Available documents (WritingPieces eligible to add)
     path('<uuid:collection_id>/available-documents/', CollectionAvailableDocumentsView.as_view(), name='collection-available-documents'),
