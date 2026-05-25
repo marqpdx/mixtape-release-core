@@ -5,6 +5,7 @@ from django.urls import path
 from .api.views import (
     CollectionListView,
     CollectionDetailView,
+    CollectionAvailableFilesView,
     CollectionAvailableDocumentsView,
     CollectionItemListView,
     CollectionItemDetailView,
@@ -18,6 +19,9 @@ urlpatterns = [
 
     # Collection detail / update / delete
     path('<uuid:collection_id>/', CollectionDetailView.as_view(), name='collection-detail'),
+
+    # Available files (SourceFiles in the sponsor's Stackroom library)
+    path('<uuid:collection_id>/available-files/', CollectionAvailableFilesView.as_view(), name='collection-available-files'),
 
     # Available documents (WritingPieces eligible to add)
     path('<uuid:collection_id>/available-documents/', CollectionAvailableDocumentsView.as_view(), name='collection-available-documents'),

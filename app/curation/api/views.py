@@ -259,6 +259,59 @@ class CollectionDetailView(APIView):
         return Response(status=drf_status.HTTP_204_NO_CONTENT)
 
 
+class CollectionAvailableFilesView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, collection_id):
+        from inkwell.stackroom_http_client import get_library_source_files, StackroomClientError
+        from django.contrib.contenttypes.models import ContentType
+
+        collection = get_object_or_404(Collection, id=collection_id)
+        _check_read(request.user, collection)
+
+        # Resolve sponsor → stackroom_library_id
+        sponsor_ct = collection.sponsor_content_type
+        sponsor_id = collection.sponsor_object_id
+        sponsor_model = sponsor_ct.model_class()
+        try:
+            sponsor = sponsor_model.objects.get(pk=sponsor_id)
+        except sponsor_model.DoesNotExist:
+            return Response({"files": []})
+
+        library_id = getattr(sponsor, "stackroom_library_id", None)
+        if not library_id:
+            return Response({"files": []})
+
+        try:
+            raw_files = get_library_source_files(library_id)
+        except StackroomClientError:
+            return Response({"files": []})
+
+        # Count how many times each source_file UUID appears in this collection
+        from collections import Counter
+        existing_counts = Counter(
+            str(item.content_object_id)
+            for item in collection.items.filter(content_type__isnull=True)
+        )
+
+        files_data = []
+        for f in raw_files:
+            file_id = f["id"]
+            count = existing_counts.get(file_id, 0)
+            files_data.append({
+                "id": file_id,
+                "filename": f["filename"],
+                "content_type": f["content_type"],
+                "size_bytes": f["size_bytes"],
+                "origin": f["origin"],
+                "created_at": f["created_at"],
+                "in_collection": count > 0,
+                "item_count": count,
+            })
+
+        return Response(files_data)
+
+
 class CollectionAvailableDocumentsView(APIView):
     permission_classes = [IsAuthenticated]
 
