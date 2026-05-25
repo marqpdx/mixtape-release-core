@@ -276,16 +276,16 @@ class CollectionAvailableFilesView(APIView):
         try:
             sponsor = sponsor_model.objects.get(pk=sponsor_id)
         except sponsor_model.DoesNotExist:
-            return Response({"files": []})
+            return Response([])
 
         library_id = getattr(sponsor, "stackroom_library_id", None)
         if not library_id:
-            return Response({"files": []})
+            return Response([])
 
         try:
             raw_files = get_library_source_files(library_id)
         except StackroomClientError:
-            return Response({"files": []})
+            return Response([])
 
         # Count how many times each source_file UUID appears in this collection
         from collections import Counter
