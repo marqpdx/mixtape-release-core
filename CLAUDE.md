@@ -4,6 +4,12 @@ Django backend monolith for the Mixtape platform.
 
 ---
 
+## ADR Status Protocol
+
+When implementation work in this repo is governed by an ADR: read `{adr-name}-status.md` (in `../puddlejump/decisions/`) at the start of every session. Update the checkpoint table (row → ✅, commit hash) as phases complete. If no status file exists for the ADR, flag it — one should have been created at ratification.
+
+---
+
 ## Commit Handoff
 
 Every unit of work — including ad hoc changes — should produce a named git
