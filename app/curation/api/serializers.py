@@ -98,9 +98,14 @@ class CollectionItemSerializer(serializers.Serializer):
     def get_parent_id(self, obj):
         return str(obj.parent_id) if obj.parent_id else None
 
+    def _is_source_file_reference(self, obj):
+        return not obj.is_folder and obj.content_type_id is None and bool(obj.content_object_id)
+
     def get_content_type(self, obj):
         if obj.is_folder:
             return 'folder'
+        if self._is_source_file_reference(obj):
+            return 'source_file'
         if not obj.content_type:
             return None
         model_name = obj.content_type.model
@@ -112,7 +117,13 @@ class CollectionItemSerializer(serializers.Serializer):
         return model_name
 
     def get_content(self, obj):
-        if obj.is_folder or not obj.content_type:
+        if obj.is_folder:
+            return None
+
+        if self._is_source_file_reference(obj):
+            return {'id': str(obj.content_object_id)}
+
+        if not obj.content_type:
             return None
 
         model_name = obj.content_type.model
