@@ -13,7 +13,7 @@ from django.utils.crypto import get_random_string
 
 from fundamentals.bases import BaseModel
 from fundamentals.models import BaseContent, LayoutParent
-from groups.models.dec_enums import AdmissionPolicy, GroupType, GroupVisibility
+from groups.models.dec_enums import AdmissionPolicy, DispatchPolicy, GroupType, GroupVisibility, LocalModelTier
 from identity.models import EmblemAvatar
 
 
@@ -129,6 +129,24 @@ class Group(LayoutParent, BaseContent):
         null=True,
         blank=True,
         help_text="UUID of this group's Stackroom library. Set when the library is first created."
+    )
+
+    # ============================================================================
+    # DISPATCH POLICY (local-LLM-ADR)
+    # ============================================================================
+    dispatch_policy = models.CharField(
+        max_length=20,
+        choices=DispatchPolicy.choices,
+        default=DispatchPolicy.CLOUD_DEFAULT,
+    )
+    local_model_tier = models.CharField(
+        max_length=10,
+        choices=LocalModelTier.choices,
+        default=LocalModelTier.STANDARD,
+    )
+    local_verb_overrides = models.JSONField(
+        default=list,
+        blank=True,
     )
 
     def is_member(self, user):

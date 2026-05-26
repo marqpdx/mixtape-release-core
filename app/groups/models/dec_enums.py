@@ -15,6 +15,18 @@ class DecoratorCategory(models.TextChoices):
     POLICY = "policy", "Policy"
 
 
+class DispatchPolicy(models.TextChoices):
+    CLOUD_DEFAULT = "cloud_default", "Cloud-assisted (default)"
+    LOCAL_PREFERRED = "local_preferred", "Local-first (approve before cloud)"
+    LOCAL_ONLY = "local_only", "Local only (regulated mode)"
+    LOCAL_STRICT = "local_strict", "Strict local (no cloud, ever)"
+
+
+class LocalModelTier(models.TextChoices):
+    STANDARD = "standard", "Standard (Mistral 7B)"
+    HIGH = "high", "High (Llama 3 70B)"
+
+
 class GroupType(models.TextChoices):
     """Four core group types in the Mixtape ecosystem."""
     PERSONA = "persona", "Persona"
