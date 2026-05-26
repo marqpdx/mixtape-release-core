@@ -467,6 +467,9 @@ class GroupContextView(generics.GenericAPIView):
             "outward_feel": ctx.outward_feel,
             "context_health_score": ctx.context_health_score,
             "updated_at": ctx.updated_at.isoformat() if ctx.updated_at else None,
+            "dispatch_policy": ctx.group.dispatch_policy,
+            "local_model_tier": ctx.group.local_model_tier,
+            "local_verb_overrides": ctx.group.local_verb_overrides,
         }
 
     def get(self, request, slug):
