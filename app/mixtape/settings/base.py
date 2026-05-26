@@ -131,6 +131,7 @@ INSTALLED_APPS = [
     "relations",       # Universal Relationship Fabric (ADR-0042)
     "living_book",     # Living Book — structured collaborative reading (ADR-0042 Phase 3)
     "console",         # Console — re-entry control surface
+    "studio",          # Studio — unified member and group admin surface
 ]
 
 INSTALLED_APPS += ["rest_framework_simplejwt.token_blacklist"]
