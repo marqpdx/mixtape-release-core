@@ -166,6 +166,51 @@ def get_library_source_files(library_id: UUID) -> list[dict]:
     return resp.json().get("files", [])
 
 
+def get_source_file_metadata(source_file_id: UUID) -> dict:
+    """GET /source-files/{source_file_id}."""
+    resp = requests.get(
+        f"{_base_url()}/source-files/{source_file_id}",
+        headers=_headers(),
+        timeout=15,
+    )
+    if resp.status_code != 200:
+        raise StackroomClientError(
+            f"Source file metadata failed: {resp.status_code} {resp.text}",
+            status_code=resp.status_code,
+        )
+    return resp.json()
+
+
+def get_source_file_readable(source_file_id: UUID) -> dict:
+    """GET /source-files/{source_file_id}/readable."""
+    resp = requests.get(
+        f"{_base_url()}/source-files/{source_file_id}/readable",
+        headers=_headers(),
+        timeout=30,
+    )
+    if resp.status_code != 200:
+        raise StackroomClientError(
+            f"Source file readable failed: {resp.status_code} {resp.text}",
+            status_code=resp.status_code,
+        )
+    return resp.json()
+
+
+def download_source_file(source_file_id: UUID) -> tuple[bytes, dict]:
+    """GET /source-files/{source_file_id}/download."""
+    resp = requests.get(
+        f"{_base_url()}/source-files/{source_file_id}/download",
+        headers=_headers(),
+        timeout=60,
+    )
+    if resp.status_code != 200:
+        raise StackroomClientError(
+            f"Source file download failed: {resp.status_code} {resp.text}",
+            status_code=resp.status_code,
+        )
+    return resp.content, dict(resp.headers)
+
+
 def upload_library_file(library_id: UUID, file_bytes: bytes, filename: str, content_type: str) -> dict:
     """
     POST /libraries/{library_id}/upload
