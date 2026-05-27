@@ -51,6 +51,11 @@ from .ownership_views import (
     OwnershipRequestListView,
     OwnershipRequestCancelView,
 )
+from .files_views import (
+    GroupFilesListView,
+    GroupFileUploadView,
+    GroupFileDownloadView,
+)
 from writing.api.views import WritingPieceDetailView
 
 
@@ -71,6 +76,13 @@ from workbench.api.urls import group_workbench_patterns
 # base path: api/groups/
 
 urlpatterns = [
+
+    # ============================================================================
+    # Group File Library (Stackroom)
+    # ============================================================================
+    path('<slug:slug>/files/', GroupFilesListView.as_view(), name='group-files-list'),
+    path('<slug:slug>/files/upload/', GroupFileUploadView.as_view(), name='group-files-upload'),
+    path('<slug:slug>/files/<uuid:source_file_id>/download/', GroupFileDownloadView.as_view(), name='group-file-download'),
 
     # ============================================================================
     # PHASE 3+: Deferred App URL Patterns
