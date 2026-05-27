@@ -1,8 +1,10 @@
+from django.contrib.contenttypes.models import ContentType
 from django.shortcuts import get_object_or_404
 from rest_framework import permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from groups.models import Group
 from writing.models import WritingPiece
 
 from ..models import LivingBook
@@ -25,12 +27,34 @@ def _serialize_piece_stub(piece):
 
 
 def _serialize_living_book(lb):
+    # LB-11: flat trunk fields + sponsor_type / group_slug (LB-23)
+    trunk_id = str(lb.trunk_id) if lb.trunk_id else None
+    trunk_slug = None
+    trunk_title = None
+    if lb.trunk_id:
+        trunk_slug = getattr(lb.trunk, "slug", None)
+        trunk_title = lb.trunk.title or "Untitled"
+
+    sponsor_type = None
+    group_slug = None
+    if lb.sponsor_content_type_id:
+        model_name = lb.sponsor_content_type.model
+        if model_name == "group":
+            sponsor_type = "group"
+            group_slug = getattr(lb.sponsor, "slug", None)
+        else:
+            sponsor_type = "member"
+
     return {
         "id": str(lb.pk),
         "title": lb.title,
         "description": lb.description,
         "status": lb.status,
-        "trunk": _serialize_piece_stub(lb.trunk) if lb.trunk_id else None,
+        "trunk_id": trunk_id,
+        "trunk_slug": trunk_slug,
+        "trunk_title": trunk_title,
+        "sponsor_type": sponsor_type,
+        "group_slug": group_slug,
         "created_by": str(lb.created_by_id) if lb.created_by_id else None,
         "created_at": lb.created_at,
         "updated_at": lb.updated_at,
@@ -38,12 +62,16 @@ def _serialize_living_book(lb):
 
 
 def _serialize_tree_node(node):
+    # LB-12: flat node shape — no nested piece.*
     piece = node["obj"]
     return {
-        "piece": _serialize_piece_stub(piece),
+        "id": str(piece.pk),
+        "slug": getattr(piece, "slug", None),
+        "title": piece.title or "Untitled",
         "depth": node["depth"],
         "position": node["position"],
         "relationship_id": str(node["relationship"].id),
+        "is_published": _is_published(piece),
     }
 
 
@@ -51,7 +79,6 @@ def _serialize_context_piece(piece):
     if piece is None:
         return None
     body = getattr(piece, "body", "") or ""
-    # First paragraph up to ~500 chars at paragraph boundary
     paragraphs = [p.strip() for p in body.split("\n\n") if p.strip()]
     excerpt = paragraphs[0][:500] if paragraphs else ""
     return {
@@ -68,10 +95,42 @@ def _is_published(piece) -> bool:
 
 
 def _for_editor(request, lb) -> bool:
-    """True if the requesting user is an editor (author of trunk or superuser)."""
+    """True if the requesting user may edit this Living Book."""
+    # LB-21: group-sponsored books allow group owner/admin/steward
     if request.user.is_superuser:
         return True
+    if lb.sponsor_content_type_id and lb.sponsor_content_type.model == "group":
+        group = lb.sponsor
+        user_ct = ContentType.objects.get_for_model(request.user.__class__)
+        membership = group.memberships.filter(
+            member_content_type=user_ct,
+            member_object_id=request.user.pk,
+            is_active=True,
+            is_pending=False,
+            is_banned=False,
+            is_evicted=False,
+        ).first()
+        if membership is None:
+            return False
+        return membership.is_owner() or membership.is_admin() or membership.is_steward()
+    # Member-sponsored: trunk author
     return lb.trunk_id and lb.trunk.author_id == request.user.pk
+
+
+def _user_is_group_editor(user, group) -> bool:
+    """True if user is owner/admin/steward of group."""
+    user_ct = ContentType.objects.get_for_model(user.__class__)
+    membership = group.memberships.filter(
+        member_content_type=user_ct,
+        member_object_id=user.pk,
+        is_active=True,
+        is_pending=False,
+        is_banned=False,
+        is_evicted=False,
+    ).first()
+    if membership is None:
+        return False
+    return membership.is_owner() or membership.is_admin() or membership.is_steward()
 
 
 # -------------------------------------------------------------------------
@@ -84,13 +143,15 @@ class LivingBookListCreateView(APIView):
     def get(self, request):
         books = LivingBook.objects.filter(
             status__in=(LivingBook.STATUS_DRAFT, LivingBook.STATUS_ACTIVE)
-        ).select_related("trunk", "created_by")
+        ).select_related("trunk", "created_by", "sponsor_content_type")
         return Response([_serialize_living_book(lb) for lb in books])
 
     def post(self, request):
+        # LB-20: accept optional group_slug for group-sponsored promotion
         piece_slug = request.data.get("piece_slug")
         title = request.data.get("title", "").strip()
         description = request.data.get("description", "")
+        group_slug = request.data.get("group_slug", "").strip() or None
 
         if not piece_slug:
             return Response({"detail": "piece_slug required."}, status=400)
@@ -98,14 +159,23 @@ class LivingBookListCreateView(APIView):
             return Response({"detail": "title required."}, status=400)
 
         piece = get_object_or_404(WritingPiece, slug=piece_slug)
-        if piece.author_id != request.user.pk and not request.user.is_superuser:
-            return Response({"detail": "Not authorized."}, status=403)
+
+        sponsor = None
+        if group_slug:
+            group = get_object_or_404(Group, slug=group_slug)
+            if not _user_is_group_editor(request.user, group):
+                return Response({"detail": "Not authorized."}, status=403)
+            sponsor = group
+        else:
+            if piece.author_id != request.user.pk and not request.user.is_superuser:
+                return Response({"detail": "Not authorized."}, status=403)
 
         try:
             lb = LivingBookService.promote_to_living_book(
                 piece,
                 title=title,
                 description=description,
+                sponsor=sponsor,
                 created_by=request.user,
             )
         except ValueError as e:
@@ -118,11 +188,15 @@ class LivingBookDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, pk):
-        lb = get_object_or_404(LivingBook, pk=pk)
+        lb = get_object_or_404(
+            LivingBook.objects.select_related("trunk", "sponsor_content_type"), pk=pk
+        )
         return Response(_serialize_living_book(lb))
 
     def patch(self, request, pk):
-        lb = get_object_or_404(LivingBook, pk=pk)
+        lb = get_object_or_404(
+            LivingBook.objects.select_related("trunk", "sponsor_content_type"), pk=pk
+        )
         if not _for_editor(request, lb):
             return Response({"detail": "Not authorized."}, status=403)
 
@@ -137,32 +211,33 @@ class LivingBookTreeView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, pk):
-        lb = get_object_or_404(LivingBook, pk=pk)
+        # LB-12: return direct array (no envelope)
+        lb = get_object_or_404(
+            LivingBook.objects.select_related("trunk", "sponsor_content_type"), pk=pk
+        )
         nodes = LivingBookService.get_tree(lb, for_editor=_for_editor(request, lb))
-        return Response({
-            "living_book": _serialize_living_book(lb),
-            "nodes": [_serialize_tree_node(n) for n in nodes],
-        })
+        return Response([_serialize_tree_node(n) for n in nodes])
 
 
 class LivingBookAccumulatedView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, pk):
-        lb = get_object_or_404(LivingBook, pk=pk)
+        # LB-13: return direct array (no envelope)
+        lb = get_object_or_404(
+            LivingBook.objects.select_related("trunk", "sponsor_content_type"), pk=pk
+        )
         sections = LivingBookService.get_accumulated_view(lb, for_editor=_for_editor(request, lb))
-        return Response({
-            "living_book_id": str(lb.pk),
-            "title": lb.title,
-            "sections": sections,
-        })
+        return Response(sections)
 
 
 class LivingBookNodeAddView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, pk):
-        lb = get_object_or_404(LivingBook, pk=pk)
+        lb = get_object_or_404(
+            LivingBook.objects.select_related("trunk", "sponsor_content_type"), pk=pk
+        )
         if not _for_editor(request, lb):
             return Response({"detail": "Not authorized."}, status=403)
 
@@ -198,7 +273,10 @@ class LivingBookNodeCreateAddView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, pk):
-        lb = get_object_or_404(LivingBook, pk=pk)
+        # LB-22: pass group context to create_and_add_node when book is group-sponsored
+        lb = get_object_or_404(
+            LivingBook.objects.select_related("trunk", "sponsor_content_type"), pk=pk
+        )
         if not _for_editor(request, lb):
             return Response({"detail": "Not authorized."}, status=403)
 
@@ -210,12 +288,17 @@ class LivingBookNodeCreateAddView(APIView):
         if parent_id:
             parent = get_object_or_404(WritingPiece, pk=parent_id)
 
+        group = None
+        if lb.sponsor_content_type_id and lb.sponsor_content_type.model == "group":
+            group = lb.sponsor
+
         try:
             piece, rel = LivingBookService.create_and_add_node(
                 lb, parent=parent,
                 position=int(position) if position is not None else None,
                 author=request.user,
                 title=title,
+                group=group,
             )
         except ValueError as e:
             return Response({"detail": str(e)}, status=400)
@@ -231,15 +314,17 @@ class LivingBookNodeReorderView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def patch(self, request, pk, piece_id):
-        lb = get_object_or_404(LivingBook, pk=pk)
+        lb = get_object_or_404(
+            LivingBook.objects.select_related("trunk", "sponsor_content_type"), pk=pk
+        )
         if not _for_editor(request, lb):
             return Response({"detail": "Not authorized."}, status=403)
 
-        ordered_ids = request.data.get("ordered_ids", [])
+        # LB-14: payload key is ordered_piece_ids (was ordered_ids)
+        ordered_ids = request.data.get("ordered_piece_ids", [])
         if not ordered_ids:
-            return Response({"detail": "ordered_ids required."}, status=400)
+            return Response({"detail": "ordered_piece_ids required."}, status=400)
 
-        # piece_id is the parent whose children are being reordered
         parent = get_object_or_404(WritingPiece, pk=piece_id)
 
         try:
@@ -250,11 +335,37 @@ class LivingBookNodeReorderView(APIView):
         return Response(status=204)
 
 
+class LivingBookRootReorderView(APIView):
+    """Reorder top-level nodes (direct children of the LivingBook root)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, pk):
+        lb = get_object_or_404(
+            LivingBook.objects.select_related("trunk", "sponsor_content_type"), pk=pk
+        )
+        if not _for_editor(request, lb):
+            return Response({"detail": "Not authorized."}, status=403)
+
+        ordered_ids = request.data.get("ordered_piece_ids", [])
+        if not ordered_ids:
+            return Response({"detail": "ordered_piece_ids required."}, status=400)
+
+        try:
+            LivingBookService.reorder_siblings(lb, lb, ordered_ids)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=400)
+
+        return Response(status=204)
+
+
 class LivingBookNodeRemoveView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def delete(self, request, pk, piece_id):
-        lb = get_object_or_404(LivingBook, pk=pk)
+        lb = get_object_or_404(
+            LivingBook.objects.select_related("trunk", "sponsor_content_type"), pk=pk
+        )
         if not _for_editor(request, lb):
             return Response({"detail": "Not authorized."}, status=403)
 
@@ -274,7 +385,9 @@ class LivingBookContextView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, pk, piece_id):
-        lb = get_object_or_404(LivingBook, pk=pk)
+        lb = get_object_or_404(
+            LivingBook.objects.select_related("trunk", "sponsor_content_type"), pk=pk
+        )
         piece = get_object_or_404(WritingPiece, pk=piece_id)
         prev_p, next_p = LivingBookService.get_context_neighbors(
             lb, piece, for_editor=_for_editor(request, lb)
