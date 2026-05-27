@@ -100,20 +100,28 @@ class LivingBookService:
         position: int | None = None,
         author,
         title: str = "",
+        group=None,
     ):
         """
         Create a new WritingPiece with a placeholder title and add it to the tree.
+        group — when provided (LB-22), set as the piece's sponsor so it inherits group context.
         Returns (WritingPiece, Relationship).
         """
         from writing.models import WritingPiece
 
         _assert_depth_ok(living_book, parent)
 
-        piece = WritingPiece.objects.create(
+        create_kwargs = dict(
             title=title or _placeholder_title(living_book, parent),
             author=author,
             writing_kind="dispatch",
         )
+        if group is not None:
+            sponsor_ct = ContentType.objects.get_for_model(group.__class__)
+            create_kwargs["sponsor_content_type"] = sponsor_ct
+            create_kwargs["sponsor_object_id"] = group.pk
+
+        piece = WritingPiece.objects.create(**create_kwargs)
         rel = LivingBookService.add_node(
             living_book, piece, parent=parent, position=position, created_by=author
         )
