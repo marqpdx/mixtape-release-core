@@ -112,6 +112,44 @@ class GroupFileUploadView(APIView):
         return Response(result, status=drf_status.HTTP_201_CREATED)
 
 
+class GroupFileDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, slug, source_file_id):
+        from inkwell.stackroom_http_client import (
+            delete_source_file,
+            StackroomClientError,
+        )
+
+        group = get_object_or_404(Group, slug=slug)
+
+        user_ct = ContentType.objects.get_for_model(request.user.__class__)
+        membership = group.memberships.filter(
+            member_content_type=user_ct,
+            member_object_id=request.user.pk,
+            is_active=True,
+            is_pending=False,
+            is_banned=False,
+            is_evicted=False,
+        ).first()
+        is_editor = membership and (
+            membership.is_owner() or membership.is_admin() or membership.is_steward()
+        )
+
+        if not is_editor:
+            return Response(
+                {"detail": "You must be a group owner, admin, or steward to delete files."},
+                status=drf_status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            delete_source_file(source_file_id)
+        except StackroomClientError as exc:
+            return Response({"detail": str(exc)}, status=drf_status.HTTP_502_BAD_GATEWAY)
+
+        return Response(status=drf_status.HTTP_204_NO_CONTENT)
+
+
 class GroupFileDownloadView(APIView):
     permission_classes = [IsAuthenticated]
 
