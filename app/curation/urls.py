@@ -32,7 +32,7 @@ urlpatterns = [
 
     # Collection items (CRUD)
     path('<uuid:collection_id>/items/', CollectionItemListView.as_view(), name='collection-items-list'),
-    path('<uuid:collection_id>/items/<uuid:item_id>/', CollectionItemDetailView.as_view(), name='collection-item-detail'),
+    path('<uuid:collection_id>/items/<int:item_id>/', CollectionItemDetailView.as_view(), name='collection-item-detail'),
 
     # Bulk operations
     path('<uuid:collection_id>/items/reorder/', CollectionItemReorderView.as_view(), name='collection-items-reorder'),

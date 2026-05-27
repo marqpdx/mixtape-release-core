@@ -77,7 +77,7 @@ class CollectionDetailSerializer(serializers.Serializer):
 
 
 class CollectionItemSerializer(serializers.Serializer):
-    id = serializers.UUIDField()
+    id = serializers.IntegerField()
     title = serializers.CharField(allow_blank=True)
     order_index = serializers.IntegerField()
     folder_path = serializers.CharField(allow_blank=True)
