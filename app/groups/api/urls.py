@@ -54,6 +54,7 @@ from .ownership_views import (
 from .files_views import (
     GroupFilesListView,
     GroupFileUploadView,
+    GroupFileDeleteView,
     GroupFileDownloadView,
 )
 from writing.api.views import WritingPieceDetailView
@@ -82,6 +83,7 @@ urlpatterns = [
     # ============================================================================
     path('<slug:slug>/files/', GroupFilesListView.as_view(), name='group-files-list'),
     path('<slug:slug>/files/upload/', GroupFileUploadView.as_view(), name='group-files-upload'),
+    path('<slug:slug>/files/<uuid:source_file_id>/', GroupFileDeleteView.as_view(), name='group-file-delete'),
     path('<slug:slug>/files/<uuid:source_file_id>/download/', GroupFileDownloadView.as_view(), name='group-file-download'),
 
     # ============================================================================
