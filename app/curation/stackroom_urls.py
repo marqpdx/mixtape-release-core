@@ -2,6 +2,7 @@ from django.urls import path
 
 from curation.api.stackroom_proxy_views import (
     StackroomSourceFileDownloadProxyView,
+    StackroomSourceFilePreviewProxyView,
     StackroomSourceFileReadableProxyView,
 )
 
@@ -15,5 +16,10 @@ urlpatterns = [
         "source-files/<uuid:source_file_id>/download",
         StackroomSourceFileDownloadProxyView.as_view(),
         name="stackroom-source-file-download",
+    ),
+    path(
+        "source-files/<uuid:source_file_id>/preview.pdf",
+        StackroomSourceFilePreviewProxyView.as_view(),
+        name="stackroom-source-file-preview",
     ),
 ]
