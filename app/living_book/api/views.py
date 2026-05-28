@@ -121,10 +121,13 @@ class LivingBookListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        books = LivingBook.objects.filter(
+        qs = LivingBook.objects.filter(
             status__in=(LivingBook.STATUS_DRAFT, LivingBook.STATUS_ACTIVE)
         ).select_related("trunk", "created_by", "sponsor_content_type")
-        return Response([_serialize_living_book(lb) for lb in books])
+        trunk_slug = request.query_params.get("trunk_slug")
+        if trunk_slug:
+            qs = qs.filter(trunk__slug=trunk_slug)
+        return Response([_serialize_living_book(lb) for lb in qs])
 
     def post(self, request):
         piece_slug = request.data.get("piece_slug")
