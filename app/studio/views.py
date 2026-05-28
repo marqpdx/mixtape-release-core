@@ -14,6 +14,7 @@ from activity.models import Action
 from groups.models import Group, GroupMembership
 from groups.services.groups import GroupService
 from initiatives.models import ActionRun, ActionRunStatus
+from recurring_action.models import RecurringAction, RecurrencePattern
 
 User = get_user_model()
 
@@ -252,7 +253,8 @@ class GroupPulseView(generics.GenericAPIView):
         if denied:
             return denied
 
-        since_7d = timezone.now() - timedelta(days=7)
+        now = timezone.now()
+        since_7d = now - timedelta(days=7)
         user_ct = ContentType.objects.get_for_model(User)
         group_ct = ContentType.objects.get_for_model(Group)
 
@@ -294,6 +296,30 @@ class GroupPulseView(generics.GenericAPIView):
             .order_by("-created_at")[:20]
         )
 
+        # RecurringActions: due or overdue within next 48h
+        upcoming_cutoff = now + timedelta(hours=48)
+        due_actions = RecurringAction.objects.filter(
+            content_type=group_ct,
+            owner_object_id=group.pk,
+            is_active=True,
+            next_due_at__lte=upcoming_cutoff,
+        ).order_by("next_due_at")[:5]
+
+        recurring_actions = [
+            {
+                "id": str(r.id),
+                "title": r.title,
+                "description": r.description,
+                "recurrence_rule": r.recurrence_rule,
+                "next_due_at": r.next_due_at.isoformat(),
+                "last_triggered_at": r.last_triggered_at.isoformat() if r.last_triggered_at else None,
+                "suggested_verb": r.suggested_verb,
+                "suggested_label": r.suggested_label,
+                "is_overdue": r.next_due_at <= now,
+            }
+            for r in due_actions
+        ]
+
         return Response({
             "metrics": {
                 "active_threads": active_threads,
@@ -302,6 +328,7 @@ class GroupPulseView(generics.GenericAPIView):
                 "loom_ops_in_flight": loom_ops_in_flight,
             },
             "activity": [_serialize_action(a) for a in activity],
+            "recurring_actions": recurring_actions,
         })
 
 
@@ -520,3 +547,141 @@ class BerylDismissView(generics.GenericAPIView):
 
         beryl_state.save()
         return Response({"status": "ok"})
+
+
+# ---------------------------------------------------------------------------
+# RecurringAction — group admin CRUD
+# ---------------------------------------------------------------------------
+
+def _serialize_recurring_action(r):
+    return {
+        "id": str(r.id),
+        "title": r.title,
+        "description": r.description,
+        "recurrence_rule": r.recurrence_rule,
+        "next_due_at": r.next_due_at.isoformat(),
+        "last_triggered_at": r.last_triggered_at.isoformat() if r.last_triggered_at else None,
+        "suggested_verb": r.suggested_verb,
+        "suggested_label": r.suggested_label,
+        "is_active": r.is_active,
+    }
+
+
+class GroupRecurringActionsView(generics.GenericAPIView):
+    """
+    GET  /api/studio/groups/<slug>/recurring-actions — list active actions for group
+    POST /api/studio/groups/<slug>/recurring-actions — create new action
+    Admin or superadmin only.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, slug):
+        group = get_object_or_404(Group, slug=slug, is_active=True)
+        denied = _require_group_admin(group, request.user)
+        if denied:
+            return denied
+
+        group_ct = ContentType.objects.get_for_model(Group)
+        actions = RecurringAction.objects.filter(
+            content_type=group_ct,
+            owner_object_id=group.pk,
+            is_active=True,
+        ).order_by("next_due_at")
+
+        return Response([_serialize_recurring_action(r) for r in actions])
+
+    def post(self, request, slug):
+        group = get_object_or_404(Group, slug=slug, is_active=True)
+        denied = _require_group_admin(group, request.user)
+        if denied:
+            return denied
+
+        title = (request.data.get("title") or "").strip()
+        if not title:
+            return Response({"detail": "title is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        recurrence_rule = request.data.get("recurrence_rule", "")
+        if recurrence_rule not in RecurrencePattern.values:
+            return Response(
+                {"detail": f"recurrence_rule must be one of: {', '.join(RecurrencePattern.values)}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from django.utils.dateparse import parse_datetime
+        next_due_at = parse_datetime(request.data.get("next_due_at", "") or "")
+        if not next_due_at:
+            return Response({"detail": "next_due_at must be a valid ISO datetime."}, status=status.HTTP_400_BAD_REQUEST)
+
+        group_ct = ContentType.objects.get_for_model(Group)
+        action = RecurringAction.objects.create(
+            content_type=group_ct,
+            owner_object_id=group.pk,
+            title=title,
+            description=(request.data.get("description") or "").strip(),
+            recurrence_rule=recurrence_rule,
+            next_due_at=next_due_at,
+            suggested_verb=(request.data.get("suggested_verb") or "").strip(),
+            suggested_label=(request.data.get("suggested_label") or "").strip(),
+        )
+
+        return Response(_serialize_recurring_action(action), status=status.HTTP_201_CREATED)
+
+
+class GroupRecurringActionDetailView(generics.GenericAPIView):
+    """
+    PATCH  /api/studio/groups/<slug>/recurring-actions/<pk> — update fields
+    DELETE /api/studio/groups/<slug>/recurring-actions/<pk> — soft-delete (is_active=False)
+    Admin or superadmin only.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _get_action(self, slug, pk):
+        group = get_object_or_404(Group, slug=slug, is_active=True)
+        group_ct = ContentType.objects.get_for_model(Group)
+        action = get_object_or_404(
+            RecurringAction,
+            pk=pk,
+            content_type=group_ct,
+            owner_object_id=group.pk,
+        )
+        return group, action
+
+    def patch(self, request, slug, pk):
+        group, action = self._get_action(slug, pk)
+        denied = _require_group_admin(group, request.user)
+        if denied:
+            return denied
+
+        updatable = ("title", "description", "suggested_verb", "suggested_label")
+        for field in updatable:
+            if field in request.data:
+                setattr(action, field, (request.data[field] or "").strip())
+
+        if "recurrence_rule" in request.data:
+            rr = request.data["recurrence_rule"]
+            if rr not in RecurrencePattern.values:
+                return Response(
+                    {"detail": f"recurrence_rule must be one of: {', '.join(RecurrencePattern.values)}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            action.recurrence_rule = rr
+
+        if "next_due_at" in request.data:
+            from django.utils.dateparse import parse_datetime
+            nda = parse_datetime(request.data["next_due_at"] or "")
+            if not nda:
+                return Response({"detail": "next_due_at must be a valid ISO datetime."}, status=status.HTTP_400_BAD_REQUEST)
+            action.next_due_at = nda
+
+        action.save()
+        return Response(_serialize_recurring_action(action))
+
+    def delete(self, request, slug, pk):
+        group, action = self._get_action(slug, pk)
+        denied = _require_group_admin(group, request.user)
+        if denied:
+            return denied
+
+        action.is_active = False
+        action.save(update_fields=["is_active", "updated_at"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
