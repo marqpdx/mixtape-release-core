@@ -516,6 +516,22 @@ class GroupClientsView(generics.GenericAPIView):
 
 
 # ---------------------------------------------------------------------------
+# Beryl session helpers
+# ---------------------------------------------------------------------------
+
+def _serialize_scrap(s):
+    return {
+        "id": str(s.id),
+        "body": s.body,
+        "intent_tag": s.intent_tag,
+        "labels": s.labels,
+        "status": s.status,
+        "remind_at": s.remind_at.isoformat() if s.remind_at else None,
+        "created_at": s.created_at.isoformat() if s.created_at else None,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Beryl dismiss
 # ---------------------------------------------------------------------------
 
@@ -547,6 +563,120 @@ class BerylDismissView(generics.GenericAPIView):
 
         beryl_state.save()
         return Response({"status": "ok"})
+
+
+# ---------------------------------------------------------------------------
+# Beryl session surface
+# ---------------------------------------------------------------------------
+
+class BerylSessionView(generics.GenericAPIView):
+    """
+    GET /api/studio/beryl/session?ctx=<action_context>
+    Returns raw Scrap records for the member (>4h old, post-last_surfaced_at).
+    The ctx param is opaque — used for future signal routing; currently ignored
+    beyond being echoed back so the client can correlate the session.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        ctx = request.query_params.get("ctx", "")
+
+        try:
+            from profiles.models import UserProfile
+            from scrap.models import Scrap
+            from django.contrib.contenttypes.models import ContentType as CT
+            from beryl.models import BerylState
+
+            profile = UserProfile.objects.get(user=request.user)
+            profile_ct = CT.objects.get_for_model(UserProfile)
+            cutoff = timezone.now() - timedelta(hours=4)
+
+            qs = Scrap.objects.filter(
+                content_type=profile_ct,
+                owner_object_id=profile.pk,
+                status="raw",
+                created_at__lte=cutoff,
+            )
+
+            beryl_state = BerylState.objects.filter(profile=profile).first()
+            if beryl_state and beryl_state.last_surfaced_at:
+                qs = qs.filter(created_at__gt=beryl_state.last_surfaced_at)
+
+            scraps = qs.order_by("intent_tag", "-created_at")[:20]
+        except Exception:
+            return Response({"detail": "Session unavailable."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        return Response({
+            "scraps": [_serialize_scrap(s) for s in scraps],
+            "context": ctx,
+        })
+
+
+class BerylScrapView(generics.GenericAPIView):
+    """
+    PATCH /api/studio/beryl/scraps/<pk>
+    Update a Scrap within a Beryl session: re-tag, add labels, archive, set remind_at.
+    Any mutation transitions status to 'reviewed' unless explicitly archiving.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, pk):
+        try:
+            from profiles.models import UserProfile
+            from scrap.models import Scrap, IntentTag, ScrapStatus, RemindStatus
+            from django.contrib.contenttypes.models import ContentType as CT
+
+            profile = UserProfile.objects.get(user=request.user)
+            profile_ct = CT.objects.get_for_model(UserProfile)
+            scrap = get_object_or_404(
+                Scrap,
+                pk=pk,
+                content_type=profile_ct,
+                owner_object_id=profile.pk,
+            )
+        except Scrap.DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        except Exception:
+            return Response({"detail": "Unavailable."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        acted = False
+
+        if "intent_tag" in request.data:
+            tag = request.data["intent_tag"]
+            if tag not in IntentTag.values:
+                return Response(
+                    {"detail": f"intent_tag must be one of: {', '.join(IntentTag.values)}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            scrap.intent_tag = tag
+            acted = True
+
+        if "labels" in request.data:
+            labels = request.data["labels"]
+            if not isinstance(labels, list) or len(labels) > 10:
+                return Response(
+                    {"detail": "labels must be a list of up to 10 strings."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            scrap.labels = [str(lbl)[:64] for lbl in labels]
+            acted = True
+
+        if "remind_at" in request.data:
+            from django.utils.dateparse import parse_datetime
+            ra = parse_datetime(request.data["remind_at"] or "")
+            if ra:
+                scrap.remind_at = ra
+                scrap.remind_status = RemindStatus.PENDING
+                acted = True
+
+        explicit_status = request.data.get("status")
+        if explicit_status == "archived":
+            scrap.status = ScrapStatus.ARCHIVED
+        elif acted:
+            scrap.status = ScrapStatus.REVIEWED
+
+        scrap.save()
+        return Response(_serialize_scrap(scrap))
 
 
 # ---------------------------------------------------------------------------
