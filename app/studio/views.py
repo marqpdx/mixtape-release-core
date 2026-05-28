@@ -70,6 +70,70 @@ def _action_runs_for_group(group):
     return ActionRun.objects.filter(tenant_id=group.pk)
 
 
+def _build_beryl_prompt(user):
+    """
+    Return a BerylPrompt dict if Signal 1 conditions are met, else None.
+    Signal 1: 2+ raw Scrap records older than 4h, created after last_surfaced_at.
+    Degrades gracefully if beryl or scrap apps are not yet installed.
+    """
+    try:
+        from profiles.models import UserProfile
+        profile = UserProfile.objects.get(user=user)
+    except Exception:
+        return None
+
+    try:
+        from beryl.models import BerylState
+        beryl_state = BerylState.objects.filter(profile=profile).first()
+    except Exception:
+        return None
+
+    if beryl_state:
+        now = timezone.now()
+        # Suppress: remind_later still active
+        if (
+            beryl_state.dismiss_mode == "remind_later"
+            and beryl_state.remind_later_at
+            and now < beryl_state.remind_later_at
+        ):
+            return None
+        # Suppress: session-dismissed within the last 8 hours
+        if (
+            beryl_state.dismiss_mode == "session"
+            and beryl_state.last_dismissed_at
+            and (now - beryl_state.last_dismissed_at) < timedelta(hours=8)
+        ):
+            return None
+
+    try:
+        from scrap.models import Scrap
+        from django.contrib.contenttypes.models import ContentType as CT
+        from profiles.models import UserProfile as UP
+        profile_ct = CT.objects.get_for_model(UP)
+        cutoff = timezone.now() - timedelta(hours=4)
+        qs = Scrap.objects.filter(
+            content_type=profile_ct,
+            owner_object_id=profile.pk,
+            status="raw",
+            created_at__lte=cutoff,
+        )
+        if beryl_state and beryl_state.last_surfaced_at:
+            qs = qs.filter(created_at__gt=beryl_state.last_surfaced_at)
+        count = qs.count()
+    except Exception:
+        return None
+
+    if count < 2:
+        return None
+
+    return {
+        "message": f"You have {count} unreviewed captures waiting.",
+        "action_label": "Review now",
+        "action_context": f"signal:aperture_log:count:{count}",
+        "dismissible": True,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Personal Studio
 # ---------------------------------------------------------------------------
@@ -129,6 +193,7 @@ class PersonalStudioView(generics.GenericAPIView):
         return Response({
             "activity": [_serialize_action(a) for a in activity],
             "my_content": my_content,
+            "beryl_prompt": _build_beryl_prompt(user),
         })
 
 
@@ -421,3 +486,37 @@ class GroupClientsView(generics.GenericAPIView):
             "client": client_data,
             "prospect": prospect_data,
         })
+
+
+# ---------------------------------------------------------------------------
+# Beryl dismiss
+# ---------------------------------------------------------------------------
+
+class BerylDismissView(generics.GenericAPIView):
+    """POST /api/studio/personal/beryl/dismiss — update BerylState dismiss mode."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        mode = request.data.get("mode")
+        if mode not in ("session", "permanent", "remind_later"):
+            return Response({"detail": "Invalid mode."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            from profiles.models import UserProfile
+            from beryl.models import BerylState
+            profile = UserProfile.objects.get(user=request.user)
+            beryl_state, _ = BerylState.objects.get_or_create(profile=profile)
+        except Exception:
+            return Response({"detail": "BerylState unavailable."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        now = timezone.now()
+        beryl_state.last_dismissed_at = now
+        beryl_state.dismiss_mode = mode
+
+        if mode == "permanent":
+            beryl_state.last_surfaced_at = now
+        elif mode == "remind_later":
+            beryl_state.remind_later_at = now + timedelta(hours=24)
+
+        beryl_state.save()
+        return Response({"status": "ok"})

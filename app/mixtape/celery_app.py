@@ -73,6 +73,9 @@ app.conf.task_queues = (
 #   default_q → Livewire real-time events only (activity fanout, socket notifications)
 app.conf.task_routes = {
     # --- Beat-scheduled polling tasks → isolated polling worker ---
+    "recurring_action.tasks.advance_recurring_actions": {
+        "queue": "polling", "routing_key": "polling"
+    },
     "groups.tasks.execute_due_ownership_requests": {
         "queue": "polling", "routing_key": "polling"
     },
@@ -324,6 +327,10 @@ app.conf.beat_schedule = {
     "run-scheduled-snapshots": {
         "task": "puddlejump.tasks.run_scheduled_snapshots",
         "schedule": 3600.0,  # hourly — covers all frequencies (hourly checks are still gated by last_snapshot_at)
+    },
+    "advance-recurring-actions": {
+        "task": "recurring_action.tasks.advance_recurring_actions",
+        "schedule": 900.0,  # every 15 minutes
     },
 }
 

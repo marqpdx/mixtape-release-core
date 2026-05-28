@@ -8,6 +8,7 @@ urlpatterns = [
     # Personal Studio
     path("personal", views.PersonalStudioView.as_view(), name="studio-personal"),
     path("personal/groups", views.PersonalGroupsView.as_view(), name="studio-personal-groups"),
+    path("personal/beryl/dismiss", views.BerylDismissView.as_view(), name="studio-beryl-dismiss"),
 
     # Group Studio — Pulse / Canon / Command / Clients
     path("groups/<slug:slug>/pulse", views.GroupPulseView.as_view(), name="studio-group-pulse"),
