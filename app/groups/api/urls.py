@@ -56,6 +56,7 @@ from .files_views import (
     GroupFileUploadView,
     GroupFileDeleteView,
     GroupFileDownloadView,
+    GroupFilePreviewView,
 )
 from writing.api.views import WritingPieceDetailView
 
@@ -85,6 +86,7 @@ urlpatterns = [
     path('<slug:slug>/files/upload/', GroupFileUploadView.as_view(), name='group-files-upload'),
     path('<slug:slug>/files/<uuid:source_file_id>/', GroupFileDeleteView.as_view(), name='group-file-delete'),
     path('<slug:slug>/files/<uuid:source_file_id>/download/', GroupFileDownloadView.as_view(), name='group-file-download'),
+    path('<slug:slug>/files/<uuid:source_file_id>/preview.pdf', GroupFilePreviewView.as_view(), name='group-file-preview'),
 
     # ============================================================================
     # PHASE 3+: Deferred App URL Patterns

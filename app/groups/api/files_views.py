@@ -176,3 +176,31 @@ class GroupFileDownloadView(APIView):
         if "Content-Disposition" in headers:
             response["Content-Disposition"] = headers["Content-Disposition"]
         return response
+
+
+class GroupFilePreviewView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, slug, source_file_id):
+        from inkwell.stackroom_http_client import (
+            preview_source_file_pdf,
+            StackroomClientError,
+        )
+
+        group = get_object_or_404(Group, slug=slug)
+
+        if not group.is_member(request.user):
+            return Response({"detail": "You are not an active member of this group."}, status=drf_status.HTTP_403_FORBIDDEN)
+
+        try:
+            content, headers = preview_source_file_pdf(source_file_id)
+        except StackroomClientError as exc:
+            return Response({"detail": str(exc)}, status=drf_status.HTTP_502_BAD_GATEWAY)
+
+        response = HttpResponse(
+            content,
+            content_type=headers.get("Content-Type", "application/pdf"),
+        )
+        if "Content-Disposition" in headers:
+            response["Content-Disposition"] = headers["Content-Disposition"]
+        return response
