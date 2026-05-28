@@ -25,34 +25,30 @@ class LivingBookService:
         *,
         title: str,
         description: str = "",
-        sponsor=None,
+        sponsor,
         created_by,
     ) -> LivingBook:
         """
         Promote a WritingPiece to the trunk of a new LivingBook.
-        Requires an active Dispatch on the piece (OQ-6).
+        sponsor is required — Living Books are a group feature.
         Single-trunk constraint: a piece may only be trunk in one active LivingBook.
         """
-        if not _has_active_dispatch(piece):
-            raise ValueError("WritingPiece must have an active Dispatch before promotion.")
+        if sponsor is None:
+            raise ValueError("A group sponsor is required to create a Living Book.")
 
         if LivingBook.objects.filter(
             trunk=piece, status__in=(LivingBook.STATUS_DRAFT, LivingBook.STATUS_ACTIVE)
         ).exists():
             raise ValueError("This piece is already the trunk of an active Living Book.")
 
-        sponsor_ct = None
-        sponsor_id = None
-        if sponsor is not None:
-            sponsor_ct = ContentType.objects.get_for_model(sponsor.__class__)
-            sponsor_id = sponsor.pk
+        sponsor_ct = ContentType.objects.get_for_model(sponsor.__class__)
 
         return LivingBook.objects.create(
             title=title,
             description=description,
             trunk=piece,
             sponsor_content_type=sponsor_ct,
-            sponsor_object_id=sponsor_id,
+            sponsor_object_id=sponsor.pk,
             status=LivingBook.STATUS_DRAFT,
             created_by=created_by,
         )
@@ -245,13 +241,6 @@ class LivingBookService:
 # -------------------------------------------------------------------------
 # Helpers
 # -------------------------------------------------------------------------
-
-def _has_active_dispatch(piece) -> bool:
-    dc = getattr(piece, "dispatch_content", None)
-    if dc is None:
-        return False
-    return not getattr(dc, "is_archived", False)
-
 
 def _is_published(piece) -> bool:
     status = getattr(piece, "status", None)

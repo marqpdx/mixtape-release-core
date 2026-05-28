@@ -35,15 +35,9 @@ def _serialize_living_book(lb):
         trunk_slug = getattr(lb.trunk, "slug", None)
         trunk_title = lb.trunk.title or "Untitled"
 
-    sponsor_type = None
     group_slug = None
-    if lb.sponsor_content_type_id:
-        model_name = lb.sponsor_content_type.model
-        if model_name == "group":
-            sponsor_type = "group"
-            group_slug = getattr(lb.sponsor, "slug", None)
-        else:
-            sponsor_type = "member"
+    if lb.sponsor_content_type_id and lb.sponsor_content_type.model == "group":
+        group_slug = getattr(lb.sponsor, "slug", None)
 
     return {
         "id": str(lb.pk),
@@ -53,7 +47,7 @@ def _serialize_living_book(lb):
         "trunk_id": trunk_id,
         "trunk_slug": trunk_slug,
         "trunk_title": trunk_title,
-        "sponsor_type": sponsor_type,
+        "sponsor_type": "group" if group_slug else None,
         "group_slug": group_slug,
         "created_by": str(lb.created_by_id) if lb.created_by_id else None,
         "created_at": lb.created_at,
@@ -95,26 +89,12 @@ def _is_published(piece) -> bool:
 
 
 def _for_editor(request, lb) -> bool:
-    """True if the requesting user may edit this Living Book."""
-    # LB-21: group-sponsored books allow group owner/admin/steward
+    """True if the requesting user may edit this Living Book (group feature — group-only)."""
     if request.user.is_superuser:
         return True
-    if lb.sponsor_content_type_id and lb.sponsor_content_type.model == "group":
-        group = lb.sponsor
-        user_ct = ContentType.objects.get_for_model(request.user.__class__)
-        membership = group.memberships.filter(
-            member_content_type=user_ct,
-            member_object_id=request.user.pk,
-            is_active=True,
-            is_pending=False,
-            is_banned=False,
-            is_evicted=False,
-        ).first()
-        if membership is None:
-            return False
-        return membership.is_owner() or membership.is_admin() or membership.is_steward()
-    # Member-sponsored: trunk author
-    return lb.trunk_id and lb.trunk.author_id == request.user.pk
+    if not (lb.sponsor_content_type_id and lb.sponsor_content_type.model == "group"):
+        return False
+    return _user_is_group_editor(request.user, lb.sponsor)
 
 
 def _user_is_group_editor(user, group) -> bool:
@@ -147,7 +127,6 @@ class LivingBookListCreateView(APIView):
         return Response([_serialize_living_book(lb) for lb in books])
 
     def post(self, request):
-        # LB-20: accept optional group_slug for group-sponsored promotion
         piece_slug = request.data.get("piece_slug")
         title = request.data.get("title", "").strip()
         description = request.data.get("description", "")
@@ -157,25 +136,21 @@ class LivingBookListCreateView(APIView):
             return Response({"detail": "piece_slug required."}, status=400)
         if not title:
             return Response({"detail": "title required."}, status=400)
+        if not group_slug:
+            return Response({"detail": "group_slug required. Living Books are a group feature."}, status=400)
+
+        group = get_object_or_404(Group, slug=group_slug)
+        if not _user_is_group_editor(request.user, group):
+            return Response({"detail": "Not authorized."}, status=403)
 
         piece = get_object_or_404(WritingPiece, slug=piece_slug)
-
-        sponsor = None
-        if group_slug:
-            group = get_object_or_404(Group, slug=group_slug)
-            if not _user_is_group_editor(request.user, group):
-                return Response({"detail": "Not authorized."}, status=403)
-            sponsor = group
-        else:
-            if piece.author_id != request.user.pk and not request.user.is_superuser:
-                return Response({"detail": "Not authorized."}, status=403)
 
         try:
             lb = LivingBookService.promote_to_living_book(
                 piece,
                 title=title,
                 description=description,
-                sponsor=sponsor,
+                sponsor=group,
                 created_by=request.user,
             )
         except ValueError as e:
