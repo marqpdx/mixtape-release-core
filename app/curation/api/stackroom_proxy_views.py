@@ -16,6 +16,7 @@ from inkwell.stackroom_http_client import (
     download_source_file,
     get_source_file_metadata,
     get_source_file_readable,
+    preview_source_file_pdf,
 )
 
 
@@ -109,6 +110,28 @@ class StackroomSourceFileDownloadProxyView(APIView):
         response = HttpResponse(
             content,
             content_type=headers.get("content-type", "application/octet-stream"),
+        )
+        if headers.get("content-disposition"):
+            response["Content-Disposition"] = headers["content-disposition"]
+        return response
+
+
+class StackroomSourceFilePreviewProxyView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, source_file_id: UUID):
+        _, error_response = _authorized_metadata_or_response(request.user, source_file_id)
+        if error_response is not None:
+            return error_response
+
+        try:
+            content, headers = preview_source_file_pdf(source_file_id)
+        except StackroomClientError as exc:
+            return _stackroom_error_response(exc)
+
+        response = HttpResponse(
+            content,
+            content_type=headers.get("content-type", "application/pdf"),
         )
         if headers.get("content-disposition"):
             response["Content-Disposition"] = headers["content-disposition"]

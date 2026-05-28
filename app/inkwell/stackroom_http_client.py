@@ -207,6 +207,21 @@ def download_source_file(source_file_id: UUID) -> tuple[bytes, dict]:
         raise StackroomClientError(
             f"Source file download failed: {resp.status_code} {resp.text}",
             status_code=resp.status_code,
+    )
+    return resp.content, dict(resp.headers)
+
+
+def preview_source_file_pdf(source_file_id: UUID) -> tuple[bytes, dict]:
+    """GET /source-files/{source_file_id}/preview.pdf."""
+    resp = requests.get(
+        f"{_base_url()}/source-files/{source_file_id}/preview.pdf",
+        headers=_headers(),
+        timeout=90,
+    )
+    if resp.status_code != 200:
+        raise StackroomClientError(
+            f"Source file preview failed: {resp.status_code} {resp.text}",
+            status_code=resp.status_code,
         )
     return resp.content, dict(resp.headers)
 
