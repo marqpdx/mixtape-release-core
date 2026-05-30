@@ -461,6 +461,13 @@ class WorkingDocumentSerializer(serializers.ModelSerializer):
     collaborator_count = serializers.SerializerMethodField()
     collaborators = serializers.SerializerMethodField()
 
+    # Living Book field
+    living_book_id = serializers.SerializerMethodField()
+
+    def get_living_book_id(self, obj):
+        lb_id = obj.piece.living_books_as_trunk.values_list('id', flat=True).first()
+        return str(lb_id) if lb_id else None
+
     def get_is_collaborative(self, obj):
         """Check if this working copy has collaboration enabled"""
         return obj.dispatch_content is not None
@@ -497,6 +504,8 @@ class WorkingDocumentSerializer(serializers.ModelSerializer):
             "is_collaborative",
             "collaborator_count",
             "collaborators",
+            # Living Book
+            "living_book_id",
         ]
 
 
