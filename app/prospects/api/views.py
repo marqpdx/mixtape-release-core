@@ -128,6 +128,10 @@ class IntakeFileUploadView(APIView):
         if not question_id or not uploaded_file:
             return Response({"detail": "question_id and file are required."}, status=status.HTTP_400_BAD_REQUEST)
 
+        MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+        if uploaded_file.size > MAX_UPLOAD_BYTES:
+            return Response({"detail": "File too large. Maximum size is 10 MB."}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
             question = ProspectQuestion.objects.get(id=question_id)
         except ProspectQuestion.DoesNotExist:
