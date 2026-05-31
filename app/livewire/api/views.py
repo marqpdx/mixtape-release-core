@@ -10,6 +10,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
+from chat.models import Conversation, ConversationParticipant
+
 
 User = get_user_model()
 
@@ -107,8 +109,17 @@ def exchange_ws_for_service_token(request):
         if user_obj is None:
             return Response({"detail": "user not found for WS token"}, status=401)
 
-        # TODO: Validate user has permission to access conversation `conv` before minting token
-        # Grant both chat and dispatch scopes for service tokens
+        if conv:
+            try:
+                conversation = Conversation.objects.get(slug=conv)
+            except Conversation.DoesNotExist:
+                return Response({"detail": "conversation not found"}, status=status.HTTP_404_NOT_FOUND)
+            if not ConversationParticipant.objects.filter(
+                conversation=conversation,
+                user=user_obj,
+            ).exists():
+                return Response({"detail": "not a participant in this conversation"}, status=status.HTTP_403_FORBIDDEN)
+
         result = _mint_service_token(user_id=str(user_obj.pk), scopes=["chat:write", "dispatch:write"], conv=conv)
 
         return Response(result, status=status.HTTP_200_OK)

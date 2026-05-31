@@ -21,6 +21,18 @@ load_dotenv(BASE_DIR / ".env.prod", override=True)
 # Import base settings
 from .base import *
 
+from django.core.exceptions import ImproperlyConfigured
+
+_required = {
+    "DJANGO_SECRET_KEY": SECRET_KEY,
+    "ACCESS_TOKEN_SIGNING_KEY": ACCESS_TOKEN_SIGNING_KEY,
+    "EMAIL_HOST_USER": EMAIL_HOST_USER,
+    "EMAIL_HOST_PASSWORD": EMAIL_HOST_PASSWORD,
+}
+for _var, _val in _required.items():
+    if not _val:
+        raise ImproperlyConfigured(f"{_var} must be set in production")
+
 
 # Production settings
 DEBUG = False

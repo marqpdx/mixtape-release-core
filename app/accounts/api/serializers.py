@@ -104,6 +104,16 @@ class UserSerializer(BaseUserSerializer):
         ]
 
 
+class MemberDirectorySerializer(serializers.ModelSerializer):
+    """Public member directory — no email, staff flags, or superuser status."""
+    display_name = serializers.CharField(source="profile.display_name", read_only=True)
+    roles = serializers.SlugRelatedField(many=True, read_only=True, slug_field="name")
+
+    class Meta:
+        model = get_user_model()
+        fields = ["id", "username", "first_name", "last_name", "display_name", "roles", "date_joined"]
+
+
 
 
 
