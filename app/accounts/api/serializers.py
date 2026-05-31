@@ -255,9 +255,7 @@ class UserCreateSerializer(serializers.ModelSerializer):
         )
         user.set_password(validated_data["password"])
 
-        # ✅ Assign Default Role: "member"
         member_role, _ = Role.objects.get_or_create(name="member")
-        print(f"[Serializer] Role 'member' assigned to {user.username}")
         user.save()
         user.roles.add(member_role)
         user.save()
@@ -384,9 +382,9 @@ class EmailOrUsernameTokenSerializer(serializers.Serializer):
             try:
                 found = CustomUser.objects.get(email__iexact=identifier.lower())
                 username = found.username
-                logger.info(f"Login attempt via email for user: {username}")
+                logger.info("Login attempt via email identifier")
             except CustomUser.DoesNotExist:
-                logger.warning(f"Login failed: no user with email {identifier}")
+                logger.warning("Login failed: no account found for submitted email identifier")
                 raise serializers.ValidationError(
                     "Invalid credentials",
                     code="invalid_credentials"

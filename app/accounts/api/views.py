@@ -399,11 +399,9 @@ def refresh_permissions(request):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def user_create_view(request):
-    print("🔥 Reached the view!")  # ✅ Check if this prints
     serializer = UserCreateSerializer(data=request.data, context={"request": request})
     if not serializer.is_valid():
         error_messages = {field: str(error) for field, error in serializer.errors.items()}
-        print("serializer.errors", error_messages)
         return Response(data={
             **error_messages,
             "success": False
@@ -412,7 +410,7 @@ def user_create_view(request):
     try:
         user = serializer.save()
     except Exception as e:
-        print(f"Error creating user: {e}")
+        logger.error("Error creating user: %s", e)
         return Response(data={
             "error": "An error occurred while creating the user.",
             "success": False
