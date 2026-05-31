@@ -9,8 +9,9 @@ from rest_framework import parsers, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from groups.models import Group
+from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
+from groups.models import Group, GroupMembership
 from initiatives.models import (
     AgentCommand,
     AgentCommandStatus,
@@ -575,7 +576,15 @@ class GroupReminderListView(APIView):
 
     def get(self, request, slug):
         group = _get_group(slug)
-        from django.contrib.contenttypes.models import ContentType
+        if not request.user.is_superuser:
+            user_ct = ContentType.objects.get_for_model(get_user_model())
+            if not GroupMembership.objects.filter(
+                group=group,
+                member_content_type=user_ct,
+                member_object_id=request.user.pk,
+                is_active=True,
+            ).exists():
+                return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         ct = ContentType.objects.get_for_model(group)
 
         qs = Reminder.objects.filter(
@@ -594,7 +603,15 @@ class GroupTaskListView(APIView):
 
     def get(self, request, slug):
         group = _get_group(slug)
-        from django.contrib.contenttypes.models import ContentType
+        if not request.user.is_superuser:
+            user_ct = ContentType.objects.get_for_model(get_user_model())
+            if not GroupMembership.objects.filter(
+                group=group,
+                member_content_type=user_ct,
+                member_object_id=request.user.pk,
+                is_active=True,
+            ).exists():
+                return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         ct = ContentType.objects.get_for_model(group)
 
         qs = Task.objects.filter(

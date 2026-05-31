@@ -27,7 +27,7 @@ DEFAULT_FROM_EMAIL = "Crossroads <connect@crossroads.place>"
 
 PROSPECTS_NOTIFY_EMAIL = os.getenv("PROSPECTS_NOTIFY_EMAIL", "")
 
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-unsafe-secret-key")
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
 
 # AI / Initiatives
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
@@ -43,7 +43,7 @@ AI_PROVIDER = os.getenv("AI_PROVIDER", "anthropic")
 # SECURITY WARNING: don't run with debug turned on in production!
 # DEBUG = True
 
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = []
 
 # ============================================================================
 # QDRANT & INKWELL AI SERVICES
@@ -294,8 +294,8 @@ AUTH_PASSWORD_VALIDATORS = [
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = "in-v3.mailjet.com"
 EMAIL_PORT = "587"
-EMAIL_HOST_USER = "REDACTED-MAILJET-API-KEY"
-EMAIL_HOST_PASSWORD = "REDACTED-MAILJET-SECRET-KEY"
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
 EMAIL_USE_TLS = True
 
 
@@ -309,7 +309,6 @@ LISTMONK_BROADCAST_TEMPLATE_ID = os.getenv("LISTMONK_BROADCAST_TEMPLATE_ID")  # 
 
 
 # Service JWT auth, for Stackroom, ...
-SERVICE_JWT_SECRET = os.getenv("SERVICE_JWT_SECRET", "")
 SERVICE_JWT_ALG = os.getenv("SERVICE_JWT_ALG", "HS256")
 SERVICE_JWT_ISS = os.getenv("SERVICE_JWT_ISS", "mixtape")
 SERVICE_JWT_AUD_IR = os.getenv("SERVICE_JWT_AUD_IR", "django-ir")  # <-- Phase 1.2 audience
@@ -377,31 +376,30 @@ REST_FRAMEWORK = {
 
 
     # ============================================================================
-    # DEFERRED: Filtering and Throttling (Phase 2+)
+    # DEFERRED: Filtering (Phase 2+)
     # ============================================================================
     # "DEFAULT_FILTER_BACKENDS": [
     #     "django_filters.rest_framework.DjangoFilterBackend",
     #     "rest_framework.filters.OrderingFilter",
     # ],
-    #
-    # "DEFAULT_THROTTLE_CLASSES": [
-    #     "rest_framework.throttling.ScopedRateThrottle",
-    # ],
-    #
-    # "DEFAULT_THROTTLE_RATES": {
-    #     "seeds_list_create": "120/min",
-    #     "seeds_detail": "180/min",
-    #     "seeds_promote": "30/min",
-    #     "seeds_ingest": "60/min",
-    # },
+
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "60/min",
+        "user": "300/min",
+    },
 
 }
 
-ACCESS_TOKEN_SIGNING_KEY = os.getenv("ACCESS_TOKEN_SIGNING_KEY", "dev-secret-change-me")
+ACCESS_TOKEN_SIGNING_KEY = os.getenv("ACCESS_TOKEN_SIGNING_KEY")
 
 # JWT Settings
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=10),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=5),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
     "SIGNING_KEY": ACCESS_TOKEN_SIGNING_KEY,
      "ALGORITHM": "HS256",
@@ -489,15 +487,6 @@ LOGIN_URL = "/api-auth/login/"
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
-
-
-#Email Configuration
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = "in-v3.mailjet.com"
-EMAIL_PORT = "587"
-EMAIL_HOST_USER = "REDACTED-MAILJET-API-KEY"
-EMAIL_HOST_PASSWORD = "REDACTED-MAILJET-SECRET-KEY"
-EMAIL_USE_TLS = True
 
 
 # CORS defaults (safe for local dev)

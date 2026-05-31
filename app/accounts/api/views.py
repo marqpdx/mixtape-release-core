@@ -22,7 +22,10 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from profiles.models import UserProfile
 from users.models import Role
 
-from .serializers import UserCreateSerializer, UserSerializer
+from django.contrib.contenttypes.models import ContentType
+from groups.models import GroupMembership
+
+from .serializers import MemberDirectorySerializer, UserCreateSerializer, UserSerializer
 
 
 # from .serializers import GroupSerializer  # Deferred to Phase 3
@@ -97,25 +100,39 @@ def csrf(request):
 # ============================================================================
 class UserViewSet(viewsets.ReadOnlyModelViewSet):
     """
-    API endpoint that allows users to be viewed.
-    Read-only for now (list and retrieve only).
+    Read-only member directory. Returns users who share at least one group with the caller.
+    Superusers see all active users.
     """
     queryset = get_user_model().objects.none()
-    serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated]  # Require authentication
+    serializer_class = MemberDirectorySerializer
+    permission_classes = [IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):
-        """
-        Return all active users, prefetch roles for efficiency.
-        """
-        qs = get_user_model().objects.filter(
+        user = self.request.user
+        base_qs = get_user_model().objects.filter(
             is_active=True
         ).prefetch_related(
             Prefetch("roles", queryset=Role.objects.only("name"))
         ).select_related("profile").order_by("-date_joined")
 
-        return qs
+        if user.is_superuser:
+            return base_qs
+
+        user_ct = ContentType.objects.get_for_model(User)
+        shared_group_ids = GroupMembership.objects.filter(
+            member_content_type=user_ct,
+            member_object_id=user.pk,
+            is_active=True,
+        ).values_list("group_id", flat=True)
+
+        peer_user_ids = GroupMembership.objects.filter(
+            group_id__in=shared_group_ids,
+            member_content_type=user_ct,
+            is_active=True,
+        ).values_list("member_object_id", flat=True)
+
+        return base_qs.filter(pk__in=peer_user_ids)
 
 
 # ============================================================================
