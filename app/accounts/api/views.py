@@ -13,9 +13,10 @@ from django.http import JsonResponse
 from django.middleware.csrf import get_token
 from django.utils import timezone
 from rest_framework import status, viewsets
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -32,6 +33,10 @@ from .serializers import MemberDirectorySerializer, UserCreateSerializer, UserSe
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
+
+class UsernameCheckThrottle(AnonRateThrottle):
+    rate = "10/min"
+
 
 IMPERSONATION_ORIGINAL_USER_ID_KEY = "impersonation_original_user_id"
 IMPERSONATION_TARGET_USER_ID_KEY = "impersonation_target_user_id"
@@ -345,6 +350,7 @@ class ExitAssumeUserView(APIView):
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
+@throttle_classes([UsernameCheckThrottle])
 def check_username(request, username):
     """
     GET /api/auth/check-username/<username>
