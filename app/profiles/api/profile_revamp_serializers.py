@@ -94,8 +94,9 @@ class PublicProfileSerializer(serializers.ModelSerializer):
     role          = serializers.SerializerMethodField()
     bio           = serializers.CharField(source='bio_markdown', read_only=True)
     status        = serializers.CharField(source='right_now', read_only=True)
-    avatarUrl     = serializers.CharField(source='avatar_url', read_only=True)
-    theme         = serializers.SerializerMethodField()
+    avatarUrl           = serializers.CharField(source='avatar_url', read_only=True)
+    backgroundImageUrl  = serializers.CharField(source='background_image_url', read_only=True)
+    theme               = serializers.SerializerMethodField()
     accent        = serializers.SerializerMethodField()
     font          = serializers.SerializerMethodField()
     background    = serializers.SerializerMethodField()
@@ -117,7 +118,7 @@ class PublicProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
         fields = [
-            'username', 'displayName', 'role', 'bio', 'status', 'avatarUrl',
+            'username', 'displayName', 'role', 'bio', 'status', 'avatarUrl', 'backgroundImageUrl',
             'theme', 'accent', 'font', 'background', 'avatarShape', 'density',
             'decorations', 'avatarSticker', 'stats', 'sectionLayout',
             'pinned', 'nowPlaying', 'activity', 'friends', 'qa', 'badges', 'links', 'version',
