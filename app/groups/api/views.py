@@ -20,7 +20,8 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone as dj_timezone
 from rest_framework import generics, permissions, status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
+from accounts.api.throttles import InviteThrottle
 from rest_framework.exceptions import PermissionDenied
 
 # from threadworks.api.views import StandardResultsSetPagination  # PHASE 3: Deferred
@@ -417,7 +418,7 @@ class GroupOverviewLayoutView(generics.RetrieveUpdateAPIView):
     GET/PUT /api/groups/<slug>/overview-layout
     """
     serializer_class = GroupOverviewLayoutSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
     def _get_group(self):
         return get_object_or_404(Group, slug=self.kwargs["slug"], is_active=True)
@@ -1153,6 +1154,7 @@ def respond_to_group_invitation(request, invitation_id):
 
 @api_view(["POST"])
 @permission_classes([permissions.AllowAny])
+@throttle_classes([InviteThrottle])
 def accept_invite(request):
     """
     Unified endpoint for accepting group invitations.
@@ -1218,6 +1220,7 @@ def accept_invite(request):
 
 @api_view(["GET"])
 @permission_classes([permissions.AllowAny])
+@throttle_classes([InviteThrottle])
 def invite_info(request, shortcode):
     """
     Return public group info for an invite link shortcode.

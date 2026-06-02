@@ -114,7 +114,9 @@ from datetime import timedelta
 
 SIMPLE_JWT = {
     **SIMPLE_JWT,  # Inherit from base.py
-    "ACCESS_TOKEN_LIFETIME": timedelta(hours=8),  # Dev: 8 hours instead of 10 minutes
+    # Dev convenience — 8h access tokens. Dev SECRET_KEY fallback means dev tokens
+    # are forgeable to anyone with repo access. Never use dev tokens against prod.
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=8),
 }
 
 # Database - PostgreSQL (Phase 2: Required for Groups app with ArrayField)

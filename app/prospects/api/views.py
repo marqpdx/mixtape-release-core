@@ -4,6 +4,7 @@ from django.utils.text import slugify
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from accounts.api.throttles import IntakeThrottle, IntakeUploadThrottle
 
 
 class IsSuperUser(permissions.BasePermission):
@@ -42,6 +43,7 @@ def _get_session_by_token(token):
 
 class IntakeSessionDetailView(APIView):
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [IntakeThrottle]
 
     def get(self, request, token):
         session = _get_session_by_token(token)
@@ -54,6 +56,7 @@ class IntakeSessionDetailView(APIView):
 
 class IntakeResponseSaveView(APIView):
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [IntakeThrottle]
 
     def post(self, request, token):
         session = _get_session_by_token(token)
@@ -93,6 +96,7 @@ class IntakeResponseSaveView(APIView):
 
 class IntakeSubmitView(APIView):
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [IntakeUploadThrottle]
 
     def post(self, request, token):
         session = _get_session_by_token(token)
@@ -111,6 +115,7 @@ class IntakeSubmitView(APIView):
 
 class IntakeFileUploadView(APIView):
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [IntakeUploadThrottle]
     parser_classes_override = None  # uses default parsers including MultiPartParser
 
     def post(self, request, token):
@@ -167,6 +172,7 @@ class IntakeFileUploadView(APIView):
 
 class IntakeResponseStatusView(APIView):
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [IntakeThrottle]
 
     def get(self, request, token, response_id):
         session = _get_session_by_token(token)
@@ -186,6 +192,7 @@ class IntakeResponseStatusView(APIView):
 
 class IntakeVoiceUploadView(APIView):
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [IntakeUploadThrottle]
 
     def post(self, request, token):
         session = _get_session_by_token(token)
@@ -200,6 +207,10 @@ class IntakeVoiceUploadView(APIView):
         audio_file = request.FILES.get("audio")
         if not question_id or not audio_file:
             return Response({"detail": "question_id and audio are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        MAX_AUDIO_BYTES = 25 * 1024 * 1024
+        if audio_file.size > MAX_AUDIO_BYTES:
+            return Response({"detail": "Audio file too large. Maximum size is 25 MB."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             question = ProspectQuestion.objects.get(id=question_id)

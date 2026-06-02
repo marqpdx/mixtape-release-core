@@ -353,7 +353,7 @@ SPONSOR_MODELS = {
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "oauth2_provider.contrib.rest_framework.OAuth2Authentication",  # OAuth2 first — returns None gracefully if token isn't OAuth
-        "rest_framework_simplejwt.authentication.JWTAuthentication",    # JWT second — raises exception on invalid tokens
+        "accounts.api.authentication.DenylistJWTAuthentication",        # JWT with JTI denylist check (auth11 H-05)
         # "rest_framework.authentication.SessionAuthentication",          # Session for Django admin/browsable API
     ),
 
@@ -391,8 +391,22 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "anon": "60/min",
         "user": "300/min",
+        "login": "5/min",
+        "signup": "10/min",
+        "password_reset": "5/min",
+        "token_refresh": "30/min",
+        "intake": "30/min",
+        "intake_upload": "10/min",
+        "invite": "10/min",
     },
 
+}
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "LOCATION": "cache_table",
+    }
 }
 
 ACCESS_TOKEN_SIGNING_KEY = os.getenv("ACCESS_TOKEN_SIGNING_KEY")

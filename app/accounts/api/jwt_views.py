@@ -13,6 +13,7 @@ from rest_framework_simplejwt.settings import api_settings as jwt_settings
 from rest_framework_simplejwt.views import TokenViewBase
 
 from . import serializers
+from .throttles import LoginThrottle, TokenRefreshThrottle
 
 
 logger = logging.getLogger(__name__)
@@ -104,10 +105,12 @@ class TokenViewBaseWithCookie(TokenViewBase):
 
 class Login(TokenViewBaseWithCookie):
     serializer_class = serializers.EmailOrUsernameTokenSerializer
+    throttle_classes = [LoginThrottle]
 
 
 class RefreshToken(TokenViewBaseWithCookie):
     serializer_class = serializers.TokenRefreshSerializer
+    throttle_classes = [TokenRefreshThrottle]
 
 
 class Logout(APIView):
@@ -117,7 +120,6 @@ class Logout(APIView):
     def post(self, request, *args, **kwargs):
         refresh_token = request.COOKIES.get(JWT_COOKIE_NAME)
 
-        # Try to blacklist if possible (only works if blacklist app is enabled)
         if refresh_token:
             try:
                 from rest_framework_simplejwt.tokens import RefreshToken
@@ -125,7 +127,22 @@ class Logout(APIView):
                 token.blacklist()
                 logger.info("Refresh token blacklisted on logout")
             except Exception as e:
-                logger.warning(f"Could not blacklist token on logout: {e}")
+                logger.warning("Could not blacklist refresh token on logout: %s", e)
+
+        # Denylist the access token JTI so it cannot be used after logout
+        auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+        if auth_header.startswith("Bearer "):
+            raw_access = auth_header.split(" ", 1)[1]
+            try:
+                from rest_framework_simplejwt.tokens import UntypedToken
+                from .authentication import add_jti_to_denylist
+                decoded = UntypedToken(raw_access)
+                jti = decoded.get("jti")
+                if jti:
+                    ttl = int(jwt_settings.ACCESS_TOKEN_LIFETIME.total_seconds())
+                    add_jti_to_denylist(jti, ttl)
+            except Exception as e:
+                logger.warning("Could not denylist access token JTI on logout: %s", e)
 
         resp = Response({"success": True, "detail": "Logged out successfully"}, status=status.HTTP_200_OK)
 

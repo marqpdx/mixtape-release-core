@@ -12,6 +12,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
+from .throttles import PasswordResetThrottle
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -22,6 +23,7 @@ FRONTEND_URL = getattr(settings, "FRONTEND_URL", "http://localhost:3000")
 class PasswordResetRequestView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [PasswordResetThrottle]
 
     def post(self, request):
         email = request.data.get("email", "").strip().lower()
@@ -35,7 +37,7 @@ class PasswordResetRequestView(APIView):
         try:
             user = User.objects.get(email__iexact=email, is_active=True)
         except User.DoesNotExist:
-            logger.info(f"Password reset requested for unknown email: {email}")
+            logger.info("Password reset requested for unregistered address")
             return Response({"detail": "If an account exists, a reset link has been sent."})
 
         uid = urlsafe_base64_encode(force_bytes(user.pk))
@@ -53,9 +55,9 @@ class PasswordResetRequestView(APIView):
                 html_email_template_name="email/password_reset.html",
                 extra_email_context={"reset_url": reset_url, "site_name": "Crossroads"},
             )
-            logger.info(f"Password reset email sent to {email}")
+            logger.info("Password reset email dispatched")
         else:
-            logger.warning(f"PasswordResetForm invalid for email: {email}")
+            logger.warning("PasswordResetForm invalid — check email format validation")
 
         return Response({"detail": "If an account exists, a reset link has been sent."})
 
@@ -63,6 +65,7 @@ class PasswordResetRequestView(APIView):
 class PasswordResetConfirmView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [PasswordResetThrottle]
 
     def post(self, request):
         uid_b64 = request.data.get("uid", "")
@@ -96,6 +99,6 @@ class PasswordResetConfirmView(APIView):
             return Response({"detail": str(errors)}, status=status.HTTP_400_BAD_REQUEST)
 
         form.save()
-        logger.info(f"Password reset completed for user: {user.username}")
+        logger.info("Password reset completed")
 
         return Response({"detail": "Password has been reset successfully."})
