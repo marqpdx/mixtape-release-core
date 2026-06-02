@@ -1,5 +1,6 @@
 # accounts/api/views.py
 
+from datetime import timedelta
 from http import HTTPStatus
 import logging
 
@@ -12,12 +13,14 @@ from django.db.models import Prefetch
 from django.http import JsonResponse
 from django.middleware.csrf import get_token
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
-from .throttles import SignupThrottle
+from .permissions import IsSuperUser
+from .throttles import AssumeUserThrottle, SignupThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -27,6 +30,7 @@ from users.models import Role
 from django.contrib.contenttypes.models import ContentType
 from groups.models import GroupMembership
 
+from accounts.models import ImpersonationAuditLog
 from .serializers import MemberDirectorySerializer, UserCreateSerializer, UserSerializer
 
 
@@ -42,6 +46,13 @@ class UsernameCheckThrottle(AnonRateThrottle):
 IMPERSONATION_ORIGINAL_USER_ID_KEY = "impersonation_original_user_id"
 IMPERSONATION_TARGET_USER_ID_KEY = "impersonation_target_user_id"
 IMPERSONATION_STARTED_AT_KEY = "impersonation_started_at"
+
+
+def get_client_ip(request):
+    x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+    if x_forwarded_for:
+        return x_forwarded_for.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR")
 
 
 def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
@@ -84,10 +95,8 @@ def _build_impersonation_payload(request, user):
             "is_impersonating": True,
             "started_at": request.session.get(IMPERSONATION_STARTED_AT_KEY),
             "impersonated_by": {
-                "id": str(original_user.id),
                 "username": original_user.username,
                 "first_name": original_user.first_name,
-                "is_superuser": original_user.is_superuser,
             } if original_user else None,
         }
     return {
@@ -269,12 +278,11 @@ class AssumeUserView(APIView):
     Returns JWTs for assumed user and stores original/target in session.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsSuperUser]
+    throttle_classes = [AssumeUserThrottle]
 
     def post(self, request):
         actor = request.user
-        if not actor.is_superuser:
-            return Response({"detail": "Superuser access required."}, status=status.HTTP_403_FORBIDDEN)
 
         username = str(request.data.get("username", "")).strip()
         if not username:
@@ -285,7 +293,10 @@ class AssumeUserView(APIView):
             return Response({"detail": "Target user not found."}, status=status.HTTP_404_NOT_FOUND)
         if target.id == actor.id:
             return Response({"detail": "Cannot assume yourself."}, status=status.HTTP_400_BAD_REQUEST)
+        if target.is_superuser:
+            return Response({"detail": "Cannot impersonate another superuser."}, status=status.HTTP_403_FORBIDDEN)
 
+        request.session.cycle_key()
         request.session[IMPERSONATION_ORIGINAL_USER_ID_KEY] = str(actor.id)
         request.session[IMPERSONATION_TARGET_USER_ID_KEY] = str(target.id)
         request.session[IMPERSONATION_STARTED_AT_KEY] = timezone.now().isoformat()
@@ -294,12 +305,26 @@ class AssumeUserView(APIView):
         cache.delete(f"user_identity:{actor.id}")
         cache.delete(f"user_identity:{target.id}")
 
+        client_ip = get_client_ip(request)
         logger.info(
-            "Impersonation started: actor=%s target=%s ip=%s",
+            "Impersonation started: actor=%s actor_id=%s target=%s target_id=%s ip=%s",
             actor.username,
+            str(actor.id),
             target.username,
-            request.META.get("REMOTE_ADDR"),
+            str(target.id),
+            client_ip,
         )
+
+        try:
+            ImpersonationAuditLog.objects.create(
+                actor=actor,
+                target=target,
+                started_at=timezone.now(),
+                ip_address=client_ip,
+                session_key=request.session.session_key or "",
+            )
+        except Exception:
+            logger.warning("Failed to write ImpersonationAuditLog on assume start")
 
         payload = _build_auth_payload(target)
         response = Response(payload, status=status.HTTP_200_OK)
@@ -314,6 +339,7 @@ class ExitAssumeUserView(APIView):
     """
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = [AssumeUserThrottle]
 
     def post(self, request):
         original_user_id = request.session.get(IMPERSONATION_ORIGINAL_USER_ID_KEY)
@@ -322,11 +348,36 @@ class ExitAssumeUserView(APIView):
         if not original_user_id or not target_user_id:
             return Response({"detail": "Not currently impersonating."}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Bind exit to the JWT identity that was issued during assume
+        if str(request.user.id) != str(target_user_id):
+            return Response(
+                {"detail": "Session mismatch — not the impersonation target."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # TTL enforcement
+        started_at_str = request.session.get(IMPERSONATION_STARTED_AT_KEY)
+        if started_at_str:
+            started_at = parse_datetime(started_at_str)
+            if started_at is not None:
+                max_seconds = getattr(settings, "IMPERSONATION_MAX_SECONDS", 3600)
+                if (timezone.now() - started_at).total_seconds() > max_seconds:
+                    request.session.pop(IMPERSONATION_ORIGINAL_USER_ID_KEY, None)
+                    request.session.pop(IMPERSONATION_TARGET_USER_ID_KEY, None)
+                    request.session.pop(IMPERSONATION_STARTED_AT_KEY, None)
+                    return Response(
+                        {"detail": "Impersonation session expired."},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+
         original_user = User.objects.filter(id=original_user_id, is_active=True).first()
         if not original_user:
             return Response({"detail": "Original user not found."}, status=status.HTTP_404_NOT_FOUND)
         if not original_user.is_superuser:
             return Response({"detail": "Original user is not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        target_user = User.objects.filter(id=target_user_id).first()
+        target_username = target_user.username if target_user else str(target_user_id)
 
         request.session.pop(IMPERSONATION_ORIGINAL_USER_ID_KEY, None)
         request.session.pop(IMPERSONATION_TARGET_USER_ID_KEY, None)
@@ -336,12 +387,27 @@ class ExitAssumeUserView(APIView):
         cache.delete(f"user_identity:{original_user.id}")
         cache.delete(f"user_identity:{target_user_id}")
 
+        client_ip = get_client_ip(request)
         logger.info(
-            "Impersonation ended: actor=%s target_id=%s ip=%s",
+            "Impersonation ended: actor=%s actor_id=%s target=%s target_id=%s ip=%s",
             original_user.username,
+            str(original_user.id),
+            target_username,
             target_user_id,
-            request.META.get("REMOTE_ADDR"),
+            client_ip,
         )
+
+        try:
+            log_entry = ImpersonationAuditLog.objects.filter(
+                actor=original_user,
+                target_id=target_user_id,
+                ended_at__isnull=True,
+            ).order_by("-started_at").first()
+            if log_entry:
+                log_entry.ended_at = timezone.now()
+                log_entry.save(update_fields=["ended_at"])
+        except Exception:
+            logger.warning("Failed to update ImpersonationAuditLog on assume exit")
 
         payload = _build_auth_payload(original_user)
         response = Response(payload, status=status.HTTP_200_OK)

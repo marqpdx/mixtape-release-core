@@ -398,9 +398,12 @@ REST_FRAMEWORK = {
         "intake": "30/min",
         "intake_upload": "10/min",
         "invite": "10/min",
+        "assume": "10/min",
     },
 
 }
+
+IMPERSONATION_MAX_SECONDS = 3600  # 1 hour; enforced in ExitAssumeUserView
 
 CACHES = {
     "default": {

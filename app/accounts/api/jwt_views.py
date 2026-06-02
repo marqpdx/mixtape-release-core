@@ -120,6 +120,10 @@ class Logout(APIView):
     def post(self, request, *args, **kwargs):
         refresh_token = request.COOKIES.get(JWT_COOKIE_NAME)
 
+        # Mode 3 (impersonation drift): if the caller was impersonating someone, this
+        # denylists the impersonated user's JWT but leaves session impersonation keys
+        # active. The session expires naturally. The superuser must re-authenticate to
+        # reach /api/auth/assume/exit cleanly. No security escalation; operational confusion only.
         if refresh_token:
             try:
                 from rest_framework_simplejwt.tokens import RefreshToken
