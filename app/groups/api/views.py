@@ -1,8 +1,10 @@
 # groups/api/views.py
 
+import datetime as dt
 import json
 import uuid
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
@@ -23,6 +25,8 @@ from rest_framework import generics, permissions, status
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from accounts.api.throttles import InviteThrottle
 from rest_framework.exceptions import PermissionDenied
+from rest_framework_simplejwt.settings import api_settings as jwt_settings
+from rest_framework_simplejwt.tokens import RefreshToken
 
 # from threadworks.api.views import StandardResultsSetPagination  # PHASE 3: Deferred
 from rest_framework.response import Response
@@ -1195,7 +1199,8 @@ def accept_invite(request):
 
         # Return success response
         grp = result["group"]
-        return JsonResponse({
+        response_data = {
+            "success": True,
             "detail": "Successfully joined group.",
             "user_was_new": result["user_was_new"],
             "group": {
@@ -1204,7 +1209,40 @@ def accept_invite(request):
                 "slug": grp.slug,
                 "profile_image_url": grp.profile_image_url,
             }
-        }, status=200)
+        }
+
+        if result["user_was_new"]:
+            refresh = RefreshToken.for_user(result["user"])
+            access = refresh.access_token
+            access["username"] = result["user"].username
+            response_data.update({
+                "refresh": str(refresh),
+                "refresh_expires": refresh["exp"],
+                "access": str(access),
+                "access_expires": access["exp"],
+                "user": {
+                    "id": str(result["user"].id),
+                    "username": result["user"].username,
+                    "email": result["user"].email,
+                },
+            })
+
+        resp = JsonResponse(response_data, status=200)
+
+        if result["user_was_new"]:
+            expiration = dt.datetime.utcnow() + jwt_settings.REFRESH_TOKEN_LIFETIME
+            resp.set_cookie(
+                settings.JWT_COOKIE_NAME,
+                response_data["refresh"],
+                expires=expiration,
+                secure=settings.JWT_COOKIE_SECURE,
+                httponly=True,
+                samesite=settings.JWT_COOKIE_SAMESITE,
+                path="/",
+                domain=getattr(settings, "SESSION_COOKIE_DOMAIN", None),
+            )
+
+        return resp
 
     except ValidationError as e:
         # Service layer raises ValidationError with specific messages
