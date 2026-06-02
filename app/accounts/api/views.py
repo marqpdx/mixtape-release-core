@@ -17,6 +17,7 @@ from rest_framework.decorators import api_view, permission_classes, throttle_cla
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
+from .throttles import SignupThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -404,6 +405,7 @@ def refresh_permissions(request):
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
+@throttle_classes([SignupThrottle])
 def user_create_view(request):
     serializer = UserCreateSerializer(data=request.data, context={"request": request})
     if not serializer.is_valid():
