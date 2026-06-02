@@ -10,6 +10,7 @@ from profiles.models import (
     KNOWN_SECTION_IDS, DEFAULT_SECTION_LAYOUT,
     ThemeChoices,
 )
+from utils.storage.storage_utils import key_to_url
 
 User = get_user_model()
 
@@ -96,6 +97,8 @@ class PublicProfileSerializer(serializers.ModelSerializer):
     status        = serializers.CharField(source='right_now', read_only=True)
     avatarUrl           = serializers.CharField(source='avatar_url', read_only=True)
     backgroundImageUrl  = serializers.CharField(source='background_image_url', read_only=True)
+    introVoiceUrl       = serializers.SerializerMethodField()
+    introVoiceTranscript = serializers.CharField(source='intro_voice_transcript', read_only=True)
     theme               = serializers.SerializerMethodField()
     accent        = serializers.SerializerMethodField()
     font          = serializers.SerializerMethodField()
@@ -119,6 +122,7 @@ class PublicProfileSerializer(serializers.ModelSerializer):
         model = UserProfile
         fields = [
             'username', 'displayName', 'role', 'bio', 'status', 'avatarUrl', 'backgroundImageUrl',
+            'introVoiceUrl', 'introVoiceTranscript',
             'theme', 'accent', 'font', 'background', 'avatarShape', 'density',
             'decorations', 'avatarSticker', 'stats', 'sectionLayout',
             'pinned', 'nowPlaying', 'activity', 'friends', 'qa', 'badges', 'links', 'version',
@@ -133,6 +137,9 @@ class PublicProfileSerializer(serializers.ModelSerializer):
     def get_role(self, obj):
         parts = [p for p in [obj.practice_area, obj.location] if p]
         return ' · '.join(parts)
+
+    def get_introVoiceUrl(self, obj):
+        return key_to_url(obj.intro_voice) if obj.intro_voice else None
 
     def get_theme(self, obj):
         tc = self._theme_config(obj)
