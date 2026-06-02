@@ -1,4 +1,4 @@
-from rest_framework.throttling import AnonRateThrottle
+from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 
 
 class LoginThrottle(AnonRateThrottle):
@@ -27,3 +27,7 @@ class IntakeUploadThrottle(AnonRateThrottle):
 
 class InviteThrottle(AnonRateThrottle):
     scope = "invite"
+
+
+class AssumeUserThrottle(UserRateThrottle):
+    scope = "assume"

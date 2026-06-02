@@ -140,6 +140,7 @@ MEDIA_URL = "/media/"
 JWT_COOKIE_SECURE = True
 JWT_COOKIE_SAMESITE = "None"
 
+SESSION_COOKIE_AGE = 86400  # 1 day; explicit to avoid defaulting to 14-day Django default
 SESSION_COOKIE_DOMAIN = ".crossroads.place"
 CSRF_COOKIE_DOMAIN = ".crossroads.place"
 SESSION_COOKIE_SECURE = True
