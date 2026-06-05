@@ -498,7 +498,7 @@ class GroupContextView(generics.GenericAPIView):
         return Response(self._serialize(ctx))
 
 
-class GroupInvitationDetailView(generics.RetrieveAPIView):
+class GroupInvitationDetailView(generics.RetrieveDestroyAPIView):
     serializer_class = GroupInvitationSerializer
     permission_classes = [permissions.IsAuthenticated, CanInviteMembers]
     lookup_field = "pk"
@@ -506,6 +506,16 @@ class GroupInvitationDetailView(generics.RetrieveAPIView):
     def get_queryset(self):
         group_slug = self.kwargs["group_slug"]
         return GroupInvitation.objects.filter(group__slug=group_slug)
+
+    def destroy(self, request, *args, **kwargs):
+        invitation = self.get_object()
+        if invitation.invitation_status == "joined":
+            return Response(
+                {"error": "Cannot delete an invitation that has already been accepted"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        invitation.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class GroupMembersView(generics.ListAPIView):

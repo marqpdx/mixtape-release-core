@@ -1153,6 +1153,15 @@ class WorkingDocumentCollaborationStatusView(generics.RetrieveAPIView):
             )
 
             if not is_collaborator:
+                # Group admins/stewards may also access collaboration status
+                from groups.services.groups import GroupService
+                piece_group = working_doc.piece.group
+                if piece_group:
+                    membership = GroupService.get_user_membership(piece_group, request.user)
+                    if membership and (membership.is_admin() or membership.is_steward()):
+                        is_collaborator = True
+
+            if not is_collaborator:
                 return Response(
                     {"error": "Not authorized"},
                     status=status.HTTP_403_FORBIDDEN
