@@ -159,6 +159,7 @@ MIXTAPE_DEFAULT_GROUP_UUID_NAMESPACE = os.getenv("MIXTAPE_DEFAULT_GROUP_UUID_NAM
 OPS_APPLICATION_SURFACES = {}
 OPS_LIVEWIRE_MONITOR = {}
 OPS_BACKUP_MONITORS = {}
+PUDDLEJUMP_PATH = None
 
 
 # ============================================================================

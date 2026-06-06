@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 from ops.api.permissions import IsSuperuser
 from ops.api.serializers import BuildLogEntrySerializer, OpsSummarySerializer, OpsTilesSerializer
 from ops.models import BuildLogEntry
+from ops.services.puddlejump_reader import build_project_status
 from ops.services.snapshot import build_health_snapshot
 
 
@@ -226,3 +227,10 @@ class BuildLogEntryListView(APIView):
         params["limit"] = str(limit)
         params["offset"] = str(offset)
         return f"{request.path}?{params.urlencode()}"
+
+
+class ProjectStatusView(APIView):
+    permission_classes = [IsAuthenticated, IsSuperuser]
+
+    def get(self, request):
+        return _no_cache_response(build_project_status())

@@ -152,6 +152,12 @@ DATABASES = {
 # for emailing
 FRONTEND_URL = "http://127.0.0.1:3011"
 
+# Local-only project status tooling for /api/ops/project-status.
+PUDDLEJUMP_PATH = os.getenv(
+    "PUDDLEJUMP_PATH",
+    "REDACTED-LOCAL-PATH/puddlejump",
+)
+
 OPS_APPLICATION_SURFACES = {
     "mixtape-web": {
         "label": "Mixtape Web",
