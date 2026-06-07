@@ -242,6 +242,23 @@ class Initiative(BaseModel):
         ),
     )
 
+    # --- Radar fields (W-16) ---
+    narrative = models.TextField(
+        blank=True,
+        default="",
+        help_text="Authored north-star statement. Never written by the system. Distinct from AI rolling_summary.",
+    )
+    position = models.PositiveIntegerField(
+        default=0,
+        help_text="User-controlled ordering within active/paused radar lists.",
+    )
+    last_session_note = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text="Manual 'where we left off' note. Never written by the system.",
+    )
+
     # --- Authorship ---
     created_by = models.ForeignKey(
         User,
