@@ -17,6 +17,7 @@ from .initiative_radar import (
     reorder_initiatives,
     restore_initiative,
     set_status,
+    touch_initiative,
     update_initiative,
 )
 
@@ -38,5 +39,6 @@ __all__ = [
     "restore_initiative",
     "set_status",
     "summarize_parsed_command",
+    "touch_initiative",
     "update_initiative",
 ]

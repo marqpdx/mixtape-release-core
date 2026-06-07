@@ -655,11 +655,12 @@ class RadarInitiativeSerializer(serializers.ModelSerializer):
             "narrative",
             "position",
             "last_session_note",
+            "member_last_active_at",
             "created_at",
             "updated_at",
             "last_session_at",
         ]
-        read_only_fields = ["id", "is_personal", "created_at", "updated_at"]
+        read_only_fields = ["id", "is_personal", "member_last_active_at", "created_at", "updated_at"]
 
     def get_last_session_at(self, obj):
         dt = obj.last_session_at()

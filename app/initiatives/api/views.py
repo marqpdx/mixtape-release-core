@@ -1750,13 +1750,16 @@ class RadarListCreateView(APIView):
             sponsor_object_id=user.pk,
         ).prefetch_related("sessions")
 
+        from django.db.models import F
+        from django.db.models.functions import Coalesce
+
         status_filter = request.query_params.get("status", "").lower()
         if status_filter == "archived":
-            qs = qs.filter(status=InitiativeStatus.ARCHIVED).order_by("-updated_at")
+            qs = qs.filter(status=InitiativeStatus.ARCHIVED).order_by("-member_last_active_at", "-updated_at")
         else:
             qs = (
                 qs.exclude(status=InitiativeStatus.ARCHIVED)
-                .order_by("position", "created_at")
+                .order_by(F("member_last_active_at").desc(nulls_last=True), "position", "created_at")
             )
 
         return Response(RadarInitiativeSerializer(qs, many=True).data)

@@ -12,6 +12,7 @@ from uuid import UUID
 
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
+from django.utils import timezone
 
 from initiatives.importers import chatgpt_parser, claude_parser, freeform_parser
 from initiatives.importers.base import ImportParseError
@@ -57,6 +58,7 @@ def create_initiative(user, *, title: str, direction: str = "") -> Initiative:
         sponsor_object_id=user.pk,
         created_by=user,
         position=max_pos + 1,
+        member_last_active_at=timezone.now(),
     )
 
 
@@ -75,8 +77,19 @@ def update_initiative(initiative: Initiative, **fields: Any) -> Initiative:
             dirty.append(key)
 
     if dirty:
-        initiative.save(update_fields=dirty + ["updated_at"])
+        initiative.member_last_active_at = timezone.now()
+        initiative.save(update_fields=dirty + ["member_last_active_at", "updated_at"])
 
+    return initiative
+
+
+def touch_initiative(initiative: Initiative) -> Initiative:
+    """
+    Record a lightweight member touch (e.g. workspace open) without changing any
+    other field. Called by the workspace view when a member opens an initiative.
+    """
+    initiative.member_last_active_at = timezone.now()
+    initiative.save(update_fields=["member_last_active_at", "updated_at"])
     return initiative
 
 
@@ -93,7 +106,8 @@ def set_status(initiative: Initiative, status: str) -> Initiative:
     if initiative.status == InitiativeStatus.ARCHIVED and status != InitiativeStatus.ARCHIVED:
         raise ValueError("Use restore_initiative() to unarchive an initiative.")
     initiative.status = status
-    initiative.save(update_fields=["status", "updated_at"])
+    initiative.member_last_active_at = timezone.now()
+    initiative.save(update_fields=["status", "member_last_active_at", "updated_at"])
     return initiative
 
 
@@ -108,7 +122,8 @@ def restore_initiative(initiative: Initiative) -> Initiative:
     if initiative.status != InitiativeStatus.ARCHIVED:
         raise ValueError("Only archived initiatives can be restored.")
     initiative.status = InitiativeStatus.PAUSED
-    initiative.save(update_fields=["status", "updated_at"])
+    initiative.member_last_active_at = timezone.now()
+    initiative.save(update_fields=["status", "member_last_active_at", "updated_at"])
     return initiative
 
 
@@ -134,15 +149,17 @@ def reorder_initiatives(user, ordered_ids: list[str | UUID]) -> None:
     )
     by_id = {str(obj.id): obj for obj in qs}
 
+    now = timezone.now()
     to_update = []
     for pos, raw_id in enumerate(ordered_ids, start=1):
         obj = by_id.get(str(raw_id))
         if obj and obj.position != pos:
             obj.position = pos
+            obj.member_last_active_at = now
             to_update.append(obj)
 
     if to_update:
-        Initiative.objects.bulk_update(to_update, ["position", "updated_at"])
+        Initiative.objects.bulk_update(to_update, ["position", "member_last_active_at", "updated_at"])
 
 
 # ---------------------------------------------------------------------------
@@ -157,13 +174,15 @@ def add_doc_link(
 ) -> InitiativeArtifact:
     """Attach a puddlejump document path to an initiative."""
     pos = _next_artifact_position(initiative)
-    return InitiativeArtifact.objects.create(
+    artifact = InitiativeArtifact.objects.create(
         initiative=initiative,
         artifact_type=InitiativeArtifactType.DOC_LINK,
         label=label,
         doc_path=doc_path,
         position=pos,
     )
+    _touch(initiative)
+    return artifact
 
 
 def import_conversation(
@@ -196,7 +215,7 @@ def import_conversation(
     transcript = _render_transcript(parsed.turns, source)
     pos = _next_artifact_position(initiative)
 
-    return InitiativeArtifact.objects.create(
+    artifact = InitiativeArtifact.objects.create(
         initiative=initiative,
         artifact_type=InitiativeArtifactType.CONVERSATION_IMPORT,
         label=label or parsed.conversation_title,
@@ -205,6 +224,8 @@ def import_conversation(
         conversation_text=transcript,
         position=pos,
     )
+    _touch(initiative)
+    return artifact
 
 
 @transaction.atomic
@@ -228,12 +249,22 @@ def reorder_artifacts(initiative: Initiative, ordered_ids: list[str | UUID]) -> 
 
 
 def remove_artifact(artifact: InitiativeArtifact) -> None:
+    initiative = artifact.initiative
     artifact.delete()
+    _touch(initiative)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _touch(initiative: Initiative) -> None:
+    """Internal helper — stamp member_last_active_at without the public API overhead."""
+    Initiative.objects.filter(pk=initiative.pk).update(
+        member_last_active_at=timezone.now(),
+        updated_at=timezone.now(),
+    )
+
 
 def _next_artifact_position(initiative: Initiative) -> int:
     max_pos = (
