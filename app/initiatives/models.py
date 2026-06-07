@@ -1182,3 +1182,73 @@ class AgentTranscriptionJob(BaseModel):
 
     def __str__(self):
         return f"TranscriptionJob({self.status}) {self.id}"
+
+
+# ---------------------------------------------------------------------------
+# InitiativeArtifact (W-16)
+# ---------------------------------------------------------------------------
+
+class InitiativeArtifactType(models.TextChoices):
+    DOC_LINK = "doc_link", "Doc Link"
+    CONVERSATION_IMPORT = "conversation_import", "Conversation Import"
+
+
+class ConversationSource(models.TextChoices):
+    CLAUDE = "claude", "Claude"
+    CHATGPT = "chatgpt", "ChatGPT"
+    OTHER = "other", "Other"
+
+
+class InitiativeArtifact(BaseModel):
+    """
+    An artifact attached to a personal Initiative — either a link to a
+    puddlejump document or an imported conversation (Claude Web / ChatGPT).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    initiative = models.ForeignKey(
+        Initiative,
+        on_delete=models.CASCADE,
+        related_name="initiative_artifacts",
+    )
+    artifact_type = models.CharField(
+        max_length=30,
+        choices=InitiativeArtifactType.choices,
+    )
+    label = models.CharField(max_length=200)
+    doc_path = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text="For doc_link: the puddlejump file path (e.g. pilots/weave-pilot.md).",
+    )
+    conversation_source = models.CharField(
+        max_length=20,
+        choices=ConversationSource.choices,
+        blank=True,
+        default="",
+        help_text="For conversation_import: the originating tool.",
+    )
+    conversation_json = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Raw imported JSON stored as-is for future structured access.",
+    )
+    conversation_text = models.TextField(
+        blank=True,
+        default="",
+        help_text="Plain-text transcript generated at import time. Never AI-summarized in Phase 1.",
+    )
+    position = models.PositiveIntegerField(
+        default=0,
+        help_text="Ordering within the initiative's artifact list. User-controlled.",
+    )
+
+    class Meta(BaseModel.Meta):
+        ordering = ["position", "created_at"]
+        indexes = [
+            models.Index(fields=["initiative", "position"], name="init_artifact_order_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.label} ({self.artifact_type})"
