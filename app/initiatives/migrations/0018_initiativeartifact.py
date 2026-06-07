@@ -7,7 +7,7 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("initiatives", "0003_initiative_radar_fields"),
+        ("initiatives", "0017_initiative_radar_fields"),
     ]
 
     operations = [
