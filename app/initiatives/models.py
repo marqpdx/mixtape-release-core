@@ -258,6 +258,16 @@ class Initiative(BaseModel):
         default="",
         help_text="Manual 'where we left off' note. Never written by the system.",
     )
+    member_last_active_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Timestamp of the last member-driven action on this initiative. "
+            "Set by InitiativeService on any member write or workspace open. "
+            "Never set by system jobs, collaborator actions, or background processes. "
+            "Radar default sort uses this field, not updated_at."
+        ),
+    )
 
     # --- Authorship ---
     created_by = models.ForeignKey(
