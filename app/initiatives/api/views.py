@@ -1784,9 +1784,11 @@ class RadarDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, initiative_id):
+        from initiatives.services import touch_initiative
         initiative, err = _get_radar_initiative(request, initiative_id)
         if err:
             return err
+        touch_initiative(initiative)
         return Response(RadarInitiativeSerializer(initiative).data)
 
     def patch(self, request, initiative_id):
