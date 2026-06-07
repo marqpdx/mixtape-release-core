@@ -48,6 +48,8 @@ from initiatives.api.serializers import (
     MobileCommandConfirmSerializer,
     MobileCommandCreateSerializer,
     NoteSerializer,
+    RadarInitiativeArtifactSerializer,
+    RadarInitiativeSerializer,
     ReminderSerializer,
     RollingSummaryUpdateSerializer,
     SessionSerializer,
@@ -1710,3 +1712,275 @@ class MobileTranscribeStatusView(APIView):
             "transcription_text": job.transcription_text or None,
             "failure_reason": job.failure_reason or None,
         })
+
+
+# ============================================================================
+# Radar API (W-16)
+# ============================================================================
+
+def _get_radar_initiative(request, initiative_id):
+    """
+    Return (initiative, None) if the requesting user owns the initiative,
+    or (None, error_response) if not found or not owned.
+    """
+    initiative = get_object_or_404(Initiative, pk=initiative_id)
+    user_ct = ContentType.objects.get_for_model(request.user.__class__)
+    is_owner = (
+        initiative.sponsor_content_type_id == user_ct.id
+        and str(initiative.sponsor_object_id) == str(request.user.id)
+    )
+    if not is_owner:
+        return None, Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+    return initiative, None
+
+
+class RadarListCreateView(APIView):
+    """
+    GET  api/initiatives/radar          — active+paused initiatives (default)
+                                          ?status=archived for archived list
+    POST api/initiatives/radar          — create a new personal initiative
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        user_ct = ContentType.objects.get_for_model(user.__class__)
+        qs = Initiative.objects.filter(
+            sponsor_content_type=user_ct,
+            sponsor_object_id=user.pk,
+        ).prefetch_related("sessions")
+
+        status_filter = request.query_params.get("status", "").lower()
+        if status_filter == "archived":
+            qs = qs.filter(status=InitiativeStatus.ARCHIVED).order_by("-updated_at")
+        else:
+            qs = (
+                qs.exclude(status=InitiativeStatus.ARCHIVED)
+                .order_by("position", "created_at")
+            )
+
+        return Response(RadarInitiativeSerializer(qs, many=True).data)
+
+    def post(self, request):
+        from initiatives.services import create_initiative as svc_create
+
+        title = (request.data.get("title") or "").strip()
+        if not title:
+            return Response({"detail": "title is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        direction = (request.data.get("direction") or "").strip()
+        initiative = svc_create(request.user, title=title, direction=direction)
+        return Response(RadarInitiativeSerializer(initiative).data, status=status.HTTP_201_CREATED)
+
+
+class RadarDetailView(APIView):
+    """
+    GET   api/initiatives/radar/<id>    — initiative detail
+    PATCH api/initiatives/radar/<id>    — update title, direction, narrative, last_session_note, status
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, initiative_id):
+        initiative, err = _get_radar_initiative(request, initiative_id)
+        if err:
+            return err
+        return Response(RadarInitiativeSerializer(initiative).data)
+
+    def patch(self, request, initiative_id):
+        from initiatives.services import set_status, update_initiative as svc_update
+
+        initiative, err = _get_radar_initiative(request, initiative_id)
+        if err:
+            return err
+
+        allowed = {"title", "direction", "narrative", "last_session_note"}
+        fields = {k: v for k, v in request.data.items() if k in allowed}
+
+        new_status = request.data.get("status")
+        if new_status:
+            try:
+                initiative = set_status(initiative, new_status)
+            except ValueError as exc:
+                return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        if fields:
+            initiative = svc_update(initiative, **fields)
+
+        return Response(RadarInitiativeSerializer(initiative).data)
+
+
+class RadarArchiveView(APIView):
+    """POST api/initiatives/radar/<id>/archive"""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, initiative_id):
+        from initiatives.services import archive_initiative
+
+        initiative, err = _get_radar_initiative(request, initiative_id)
+        if err:
+            return err
+        initiative = archive_initiative(initiative)
+        return Response(RadarInitiativeSerializer(initiative).data)
+
+
+class RadarRestoreView(APIView):
+    """POST api/initiatives/radar/<id>/restore — archived → paused"""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, initiative_id):
+        from initiatives.services import restore_initiative
+
+        initiative, err = _get_radar_initiative(request, initiative_id)
+        if err:
+            return err
+        try:
+            initiative = restore_initiative(initiative)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(RadarInitiativeSerializer(initiative).data)
+
+
+class RadarReorderView(APIView):
+    """POST api/initiatives/radar/reorder — body: {ordered_ids: ["uuid", ...]}"""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        from initiatives.services import reorder_initiatives
+
+        ordered_ids = request.data.get("ordered_ids")
+        if not isinstance(ordered_ids, list) or not ordered_ids:
+            return Response({"detail": "ordered_ids must be a non-empty list."}, status=status.HTTP_400_BAD_REQUEST)
+
+        reorder_initiatives(request.user, ordered_ids)
+        return Response({"reordered": len(ordered_ids)})
+
+
+class RadarArtifactListCreateView(APIView):
+    """
+    GET  api/initiatives/radar/<id>/artifacts   — list artifacts
+    POST api/initiatives/radar/<id>/artifacts   — add doc_link
+         body: {artifact_type: "doc_link", label: str, doc_path: str}
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, initiative_id):
+        initiative, err = _get_radar_initiative(request, initiative_id)
+        if err:
+            return err
+        artifacts = initiative.initiative_artifacts.all()
+        return Response(RadarInitiativeArtifactSerializer(artifacts, many=True).data)
+
+    def post(self, request, initiative_id):
+        from initiatives.services import add_doc_link
+
+        initiative, err = _get_radar_initiative(request, initiative_id)
+        if err:
+            return err
+
+        label = (request.data.get("label") or "").strip()
+        doc_path = (request.data.get("doc_path") or "").strip()
+        if not label:
+            return Response({"detail": "label is required."}, status=status.HTTP_400_BAD_REQUEST)
+        if not doc_path:
+            return Response({"detail": "doc_path is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        artifact = add_doc_link(initiative, label=label, doc_path=doc_path)
+        return Response(RadarInitiativeArtifactSerializer(artifact).data, status=status.HTTP_201_CREATED)
+
+
+class RadarConversationImportView(APIView):
+    """
+    POST api/initiatives/radar/<id>/artifacts/import
+    Accepts multipart/form-data with field "file" (JSON) and optional "label".
+    Also accepts raw application/json body.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [parsers.MultiPartParser, parsers.JSONParser]
+
+    def post(self, request, initiative_id):
+        from initiatives.importers.base import ImportParseError
+        from initiatives.services import import_conversation
+
+        initiative, err = _get_radar_initiative(request, initiative_id)
+        if err:
+            return err
+
+        label = (request.data.get("label") or "").strip()
+
+        try:
+            raw_json = _load_json_from_request(request)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            import json as _json
+            raw_bytes = _json.dumps(raw_json).encode("utf-8")
+            artifact = import_conversation(initiative, label=label, raw_json=raw_bytes)
+        except ImportParseError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+        except Exception:
+            logger.exception("radar_conversation_import_failed initiative=%s", initiative_id)
+            return Response(
+                {"detail": "Failed to parse the JSON file. Check the format and try again."},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        return Response(RadarInitiativeArtifactSerializer(artifact).data, status=status.HTTP_201_CREATED)
+
+
+class RadarArtifactReorderView(APIView):
+    """POST api/initiatives/radar/<id>/artifacts/reorder — body: {ordered_ids: [...]}"""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, initiative_id):
+        from initiatives.services import reorder_artifacts
+
+        initiative, err = _get_radar_initiative(request, initiative_id)
+        if err:
+            return err
+
+        ordered_ids = request.data.get("ordered_ids")
+        if not isinstance(ordered_ids, list) or not ordered_ids:
+            return Response({"detail": "ordered_ids must be a non-empty list."}, status=status.HTTP_400_BAD_REQUEST)
+
+        reorder_artifacts(initiative, ordered_ids)
+        return Response({"reordered": len(ordered_ids)})
+
+
+class RadarArtifactDetailView(APIView):
+    """
+    PATCH  api/initiatives/radar/<id>/artifacts/<artifact_id>  — update label
+    DELETE api/initiatives/radar/<id>/artifacts/<artifact_id>  — remove
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _get_artifact(self, request, initiative_id, artifact_id):
+        initiative, err = _get_radar_initiative(request, initiative_id)
+        if err:
+            return None, None, err
+        from initiatives.models import InitiativeArtifact
+        artifact = get_object_or_404(InitiativeArtifact, pk=artifact_id, initiative=initiative)
+        return initiative, artifact, None
+
+    def patch(self, request, initiative_id, artifact_id):
+        _, artifact, err = self._get_artifact(request, initiative_id, artifact_id)
+        if err:
+            return err
+
+        label = (request.data.get("label") or "").strip()
+        if not label:
+            return Response({"detail": "label is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        artifact.label = label
+        artifact.save(update_fields=["label", "updated_at"])
+        return Response(RadarInitiativeArtifactSerializer(artifact).data)
+
+    def delete(self, request, initiative_id, artifact_id):
+        from initiatives.services import remove_artifact
+
+        _, artifact, err = self._get_artifact(request, initiative_id, artifact_id)
+        if err:
+            return err
+
+        remove_artifact(artifact)
+        return Response(status=status.HTTP_204_NO_CONTENT)
