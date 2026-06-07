@@ -4,7 +4,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("initiatives", "0002_threads_handoffs"),
+        ("initiatives", "0016_alter_actionrun_options"),
     ]
 
     operations = [
