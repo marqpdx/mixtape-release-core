@@ -55,6 +55,27 @@ worktable_group_patterns = [
     path("<slug:slug>/tasks", views.GroupTaskListView.as_view(), name="group-task-list"),
 ]
 
+# ---------------------------------------------------------------------------
+# Radar patterns — personal work radar (W-16)
+# Included at api/initiatives/ in mixtape/urls.py
+# ---------------------------------------------------------------------------
+
+radar_patterns = [
+    path("radar", views.RadarListCreateView.as_view(), name="radar-list-create"),
+    path("radar/reorder", views.RadarReorderView.as_view(), name="radar-reorder"),
+    path("radar/<uuid:initiative_id>", views.RadarDetailView.as_view(), name="radar-detail"),
+    path("radar/<uuid:initiative_id>/archive", views.RadarArchiveView.as_view(), name="radar-archive"),
+    path("radar/<uuid:initiative_id>/restore", views.RadarRestoreView.as_view(), name="radar-restore"),
+    path("radar/<uuid:initiative_id>/artifacts", views.RadarArtifactListCreateView.as_view(), name="radar-artifact-list-create"),
+    path("radar/<uuid:initiative_id>/artifacts/import", views.RadarConversationImportView.as_view(), name="radar-artifact-import"),
+    path("radar/<uuid:initiative_id>/artifacts/reorder", views.RadarArtifactReorderView.as_view(), name="radar-artifact-reorder"),
+    path("radar/<uuid:initiative_id>/artifacts/<uuid:artifact_id>", views.RadarArtifactDetailView.as_view(), name="radar-artifact-detail"),
+]
+
+# ---------------------------------------------------------------------------
+# Group-scoped initiative patterns — included under api/groups/<slug>/initiatives/
+# ---------------------------------------------------------------------------
+
 group_initiatives_patterns = [
     # Initiative CRUD
     path("", views.InitiativeListCreateView.as_view(), name="initiative-list-create"),

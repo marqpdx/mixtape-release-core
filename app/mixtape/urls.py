@@ -5,7 +5,7 @@ from django.urls import include, path
 from rest_framework import routers
 
 from accounts.api.views import UserViewSet
-from initiatives.api.urls import action_run_patterns, agent_object_patterns, aperture_patterns, mobile_command_patterns, worktable_group_patterns
+from initiatives.api.urls import action_run_patterns, agent_object_patterns, aperture_patterns, mobile_command_patterns, radar_patterns, worktable_group_patterns
 from prospects.api.urls import intake_patterns, internal_patterns
 from profiles.api.profile_revamp_urls import public_profile_patterns, me_profile_patterns
 
@@ -74,6 +74,7 @@ urlpatterns = [
     path("api/initiatives/", include(action_run_patterns)),
     path("api/initiatives/", include(agent_object_patterns)),
     path("api/initiatives/", include(mobile_command_patterns)),
+    path("api/initiatives/", include(radar_patterns)),
 
     path("api/activity/", include("activity.api.urls")),
     path("api/almanac/", include("almanac.api.urls")),

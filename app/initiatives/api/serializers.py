@@ -17,6 +17,7 @@ from initiatives.models import (
     CaptureMode,
     DistillationState,
     Initiative,
+    InitiativeArtifact,
     Note,
     Reminder,
     Session,
@@ -631,6 +632,62 @@ class AgentCommandDetailSerializer(serializers.ModelSerializer):
             "follow_up_suggestions",
             "routing",
             "error_payload",
+            "created_at",
+            "updated_at",
+        ]
+
+
+# ---------------------------------------------------------------------------
+# Radar serializers (W-16)
+# ---------------------------------------------------------------------------
+
+class RadarInitiativeSerializer(serializers.ModelSerializer):
+    last_session_at = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Initiative
+        fields = [
+            "id",
+            "title",
+            "direction",
+            "status",
+            "is_personal",
+            "narrative",
+            "position",
+            "last_session_note",
+            "created_at",
+            "updated_at",
+            "last_session_at",
+        ]
+        read_only_fields = ["id", "is_personal", "created_at", "updated_at"]
+
+    def get_last_session_at(self, obj):
+        dt = obj.last_session_at()
+        return dt.isoformat() if dt else None
+
+
+class RadarInitiativeArtifactSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InitiativeArtifact
+        fields = [
+            "id",
+            "initiative",
+            "artifact_type",
+            "label",
+            "doc_path",
+            "conversation_source",
+            "conversation_text",
+            "position",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "initiative",
+            "artifact_type",
+            "doc_path",
+            "conversation_source",
+            "conversation_text",
             "created_at",
             "updated_at",
         ]
