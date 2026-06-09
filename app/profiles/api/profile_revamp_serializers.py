@@ -95,8 +95,8 @@ class PublicProfileSerializer(serializers.ModelSerializer):
     role          = serializers.SerializerMethodField()
     bio           = serializers.CharField(source='bio_markdown', read_only=True)
     status        = serializers.CharField(source='right_now', read_only=True)
-    avatarUrl           = serializers.CharField(source='avatar_url', read_only=True)
-    backgroundImageUrl  = serializers.CharField(source='background_image_url', read_only=True)
+    avatarUrl           = serializers.SerializerMethodField()
+    backgroundImageUrl  = serializers.SerializerMethodField()
     introVoiceUrl       = serializers.SerializerMethodField()
     introVoiceTranscript = serializers.CharField(source='intro_voice_transcript', read_only=True)
     theme               = serializers.SerializerMethodField()
@@ -137,6 +137,16 @@ class PublicProfileSerializer(serializers.ModelSerializer):
     def get_role(self, obj):
         parts = [p for p in [obj.practice_area, obj.location] if p]
         return ' · '.join(parts)
+
+    def get_avatarUrl(self, obj):
+        if obj.profile_image:
+            return key_to_url(obj.profile_image)
+        return obj.avatar_url or None
+
+    def get_backgroundImageUrl(self, obj):
+        if obj.background_image:
+            return key_to_url(obj.background_image)
+        return None
 
     def get_introVoiceUrl(self, obj):
         return key_to_url(obj.intro_voice) if obj.intro_voice else None
