@@ -94,7 +94,13 @@ class PublicProfileSerializer(serializers.ModelSerializer):
     displayName   = serializers.CharField(source='display_name', read_only=True)
     role          = serializers.SerializerMethodField()
     bio           = serializers.CharField(source='bio_markdown', read_only=True)
+    quickIntro    = serializers.CharField(source='quick_intro', read_only=True)
     status        = serializers.CharField(source='right_now', read_only=True)
+    skills        = serializers.SerializerMethodField()
+    workAreas     = serializers.SerializerMethodField()
+    whoAreYou     = serializers.CharField(source='who_are_you', read_only=True)
+    whyAreYouHere = serializers.CharField(source='why_are_you_here', read_only=True)
+    quickLink     = serializers.CharField(source='quick_link', read_only=True)
     avatarUrl           = serializers.SerializerMethodField()
     backgroundImageUrl  = serializers.SerializerMethodField()
     introVoiceUrl       = serializers.SerializerMethodField()
@@ -121,7 +127,9 @@ class PublicProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
         fields = [
-            'username', 'displayName', 'role', 'bio', 'status', 'avatarUrl', 'backgroundImageUrl',
+            'username', 'displayName', 'role', 'bio', 'quickIntro', 'status',
+            'skills', 'workAreas', 'whoAreYou', 'whyAreYouHere', 'quickLink',
+            'avatarUrl', 'backgroundImageUrl',
             'introVoiceUrl', 'introVoiceTranscript',
             'theme', 'accent', 'font', 'background', 'avatarShape', 'density',
             'decorations', 'avatarSticker', 'stats', 'sectionLayout',
@@ -137,6 +145,16 @@ class PublicProfileSerializer(serializers.ModelSerializer):
     def get_role(self, obj):
         parts = [p for p in [obj.practice_area, obj.location] if p]
         return ' · '.join(parts)
+
+    def get_skills(self, obj):
+        if not obj.skills:
+            return []
+        return [s.strip() for s in obj.skills.split(',') if s.strip()]
+
+    def get_workAreas(self, obj):
+        if not obj.work_areas:
+            return []
+        return [s.strip() for s in obj.work_areas.split(',') if s.strip()]
 
     def get_avatarUrl(self, obj):
         if obj.profile_image:
