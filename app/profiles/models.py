@@ -233,3 +233,103 @@ class FeaturedLink(models.Model):
         app_label = "profiles"
         ordering = ['position']
         unique_together = [('profile', 'position')]
+
+
+# ─── Nested Profile Fields (NF-1, NF-2) ──────────────────────────────────────
+
+class FieldTypeChoices(models.TextChoices):
+    SHORT_TEXT = 'short_text', 'Short text'
+    LONG_TEXT  = 'long_text',  'Long text'
+    URL        = 'url',        'URL'
+    TAGS       = 'tags',       'Tags'
+    BOOLEAN    = 'boolean',    'Boolean'
+    DATE       = 'date',       'Date'
+
+
+class FieldVisibilityChoices(models.TextChoices):
+    GROUP_ONLY = 'group_only', 'Group only'
+    PUBLIC     = 'public',     'Public'
+
+
+class GroupProfileFieldDef(BaseModel):
+    """
+    A group-defined profile field. Groups create these; members fill values.
+    `is_shareable=True` exposes the def in the shared library for other groups to adopt.
+    Adoption forks a copy (source_field_def set); originals have source_field_def=None.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner_group = models.ForeignKey(
+        'groups.Group',
+        on_delete=models.CASCADE,
+        related_name='profile_field_defs',
+    )
+    label              = models.CharField(max_length=120)
+    field_type         = models.CharField(max_length=16, choices=FieldTypeChoices.choices)
+    sort_order         = models.IntegerField(default=0)
+    default_visibility = models.CharField(
+        max_length=16,
+        choices=FieldVisibilityChoices.choices,
+        default=FieldVisibilityChoices.GROUP_ONLY,
+    )
+    is_active          = models.BooleanField(default=True)
+    is_shareable       = models.BooleanField(default=False)
+    source_field_def   = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='forks',
+    )
+
+    class Meta:
+        app_label = "profiles"
+        ordering  = ['owner_group', 'sort_order']
+
+    def __str__(self):
+        return f"{self.label} ({self.owner_group_id})"
+
+
+class MemberGroupProfileValue(BaseModel):
+    """
+    A member's value for one field def, scoped to a specific group context.
+    Unique per (member, field_def, group).
+    `visibility` is a member-controlled override — may only restrict further than the
+    field def's default_visibility, never expand.
+    """
+
+    id         = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    member     = models.ForeignKey(
+        UserProfile,
+        on_delete=models.CASCADE,
+        related_name='group_profile_values',
+    )
+    field_def  = models.ForeignKey(
+        GroupProfileFieldDef,
+        on_delete=models.CASCADE,
+        related_name='member_values',
+    )
+    group      = models.ForeignKey(
+        'groups.Group',
+        on_delete=models.CASCADE,
+        related_name='member_profile_values',
+    )
+    value_text = models.TextField(blank=True, default='')
+    visibility = models.CharField(
+        max_length=16,
+        choices=FieldVisibilityChoices.choices,
+        default=FieldVisibilityChoices.GROUP_ONLY,
+    )
+
+    class Meta:
+        app_label    = "profiles"
+        constraints  = [
+            models.UniqueConstraint(
+                fields=['member', 'field_def', 'group'],
+                name='profiles_member_fielddef_group_unique',
+            )
+        ]
+        ordering = ['field_def__sort_order']
+
+    def __str__(self):
+        return f"{self.member_id} / {self.field_def_id} @ {self.group_id}"
