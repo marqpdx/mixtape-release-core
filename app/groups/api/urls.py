@@ -6,6 +6,7 @@ from django.urls import include, path
 # PHASE 2: Active Views
 # ============================================================================
 from .views import (
+    GroupCircleDetailView,
     GroupCirclesListCreateView,
     GroupCoalitionInvitationsListView,
     GroupCoalitionInvitationsReceivedListView,
@@ -115,6 +116,7 @@ urlpatterns = [
     path("<slug:slug>/members/<uuid:membership_id>", GroupMemberRemoveView.as_view(), name="group-member-remove"),
 
     path("<slug:slug>/circles", GroupCirclesListCreateView.as_view(), name="group-circles-list-create"),
+    path("<slug:parent_slug>/circles/<slug:circle_slug>", GroupCircleDetailView.as_view(), name="group-circle-detail"),
 
     # Permissions management
     path("<slug:slug>/permissions/available", AvailablePermissionsView.as_view(), name="group-permissions-available"),
