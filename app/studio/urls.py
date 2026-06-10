@@ -9,6 +9,8 @@ urlpatterns = [
     path("personal", views.PersonalStudioView.as_view(), name="studio-personal"),
     path("personal/groups", views.PersonalGroupsView.as_view(), name="studio-personal-groups"),
     path("personal/beryl/dismiss", views.BerylDismissView.as_view(), name="studio-beryl-dismiss"),
+    path("personal/recurring-actions", views.PersonalRecurringActionsView.as_view(), name="studio-personal-recurring-actions"),
+    path("personal/recurring-actions/<uuid:pk>", views.PersonalRecurringActionDetailView.as_view(), name="studio-personal-recurring-action-detail"),
 
     # Group Studio — Pulse / Canon / Command / Clients
     path("groups/<slug:slug>/pulse", views.GroupPulseView.as_view(), name="studio-group-pulse"),
