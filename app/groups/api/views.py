@@ -687,6 +687,39 @@ class GroupCirclesListCreateView(generics.ListCreateAPIView):
         return circle
 
 
+class GroupCircleDetailView(generics.RetrieveAPIView):
+    """
+    GET /api/groups/<parent_slug>/circles/<circle_slug>
+    Returns the circle group, validating it is sponsored by the parent group.
+    """
+    serializer_class = GroupDetailSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+    def get_object(self):
+        parent_slug = self.kwargs["parent_slug"]
+        circle_slug = self.kwargs["circle_slug"]
+
+        parent = get_object_or_404(Group, slug=parent_slug, is_active=True)
+        sponsor_ct = ContentType.objects.get_for_model(Group)
+
+        circle = get_object_or_404(
+            Group,
+            slug=circle_slug,
+            is_active=True,
+            group_type="circle",
+            sponsor_content_type=sponsor_ct,
+            sponsor_object_id=parent.id,
+        )
+
+        if not GroupService.can_user_view_group(circle, self.request.user):
+            self.permission_denied(
+                self.request,
+                message="You don't have permission to view this circle.",
+            )
+
+        return circle
+
+
 class GroupMemberRemoveView(generics.GenericAPIView):
     """
     DELETE /api/groups/<slug>/members/<uuid:membership_id>

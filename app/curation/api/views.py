@@ -326,7 +326,7 @@ class CollectionUploadView(APIView):
         from inkwell.stackroom_http_client import upload_library_file, StackroomClientError
 
         collection = get_object_or_404(Collection, id=collection_id)
-        _check_admin(request.user, collection)
+        _check_write(request.user, collection)
 
         uploaded = request.FILES.get("file")
         if not uploaded:
