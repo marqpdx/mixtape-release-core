@@ -193,26 +193,38 @@ class PersonalStudioView(generics.GenericAPIView):
 
         # Due RecurringActions for this member (member-owned + group-owned for their groups)
         now = timezone.now()
-        profile_ct = None
         personal_due_actions = []
         try:
             from profiles.models import UserProfile
             profile = UserProfile.objects.get(user=user)
             profile_ct = ContentType.objects.get_for_model(UserProfile)
+
             member_due = RecurringAction.objects.filter(
                 content_type=profile_ct,
                 owner_object_id=profile.pk,
                 is_active=True,
                 next_due_at__lte=now,
             ).order_by("next_due_at")[:10]
+            personal_due_actions += [
+                {**_serialize_recurring_action(r), "owner_type": "member", "group_slug": None}
+                for r in member_due
+            ]
+
+            # Build a slug lookup for groups this user belongs to
+            group_slug_by_id = {str(m.group.pk): m.group.slug for m in memberships}
             group_due = RecurringAction.objects.filter(
                 content_type=group_ct,
                 owner_object_id__in=group_ids,
                 is_active=True,
                 next_due_at__lte=now,
             ).order_by("next_due_at")[:10]
-            personal_due_actions = [
-                _serialize_recurring_action(r) for r in list(member_due) + list(group_due)
+            personal_due_actions += [
+                {
+                    **_serialize_recurring_action(r),
+                    "owner_type": "group",
+                    "group_slug": group_slug_by_id.get(str(r.owner_object_id)),
+                }
+                for r in group_due
             ]
         except Exception:
             pass
