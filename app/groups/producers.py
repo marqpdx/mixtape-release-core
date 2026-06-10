@@ -1,4 +1,5 @@
 # groups/producers.py
+
 """
 Activity producers for group events.
 
