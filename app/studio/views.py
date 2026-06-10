@@ -191,10 +191,37 @@ class PersonalStudioView(generics.GenericAPIView):
         except Exception:
             pass
 
+        # Due RecurringActions for this member (member-owned + group-owned for their groups)
+        now = timezone.now()
+        profile_ct = None
+        personal_due_actions = []
+        try:
+            from profiles.models import UserProfile
+            profile = UserProfile.objects.get(user=user)
+            profile_ct = ContentType.objects.get_for_model(UserProfile)
+            member_due = RecurringAction.objects.filter(
+                content_type=profile_ct,
+                owner_object_id=profile.pk,
+                is_active=True,
+                next_due_at__lte=now,
+            ).order_by("next_due_at")[:10]
+            group_due = RecurringAction.objects.filter(
+                content_type=group_ct,
+                owner_object_id__in=group_ids,
+                is_active=True,
+                next_due_at__lte=now,
+            ).order_by("next_due_at")[:10]
+            personal_due_actions = [
+                _serialize_recurring_action(r) for r in list(member_due) + list(group_due)
+            ]
+        except Exception:
+            pass
+
         return Response({
             "activity": [_serialize_action(a) for a in activity],
             "my_content": my_content,
             "beryl_prompt": _build_beryl_prompt(user),
+            "recurring_actions": personal_due_actions,
         })
 
 
@@ -811,6 +838,133 @@ class GroupRecurringActionDetailView(generics.GenericAPIView):
         denied = _require_group_admin(group, request.user)
         if denied:
             return denied
+
+        action.is_active = False
+        action.save(update_fields=["is_active", "updated_at"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# RecurringAction — personal (member-owned) CRUD  [RA-5]
+# ---------------------------------------------------------------------------
+
+class PersonalRecurringActionsView(generics.GenericAPIView):
+    """
+    GET  /api/studio/personal/recurring-actions — list active member-owned actions
+    POST /api/studio/personal/recurring-actions — create new member-owned action
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _get_profile(self, user):
+        from profiles.models import UserProfile
+        return UserProfile.objects.get(user=user)
+
+    def get(self, request):
+        try:
+            profile = self._get_profile(request.user)
+        except Exception:
+            return Response({"detail": "Profile not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        profile_ct = ContentType.objects.get_for_model(profile)
+        actions = RecurringAction.objects.filter(
+            content_type=profile_ct,
+            owner_object_id=profile.pk,
+            is_active=True,
+        ).order_by("next_due_at")
+
+        return Response([_serialize_recurring_action(r) for r in actions])
+
+    def post(self, request):
+        try:
+            profile = self._get_profile(request.user)
+        except Exception:
+            return Response({"detail": "Profile not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        title = (request.data.get("title") or "").strip()
+        if not title:
+            return Response({"detail": "title is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        recurrence_rule = request.data.get("recurrence_rule", "")
+        if recurrence_rule not in RecurrencePattern.values:
+            return Response(
+                {"detail": f"recurrence_rule must be one of: {', '.join(RecurrencePattern.values)}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from django.utils.dateparse import parse_datetime
+        next_due_at = parse_datetime(request.data.get("next_due_at", "") or "")
+        if not next_due_at:
+            return Response({"detail": "next_due_at must be a valid ISO datetime."}, status=status.HTTP_400_BAD_REQUEST)
+
+        profile_ct = ContentType.objects.get_for_model(profile)
+        action = RecurringAction.objects.create(
+            content_type=profile_ct,
+            owner_object_id=profile.pk,
+            title=title,
+            description=(request.data.get("description") or "").strip(),
+            recurrence_rule=recurrence_rule,
+            next_due_at=next_due_at,
+            suggested_verb=(request.data.get("suggested_verb") or "").strip(),
+            suggested_label=(request.data.get("suggested_label") or "").strip(),
+        )
+
+        return Response(_serialize_recurring_action(action), status=status.HTTP_201_CREATED)
+
+
+class PersonalRecurringActionDetailView(generics.GenericAPIView):
+    """
+    PATCH  /api/studio/personal/recurring-actions/<pk> — update fields
+    DELETE /api/studio/personal/recurring-actions/<pk> — soft-delete (is_active=False)
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _get_action(self, user, pk):
+        from profiles.models import UserProfile
+        profile = UserProfile.objects.get(user=user)
+        profile_ct = ContentType.objects.get_for_model(profile)
+        action = get_object_or_404(
+            RecurringAction,
+            pk=pk,
+            content_type=profile_ct,
+            owner_object_id=profile.pk,
+        )
+        return action
+
+    def patch(self, request, pk):
+        try:
+            action = self._get_action(request.user, pk)
+        except Exception:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        updatable = ("title", "description", "suggested_verb", "suggested_label")
+        for field in updatable:
+            if field in request.data:
+                setattr(action, field, (request.data[field] or "").strip())
+
+        if "recurrence_rule" in request.data:
+            rr = request.data["recurrence_rule"]
+            if rr not in RecurrencePattern.values:
+                return Response(
+                    {"detail": f"recurrence_rule must be one of: {', '.join(RecurrencePattern.values)}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            action.recurrence_rule = rr
+
+        if "next_due_at" in request.data:
+            from django.utils.dateparse import parse_datetime
+            nda = parse_datetime(request.data["next_due_at"] or "")
+            if not nda:
+                return Response({"detail": "next_due_at must be a valid ISO datetime."}, status=status.HTTP_400_BAD_REQUEST)
+            action.next_due_at = nda
+
+        action.save()
+        return Response(_serialize_recurring_action(action))
+
+    def delete(self, request, pk):
+        try:
+            action = self._get_action(request.user, pk)
+        except Exception:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
         action.is_active = False
         action.save(update_fields=["is_active", "updated_at"])
