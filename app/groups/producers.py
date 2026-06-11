@@ -193,6 +193,63 @@ def on_ownership_change_failed(*, request, group):
 
 
 # ============================================================================
+# Circle Bubble-Up
+# ============================================================================
+
+def on_circle_activity(*, circle, actor_user):
+    """
+    Emit a lightweight daily signal to the parent group when a circle is active.
+    Audience: circle members only — so parent-group non-members don't see it.
+    Context: parent group — so it appears in the parent group's activity stream.
+    Daily aggregate key collapses all circle activity into one notification per day.
+    """
+    from django.contrib.contenttypes.models import ContentType
+    from groups.models.dec_enums import GroupType
+
+    if circle.group_type != GroupType.CIRCLE:
+        return
+
+    group_ct = ContentType.objects.get_for_model(circle.__class__)
+    if not (circle.sponsor_content_type_id == group_ct.id and circle.sponsor_object_id):
+        return
+
+    from groups.models import Group
+    try:
+        parent_group = Group.objects.get(pk=circle.sponsor_object_id, is_active=True)
+    except Group.DoesNotExist:
+        return
+
+    at = _ensure_activity_type(
+        code="group.circle.active",
+        label="Circle Activity",
+        default_channel="activity",
+        default_priority="low",
+        suppressible=True,
+    )
+    _create_action_and_outbox(
+        actor_content_type=_ct(actor_user),
+        actor_id=_id(actor_user),
+        actor_label="user",
+        object_content_type=_ct(circle),
+        object_id=_id(circle),
+        context_content_type=_ct(parent_group),
+        context_id=_id(parent_group),
+        activity_type=at,
+        verb="active",
+        activity_code=at.code,
+        channel=at.default_channel,
+        priority=at.default_priority,
+        metadata={"circle_name": circle.title, "circle_slug": circle.slug},
+        # Daily dedupe per circle — all activity in a day collapses to one signal
+        dedupe_key=f"{at.code}:{_id(circle)}:{timezone.now():%Y%m%d}",
+        aggregate_key=f"circle_active:{_id(circle)}:{timezone.now():%Y%m%d}",
+        # Audience: circle members only (not all parent group members)
+        audience={"type": "group_members", "group_id": str(_id(circle)), "exclude_actor": True},
+        occurs_at=timezone.now(),
+    )
+
+
+# ============================================================================
 # Join / Request-to-Join Events
 # ============================================================================
 

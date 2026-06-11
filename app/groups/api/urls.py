@@ -67,7 +67,8 @@ from writing.api.views import WritingPieceDetailView
 # ============================================================================
 # from assets.api.views import GroupAssetFolderListView, GroupAssetListView, GroupAssetPresignView, GroupAssetUploadView
 # from writing.api.views import WritingPieceDetailView
-# from .views import GroupAnnouncementCreateFromContentView, GroupAnnouncementDetailView, GroupAnnouncementDismissView, GroupAnnouncementListCreateView, GroupAnnouncementVisibleQueueView, GroupInvitationDetailView, GroupInvitationsListView, GroupMemberSearchView, GroupMembersListView, GroupMembersView, GroupMembershipListView, GroupNoticeBoardView, invite_to_group
+from .views import GroupAnnouncementCreateFromContentView, GroupAnnouncementDetailView, GroupAnnouncementDismissView, GroupAnnouncementListCreateView, GroupAnnouncementVisibleQueueView
+# from .views import GroupInvitationDetailView, GroupInvitationsListView, GroupMemberSearchView, GroupMembersListView, GroupMembersView, GroupMembershipListView, GroupNoticeBoardView, invite_to_group
 # from .views import GroupEmblemAttachView, GroupEmblemResetView, GroupWritingDetailView, GroupWritingDraftsListView, GroupWritingListCreateView  # PHASE 3+
 from threadworks.api.urls import group_threadworks_patterns
 from almanac.api.urls import group_almanac_patterns
@@ -161,25 +162,11 @@ urlpatterns = [
 
 
     # Group Announcements
-#     path('groups/<slug:group_slug>/announcements/',
-#          GroupAnnouncementListCreateView.as_view(),
-#          name='group-announcements-list'),
-
-#     path('groups/<slug:group_slug>/announcements/<uuid:pk>/',
-#          GroupAnnouncementDetailView.as_view(),
-#          name='group-announcements-detail'),
-
-#     path('groups/<slug:group_slug>/announcements/visible-queue/',
-#          GroupAnnouncementVisibleQueueView.as_view(),
-#          name='group-announcements-visible-queue'),
-
-#     path('groups/<slug:group_slug>/announcements/<uuid:pk>/dismiss/',
-#          GroupAnnouncementDismissView.as_view(),
-#          name='group-announcements-dismiss'),
-
-#     path('groups/<slug:group_slug>/announcements/create-from-content/',
-#          GroupAnnouncementCreateFromContentView.as_view(),
-#          name='group-announcements-create-from-content'),
+    path('<slug:group_slug>/announcements/', GroupAnnouncementListCreateView.as_view(), name='group-announcements-list'),
+    path('<slug:group_slug>/announcements/visible-queue/', GroupAnnouncementVisibleQueueView.as_view(), name='group-announcements-visible-queue'),
+    path('<slug:group_slug>/announcements/create-from-content/', GroupAnnouncementCreateFromContentView.as_view(), name='group-announcements-create-from-content'),
+    path('<slug:group_slug>/announcements/<uuid:pk>/', GroupAnnouncementDetailView.as_view(), name='group-announcements-detail'),
+    path('<slug:group_slug>/announcements/<uuid:pk>/dismiss/', GroupAnnouncementDismissView.as_view(), name='group-announcements-dismiss'),
 
 #     path("/<slug:slug>/memberships", GroupMembershipListView.as_view(), name="group-memberships"),
 
