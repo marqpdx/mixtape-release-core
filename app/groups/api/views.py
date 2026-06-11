@@ -1438,3 +1438,160 @@ def respond_to_join_request(request, slug, invitation_id):
 
     detail = "Join request accepted." if action == "accept" else "Join request declined."
     return Response({"detail": detail}, status=status.HTTP_200_OK)
+
+
+# ============================================================================
+# Group Announcements (Noticeboard)
+# ============================================================================
+
+class GroupAnnouncementListCreateView(generics.ListCreateAPIView):
+    """
+    GET  /api/groups/<slug>/announcements/         — admin/steward: full list
+    POST /api/groups/<slug>/announcements/         — admin/steward: create
+
+    Members see the visible queue via GroupAnnouncementVisibleQueueView.
+    """
+
+    def get_permissions(self):
+        if self.request.method in ("GET", "HEAD", "OPTIONS"):
+            return [permissions.IsAuthenticated(), IsGroupAdminOrSteward()]
+        return [permissions.IsAuthenticated(), IsGroupAdminOrSteward()]
+
+    def _get_group(self):
+        return get_object_or_404(Group, slug=self.kwargs["group_slug"], is_active=True)
+
+    def get_serializer_class(self):
+        from groups.api.serializers import GroupAnnouncementSerializer
+        return GroupAnnouncementSerializer
+
+    def get_queryset(self):
+        from groups.models import GroupAnnouncement
+        group = self._get_group()
+        return GroupAnnouncement.objects.filter(group=group).select_related("author").order_by(
+            "priority", "position", "-created_at"
+        )
+
+    def perform_create(self, serializer):
+        from groups.models import GroupAnnouncement
+        from django.utils import timezone
+        group = self._get_group()
+        instance = serializer.save(group=group, author=self.request.user)
+        if instance.also_send_notification:
+            from activity.producers import on_group_announcement
+            on_group_announcement(group=group, announcement=instance, authored_by=self.request.user)
+            GroupAnnouncement.objects.filter(pk=instance.pk).update(notification_sent_at=timezone.now())
+
+
+class GroupAnnouncementDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    GET    /api/groups/<slug>/announcements/<pk>/  — admin/steward
+    PATCH  /api/groups/<slug>/announcements/<pk>/  — admin/steward: edit
+    DELETE /api/groups/<slug>/announcements/<pk>/  — admin/steward: remove
+    """
+    permission_classes = [permissions.IsAuthenticated, IsGroupAdminOrSteward]
+
+    def get_serializer_class(self):
+        from groups.api.serializers import GroupAnnouncementSerializer
+        return GroupAnnouncementSerializer
+
+    def get_object(self):
+        from groups.models import GroupAnnouncement
+        group = get_object_or_404(Group, slug=self.kwargs["group_slug"], is_active=True)
+        return get_object_or_404(GroupAnnouncement, pk=self.kwargs["pk"], group=group)
+
+
+class GroupAnnouncementVisibleQueueView(generics.ListAPIView):
+    """
+    GET /api/groups/<slug>/announcements/visible-queue/
+
+    Member-facing: returns announcements visible to this user (active,
+    not expired, not permanently dismissed, snooze window respected).
+    Sorted by priority then position.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_serializer_class(self):
+        from groups.api.serializers import GroupAnnouncementSerializer
+        return GroupAnnouncementSerializer
+
+    def get_queryset(self):
+        from groups.models import GroupAnnouncement
+        group = get_object_or_404(Group, slug=self.kwargs["group_slug"], is_active=True)
+        visible = GroupAnnouncement.get_visible_queue_for_user(group, self.request.user)
+        # Return as queryset-like list — ListAPIView accepts iterables
+        return visible
+
+    def list(self, request, *args, **kwargs):
+        from groups.api.serializers import GroupAnnouncementSerializer
+        items = self.get_queryset()
+        serializer = GroupAnnouncementSerializer(items, many=True)
+        return Response(serializer.data)
+
+
+class GroupAnnouncementDismissView(generics.GenericAPIView):
+    """
+    POST /api/groups/<slug>/announcements/<pk>/dismiss/
+
+    First call  → snooze 48 hrs
+    Second call → permanent dismissal
+    Returns { "result": "snooze"|"permanent", "snoozed_until": "<iso>"|null }
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, group_slug, pk):
+        from groups.models import GroupAnnouncement, AnnouncementDismissal
+        group = get_object_or_404(Group, slug=group_slug, is_active=True)
+        announcement = get_object_or_404(GroupAnnouncement, pk=pk, group=group, is_active=True)
+        result, snoozed_until = AnnouncementDismissal.dismiss_announcement(announcement, request.user)
+        return Response({
+            "result": result,
+            "snoozed_until": snoozed_until.isoformat() if snoozed_until else None,
+        })
+
+
+class GroupAnnouncementCreateFromContentView(generics.GenericAPIView):
+    """
+    POST /api/groups/<slug>/announcements/create-from-content/
+
+    Wraps an existing content object (course, event, post, etc.) into
+    an announcement. Resolves source via content_type model name + content_id.
+    """
+    permission_classes = [permissions.IsAuthenticated, IsGroupAdminOrSteward]
+
+    def get_serializer_class(self):
+        from groups.api.serializers import CreateAnnouncementFromContentSerializer
+        return CreateAnnouncementFromContentSerializer
+
+    def post(self, request, group_slug):
+        from groups.models import GroupAnnouncement
+        from groups.api.serializers import CreateAnnouncementFromContentSerializer, GroupAnnouncementSerializer
+        from django.utils import timezone
+
+        group = get_object_or_404(Group, slug=group_slug, is_active=True)
+        serializer = CreateAnnouncementFromContentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        source_ct = ContentType.objects.get(model=data["content_type"])
+        source_obj = source_ct.get_object_for_this_type(pk=data["content_id"])
+
+        announcement = GroupAnnouncement.objects.create(
+            group=group,
+            author=request.user,
+            title=data["title"],
+            content=data["content"],
+            priority=data.get("priority", "normal"),
+            cta_text=data.get("cta_text", ""),
+            cta_url=data.get("cta_url", ""),
+            expires_at=data.get("expires_at"),
+            also_send_notification=data.get("also_send_notification", False),
+            source_content_type=source_ct,
+            source_object_id=source_obj.pk,
+        )
+
+        if announcement.also_send_notification:
+            from activity.producers import on_group_announcement
+            on_group_announcement(group=group, announcement=announcement, authored_by=request.user)
+            GroupAnnouncement.objects.filter(pk=announcement.pk).update(notification_sent_at=timezone.now())
+
+        return Response(GroupAnnouncementSerializer(announcement).data, status=status.HTTP_201_CREATED)

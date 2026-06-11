@@ -339,6 +339,9 @@ class EventPublishView(generics.CreateAPIView):
         event.published_at = timezone.now()
         event.save()
 
+        from almanac.producers import on_almanac_event_published
+        on_almanac_event_published(event=event, actor_user=request.user)
+
         return Response(EventDetailSerializer(event).data)
 
 
@@ -585,6 +588,9 @@ class GroupEventPublishView(generics.CreateAPIView):
         event.status = ContentStatus.PUBLISHED
         event.published_at = timezone.now()
         event.save()
+
+        from almanac.producers import on_almanac_event_published
+        on_almanac_event_published(event=event, actor_user=request.user)
 
         return Response(EventDetailSerializer(event).data)
 
@@ -1002,6 +1008,8 @@ class GroupEventOccurrenceUpdateView(generics.UpdateAPIView):
 
         if update_fields:
             occurrence.save(update_fields=update_fields)
+            from almanac.producers import on_almanac_occurrence_updated
+            on_almanac_occurrence_updated(occurrence=occurrence, event=event, actor_user=request.user)
 
         serializer = self.get_serializer(occurrence)
         return Response(serializer.data, status=status.HTTP_200_OK)

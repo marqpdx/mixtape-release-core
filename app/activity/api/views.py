@@ -182,6 +182,12 @@ class GroupPulseView(APIView):
         "group.earthlab.course_updated": "earthlab",
         "group.member.joined": "members",
         "group.join_request.submitted": "members",
+        "group.member.profile_updated": "members",
+        "group.collection.item_added": "collections",
+        "group.collection.updated": "collections",
+        "group.almanac.event_published": "almanac",
+        "group.almanac.occurrence_updated": "almanac",
+        "group.circle.active": "circles",
     }
 
     def get(self, request):

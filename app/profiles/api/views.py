@@ -73,7 +73,9 @@ class MemberDetailUpdateDeleteView(generics.RetrieveUpdateDestroyAPIView):
         return MemberUpdateSerializer
 
     def perform_update(self, serializer):
-        serializer.save(updated_at=timezone.now())
+        instance = serializer.save(updated_at=timezone.now())
+        from profiles.producers import on_profile_updated
+        on_profile_updated(profile=instance, actor_user=self.request.user)
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()

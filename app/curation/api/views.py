@@ -249,6 +249,9 @@ class CollectionDetailView(APIView):
                 setattr(collection, field, data[field])
         collection.save()
 
+        from curation.producers import on_collection_updated
+        on_collection_updated(collection=collection, actor_user=request.user)
+
         return Response(CollectionDetailSerializer(collection).data)
 
     def delete(self, request, collection_id):
@@ -538,6 +541,9 @@ class CollectionItemListView(APIView):
             notes=data.get('notes', ''),
             is_featured=data.get('is_featured', False),
         )
+
+        from curation.producers import on_collection_item_added
+        on_collection_item_added(collection=collection, item=item, actor_user=request.user)
 
         return Response(CollectionItemSerializer(item).data, status=drf_status.HTTP_201_CREATED)
 
