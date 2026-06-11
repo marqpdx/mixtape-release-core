@@ -120,6 +120,13 @@ class Discussion(BaseData):
         default='active'
     )
 
+    pinned_nav_name = models.CharField(
+        max_length=32,
+        blank=True,
+        default='',
+        help_text="Short label used in group nav when this discussion is pinned. Ignored unless status='pinned'.",
+    )
+
     is_locked = models.BooleanField(default=False)
     is_deleted = models.BooleanField(default=False)
 
