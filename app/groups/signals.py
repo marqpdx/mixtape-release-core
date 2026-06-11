@@ -2,8 +2,53 @@
 
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
-from django.db.models.signals import pre_delete
+from django.db.models.signals import post_save, pre_delete
 from django.dispatch import receiver
+
+
+def _seed_welcome_forum(group):
+    """Create Welcome Forum + Tell About Yourself pinned discussion for a group."""
+    from threadworks.models import Forum, Discussion
+
+    group_ct = ContentType.objects.get_for_model(group.__class__)
+
+    # Idempotent: skip if Welcome forum already exists for this group
+    if Forum.objects.filter(
+        sponsor_content_type=group_ct,
+        sponsor_object_id=group.id,
+        title="Welcome",
+    ).exists():
+        return
+
+    forum = Forum.objects.create(
+        title="Welcome",
+        slug="welcome",
+        sponsor_content_type=group_ct,
+        sponsor_object_id=group.id,
+        description="A space for introductions and community agreements.",
+        visibility="group",
+        audience_type="all_members",
+        auto_add_new_members=True,
+    )
+
+    Discussion.objects.create(
+        forum=forum,
+        title="Tell About Yourself",
+        slug="tell-about-yourself",
+        description=(
+            "Share a bit about who you are. "
+            "Updating your quick intro on your profile will post here automatically."
+        ),
+        status="pinned",
+        pinned_nav_name="Tell About Yourself",
+        created_by=None,
+    )
+
+
+@receiver(post_save, sender='groups.Group')
+def seed_welcome_forum_on_create(sender, instance, created, **kwargs):
+    if created:
+        _seed_welcome_forum(instance)
 
 
 @receiver(pre_delete, sender=get_user_model())
