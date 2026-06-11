@@ -262,3 +262,75 @@ class NotificationDismissView(APIView):
         if deleted == 0:
             return Response({"error": "Not found"}, status=404)
         return Response(status=204)
+
+
+class GroupActivityFeedView(APIView):
+    """
+    GET /api/activity/group-feed/<group_slug>/
+    Returns the 30 most recent Actions scoped to a group.
+    Requires the requesting user to be an active group member.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, group_slug):
+        from django.contrib.auth import get_user_model
+        from django.contrib.contenttypes.models import ContentType
+        from groups.models import Group
+        from groups.models.membership import GroupMembership
+        from activity.models import Action
+
+        User = get_user_model()
+
+        try:
+            group = Group.objects.get(slug=group_slug, is_active=True)
+        except Group.DoesNotExist:
+            return Response({"error": "Not found"}, status=404)
+
+        user_ct = ContentType.objects.get_for_model(User)
+        is_member = GroupMembership.objects.filter(
+            group_id=group.id,
+            member_content_type=user_ct,
+            member_object_id=request.user.id,
+            is_active=True,
+        ).exists()
+
+        if not is_member:
+            return Response({"error": "Forbidden"}, status=403)
+
+        group_ct = ContentType.objects.get_for_model(Group)
+        actions = list(
+            Action.objects.filter(
+                context_content_type=group_ct,
+                context_id=str(group.id),
+            ).order_by("-occurs_at")[:30]
+        )
+
+        # Batch-resolve display names for user actors
+        user_actor_ids = list({
+            int(a.actor_id) for a in actions
+            if a.actor_label == "user" and a.actor_id
+        })
+        user_map: dict[str, str] = {}
+        if user_actor_ids:
+            for u in User.objects.filter(id__in=user_actor_ids).only("id", "username"):
+                user_map[str(u.id)] = getattr(u, "display_name", None) or u.username
+
+        results = []
+        for action in actions:
+            if action.actor_label == "user" and action.actor_id:
+                actor_name = user_map.get(str(action.actor_id), "Someone")
+            elif action.actor_label == "group":
+                actor_name = group.title
+            else:
+                actor_name = "System"
+
+            results.append({
+                "id": str(action.id),
+                "activity_code": action.activity_code,
+                "verb": action.verb,
+                "actor_name": actor_name,
+                "occurs_at": action.occurs_at.isoformat(),
+                "metadata": action.metadata,
+            })
+
+        return Response(results)

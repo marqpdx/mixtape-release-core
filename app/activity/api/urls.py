@@ -3,6 +3,7 @@
 from django.urls import path
 
 from activity.api.views import (
+    GroupActivityFeedView,
     GroupPulseView,
     NotificationListView,
     NotificationMarkAllReadView,
@@ -22,5 +23,6 @@ urlpatterns = [
     path("mark-all-read", NotificationMarkAllReadView.as_view(), name="notifications-mark-all-read"),
     path("preferences", NotificationPreferenceView.as_view(), name="notifications-preferences"),
     path("group-pulse", GroupPulseView.as_view(), name="group-pulse"),
+    path("group-feed/<slug:group_slug>/", GroupActivityFeedView.as_view(), name="group-activity-feed"),
     path("<uuid:notification_id>", NotificationDismissView.as_view(), name="notifications-dismiss"),
 ]
