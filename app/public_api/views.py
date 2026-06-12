@@ -13,7 +13,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 from rest_framework import status as drf_status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -346,13 +346,25 @@ class PublicGroupWritingView(APIView):
     GET /api/public/groups/{slug}/writing
 
     Published writing pieces sponsored by a group, reverse chronological.
-    Anonymous: public pieces only.
-    Authenticated: public + members pieces.
+    Requires authentication and active group membership.
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, slug):
-        group = get_object_or_404(Group, slug=slug, visibility="public", is_active=True)
+        group = get_object_or_404(Group, slug=slug, is_active=True)
+
+        user_ct = ContentType.objects.get_for_model(get_user_model())
+        is_member = group.memberships.filter(
+            member_content_type=user_ct,
+            member_object_id=request.user.pk,
+            is_active=True,
+            is_banned=False,
+            is_evicted=False,
+            is_pending=False,
+        ).exists()
+        if not is_member:
+            return Response({"detail": "You must be a member of this group."}, status=drf_status.HTTP_403_FORBIDDEN)
+
         ct_group = ContentType.objects.get_for_model(Group)
 
         pieces = (
