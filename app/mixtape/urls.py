@@ -5,6 +5,7 @@ from django.urls import include, path
 from rest_framework import routers
 
 from accounts.api.views import UserViewSet
+from groups.api.files_views import MeFilesListView, MeFileDeleteView
 from initiatives.api.urls import action_run_patterns, agent_object_patterns, aperture_patterns, mobile_command_patterns, radar_patterns, worktable_group_patterns
 from prospects.api.urls import intake_patterns, internal_patterns
 from profiles.api.profile_revamp_urls import public_profile_patterns, me_profile_patterns
@@ -51,6 +52,10 @@ urlpatterns = [
     # Profile revamp — public read + owner write
     path("api/profiles/", include(public_profile_patterns)),
     path("api/me/profile/", include(me_profile_patterns)),
+
+    # Personal file library (stackroom)
+    path("api/me/files/", MeFilesListView.as_view(), name="me-files-list"),
+    path("api/me/files/<uuid:source_file_id>/", MeFileDeleteView.as_view(), name="me-file-delete"),
 
     # === END PHASE 1 ENDPOINTS ===
 
