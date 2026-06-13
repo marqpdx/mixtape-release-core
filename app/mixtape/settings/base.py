@@ -135,6 +135,7 @@ INSTALLED_APPS = [
     "beryl",           # Beryl — ambient intelligence layer (BerylState)
     "recurring_action", # RecurringAction — recurring operational nudges
     "scrap",           # Scrap — ad hoc capture primitive
+    "drop",            # Drop — named ephemeral group knowledge packets
 ]
 
 INSTALLED_APPS += ["rest_framework_simplejwt.token_blacklist"]

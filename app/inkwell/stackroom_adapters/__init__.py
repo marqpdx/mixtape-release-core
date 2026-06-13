@@ -5,6 +5,7 @@ from .writing_piece import WritingPieceAdapter
 from .user_profile import UserProfileAdapter
 from .threadworks_discussion import ThreadworksDiscussionAdapter
 from .almanac_event import AlmanacEventAdapter
+from .drop import DropAdapter
 
 ADAPTER_REGISTRY = [
     SeedAdapter(),
@@ -14,6 +15,7 @@ ADAPTER_REGISTRY = [
     UserProfileAdapter(),
     ThreadworksDiscussionAdapter(),
     AlmanacEventAdapter(),
+    DropAdapter(),
 ]
 
 

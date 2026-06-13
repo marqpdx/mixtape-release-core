@@ -119,3 +119,9 @@ class AgentSynopsisLinkedInCommandSerializer(serializers.Serializer):
 class AgentParseUnavailableSerializer(serializers.Serializer):
     detail = serializers.CharField()
     parse_route = serializers.CharField()
+
+
+class GroupSearchSerializer(serializers.Serializer):
+    group_id = serializers.UUIDField()
+    query = serializers.CharField(max_length=500)
+    max_results = serializers.IntegerField(default=5, min_value=1, max_value=10)
