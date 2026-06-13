@@ -4,7 +4,9 @@
 # Stateless functions with typed I/O — each maps naturally to an MCP tool.
 
 import logging
+import time
 
+import jwt
 import requests
 from django.conf import settings
 
@@ -19,6 +21,28 @@ class InkwellUnavailableError(Exception):
 
 def _base_url() -> str:
     return getattr(settings, "INKWELL_BASE_URL", "https://inkwell.crossroads.place").rstrip("/")
+
+
+def _mint_inkwell_service_token() -> str:
+    secret = getattr(settings, "INKWELL_SERVICE_JWT_SECRET", None)
+    if not secret:
+        raise InkwellUnavailableError(
+            "INKWELL_SERVICE_JWT_SECRET not configured — required for /service/* endpoints"
+        )
+    now = int(time.time())
+    ttl = int(getattr(settings, "SERVICE_JWT_TTL_SECONDS", 600))
+    return jwt.encode(
+        {
+            "sub": "django",
+            "iat": now,
+            "nbf": now,
+            "exp": now + ttl,
+            "iss": getattr(settings, "SERVICE_JWT_ISS", "mixtape"),
+            "aud": getattr(settings, "INKWELL_SERVICE_JWT_AUD", "django-inkwell"),
+        },
+        secret,
+        algorithm=getattr(settings, "SERVICE_JWT_ALG", "HS256"),
+    )
 
 
 def is_available() -> bool:
@@ -197,6 +221,48 @@ def generate_metadata(text: str, max_tags: int = 5, candidate_tags: list = None)
     if resp.status_code != 200:
         logger.error("Inkwell /v1/metadata error %s: %s", resp.status_code, resp.text[:500])
         raise InkwellUnavailableError(f"Inkwell /v1/metadata returned {resp.status_code}")
+
+    return resp.json()
+
+
+def service_generate(
+    *,
+    prompt: str,
+    system_prompt: str | None = None,
+    schema: dict | None = None,
+    max_tokens: int = 512,
+    temperature: float = 0.1,
+) -> dict:
+    """
+    POST /service/generate — grammar-constrained generation with optional system prompt.
+
+    Returns the full response dict: {result, raw_text, method}.
+    `result` is the parsed JSON object when `schema` is provided.
+    Raises InkwellUnavailableError on any transport or auth error.
+
+    Requires INKWELL_SERVICE_JWT_SECRET in settings (must match Inkwell's SERVICE_JWT_SECRET).
+    """
+    payload: dict = {"prompt": prompt, "max_tokens": max_tokens, "temperature": temperature}
+    if system_prompt:
+        payload["system_prompt"] = system_prompt
+    if schema:
+        payload["schema"] = schema
+
+    try:
+        resp = requests.post(
+            f"{_base_url()}/service/generate",
+            json=payload,
+            headers={"X-Service-Token": _mint_inkwell_service_token()},
+            timeout=TIMEOUT_SECONDS,
+        )
+    except requests.exceptions.ReadTimeout:
+        raise InkwellUnavailableError("Inkwell /service/generate timed out")
+    except requests.RequestException as e:
+        raise InkwellUnavailableError(f"Inkwell unreachable: {e}")
+
+    if resp.status_code != 200:
+        logger.error("Inkwell /service/generate error %s: %s", resp.status_code, resp.text[:500])
+        raise InkwellUnavailableError(f"Inkwell /service/generate returned {resp.status_code}")
 
     return resp.json()
 

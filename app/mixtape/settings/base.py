@@ -54,6 +54,8 @@ INKWELL_BASE_URL = os.getenv(
     "INKWELL_BASE_URL",
     "https://inkwell.crossroads.place",  # default if not set
 ).rstrip("/")
+INKWELL_SERVICE_JWT_SECRET = os.getenv("INKWELL_SERVICE_JWT_SECRET")
+INKWELL_SERVICE_JWT_AUD    = os.getenv("INKWELL_SERVICE_JWT_AUD", "django-inkwell")
 
 # Application definition
 

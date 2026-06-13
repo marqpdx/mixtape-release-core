@@ -1277,7 +1277,7 @@ def group_search_proxy(request):
 
     from groups.models import Group
     from initiatives.services.agent_stackroom import AgentStackroomError, retrieve_from_stackroom
-    from inkwell.client import InkwellUnavailableError, synthesize
+    from inkwell.client import InkwellUnavailableError, service_generate
     from inkwell.stackroom_http_client import get_or_create_group_library
     from switchboard.prompts.group_search_v1 import format_system_prompt, format_user_prompt
 
@@ -1320,33 +1320,38 @@ def group_search_proxy(request):
         chunks=chunks_for_prompt,
     )
 
-    corpus = [{"text": c["text"], "source_id": c.get("source_file_id", "")} for c in raw_chunks]
+    _ANSWER_SCHEMA = {
+        "type": "object",
+        "properties": {
+            "answer": {"type": "string"},
+            "found": {"type": "boolean"},
+            "used_chunk_indices": {"type": "array", "items": {"type": "integer"}},
+        },
+        "required": ["answer", "found", "used_chunk_indices"],
+    }
 
     try:
-        inkwell_result = synthesize(
-            corpus=corpus,
-            synthesis_goal=query,
-            group_context={"group_name": group.title, "group_id": str(group.pk)},
-            output_template=system_prompt + "\n\n" + user_prompt,
+        inkwell_result = service_generate(
+            system_prompt=system_prompt,
+            prompt=user_prompt,
+            schema=_ANSWER_SCHEMA,
+            max_tokens=512,
+            temperature=0.1,
         )
     except InkwellUnavailableError as exc:
         return JsonResponse({"detail": str(exc)}, status=502)
 
-    synthesis_text = inkwell_result.get("synthesis", "")
-    found = "couldn't find" not in synthesis_text.lower()
+    result = inkwell_result.get("result", {})
+    answer = result.get("answer", f"I couldn't find that in {group.title}'s data.")
+    found  = result.get("found", False)
+    used_indices = set(result.get("used_chunk_indices", []))
 
-    used_source_ids = inkwell_result.get("source_ids", [])
     sources = []
-    seen: set[str] = set()
-    for chunk in raw_chunks:
-        sf_id = chunk.get("source_file_id", "")
-        if sf_id in seen:
+    for i, chunk in enumerate(raw_chunks):
+        if used_indices and i not in used_indices:
             continue
-        if used_source_ids and sf_id not in used_source_ids:
-            continue
-        seen.add(sf_id)
         sources.append({
-            "label": _source_label_from_path(sf_id),
+            "label": _source_label_from_path(chunk.get("source_file_id", "")),
             "url": _frontend_url_from_chunk(chunk),
             "excerpt": chunk["text"][:200],
         })
@@ -1354,7 +1359,7 @@ def group_search_proxy(request):
             break
 
     return JsonResponse({
-        "answer": synthesis_text,
+        "answer": answer,
         "found": found,
         "sources": sources,
     })
