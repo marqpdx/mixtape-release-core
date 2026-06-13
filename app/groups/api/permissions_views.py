@@ -365,13 +365,13 @@ class MemberPermissionManageView(generics.GenericAPIView):
             }
         )
 
-        # Auto-add 'steward' role if this is the first decorator
+        # Auto-add 'steward' role if member has any active decorators
         decorator_count = MembershipHasDecorator.objects.filter(
             membership=membership,
             enabled=True
         ).count()
 
-        if decorator_count == 1 and not membership.is_steward():
+        if decorator_count >= 1 and not membership.is_steward():
             membership.grant_role('steward')
             print(f"✅ Auto-promoted {membership.member_object} to steward")
 
@@ -528,6 +528,16 @@ class MemberRoleManageView(generics.GenericAPIView):
             )
 
         membership.revoke_role(role)
+
+        # If admin was revoked and member has active decorators, restore steward role
+        if role == "admin" and not membership.is_steward():
+            from groups.models.decorators import MembershipHasDecorator
+            has_decorators = MembershipHasDecorator.objects.filter(
+                membership=membership,
+                enabled=True
+            ).exists()
+            if has_decorators:
+                membership.grant_role('steward')
 
         response_serializer = MemberPermissionsSerializer(membership)
         return Response(response_serializer.data)
