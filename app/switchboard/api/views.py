@@ -36,6 +36,7 @@ from switchboard.api.serializers import (
     AgentSynthesizeNarrativeCommandSerializer,
     AgentSynopsisLinkedInCommandSerializer,
     AgentTaskCommandSerializer,
+    GroupSearchSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -1226,3 +1227,134 @@ def draft_async_proxy(request):
         )
 
     return JsonResponse({"action_run_id": str(action_run.id)}, status=202)
+
+
+# ---------------------------------------------------------------------------
+# Beryl group search (ADR: beryl-search-spec.md)
+# Synchronous: retrieve from Stackroom → synthesize via Inkwell → return answer
+# ---------------------------------------------------------------------------
+
+def _source_label_from_path(source_path: str) -> str:
+    """Best-effort human label derived from a Stackroom source path."""
+    if source_path.startswith("almanac/events/"):
+        return "Event"
+    if source_path.startswith("writing_pieces/groups/"):
+        return "Group Post"
+    if source_path.startswith("threadworks/"):
+        return "Discussion"
+    if source_path.startswith("drops/"):
+        return "Drop"
+    return "Document"
+
+
+def _frontend_url_from_chunk(chunk: dict) -> str:
+    """Build a best-effort relative frontend URL from Stackroom chunk metadata."""
+    artifact_type = chunk.get("artifact_type", "")
+    artifact_id   = chunk.get("artifact_id", "")
+    if not artifact_id:
+        return ""
+    if artifact_type in ("almanac.event", "almanac_event"):
+        return f"/almanac/events/{artifact_id}"
+    if artifact_type in ("writing.writingpiece", "writing_piece"):
+        return f"/writing/{artifact_id}"
+    if artifact_type in ("threadworks.discussion", "threadworks_discussion"):
+        return f"/discussions/{artifact_id}"
+    if artifact_type == "drop.drop":
+        return f"/groups/drops/{artifact_id}"
+    return ""
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def group_search_proxy(request):
+    serializer = GroupSearchSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    data        = serializer.validated_data
+    group_id    = data["group_id"]
+    query       = data["query"]
+    max_results = data["max_results"]
+
+    from groups.models import Group
+    from initiatives.services.agent_stackroom import AgentStackroomError, retrieve_from_stackroom
+    from inkwell.client import InkwellUnavailableError, synthesize
+    from inkwell.stackroom_http_client import get_or_create_group_library
+    from switchboard.prompts.group_search_v1 import format_system_prompt, format_user_prompt
+
+    try:
+        group = Group.objects.get(pk=group_id)
+    except Group.DoesNotExist:
+        return JsonResponse({"detail": "Group not found."}, status=404)
+
+    library_id = get_or_create_group_library(group)
+
+    try:
+        raw_chunks = retrieve_from_stackroom(
+            query=query,
+            library_id=library_id,
+            limit=max_results,
+        )
+    except AgentStackroomError as exc:
+        http_status = 504 if exc.status_code == 504 else 502
+        return JsonResponse({"detail": exc.detail}, status=http_status)
+
+    if not raw_chunks:
+        return JsonResponse({
+            "answer": f"I couldn't find that in {group.title}'s data.",
+            "found": False,
+            "sources": [],
+        })
+
+    chunks_for_prompt = [
+        {
+            "text": c["text"],
+            "source_label": _source_label_from_path(c.get("source_file_id", "")),
+        }
+        for c in raw_chunks
+    ]
+
+    system_prompt = format_system_prompt(group_name=group.title)
+    user_prompt   = format_user_prompt(
+        group_name=group.title,
+        query=query,
+        chunks=chunks_for_prompt,
+    )
+
+    corpus = [{"text": c["text"], "source_id": c.get("source_file_id", "")} for c in raw_chunks]
+
+    try:
+        inkwell_result = synthesize(
+            corpus=corpus,
+            synthesis_goal=query,
+            group_context={"group_name": group.title, "group_id": str(group.pk)},
+            output_template=system_prompt + "\n\n" + user_prompt,
+        )
+    except InkwellUnavailableError as exc:
+        return JsonResponse({"detail": str(exc)}, status=502)
+
+    synthesis_text = inkwell_result.get("synthesis", "")
+    found = "couldn't find" not in synthesis_text.lower()
+
+    used_source_ids = inkwell_result.get("source_ids", [])
+    sources = []
+    seen: set[str] = set()
+    for chunk in raw_chunks:
+        sf_id = chunk.get("source_file_id", "")
+        if sf_id in seen:
+            continue
+        if used_source_ids and sf_id not in used_source_ids:
+            continue
+        seen.add(sf_id)
+        sources.append({
+            "label": _source_label_from_path(sf_id),
+            "url": _frontend_url_from_chunk(chunk),
+            "excerpt": chunk["text"][:200],
+        })
+        if len(sources) >= 3:
+            break
+
+    return JsonResponse({
+        "answer": synthesis_text,
+        "found": found,
+        "sources": sources,
+    })

@@ -17,6 +17,7 @@ from .views import (
     classify_async_proxy,
     context_shape_async_proxy,
     draft_async_proxy,
+    group_search_proxy,
     refine_async_proxy,
     summarize_async_proxy,
     think_cluster_async_proxy,
@@ -40,4 +41,5 @@ urlpatterns = [
     path("agent/note", agent_note_proxy, name="switchboard-agent-note"),
     path("agent/remind", agent_reminder_proxy, name="switchboard-agent-remind"),
     path("agent/task", agent_task_proxy, name="switchboard-agent-task"),
+    path("group/search", group_search_proxy, name="switchboard-group-search"),
 ]
