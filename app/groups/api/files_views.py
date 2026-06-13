@@ -204,3 +204,71 @@ class GroupFilePreviewView(APIView):
         if "Content-Disposition" in headers:
             response["Content-Disposition"] = headers["Content-Disposition"]
         return response
+
+
+class MeFilesListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from inkwell.stackroom_http_client import (
+            get_or_create_user_library,
+            get_library_source_files,
+            StackroomClientError,
+        )
+
+        try:
+            library_id = get_or_create_user_library(request.user)
+        except StackroomClientError as exc:
+            return Response({"detail": str(exc)}, status=drf_status.HTTP_502_BAD_GATEWAY)
+
+        try:
+            raw_files = get_library_source_files(library_id)
+        except StackroomClientError:
+            return Response([])
+
+        files_data = [
+            {
+                "id": f["id"],
+                "filename": f["filename"],
+                "content_type": f["content_type"],
+                "size_bytes": f["size_bytes"],
+                "origin": f["origin"],
+                "created_at": f["created_at"],
+            }
+            for f in raw_files
+        ]
+
+        return Response(files_data)
+
+
+class MeFileDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, source_file_id):
+        from inkwell.stackroom_http_client import (
+            get_or_create_user_library,
+            get_library_source_files,
+            delete_source_file,
+            StackroomClientError,
+        )
+
+        try:
+            library_id = get_or_create_user_library(request.user)
+        except StackroomClientError as exc:
+            return Response({"detail": str(exc)}, status=drf_status.HTTP_502_BAD_GATEWAY)
+
+        try:
+            files = get_library_source_files(library_id)
+        except StackroomClientError as exc:
+            return Response({"detail": str(exc)}, status=drf_status.HTTP_502_BAD_GATEWAY)
+
+        file_ids = {str(f["id"]) for f in files}
+        if str(source_file_id) not in file_ids:
+            return Response({"detail": "File not found in your library."}, status=drf_status.HTTP_404_NOT_FOUND)
+
+        try:
+            delete_source_file(source_file_id)
+        except StackroomClientError as exc:
+            return Response({"detail": str(exc)}, status=drf_status.HTTP_502_BAD_GATEWAY)
+
+        return Response(status=drf_status.HTTP_204_NO_CONTENT)
