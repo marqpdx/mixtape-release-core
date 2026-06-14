@@ -1,66 +1,12 @@
 # groups/models/types.py
 """
-Type-specific models for the four group types.
+Type-specific models for the three group types.
 Each extends the base Group model via OneToOne relationship.
 """
 
-from django.conf import settings
 from django.db import models
 
-from .dec_enums import GovernanceModel, MeetingFrequency, PrivacyLevel
-
-
-class PersonaGroup(models.Model):
-    """
-    Personal container group, optionally 1:1 with a User.
-    Used for personal spaces, portfolios, or individual identity.
-    """
-
-    group = models.OneToOneField(
-        "Group",
-        on_delete=models.CASCADE,
-        related_name="persona_detail",
-        primary_key=True
-    )
-
-    user = models.OneToOneField(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name="persona_group",
-        null=True,
-        blank=True,
-        help_text="User this persona belongs to (if 1:1 mapping)"
-    )
-
-    privacy_level = models.CharField(
-        max_length=20,
-        choices=PrivacyLevel.choices,
-        default=PrivacyLevel.PUBLIC,
-        help_text="Who can view this persona's content"
-    )
-
-    display_name = models.CharField(
-        max_length=255,
-        blank=True,
-        help_text="Display name (can differ from group title)"
-    )
-
-    auto_created_home_circle = models.ForeignKey(
-        "Group",
-        on_delete=models.SET_NULL,
-        related_name="persona_homes",
-        null=True,
-        blank=True,
-        help_text="Auto-created home circle for this persona"
-    )
-
-    class Meta:
-        db_table = "groups_personagroup"
-        verbose_name = "Persona Group"
-        verbose_name_plural = "Persona Groups"
-
-    def __str__(self):
-        return f"Persona: {self.group.title}"
+from .dec_enums import GovernanceModel, MeetingFrequency
 
 
 class CircleGroup(models.Model):

@@ -28,8 +28,7 @@ class LocalModelTier(models.TextChoices):
 
 
 class GroupType(models.TextChoices):
-    """Four core group types in the Mixtape ecosystem."""
-    PERSONA = "persona", "Persona"
+    """Three core group types in the Mixtape ecosystem."""
     CIRCLE = "circle", "Circle"
     COMMUNITY = "community", "Community"
     COALITION = "coalition", "Coalition"
@@ -75,13 +74,6 @@ class MeetingFrequency(models.TextChoices):
     MONTHLY = "monthly", "Monthly"
     QUARTERLY = "quarterly", "Quarterly"
     ADHOC = "adhoc", "Ad-Hoc"
-
-
-class PrivacyLevel(models.TextChoices):
-    """Privacy levels for Persona groups."""
-    PUBLIC = "public", "Public"
-    MEMBERS = "members", "Members Only"
-    FRIENDS = "friends", "Friends Only"
 
 
 # Core roles that can be in the roles ArrayField
