@@ -138,6 +138,7 @@ INSTALLED_APPS = [
     "recurring_action", # RecurringAction — recurring operational nudges
     "scrap",           # Scrap — ad hoc capture primitive
     "drop",            # Drop — named ephemeral group knowledge packets
+    "sprig",           # Sprig — mobile relational capture affordance (Mobile Capture ADR B)
 ]
 
 INSTALLED_APPS += ["rest_framework_simplejwt.token_blacklist"]
