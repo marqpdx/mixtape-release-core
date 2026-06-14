@@ -139,6 +139,7 @@ INSTALLED_APPS = [
     "scrap",           # Scrap — ad hoc capture primitive
     "drop",            # Drop — named ephemeral group knowledge packets
     "sprig",           # Sprig — mobile relational capture affordance (Mobile Capture ADR B)
+    "bridge",          # Bridge — live gathering infrastructure (Bridge/Continuity ADR)
 ]
 
 INSTALLED_APPS += ["rest_framework_simplejwt.token_blacklist"]
@@ -452,6 +453,12 @@ LIVEWIRE_JWT_ALG = os.getenv("LIVEWIRE_JWT_ALG", "HS256")
 LIVEWIRE_JWT_ISS = os.getenv("LIVEWIRE_JWT_ISS", "mixtape")
 LIVEWIRE_JWT_AUD = os.getenv("LIVEWIRE_JWT_AUD", "livewire")
 LIVEWIRE_INTERNAL_URL = os.getenv("LIVEWIRE_INTERNAL_URL", "http://127.0.0.1:5001")
+
+# Bridge / LiveKit
+LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY", "devkey")
+LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET", "devsecret")
+LIVEKIT_URL = os.getenv("LIVEKIT_URL", "ws://localhost:7880")
+LIVEKIT_ROOM_TOKEN_TTL_SECONDS = int(os.getenv("LIVEKIT_ROOM_TOKEN_TTL_SECONDS", str(60 * 60 * 4)))
 LIVEWIRE_NOTIFY_SECRET = os.getenv("LIVEWIRE_NOTIFY_SECRET", "")  # shared secret for /notify endpoint
 
 # ============================================================================
