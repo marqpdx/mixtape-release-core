@@ -43,7 +43,7 @@ class GroupService:
 
         Args:
             title: Group title
-            group_type: Type of group (persona/circle/community/coalition)
+            group_type: Type of group (circle/community/coalition)
             created_by: User creating the group
             ...
             profile_code: Optional decorator profile to apply
@@ -119,9 +119,6 @@ class GroupService:
         elif group.group_type == GroupType.CIRCLE:
             from groups.models import CircleGroup
             CircleGroup.objects.create(group=group)
-        elif group.group_type == GroupType.PERSONA:
-            from groups.models import PersonaGroup
-            PersonaGroup.objects.create(group=group)
         elif group.group_type == GroupType.COALITION:
             from groups.models import CoalitionGroup
             CoalitionGroup.objects.create(group=group)
