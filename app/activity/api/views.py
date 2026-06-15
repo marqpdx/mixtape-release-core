@@ -307,7 +307,7 @@ class GroupActivityFeedView(APIView):
 
         # Batch-resolve display names for user actors
         user_actor_ids = list({
-            int(a.actor_id) for a in actions
+            a.actor_id for a in actions
             if a.actor_label == "user" and a.actor_id
         })
         user_map: dict[str, str] = {}
