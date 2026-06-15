@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from livekit.api import AccessToken, VideoGrants
 from django.conf import settings
 from rest_framework.decorators import api_view, permission_classes
@@ -28,7 +30,7 @@ def room_token(request):
         .with_identity(str(request.user.id))
         .with_name(request.user.get_username())
         .with_grants(VideoGrants(room_join=True, room=session.room_name))
-        .with_ttl(settings.LIVEKIT_ROOM_TOKEN_TTL_SECONDS)
+        .with_ttl(timedelta(seconds=settings.LIVEKIT_ROOM_TOKEN_TTL_SECONDS))
         .to_jwt()
     )
 
