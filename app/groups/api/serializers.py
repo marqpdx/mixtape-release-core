@@ -234,6 +234,21 @@ class GroupDetailSerializer(GroupListSerializer):
     # Parent group info for circles
     sponsor_group = serializers.SerializerMethodField()
 
+    # Deliverable intent — non-null only when hasDeliverableIntent is applied
+    deliverable_intent = serializers.SerializerMethodField()
+
+    def get_deliverable_intent(self, obj):
+        if obj.group_type != "circle":
+            return None
+        try:
+            cdi = obj.deliverable_intent
+            return {
+                "deliverable_type": cdi.deliverable_type,
+                "deliverable_status": cdi.deliverable_status,
+            }
+        except Exception:
+            return None
+
     # write-only inputs for updates
     emblem_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
     emblem_avatar_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
@@ -272,6 +287,7 @@ class GroupDetailSerializer(GroupListSerializer):
                 "visible_to_parent",
                 "emblem_id",
                 "emblem_avatar_id",
+                "deliverable_intent",
             ]
         )
         read_only_fields = (

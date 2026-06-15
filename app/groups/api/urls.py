@@ -59,6 +59,11 @@ from .files_views import (
     GroupFileDownloadView,
     GroupFilePreviewView,
 )
+from .circle_decorator_views import (
+    CircleApplyDecoratorView,
+    CircleRemoveDecoratorView,
+    CircleDeliverableIntentView,
+)
 from writing.api.views import WritingPieceDetailView
 
 
@@ -118,6 +123,11 @@ urlpatterns = [
 
     path("<slug:slug>/circles", GroupCirclesListCreateView.as_view(), name="group-circles-list-create"),
     path("<slug:parent_slug>/circles/<slug:circle_slug>", GroupCircleDetailView.as_view(), name="group-circle-detail"),
+
+    # Circle decorator endpoints (CR-E)
+    path("<slug:slug>/apply-decorator", CircleApplyDecoratorView.as_view(), name="circle-apply-decorator"),
+    path("<slug:slug>/decorators/<str:decorator_code>", CircleRemoveDecoratorView.as_view(), name="circle-remove-decorator"),
+    path("<slug:slug>/deliverable-intent", CircleDeliverableIntentView.as_view(), name="circle-deliverable-intent"),
 
     # Permissions management
     path("<slug:slug>/permissions/available", AvailablePermissionsView.as_view(), name="group-permissions-available"),
