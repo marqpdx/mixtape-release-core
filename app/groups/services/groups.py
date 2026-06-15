@@ -230,6 +230,45 @@ class GroupService:
         return "member"
 
     @staticmethod
+    @transaction.atomic
+    def create_circle(
+        parent,
+        title: str,
+        created_by,
+        description: str = "",
+        visible_to_parent: bool = True,
+        slug: str = None,
+    ):
+        """
+        Create a Circle as a child of parent.
+
+        Validates that created_by is an admin of parent (D2). Sets group_type=CIRCLE
+        and admission_policy=OPEN_PARENT_MEMBERS. The Circle's parent FK is set here.
+
+        Raises:
+            PermissionError: if created_by is not an admin of parent.
+        """
+        if not GroupService.is_user_admin(parent, created_by):
+            raise PermissionError(
+                f"User {created_by} must be an admin of '{parent.slug}' to create a Circle."
+            )
+
+        from groups.models.dec_enums import AdmissionPolicy
+        circle = GroupService.create_group(
+            title=title,
+            group_type=GroupType.CIRCLE,
+            created_by=created_by,
+            description=description,
+            visibility="private",
+            slug=slug,
+        )
+        circle.parent = parent
+        circle.visible_to_parent = visible_to_parent
+        circle.admission_policy = AdmissionPolicy.OPEN_PARENT_MEMBERS
+        circle.save(update_fields=["parent", "visible_to_parent", "admission_policy"])
+        return circle
+
+    @staticmethod
     def can_user_view_group(group, user):
         """
         Check if user can view this group.
