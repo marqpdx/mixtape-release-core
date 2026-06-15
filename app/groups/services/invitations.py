@@ -64,6 +64,24 @@ class InvitationService:
         if existing_membership:
             raise ValidationError(f"User {user.username} is already a member of this group")
 
+        # D2: Circles may only invite current members of the parent group.
+        from groups.models.dec_enums import GroupType
+        if group.group_type == GroupType.CIRCLE and group.parent_id is not None:
+            parent_membership = GroupMembership.objects.filter(
+                group_id=group.parent_id,
+                member_content_type=user_content_type,
+                member_object_id=user.id,
+                is_active=True,
+                is_banned=False,
+                is_evicted=False,
+                is_pending=False,
+            ).exists()
+            if not parent_membership:
+                raise ValidationError(
+                    f"Circles may only invite members of the parent group. "
+                    f"User {user.username} is not an active member of '{group.parent.slug}'."
+                )
+
         # Determine invitation type based on user status
         is_existing_user = user.is_active
 
