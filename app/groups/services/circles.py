@@ -152,3 +152,66 @@ def apply_working_circle_profile(circle, deliverable_type, assigned_by=None):
         "decorator_links": decorator_links,
         "deliverable_intent": cdi,
     }
+
+
+@transaction.atomic
+def remove_deliverable_intent(circle):
+    """
+    Remove hasDeliverableIntent from a Circle and delete its CDI record.
+
+    Idempotent — safe to call if not currently applied. Does not cascade to
+    other decorators (non-cascading removal per A3).
+
+    Args:
+        circle: Group instance (must be group_type='circle')
+
+    Raises:
+        CircleDecoratorError: if the group is not a circle
+    """
+    _require_circle(circle)
+
+    try:
+        decorator = GroupDecorator.objects.get(code="hasDeliverableIntent")
+        GroupHasDecorator.objects.filter(group=circle, decorator=decorator).delete()
+    except GroupDecorator.DoesNotExist:
+        pass
+
+    CircleDeliverableIntent.objects.filter(circle=circle).delete()
+
+
+@transaction.atomic
+def update_deliverable_intent(circle, **fields):
+    """
+    Update fields on an existing CircleDeliverableIntent record.
+
+    Args:
+        circle: Group instance (must be group_type='circle' and have CDI)
+        **fields: deliverable_type and/or deliverable_status
+
+    Returns:
+        CircleDeliverableIntent
+
+    Raises:
+        CircleDecoratorError: if the circle has no CDI record
+    """
+    _require_circle(circle)
+
+    try:
+        cdi = circle.deliverable_intent
+    except CircleDeliverableIntent.DoesNotExist:
+        raise CircleDecoratorError(
+            f"Circle '{circle.slug}' has no deliverable intent record. "
+            "Apply hasDeliverableIntent first."
+        )
+
+    allowed = {"deliverable_type", "deliverable_status"}
+    update_fields = []
+    for field, value in fields.items():
+        if field in allowed and value is not None:
+            setattr(cdi, field, value)
+            update_fields.append(field)
+
+    if update_fields:
+        cdi.save(update_fields=update_fields)
+
+    return cdi
