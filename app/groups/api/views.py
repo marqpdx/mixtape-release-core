@@ -585,24 +585,13 @@ class GroupMembersView(generics.ListAPIView):
 
 class GroupCirclesListCreateView(generics.ListCreateAPIView):
     """
-    GET  /api/groups/<group_slug>/circles
-      - List circles sponsored by this group.
-
-    POST /api/groups/<group_slug>/circles
-      - Create a new circle sponsored by this group.
-      - Requires the user to have can__CreateSponsoredCircle on their membership
-        within the sponsoring group.
+    GET  /api/groups/<slug>/circles  — list Circles parented to this group.
+    POST /api/groups/<slug>/circles  — create a Circle; caller must be admin of parent (D2).
     """
-    permission_classes = [permissions.IsAuthenticated, HasGroupDecorator]
-    required_decorator = "can__CreateSponsoredCircle"
+    permission_classes = [permissions.IsAuthenticated]
 
-    # If your HasGroupDecorator needs to know what group to scope to,
-    # it commonly looks for this kwarg name:
-    sponsor_slug_kwarg = "slug"
-
-    def get_sponsor_group(self) -> Group:
-        sponsor_slug = self.kwargs.get("slug")
-        return Group.objects.get(slug=sponsor_slug, is_active=True)
+    def get_parent_group(self) -> Group:
+        return get_object_or_404(Group, slug=self.kwargs["slug"], is_active=True)
 
     def get_serializer_class(self):
         if self.request.method == "POST":
@@ -610,113 +599,61 @@ class GroupCirclesListCreateView(generics.ListCreateAPIView):
         return GroupListSerializer
 
     def get_queryset(self):
-        sponsor_group = self.get_sponsor_group()
-        sponsor_ct = ContentType.objects.get_for_model(Group)
-
+        parent = self.get_parent_group()
         qs = Group.objects.filter(
             is_active=True,
-            group_type='circle',
-            sponsor_content_type=sponsor_ct,
-            sponsor_object_id=sponsor_group.id,
+            group_type="circle",
+            parent=parent,
         ).order_by("-created_at")
-
-        # Optional filters, if you want parity with /api/groups/
         search = self.request.query_params.get("search")
         if search:
             qs = qs.filter(
                 Q(title__icontains=search) |
                 Q(description__icontains=search)
             )
-
         return qs
 
     def create(self, request, *args, **kwargs):
-        """
-        Override to return GroupDetailSerializer after creation,
-        matching your main GroupListCreateView behavior.
-        """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
-        circle = self.perform_create(serializer)
-
+        validated = serializer.validated_data
+        parent = self.get_parent_group()
+        try:
+            circle = GroupService.create_circle(
+                parent=parent,
+                title=validated["title"],
+                created_by=request.user,
+                description=validated.get("description", ""),
+                visible_to_parent=validated.get("visible_to_parent", True),
+            )
+        except PermissionError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
         detail = GroupDetailSerializer(circle, context=self.get_serializer_context())
         return Response(detail.data, status=status.HTTP_201_CREATED)
-
-    def perform_create(self, serializer):
-        sponsor_group = self.get_sponsor_group()
-
-        # IMPORTANT: Force these server-side so the client can’t spoof them
-        validated = dict(serializer.validated_data)
-        # validated["group_type"] = GroupType.CIRCLE
-
-        validated["group_type"] = 'circle'
-
-        # If you store circle fields on GroupCreateSerializer already, great.
-        # If not, you'll add start_date/end_date/join_mode/etc to serializer Meta.fields.
-
-        # Create the circle *sponsored by the group*
-        # You have two options:
-        #
-        # A) If you have or add a helper in GroupService:
-        #    circle = GroupService.create_group_sponsored_by_group(...)
-        #
-        # B) Or create then set sponsor manually (shown here):
-
-        circle = GroupService.create_group(
-            title=validated["title"],
-            group_type=validated["group_type"],
-            created_by=self.request.user,
-            description=validated.get("description", ""),
-            visibility=validated.get("visibility", "public"),
-            profile_image=validated.get("profile_image_path"),
-            background_image=validated.get("background_image_path"),
-            sponsor=sponsor_group,
-            add_creator_membership=True,
-        )
-
-        # If you have Circle-specific detail fields on CircleGroup, set them here
-        # (only if you’re not storing these on Group directly)
-        #
-        # Example:
-        # if hasattr(circle, "circle_detail"):
-        #     circle.circle_detail.start_date = validated.get("start_date")
-        #     circle.circle_detail.end_date = validated.get("end_date")
-        #     circle.circle_detail.save()
-
-        return circle
 
 
 class GroupCircleDetailView(generics.RetrieveAPIView):
     """
     GET /api/groups/<parent_slug>/circles/<circle_slug>
-    Returns the circle group, validating it is sponsored by the parent group.
+    Returns the Circle, validating it is parented to the given group.
     """
     serializer_class = GroupDetailSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
     def get_object(self):
-        parent_slug = self.kwargs["parent_slug"]
-        circle_slug = self.kwargs["circle_slug"]
-
-        parent = get_object_or_404(Group, slug=parent_slug, is_active=True)
-        sponsor_ct = ContentType.objects.get_for_model(Group)
-
+        parent = get_object_or_404(Group, slug=self.kwargs["parent_slug"], is_active=True)
         circle = get_object_or_404(
             Group,
-            slug=circle_slug,
+            slug=self.kwargs["circle_slug"],
             is_active=True,
             group_type="circle",
-            sponsor_content_type=sponsor_ct,
-            sponsor_object_id=parent.id,
+            parent=parent,
         )
-
         if not GroupService.can_user_view_group(circle, self.request.user):
             self.permission_denied(
                 self.request,
                 message="You don't have permission to view this circle.",
             )
-
         return circle
 
 
