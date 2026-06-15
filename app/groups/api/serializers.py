@@ -196,42 +196,17 @@ class GroupListSerializer(serializers.ModelSerializer):
         return membership.roles if membership else None
 
     def get_sponsor_group(self, obj):
-        """Return parent group info for circles"""
-        from django.contrib.contenttypes.models import ContentType
-
-        # Only circles have parent groups
-        if obj.group_type != 'circle':
+        if obj.group_type != "circle" or obj.parent_id is None:
             return None
-
-        # Check if sponsor is a Group
-        group_ct = ContentType.objects.get_for_model(Group)
-        if obj.sponsor_content_type == group_ct:
-            try:
-                parent = Group.objects.get(id=obj.sponsor_object_id)
-                return {
-                    'id': str(parent.id),
-                    'slug': parent.slug,
-                    'title': parent.title,
-                    'group_type': parent.group_type
-                }
-            except Group.DoesNotExist:
-                return None
-
-        # Check if sponsor is a User (member-sponsored circle)
-        user_ct = ContentType.objects.get_for_model(User)
-        if obj.sponsor_content_type == user_ct:
-            try:
-                sponsor_user = User.objects.get(id=obj.sponsor_object_id)
-                return {
-                    'id': str(sponsor_user.id),
-                    'username': sponsor_user.username,
-                    'display_name': sponsor_user.get_full_name() or sponsor_user.username,
-                    'type': 'member'
-                }
-            except User.DoesNotExist:
-                return None
-
-        return None
+        parent = obj.parent
+        if parent is None:
+            return None
+        return {
+            "id": str(parent.id),
+            "slug": parent.slug,
+            "title": parent.title,
+            "group_type": parent.group_type,
+        }
 
     class Meta:
         model = Group
@@ -239,9 +214,10 @@ class GroupListSerializer(serializers.ModelSerializer):
             "id", "title", "slug", "description", "group_type", "visibility",
             "profile_image_path",
             "background_image_path",
-            "profile_image_url", "background_image_url",         # resolved URLs (use these in UI)
+            "profile_image_url", "background_image_url",
             "emblem",
             "is_active", "created_at", "member_count", "user_roles", "sponsor_group",
+            "parent_id", "visible_to_parent",
         ]
 
         read_only_fields = [
@@ -267,53 +243,33 @@ class GroupDetailSerializer(GroupListSerializer):
     # )
 
     def get_sponsor_group(self, obj):
-        """Return parent group info for circles"""
-        from django.contrib.contenttypes.models import ContentType
-
-        # Only circles have parent groups
-        if obj.group_type != 'circle':
+        if obj.group_type != "circle" or obj.parent_id is None:
             return None
-
-        # Check if sponsor is a Group
-        group_ct = ContentType.objects.get_for_model(Group)
-        if obj.sponsor_content_type == group_ct:
-            try:
-                parent = Group.objects.get(id=obj.sponsor_object_id)
-                return {
-                    'slug': parent.slug,
-                    'title': parent.title,
-                    'id': str(parent.id)
-                }
-            except Group.DoesNotExist:
-                return None
-
-        return None
+        parent = obj.parent
+        if parent is None:
+            return None
+        return {
+            "id": str(parent.id),
+            "slug": parent.slug,
+            "title": parent.title,
+        }
 
     class Meta(GroupListSerializer.Meta):
         fields = (
             list(GroupListSerializer.Meta.fields)
             + [
-                # "submitted_by",
-                # "submitted_by_username",
                 "updated_at",
-                # Image storage paths (writable)
                 "profile_image_path",
                 "background_image_path",
-                # Computed image URLs (read-only, generated on-demand)
                 "profile_image_url",
                 "background_image_url",
                 "emblem",
-                # Additional content fields
                 "summary",
                 "body",
                 "author_name",
-                # Circle parent info
                 "sponsor_group",
-                # "status",
-                # "display_layout",
-                # Admission control
                 "admission_policy",
-                # write-only inputs (included so DRF accepts them on PATCH)
+                "visible_to_parent",
                 "emblem_id",
                 "emblem_avatar_id",
             ]
@@ -337,16 +293,17 @@ class GroupCreateSerializer(serializers.ModelSerializer):
     Serializer for creating new groups.
     """
     tagline = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    visible_to_parent = serializers.BooleanField(required=False, default=True)
 
     class Meta:
         model = Group
         fields = [
             "title", "description", "group_type", "visibility",
-            # Only the path fields (URLs are computed properties)
             "profile_image_path",
             "background_image_path",
             "summary", "body", "author_name",
             "tagline",
+            "visible_to_parent",
         ]
 
     def validate_title(self, value):
