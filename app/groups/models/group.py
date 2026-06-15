@@ -88,6 +88,18 @@ class Group(LayoutParent, BaseContent):
         help_text="Delay in seconds before ownership changes execute (default 24h)"
     )
 
+    # ============================================================================
+    # CIRCLES (Groups ADR D1 — parent/child hierarchy)
+    # ============================================================================
+    parent = models.ForeignKey(
+        "groups.Group",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="circles",
+    )
+    visible_to_parent = models.BooleanField(default=True)
+
     is_active = models.BooleanField(default=True, db_index=True)
 
     visibility = models.CharField(
