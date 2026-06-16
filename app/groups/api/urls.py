@@ -65,6 +65,7 @@ from .circle_decorator_views import (
     CircleDeliverableIntentView,
 )
 from writing.api.views import WritingPieceDetailView
+from drop.api.urls import urlpatterns as drop_urlpatterns
 
 
 # ============================================================================
@@ -120,6 +121,8 @@ urlpatterns = [
     path("<slug:slug>/members", GroupMembersView.as_view(), name="group-members"),
     path("<slug:slug>/members/search", GroupMemberSearchView.as_view(), name="group-member-search"),
     path("<slug:slug>/members/<uuid:membership_id>", GroupMemberRemoveView.as_view(), name="group-member-remove"),
+
+    path("<slug:slug>/drops/", include((drop_urlpatterns, "drops"), namespace="drops")),
 
     path("<slug:slug>/circles", GroupCirclesListCreateView.as_view(), name="group-circles-list-create"),
     path("<slug:parent_slug>/circles/<slug:circle_slug>", GroupCircleDetailView.as_view(), name="group-circle-detail"),
