@@ -33,14 +33,14 @@ def _seed_welcome_forum(group):
 
     Discussion.objects.create(
         forum=forum,
-        title="Tell About Yourself",
-        slug="tell-about-yourself",
+        title="Who We Are",
+        slug="who-we-are",
         description=(
             "Share a bit about who you are. "
             "Updating your quick intro on your profile will post here automatically."
         ),
         status="pinned",
-        pinned_nav_name="Tell About Yourself",
+        pinned_nav_name="",
         created_by=None,
     )
 
