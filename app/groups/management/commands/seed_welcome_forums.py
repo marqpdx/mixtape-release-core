@@ -33,7 +33,7 @@ class Command(BaseCommand):
             title="Welcome",
         ).values_list('sponsor_object_id', flat=True)
 
-        groups_to_seed = Group.objects.exclude(id__in=seeded_ids)
+        groups_to_seed = Group.objects.filter(group_type="community").exclude(id__in=seeded_ids)
         total = groups_to_seed.count()
 
         if total == 0:
