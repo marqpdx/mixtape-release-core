@@ -41,7 +41,7 @@ def _seed_welcome_forum(group):
         ),
         status="pinned",
         pinned_nav_name="",
-        created_by=None,
+        created_by=group.escrow_owner,
     )
 
 
