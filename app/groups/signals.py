@@ -47,7 +47,7 @@ def _seed_welcome_forum(group):
 
 @receiver(post_save, sender='groups.Group')
 def seed_welcome_forum_on_create(sender, instance, created, **kwargs):
-    if created:
+    if created and instance.group_type == "community":
         _seed_welcome_forum(instance)
 
 
