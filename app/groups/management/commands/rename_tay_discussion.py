@@ -50,7 +50,7 @@ class Command(BaseCommand):
 
         updated = 0
         errors = 0
-        for discussion in targets.iterator():
+        for discussion in targets.select_related("forum").iterator():
             group_id = discussion.forum.sponsor_object_id
             self.stdout.write(
                 f"  {'would rename' if dry_run else 'renaming'}: "
@@ -58,10 +58,12 @@ class Command(BaseCommand):
             )
             if not dry_run:
                 try:
+                    group = Group.objects.select_related("escrow_owner").get(id=group_id)
                     discussion.title = "Who We Are"
                     discussion.slug = "who-we-are"
                     discussion.pinned_nav_name = ""
-                    discussion.save(update_fields=["title", "slug", "pinned_nav_name"])
+                    discussion.created_by = group.escrow_owner
+                    discussion.save(update_fields=["title", "slug", "pinned_nav_name", "created_by"])
                     updated += 1
                 except Exception as exc:
                     self.stderr.write(f"    ERROR for discussion id={discussion.id}: {exc}")
