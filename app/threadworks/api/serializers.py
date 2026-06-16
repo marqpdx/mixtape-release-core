@@ -50,6 +50,7 @@ class PostSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
             'is_edited',
+            'parent_id',
             'reaction_counts',
             'user_reaction',
         ]
