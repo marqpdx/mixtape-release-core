@@ -53,6 +53,18 @@ MEMBERSHIP_DECORATORS = {
         'description': 'Create, edit, and manage mailing lists',
         'category': 'capability',
     },
+    'can__EditGroup': {
+        'code': 'can__EditGroup',
+        'name': 'Edit Group',
+        'description': 'Edit group settings and details',
+        'category': 'capability',
+    },
+    'can__AddCollection': {
+        'code': 'can__AddCollection',
+        'name': 'Add Collection',
+        'description': 'Create new collections in this group',
+        'category': 'capability',
+    },
 }
 
 
