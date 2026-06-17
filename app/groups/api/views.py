@@ -657,6 +657,19 @@ class GroupCircleDetailView(generics.RetrieveAPIView):
         return circle
 
 
+def _delete_who_we_are_post(group, user_id):
+    """Delete a user's intro post(s) from the group's Who We Are discussion on removal."""
+    from threadworks.models import Post
+    group_ct = ContentType.objects.get_for_model(group.__class__)
+    Post.objects.filter(
+        discussion__slug="who-we-are",
+        discussion__forum__sponsor_content_type=group_ct,
+        discussion__forum__sponsor_object_id=group.id,
+        discussion__forum__title="Welcome",
+        author_id=user_id,
+    ).delete()
+
+
 class GroupMemberRemoveView(generics.GenericAPIView):
     """
     DELETE /api/groups/<slug>/members/<uuid:membership_id>
@@ -716,6 +729,9 @@ class GroupMemberRemoveView(generics.GenericAPIView):
             group=group,
             invited_user_id=target_membership.member_object_id,
         ).delete()
+
+        # Remove member's introduction from the Who We Are discussion
+        _delete_who_we_are_post(group, target_membership.member_object_id)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
