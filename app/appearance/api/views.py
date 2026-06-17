@@ -36,9 +36,9 @@ class GroupThemeSettingsView(APIView):
 
     def get(self, request, slug):
         group, membership = self._get_group_membership(request, slug)
-        if not self._has_access(membership):
+        if not membership:
             return Response(
-                {"error": "Only admins and stewards can manage group themes"},
+                {"error": "You must be a member to view group themes"},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
