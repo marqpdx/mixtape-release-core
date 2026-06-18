@@ -108,26 +108,31 @@ def resolve_audience(audience_spec: dict, action) -> list[User]:
 def _resolve_group_members(group_id: str) -> list[User]:
     """Get all active members of a group."""
     try:
+        from django.contrib.contenttypes.models import ContentType
         from groups.models import GroupMembership
-        return list(User.objects.filter(
-            group_memberships__group_id=group_id,
-            group_memberships__is_active=True,
-            is_active=True
-        ).distinct())
+        user_ct = ContentType.objects.get_for_model(User)
+        member_ids = GroupMembership.objects.filter(
+            group_id=group_id,
+            member_content_type=user_ct,
+            is_active=True,
+        ).values_list("member_object_id", flat=True)
+        return list(User.objects.filter(pk__in=member_ids, is_active=True))
     except ImportError:
-        # groups app not available yet
         return []
 
 
 def _resolve_multi_group_members(group_ids: list[str]) -> list[User]:
     """Get all active members from multiple groups (deduplicated)."""
     try:
+        from django.contrib.contenttypes.models import ContentType
         from groups.models import GroupMembership
-        return list(User.objects.filter(
-            group_memberships__group_id__in=group_ids,
-            group_memberships__is_active=True,
-            is_active=True
-        ).distinct())
+        user_ct = ContentType.objects.get_for_model(User)
+        member_ids = GroupMembership.objects.filter(
+            group_id__in=group_ids,
+            member_content_type=user_ct,
+            is_active=True,
+        ).values_list("member_object_id", flat=True).distinct()
+        return list(User.objects.filter(pk__in=member_ids, is_active=True))
     except ImportError:
         return []
 
