@@ -186,6 +186,8 @@ class GroupListCreateView(generics.ListCreateAPIView):
 
     def create(self, request, *args, **kwargs):
         """Override to return detailed group data after creation"""
+        if not request.user or not request.user.is_superuser:
+            raise PermissionDenied("Group creation is restricted.")
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
