@@ -14,3 +14,7 @@ from .synopsis import (  # synopsis generation and results
     generate_synopsis_task,
     process_synopsis_result,
 )
+from .stackroom_integration import (  # register with autodiscover
+    ingest_object_task,
+    deactivate_object_task,
+)
