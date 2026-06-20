@@ -11,6 +11,12 @@ from fundamentals.bases import BaseModel
 from fundamentals.models import BaseData
 
 
+class TrustProfile(models.TextChoices):
+    STANDARD = "standard", "Standard"
+    PRIVATE = "private", "Private"
+    EPHEMERAL = "ephemeral", "Ephemeral"
+
+
 class Conversation(BaseData):
 
     """
@@ -19,6 +25,11 @@ class Conversation(BaseData):
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, unique=True)
+    trust_profile = models.CharField(
+        max_length=16,
+        choices=TrustProfile.choices,
+        default=TrustProfile.STANDARD,
+    )
     lock_participants = models.BooleanField(
         default=False,
         help_text="If true, participant list is system-managed from the bound Context anchor."
