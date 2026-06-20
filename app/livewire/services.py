@@ -1,12 +1,41 @@
 # apps/livewire/services.py
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.db import transaction
 
-from chat.models import Conversation, ConversationContext, ConversationParticipant
+from chat.models import Conversation, ConversationContext, ConversationParticipant, TrustProfile
 from livewire.participant_sources import users_for_anchor
 
 
 User = get_user_model()
+
+# Trust profile rank — higher number = more private.
+# Downgrade (moving to a lower rank) is permanently forbidden per ADR-0046 D6.
+# Upgrade (Standard → Private) is OQ-1; blocked here until resolved before Phase C.
+_TRUST_RANK = {
+    TrustProfile.STANDARD: 0,
+    TrustProfile.PRIVATE: 1,
+    TrustProfile.EPHEMERAL: 2,
+}
+
+
+def set_trust_profile(conversation: Conversation, new_profile: str) -> None:
+    """
+    Change a Conversation's trust_profile. Downgrade is permanently forbidden.
+    Upgrade is also blocked pending OQ-1 resolution (before Phase C).
+    """
+    if conversation.trust_profile == new_profile:
+        return
+    current_rank = _TRUST_RANK[conversation.trust_profile]
+    new_rank = _TRUST_RANK[new_profile]
+    if new_rank < current_rank:
+        raise ValidationError(
+            f"Trust profile cannot be downgraded from '{conversation.trust_profile}' to '{new_profile}'."
+        )
+    # OQ-1: upgrade path (e.g. Standard → Private) is unresolved — block until Phase C decision.
+    raise ValidationError(
+        "Trust profile changes after Conversation creation are not yet supported (OQ-1 pending)."
+    )
 
 
 @transaction.atomic
