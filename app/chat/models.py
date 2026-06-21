@@ -219,3 +219,41 @@ class MessageMention(BaseModel):
         indexes = [
             models.Index(fields=["mentionee_content_type", "mentionee_object_id"]),
         ]
+
+
+class UserDeviceSession(BaseModel):
+    """
+    Tracks active devices per user for Livewire. Phase A foundation;
+    Phase B adds verification and trust state on top of this record.
+    """
+
+    class Platform(models.TextChoices):
+        WEB = "web", "Web"
+        DESKTOP = "desktop", "Desktop"
+        IOS = "ios", "iOS"
+        ANDROID = "android", "Android"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="device_sessions",
+    )
+    device_id = models.UUIDField(unique=True, default=uuid.uuid4, db_index=True)
+    device_name = models.CharField(max_length=128, blank=True)
+    platform = models.CharField(
+        max_length=16,
+        choices=Platform.choices,
+        default=Platform.WEB,
+    )
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["user", "is_active"]),
+            models.Index(fields=["user", "-last_seen_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} / {self.platform} / {self.device_id}"
