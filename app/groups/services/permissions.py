@@ -14,6 +14,8 @@ from groups.models import GroupMembership
 
 DECORATOR_PERMISSIONS = {
     "can__InviteMembers": ["invite_members"],
+    "can__ManageWriting": ["edit_writing", "publish_writing", "view_drafts"],
+    "can__ManageDispatch": ["edit_writing", "publish_writing", "view_drafts"],
 }
 
 
