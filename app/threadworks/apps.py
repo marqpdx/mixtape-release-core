@@ -7,3 +7,4 @@ class ThreadworksConfig(AppConfig):
 
     def ready(self):
         import threadworks.stackroom_signals  # noqa: F401
+        import threadworks.memory_signals  # noqa: F401
