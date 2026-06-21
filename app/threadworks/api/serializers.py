@@ -4,7 +4,7 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.db.models import Count
 
-from ..models import DiscussionView, Forum, Discussion, Post, PostReaction, PostFlag, ForumNotification
+from ..models import DiscussionView, FeedPost, Forum, Discussion, Post, PostReaction, PostFlag, ForumNotification
 
 CustomUser = get_user_model()
 
@@ -40,6 +40,7 @@ class PostSerializer(serializers.ModelSerializer):
     author = ThreadworksUserSerializer(read_only=True)
     reaction_counts = serializers.SerializerMethodField()
     user_reaction = serializers.SerializerMethodField()
+    is_author_distinguished = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Post
@@ -51,6 +52,11 @@ class PostSerializer(serializers.ModelSerializer):
             'updated_at',
             'is_edited',
             'parent_id',
+            'discussion_id',
+            'feed_post_id',
+            'quoted_post_id',
+            'quoted_passage',
+            'is_author_distinguished',
             'reaction_counts',
             'user_reaction',
         ]
@@ -60,6 +66,9 @@ class PostSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
             'is_edited',
+            'discussion_id',
+            'feed_post_id',
+            'is_author_distinguished',
         ]
 
     def get_reaction_counts(self, obj):
@@ -79,9 +88,15 @@ class PostSerializer(serializers.ModelSerializer):
 
 class PostCreateSerializer(serializers.ModelSerializer):
     """Minimal serializer for creating posts"""
+    quoted_post = serializers.PrimaryKeyRelatedField(
+        queryset=Post.objects.filter(is_deleted=False),
+        required=False,
+        allow_null=True,
+    )
+
     class Meta:
         model = Post
-        fields = ['content', 'parent']
+        fields = ['content', 'parent', 'quoted_post', 'quoted_passage']
 
     def create(self, validated_data):
         validated_data['author'] = self.context['request'].user
@@ -114,6 +129,11 @@ class DiscussionSerializer(serializers.ModelSerializer):
             'is_locked',
             'last_post',
             'unread_count',
+            'visibility_scope',
+            'memory_value_score',
+            'timeliness_date',
+            'creation_signal',
+            'summary',
         ]
         read_only_fields = [
             'id',
@@ -123,6 +143,7 @@ class DiscussionSerializer(serializers.ModelSerializer):
             'created_by',
             'post_count',
             'last_post',
+            'memory_value_score',
         ]
 
     def get_post_count(self, obj):
@@ -165,6 +186,14 @@ class DiscussionDetailSerializer(serializers.ModelSerializer):
             'status',
             'is_locked',
             'participants',
+            'visibility_scope',
+            'memory_value_score',
+            'timeliness_date',
+            'creation_signal',
+            'summary',
+            'summary_pending',
+            'summary_pending_delta',
+            'summary_pending_substantive',
         ]
         read_only_fields = [
             'id',
@@ -175,6 +204,7 @@ class DiscussionDetailSerializer(serializers.ModelSerializer):
             'posts',
             'post_count',
             'participants',
+            'memory_value_score',
         ]
 
     def get_post_count(self, obj):
@@ -190,7 +220,20 @@ class DiscussionCreateSerializer(serializers.Serializer):
     """Minimal serializer for creating discussions with initial post"""
     title = serializers.CharField(max_length=255)
     description = serializers.CharField(required=False, allow_blank=True)
-    content = serializers.CharField()  # Content of first post
+    content = serializers.CharField()
+    visibility_scope = serializers.ChoiceField(
+        choices=['circle', 'group', 'crossroads'],
+        required=False,
+        default='group',
+    )
+    creation_signal = serializers.ChoiceField(
+        choices=['low', 'medium', 'high'],
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        default=None,
+    )
+    timeliness_date = serializers.DateField(required=False, allow_null=True)
 
     def create(self, validated_data):
         """Create discussion and initial post"""
@@ -202,9 +245,11 @@ class DiscussionCreateSerializer(serializers.Serializer):
             title=validated_data['title'],
             description=validated_data.get('description', ''),
             created_by=user,
+            visibility_scope=validated_data.get('visibility_scope', 'group'),
+            creation_signal=validated_data.get('creation_signal') or None,
+            timeliness_date=validated_data.get('timeliness_date'),
         )
 
-        # Create initial post
         Post.objects.create(
             discussion=discussion,
             author=user,
@@ -234,6 +279,7 @@ class ForumSerializer(serializers.ModelSerializer):
     discussions = DiscussionSerializer(many=True, read_only=True)
     recent_participants = ThreadworksUserSerializer(many=True, read_only=True)
     discussion_count = serializers.SerializerMethodField()
+    feed_post_count = serializers.SerializerMethodField()
     visibility_label = serializers.SerializerMethodField()
     audience_member_count = serializers.SerializerMethodField()
     audience_members = ForumAudienceMemberSerializer(many=True, read_only=True)
@@ -252,9 +298,11 @@ class ForumSerializer(serializers.ModelSerializer):
             'submitted_by',
             'discussions',
             'discussion_count',
+            'feed_post_count',
             'recent_participants',
             'last_activity',
             'is_archived',
+            'is_contained_circle',
             'audience_type',
             'auto_add_new_members',
             'audience_member_count',
@@ -275,6 +323,9 @@ class ForumSerializer(serializers.ModelSerializer):
 
     def get_discussion_count(self, obj):
         return obj.discussions.filter(is_deleted=False).count()
+
+    def get_feed_post_count(self, obj):
+        return obj.feed_posts.filter(is_deleted=False).count()
 
     def get_visibility_label(self, obj):
         labels = {
@@ -456,3 +507,73 @@ class ParticipantSerializer(serializers.ModelSerializer):
                 is_deleted=False
             ).count()
         return 0
+
+
+# ============================================================================
+# FEED POST
+# ============================================================================
+
+class FeedPostSerializer(serializers.ModelSerializer):
+    """FeedPost read serializer — artifact-centric content (D4)"""
+    author = ThreadworksUserSerializer(read_only=True)
+    post_count = serializers.SerializerMethodField()
+    image_file = serializers.ImageField(read_only=True, use_url=True)
+    audio_file = serializers.FileField(read_only=True, use_url=True)
+
+    class Meta:
+        model = FeedPost
+        fields = [
+            'id',
+            'author',
+            'title',
+            'kind',
+            'body_text',
+            'body_json',
+            'image_file',
+            'audio_file',
+            'link_url',
+            'link_preview',
+            'visibility_scope',
+            'memory_value_score',
+            'timeliness_date',
+            'creation_signal',
+            'is_deleted',
+            'created_at',
+            'updated_at',
+            'post_count',
+        ]
+        read_only_fields = [
+            'id',
+            'author',
+            'memory_value_score',
+            'created_at',
+            'updated_at',
+            'post_count',
+        ]
+
+    def get_post_count(self, obj):
+        return obj.posts.filter(is_deleted=False).count()
+
+
+class FeedPostCreateSerializer(serializers.ModelSerializer):
+    """FeedPost create/update serializer"""
+    class Meta:
+        model = FeedPost
+        fields = [
+            'title',
+            'kind',
+            'body_text',
+            'body_json',
+            'link_url',
+            'visibility_scope',
+            'timeliness_date',
+            'creation_signal',
+        ]
+
+
+class FeedPostDetailSerializer(FeedPostSerializer):
+    """FeedPost detail — includes posts (replies)"""
+    posts = PostSerializer(many=True, read_only=True)
+
+    class Meta(FeedPostSerializer.Meta):
+        fields = FeedPostSerializer.Meta.fields + ['posts']
