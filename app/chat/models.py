@@ -8,6 +8,7 @@ from django.db import models
 
 from contexts.models import Context
 from fundamentals.bases import BaseModel
+from fundamentals.encrypted_fields import EncryptedTextField
 from fundamentals.models import BaseData
 
 
@@ -129,7 +130,7 @@ class ChatMessage(BaseModel):
         on_delete=models.CASCADE,
         db_index=True
     )
-    text = models.TextField()
+    text = EncryptedTextField()
     # Note: processed_text removed - not currently used
 
     # Voice message fields
