@@ -9,6 +9,7 @@ from chat.models import (
     ChatMessage,
     Conversation,
     ConversationParticipant,
+    ConversationRetentionPolicy,
     ConversationStatusTracker,
     MessageMention,
     MessageReaction,
@@ -26,10 +27,16 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ["id", "username", "first_name", "last_name"]
 
 
+class ConversationRetentionPolicySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ConversationRetentionPolicy
+        fields = ["retention_period", "enforcement_enabled"]
+
+
 class BaseConversationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Conversation
-        fields = ["id", "slug", "title", "created_at"]
+        fields = ["id", "slug", "title", "trust_profile", "created_at"]
 
 
 class ConversationSerializer(BaseConversationSerializer):
@@ -37,10 +44,11 @@ class ConversationSerializer(BaseConversationSerializer):
         child=serializers.CharField(), write_only=True, required=True
     )
 
-    slug = serializers.CharField(read_only=True)  # Add this
+    slug = serializers.CharField(read_only=True)
 
     class Meta(BaseConversationSerializer.Meta):
         fields = BaseConversationSerializer.Meta.fields + ["participants"]
+        extra_kwargs = {"trust_profile": {"required": False}}
 
     def create(self, validated_data):
         participants_usernames = validated_data.pop("participants")

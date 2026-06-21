@@ -19,6 +19,7 @@ urlpatterns = [
     path("conversations/<slug:slug>/status", views.ConversationStatusTrackerDetail.as_view(), name="conversation-status"),
     path("conversations/<slug:slug>/read", views.ConversationReadView.as_view()),
     path("conversations/<slug:slug>/voice-upload", views.conversation_voice_upload, name="conversation-voice-upload"),
+    path("conversations/<slug:slug>/retention", views.conversation_retention, name="conversation-retention"),
 
     path("messages/<uuid:pk>/react", views.ChatMessageViewSet.as_view({"post": "react"}), name="message-react"),
     path("mention-autocomplete", views.mention_autocomplete, name="mention-autocomplete"),

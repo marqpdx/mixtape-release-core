@@ -23,6 +23,7 @@ from chat.api.serializers import (
     BaseConversationSerializer,
     ChatMessageSerializer,
     ConversationReadSerializer,
+    ConversationRetentionPolicySerializer,
     ConversationSerializer,
     ConversationStatusTrackerSerializer,
     MessageReactionSerializer,
@@ -31,6 +32,7 @@ from chat.models import (
     ChatMessage,
     Conversation,
     ConversationParticipant,
+    ConversationRetentionPolicy,
     ConversationStatusTracker,
     MessageReaction,
 )
@@ -522,3 +524,26 @@ class ChatMessageViewSet(viewsets.ModelViewSet):
         message = self.get_object()
         reactions = message.reactions.all()
         return Response(MessageReactionSerializer(reactions, many=True).data)
+
+
+@api_view(["GET", "PATCH"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+def conversation_retention(request, slug):
+    """GET or PATCH the retention policy for a Conversation the user participates in."""
+    user = request.user
+    conversation = get_object_or_404(Conversation, slug=slug)
+
+    if not ConversationParticipant.objects.filter(user=user, conversation=conversation).exists():
+        return Response({"detail": "Not a participant."}, status=status.HTTP_403_FORBIDDEN)
+
+    policy, _ = ConversationRetentionPolicy.objects.get_or_create(conversation=conversation)
+
+    if request.method == "GET":
+        return Response(ConversationRetentionPolicySerializer(policy).data)
+
+    serializer = ConversationRetentionPolicySerializer(policy, data=request.data, partial=True)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
