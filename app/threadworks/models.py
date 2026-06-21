@@ -1,15 +1,31 @@
 # threadworks/models.py
 
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import F, Max, Q
 from django.utils.text import slugify
 from django.contrib.auth import get_user_model
 from django.urls import reverse
-from django.db.models import Q, Count, Max
 from django.utils import timezone
 
 from fundamentals.models import BaseContent, BaseModel, BaseData
 
 CustomUser = get_user_model()
+
+_VISIBILITY_SCOPE_CHOICES = [
+    ('circle', 'Circle Only'),
+    ('group', 'Group'),
+    ('crossroads', 'Crossroads'),
+]
+
+_CREATION_SIGNAL_CHOICES = [
+    ('low', 'Low'),
+    ('medium', 'Medium'),
+    ('high', 'High'),
+]
+
 
 class Forum(BaseContent):
     """
@@ -50,6 +66,10 @@ class Forum(BaseContent):
         blank=True,
         help_text="Explicit member list used when audience_type='subset'.",
     )
+    is_contained_circle = models.BooleanField(
+        default=False,
+        help_text="When True, visibility is Circle-only; one-level-up sharing is not offered (D15).",
+    )
 
     class Meta:
         ordering = ['-updated_at']
@@ -66,28 +86,37 @@ class Forum(BaseContent):
 
     @property
     def discussion_count(self):
-        """Count of non-deleted discussions"""
         return self.discussions.filter(is_deleted=False).count()
 
     @property
     def recent_participants(self):
-        """Get users who posted in last 30 days, ordered by recency"""
         from datetime import timedelta
         cutoff = timezone.now() - timedelta(days=30)
         return CustomUser.objects.filter(
-            posts__discussion__forum=self,
-            posts__created_at__gte=cutoff,
-            posts__is_deleted=False
+            Q(
+                posts__discussion__forum=self,
+                posts__created_at__gte=cutoff,
+                posts__is_deleted=False,
+            ) | Q(
+                posts__feed_post__forum=self,
+                posts__created_at__gte=cutoff,
+                posts__is_deleted=False,
+            )
         ).distinct().order_by('-posts__created_at')[:10]
 
     @property
     def last_activity(self):
-        """Get timestamp of most recent post in this forum"""
-        latest_post = self.discussions.filter(
+        discussion_latest = self.discussions.filter(
             is_deleted=False,
-            posts__is_deleted=False
-        ).aggregate(Max('posts__created_at'))['posts__created_at__max']
-        return latest_post
+            posts__is_deleted=False,
+        ).aggregate(ts=Max('posts__created_at'))['ts']
+        feedpost_latest = self.feed_posts.filter(
+            is_deleted=False,
+            posts__is_deleted=False,
+        ).aggregate(ts=Max('posts__created_at'))['ts']
+        if discussion_latest and feedpost_latest:
+            return max(discussion_latest, feedpost_latest)
+        return discussion_latest or feedpost_latest
 
 
 class Discussion(BaseData):
@@ -130,6 +159,50 @@ class Discussion(BaseData):
     is_locked = models.BooleanField(default=False)
     is_deleted = models.BooleanField(default=False)
 
+    # D14 — visibility scope
+    visibility_scope = models.CharField(
+        max_length=12,
+        choices=_VISIBILITY_SCOPE_CHOICES,
+        default='group',
+    )
+
+    # D6 — memory-value score (continuous; updated by signal events)
+    memory_value_score = models.FloatField(default=0.0)
+
+    # D8 — timeliness modifier (accelerates decay after this date)
+    timeliness_date = models.DateField(null=True, blank=True)
+
+    # D9 — creation-time signal (optional; seeds memory-value score)
+    creation_signal = models.CharField(
+        max_length=6,
+        choices=_CREATION_SIGNAL_CHOICES,
+        null=True,
+        blank=True,
+    )
+
+    # D12 — Beryl-generated, moderator-mediated summary
+    summary = models.TextField(null=True, blank=True)
+    summary_pending = models.TextField(null=True, blank=True)
+    summary_pending_delta = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Percentage of summary text changed vs. approved summary (0.0–1.0).",
+    )
+    summary_pending_substantive = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="Heuristic flag: True when candidate contains substantive changes beyond the delta.",
+    )
+
+    # D13 — resolution state (reserved; no UI in Phase 1)
+    resolution_post = models.ForeignKey(
+        'Post',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='+',
+    )
+
     class Meta:
         ordering = ['-created_at']
         unique_together = ['forum', 'slug']
@@ -137,16 +210,13 @@ class Discussion(BaseData):
             models.Index(fields=['forum', '-created_at']),
             models.Index(fields=['created_by', '-created_at']),
             models.Index(fields=['status', '-created_at']),
+            models.Index(fields=['forum', '-memory_value_score']),
         ]
 
     def __str__(self):
         return self.title
 
     def slug_exists(self, slug: str) -> bool:
-        """
-        Override to check uniqueness scoped to forum.
-        (forum, slug) must be unique.
-        """
         return Discussion.objects.filter(
             forum=self.forum,
             slug=slug
@@ -160,32 +230,128 @@ class Discussion(BaseData):
 
     @property
     def post_count(self):
-        """Count of non-deleted posts"""
         return self.posts.filter(is_deleted=False).count()
 
     @property
     def last_post(self):
-        """Most recent non-deleted post"""
         return self.posts.filter(is_deleted=False).order_by('-created_at').first()
 
     @property
     def participants(self):
-        """All users who have posted in this discussion"""
         return CustomUser.objects.filter(
             posts__discussion=self,
             posts__is_deleted=False
         ).distinct()
 
 
+class FeedPost(BaseModel):
+    """
+    Artifact-centric content type; sibling to Discussion within a Forum (D4).
+    Media-rich: text / image / link / voice; borrows composition patterns from
+    Storyline Leaf (confirmed by spike, 2026-06-20).
+    """
+    KIND_TEXT = 'text'
+    KIND_IMAGE = 'image'
+    KIND_LINK = 'link'
+    KIND_VOICE = 'voice'
+    KIND_CHOICES = [
+        (KIND_TEXT, 'Text'),
+        (KIND_IMAGE, 'Image'),
+        (KIND_LINK, 'Link'),
+        (KIND_VOICE, 'Voice'),
+    ]
+
+    forum = models.ForeignKey(
+        Forum,
+        on_delete=models.CASCADE,
+        related_name='feed_posts',
+    )
+    author = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='feed_posts',
+    )
+    title = models.CharField(max_length=300, blank=True)
+
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES, default=KIND_TEXT)
+    body_text = models.TextField(blank=True)
+    body_json = models.JSONField(null=True, blank=True)  # ProseMirror document
+    image_file = models.ImageField(upload_to='feed_posts/images/', null=True, blank=True)
+    audio_file = models.FileField(upload_to='feed_posts/audio/', null=True, blank=True)
+    link_url = models.URLField(blank=True)
+    link_preview = models.JSONField(null=True, blank=True)
+
+    # D14 — visibility scope
+    visibility_scope = models.CharField(
+        max_length=12,
+        choices=_VISIBILITY_SCOPE_CHOICES,
+        default='group',
+    )
+
+    # D6 — memory-value score (continuous; updated by signal events)
+    memory_value_score = models.FloatField(default=0.0)
+
+    # D8 — timeliness modifier (accelerates decay after this date)
+    timeliness_date = models.DateField(null=True, blank=True)
+
+    # D9 — creation-time signal (optional; seeds memory-value score)
+    creation_signal = models.CharField(
+        max_length=6,
+        choices=_CREATION_SIGNAL_CHOICES,
+        null=True,
+        blank=True,
+    )
+
+    is_deleted = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['forum', '-created_at']),
+            models.Index(fields=['author', '-created_at']),
+            models.Index(fields=['forum', '-memory_value_score']),
+            models.Index(fields=['kind', '-created_at']),
+        ]
+
+    def __str__(self):
+        return self.title or f"FeedPost by {self.author} in {self.forum}"
+
+    @property
+    def post_count(self):
+        return self.posts.filter(is_deleted=False).count()
+
+    @property
+    def last_post(self):
+        return self.posts.filter(is_deleted=False).order_by('-created_at').first()
+
+    @property
+    def participants(self):
+        return CustomUser.objects.filter(
+            posts__feed_post=self,
+            posts__is_deleted=False,
+        ).distinct()
+
+
 class Post(BaseModel):
     """
-    Single contribution to a discussion.
+    Single contribution to a Discussion or FeedPost (D5).
+    Exactly one of `discussion` or `feed_post` must be set.
     Inherits created_at, updated_at from BaseModel.
     """
     discussion = models.ForeignKey(
         Discussion,
+        null=True,
+        blank=True,
         on_delete=models.CASCADE,
         related_name="posts"
+    )
+    feed_post = models.ForeignKey(
+        FeedPost,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="posts",
     )
     author = models.ForeignKey(
         CustomUser,
@@ -203,32 +369,62 @@ class Post(BaseModel):
         related_name="replies"
     )
 
+    # D10 — quoted reply (replaces nested threading)
+    quoted_post = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="quotes",
+    )
+    quoted_passage = models.TextField(blank=True)
+
     class Meta:
         ordering = ['created_at']
         indexes = [
             models.Index(fields=['discussion', 'created_at']),
+            models.Index(fields=['feed_post', 'created_at']),
             models.Index(fields=['author', '-created_at']),
             models.Index(fields=['parent', 'created_at']),
         ]
 
+    def clean(self):
+        has_discussion = self.discussion_id is not None
+        has_feed_post = self.feed_post_id is not None
+        if has_discussion == has_feed_post:
+            raise ValidationError("A Post must belong to exactly one of: Discussion or FeedPost.")
+
+    @property
+    def container(self):
+        return self.discussion or self.feed_post
+
     def __str__(self):
-        return f"Post by {self.author.username if self.author else 'Unknown'} in {self.discussion.title}"
+        container = self.container
+        label = getattr(container, 'title', None) or str(container)
+        return f"Post by {self.author.username if self.author else 'Unknown'} in {label}"
 
     def save(self, *args, **kwargs):
         is_new = self.pk is None
         super().save(*args, **kwargs)
-
-        # Update discussion's updated_at via signal or just touch it
         if is_new:
-            self.discussion.save(update_fields=['updated_at'])
+            container = self.container
+            if container:
+                container.save(update_fields=['updated_at'])
 
     @property
     def is_edited(self):
-        """Check if post has been edited (updated_at differs significantly from created_at)"""
         if not self.updated_at:
             return False
-        # Consider edited if updated more than 1 minute after creation
         return (self.updated_at - self.created_at).total_seconds() > 60
+
+    @property
+    def is_author_distinguished(self):
+        """True when the post author is the creator of the parent Discussion or FeedPost."""
+        if self.discussion_id:
+            return self.author_id == self.discussion.created_by_id
+        if self.feed_post_id:
+            return self.author_id == self.feed_post.author_id
+        return False
 
 
 class PostReaction(BaseModel):
@@ -350,5 +546,51 @@ class ForumNotification(BaseModel):
         ]
 
 
+class MemoryValueEvent(BaseModel):
+    """
+    Append-only log of memory-value score changes for Discussion and FeedPost (D6, D16).
+    Enables auditing and retroactive reweighting — see ADR-0047 Section 12.
+    """
+    REACTION = 'reaction'
+    REPLY = 'reply'
+    QUOTED_REPLY = 'quoted_reply'
+    AUTHOR_REPLY = 'author_distinguished_reply'
+    CREATION_SIGNAL_EVENT = 'creation_signal'
+    MODERATOR = 'moderator_adjustment'
+    SUMMARY_APPROVED = 'summary_approved'
 
+    EVENT_TYPE_CHOICES = [
+        (REACTION, 'Reaction'),
+        (REPLY, 'Reply'),
+        (QUOTED_REPLY, 'Quoted Reply'),
+        (AUTHOR_REPLY, 'Author-Distinguished Reply'),
+        (CREATION_SIGNAL_EVENT, 'Creation-Time Signal'),
+        (MODERATOR, 'Moderator Adjustment'),
+        (SUMMARY_APPROVED, 'Summary Approved'),
+    ]
 
+    # GFK to Discussion or FeedPost (both use BigAutoField PKs)
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    object_id = models.PositiveBigIntegerField()
+    content_object = GenericForeignKey('content_type', 'object_id')
+
+    event_type = models.CharField(max_length=30, choices=EVENT_TYPE_CHOICES)
+    delta = models.FloatField()
+    actor = models.ForeignKey(
+        CustomUser,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='memory_value_events',
+    )
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['content_type', 'object_id', '-created_at']),
+            models.Index(fields=['event_type', '-created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.event_type} +{self.delta} on {self.content_type}:{self.object_id}"
