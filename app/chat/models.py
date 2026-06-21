@@ -257,3 +257,41 @@ class UserDeviceSession(BaseModel):
 
     def __str__(self):
         return f"{self.user.username} / {self.platform} / {self.device_id}"
+
+
+class ConversationAuditEvent(BaseModel):
+    """
+    Security audit log for Conversation lifecycle events.
+    Records who did what and when — never message content. ADR-0046 D9 Phase A.
+    """
+
+    class EventType(models.TextChoices):
+        CONVERSATION_CREATED = "conversation_created", "Conversation Created"
+        PARTICIPANT_JOINED = "participant_joined", "Participant Joined"
+        PARTICIPANT_LEFT = "participant_left", "Participant Left"
+        MESSAGE_SENT = "message_sent", "Message Sent"
+
+    conversation = models.ForeignKey(
+        Conversation,
+        on_delete=models.CASCADE,
+        related_name="audit_events",
+        db_index=True,
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="livewire_audit_events",
+    )
+    event_type = models.CharField(max_length=32, choices=EventType.choices, db_index=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["conversation", "-created_at"]),
+            models.Index(fields=["actor", "-created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.event_type} / {self.conversation_id} / {self.created_at}"
