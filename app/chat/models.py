@@ -295,3 +295,35 @@ class ConversationAuditEvent(BaseModel):
 
     def __str__(self):
         return f"{self.event_type} / {self.conversation_id} / {self.created_at}"
+
+
+class ConversationRetentionPolicy(BaseModel):
+    """
+    Per-Conversation retention setting. Phase A establishes the model and
+    framework; Phase B wires the enforcement job to actually delete expired messages.
+    A Conversation with no policy record has indefinite retention (Standard default).
+    """
+
+    class RetentionPeriod(models.TextChoices):
+        ONE_DAY = "1d", "24 hours"
+        SEVEN_DAYS = "7d", "7 days"
+        THIRTY_DAYS = "30d", "30 days"
+        NINETY_DAYS = "90d", "90 days"
+        ONE_YEAR = "1y", "1 year"
+        INDEFINITE = "indefinite", "Indefinite"
+
+    conversation = models.OneToOneField(
+        Conversation,
+        on_delete=models.CASCADE,
+        related_name="retention_policy",
+    )
+    retention_period = models.CharField(
+        max_length=16,
+        choices=RetentionPeriod.choices,
+        default=RetentionPeriod.INDEFINITE,
+    )
+    # Ephemeral conversations require a retention period — enforced at creation in services.
+    enforcement_enabled = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"{self.conversation_id} / {self.retention_period}"

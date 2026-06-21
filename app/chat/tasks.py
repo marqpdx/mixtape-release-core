@@ -113,3 +113,21 @@ def _emit_transcript_ready(message):
         "transcript": message.transcript_text or "",
     }
     emit_transcript_ready_task.delay(event_data)
+
+
+@shared_task(
+    name="chat.tasks.enforce_retention_policies",
+    queue="default",
+)
+def enforce_retention_policies():
+    """
+    Phase A stub — framework only. Iterates Conversations with enforcement_enabled=True
+    and a non-indefinite retention_period. Deletion logic wired in Phase B.
+    """
+    from chat.models import ConversationRetentionPolicy
+
+    due = ConversationRetentionPolicy.objects.filter(
+        enforcement_enabled=True,
+    ).exclude(retention_period="indefinite").select_related("conversation")
+
+    logger.info("[livewire/retention] %d policies found — enforcement executes in Phase B.", due.count())
