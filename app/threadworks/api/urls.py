@@ -19,13 +19,28 @@ site_urlpatterns = [
     path('', views.ForumListCreateView.as_view(), name='forum-list-create'),
     path('<slug:forum_slug>', views.ForumDetailView.as_view(), name='forum-detail'),
 
+    # Unified feed
+    path('<slug:forum_slug>/feed', views.ForumFeedView.as_view(), name='forum-feed'),
+
     # Discussions
     path('<slug:forum_slug>/discussions', views.DiscussionListCreateView.as_view(), name='discussion-list-create'),
     path('<slug:forum_slug>/discussions/<slug:discussion_slug>', views.DiscussionDetailView.as_view(), name='discussion-detail'),
 
-    # Posts
+    # Discussion summary (D12)
+    path('<slug:forum_slug>/discussions/<slug:discussion_slug>/summary/approve', views.approve_discussion_summary, name='discussion-summary-approve'),
+    path('<slug:forum_slug>/discussions/<slug:discussion_slug>/summary/dismiss', views.dismiss_discussion_summary, name='discussion-summary-dismiss'),
+
+    # Posts (Discussion replies)
     path('<slug:forum_slug>/discussions/<slug:discussion_slug>/posts', views.PostListCreateView.as_view(), name='post-list-create'),
     path('<slug:forum_slug>/discussions/<slug:discussion_slug>/posts/<uuid:post_id>', views.PostDetailView.as_view(), name='post-detail'),
+
+    # FeedPosts (upload variants before parameterised detail route)
+    path('<slug:forum_slug>/feed-posts/upload-image', views.FeedPostImageUploadView.as_view(), name='feed-post-image-upload'),
+    path('<slug:forum_slug>/feed-posts/upload-voice', views.FeedPostVoiceUploadView.as_view(), name='feed-post-voice-upload'),
+    path('<slug:forum_slug>/feed-posts', views.FeedPostListCreateView.as_view(), name='feed-post-list-create'),
+    path('<slug:forum_slug>/feed-posts/<int:feed_post_id>', views.FeedPostDetailView.as_view(), name='feed-post-detail'),
+    path('<slug:forum_slug>/feed-posts/<int:feed_post_id>/posts', views.FeedPostReplyListCreateView.as_view(), name='feed-post-reply-list-create'),
+    path('<slug:forum_slug>/feed-posts/<int:feed_post_id>/posts/<uuid:post_id>', views.FeedPostReplyDetailView.as_view(), name='feed-post-reply-detail'),
 
     # Reactions
     path('posts/<uuid:post_id>/reactions', views.PostReactionView.as_view(), name='post-reactions'),
@@ -62,13 +77,28 @@ group_threadworks_patterns = [
     path('<slug:forum_slug>', views.GroupForumDetailView.as_view(), name='group-forum-detail'),
     path('<slug:forum_slug>/audience', views.GroupForumAudienceView.as_view(), name='group-forum-audience'),
 
+    # Unified feed (group-scoped)
+    path('<slug:forum_slug>/feed', views.GroupForumFeedView.as_view(), name='group-forum-feed'),
+
     # Discussions (group-scoped)
     path('<slug:forum_slug>/discussions', views.GroupDiscussionListCreateView.as_view(), name='group-discussion-list-create'),
     path('<slug:forum_slug>/discussions/<slug:discussion_slug>', views.GroupDiscussionDetailView.as_view(), name='group-discussion-detail'),
 
-    # Posts (group-scoped)
+    # Discussion summary (group-scoped)
+    path('<slug:forum_slug>/discussions/<slug:discussion_slug>/summary/approve', views.group_approve_discussion_summary, name='group-discussion-summary-approve'),
+    path('<slug:forum_slug>/discussions/<slug:discussion_slug>/summary/dismiss', views.group_dismiss_discussion_summary, name='group-discussion-summary-dismiss'),
+
+    # Posts (group-scoped, Discussion replies)
     path('<slug:forum_slug>/discussions/<slug:discussion_slug>/posts', views.GroupPostListCreateView.as_view(), name='group-post-list-create'),
     path('<slug:forum_slug>/discussions/<slug:discussion_slug>/posts/<uuid:post_id>', views.GroupPostDetailView.as_view(), name='group-post-detail'),
+
+    # FeedPosts (group-scoped)
+    path('<slug:forum_slug>/feed-posts/upload-image', views.GroupFeedPostImageUploadView.as_view(), name='group-feed-post-image-upload'),
+    path('<slug:forum_slug>/feed-posts/upload-voice', views.GroupFeedPostVoiceUploadView.as_view(), name='group-feed-post-voice-upload'),
+    path('<slug:forum_slug>/feed-posts', views.GroupFeedPostListCreateView.as_view(), name='group-feed-post-list-create'),
+    path('<slug:forum_slug>/feed-posts/<int:feed_post_id>', views.GroupFeedPostDetailView.as_view(), name='group-feed-post-detail'),
+    path('<slug:forum_slug>/feed-posts/<int:feed_post_id>/posts', views.GroupFeedPostReplyListCreateView.as_view(), name='group-feed-post-reply-list-create'),
+    path('<slug:forum_slug>/feed-posts/<int:feed_post_id>/posts/<uuid:post_id>', views.GroupFeedPostReplyDetailView.as_view(), name='group-feed-post-reply-detail'),
 ]
 
 urlpatterns = site_urlpatterns

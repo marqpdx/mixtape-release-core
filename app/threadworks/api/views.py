@@ -17,10 +17,13 @@ from groups.permissions import canUserModerateGroupUser, isGroupMemberUser
 CustomUser = get_user_model()
 
 from ..models import (
-    Forum, Discussion, Post, PostReaction, PostFlag,
+    FeedPost, Forum, Discussion, Post, PostReaction, PostFlag,
     DiscussionView, ForumNotification
 )
 from .serializers import (
+    FeedPostSerializer,
+    FeedPostCreateSerializer,
+    FeedPostDetailSerializer,
     ForumSerializer,
     ForumCreateSerializer,
     DiscussionSerializer,
@@ -561,6 +564,264 @@ def user_forum_activity(request, user_id):
 
 
 # ============================================================================
+# FEED POST VIEWS
+# ============================================================================
+
+class _FeedPostForumMixin:
+    """Shared forum lookup for site-wide FeedPost views."""
+    def _get_forum(self):
+        return get_object_or_404(Forum, slug=self.kwargs['forum_slug'], is_archived=False)
+
+    def _get_feed_post(self):
+        forum = self._get_forum()
+        return get_object_or_404(FeedPost, id=self.kwargs['feed_post_id'], forum=forum, is_deleted=False)
+
+
+class FeedPostListCreateView(_FeedPostForumMixin, generics.ListCreateAPIView):
+    """
+    GET  /api/threadworks/{forum_slug}/feed-posts
+    POST /api/threadworks/{forum_slug}/feed-posts
+    """
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    pagination_class = StandardResultsSetPagination
+
+    def get_serializer_class(self):
+        return FeedPostCreateSerializer if self.request.method == 'POST' else FeedPostSerializer
+
+    def get_queryset(self):
+        return self._get_forum().feed_posts.filter(is_deleted=False).order_by('-created_at')
+
+    def perform_create(self, serializer):
+        serializer.save(forum=self._get_forum(), author=self.request.user)
+
+
+class FeedPostDetailView(_FeedPostForumMixin, generics.RetrieveUpdateDestroyAPIView):
+    """
+    GET   /api/threadworks/{forum_slug}/feed-posts/{id}
+    PATCH /api/threadworks/{forum_slug}/feed-posts/{id}
+    DELETE /api/threadworks/{forum_slug}/feed-posts/{id}
+    """
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    lookup_field = 'id'
+    lookup_url_kwarg = 'feed_post_id'
+
+    def get_serializer_class(self):
+        if self.request.method in ('PATCH', 'PUT'):
+            return FeedPostCreateSerializer
+        return FeedPostDetailSerializer
+
+    def get_queryset(self):
+        return self._get_forum().feed_posts.filter(is_deleted=False)
+
+    def perform_update(self, serializer):
+        feed_post = self.get_object()
+        if self.request.user != feed_post.author and not self.request.user.is_staff:
+            raise permissions.PermissionDenied("You can only edit your own posts.")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        if self.request.user != instance.author and not self.request.user.is_staff:
+            raise permissions.PermissionDenied("You can only delete your own posts.")
+        instance.is_deleted = True
+        instance.save()
+
+
+class FeedPostImageUploadView(_FeedPostForumMixin, generics.GenericAPIView):
+    """
+    POST /api/threadworks/{forum_slug}/feed-posts/upload-image
+    Creates a new FeedPost (kind=image) from a multipart upload.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = FeedPostSerializer
+
+    def post(self, request, forum_slug):
+        forum = self._get_forum()
+        image_file = request.FILES.get('image_file')
+        if not image_file:
+            return Response({'error': 'image_file required'}, status=status.HTTP_400_BAD_REQUEST)
+        feed_post = FeedPost.objects.create(
+            forum=forum,
+            author=request.user,
+            kind=FeedPost.KIND_IMAGE,
+            title=request.data.get('title', ''),
+            visibility_scope=request.data.get('visibility_scope', 'group'),
+            creation_signal=request.data.get('creation_signal') or None,
+            image_file=image_file,
+        )
+        return Response(FeedPostSerializer(feed_post, context={'request': request}).data, status=status.HTTP_201_CREATED)
+
+
+class FeedPostVoiceUploadView(_FeedPostForumMixin, generics.GenericAPIView):
+    """
+    POST /api/threadworks/{forum_slug}/feed-posts/upload-voice
+    Creates a new FeedPost (kind=voice) from a multipart audio upload.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = FeedPostSerializer
+
+    def post(self, request, forum_slug):
+        forum = self._get_forum()
+        audio_file = request.FILES.get('audio_file')
+        if not audio_file:
+            return Response({'error': 'audio_file required'}, status=status.HTTP_400_BAD_REQUEST)
+        feed_post = FeedPost.objects.create(
+            forum=forum,
+            author=request.user,
+            kind=FeedPost.KIND_VOICE,
+            title=request.data.get('title', ''),
+            visibility_scope=request.data.get('visibility_scope', 'group'),
+            creation_signal=request.data.get('creation_signal') or None,
+            audio_file=audio_file,
+        )
+        return Response(FeedPostSerializer(feed_post, context={'request': request}).data, status=status.HTTP_201_CREATED)
+
+
+class FeedPostReplyListCreateView(_FeedPostForumMixin, generics.ListCreateAPIView):
+    """
+    GET  /api/threadworks/{forum_slug}/feed-posts/{id}/posts
+    POST /api/threadworks/{forum_slug}/feed-posts/{id}/posts
+    """
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    pagination_class = StandardResultsSetPagination
+
+    def get_serializer_class(self):
+        return PostCreateSerializer if self.request.method == 'POST' else PostSerializer
+
+    def get_queryset(self):
+        return self._get_feed_post().posts.filter(is_deleted=False).order_by('created_at')
+
+    def perform_create(self, serializer):
+        serializer.save(feed_post=self._get_feed_post(), author=self.request.user)
+
+
+class FeedPostReplyDetailView(_FeedPostForumMixin, generics.RetrieveUpdateDestroyAPIView):
+    """
+    GET   /api/threadworks/{forum_slug}/feed-posts/{id}/posts/{post_id}
+    PATCH /api/threadworks/{forum_slug}/feed-posts/{id}/posts/{post_id}
+    DELETE /api/threadworks/{forum_slug}/feed-posts/{id}/posts/{post_id}
+    """
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    serializer_class = PostSerializer
+    lookup_field = 'id'
+    lookup_url_kwarg = 'post_id'
+
+    def get_queryset(self):
+        return self._get_feed_post().posts.filter(is_deleted=False)
+
+    def perform_update(self, serializer):
+        post = self.get_object()
+        if self.request.user != post.author and not self.request.user.is_staff:
+            raise permissions.PermissionDenied("You can only edit your own posts.")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        if self.request.user != instance.author and not self.request.user.is_staff:
+            raise permissions.PermissionDenied("You can only delete your own posts.")
+        instance.is_deleted = True
+        instance.save()
+
+
+# ============================================================================
+# UNIFIED FORUM FEED
+# ============================================================================
+
+class ForumFeedView(generics.GenericAPIView):
+    """
+    GET /api/threadworks/{forum_slug}/feed?type=all|discussion|feed_post
+    Returns a combined, reverse-chronological feed of Discussions and FeedPosts.
+    """
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    pagination_class = StandardResultsSetPagination
+
+    def get(self, request, forum_slug):
+        forum = get_object_or_404(Forum, slug=forum_slug, is_archived=False)
+        return self._build_feed(request, forum)
+
+    def _build_feed(self, request, forum):
+        content_type_filter = request.query_params.get('type', 'all')
+        feed_items = []
+
+        if content_type_filter in ('all', 'discussion'):
+            discussions = forum.discussions.filter(is_deleted=False).select_related('created_by')[:100]
+            for d in discussions:
+                feed_items.append({
+                    'type': 'discussion',
+                    'data': DiscussionSerializer(d, context={'request': request}).data,
+                    'created_at': d.created_at.isoformat(),
+                })
+
+        if content_type_filter in ('all', 'feed_post'):
+            feed_posts = forum.feed_posts.filter(is_deleted=False).select_related('author')[:100]
+            for fp in feed_posts:
+                feed_items.append({
+                    'type': 'feed_post',
+                    'data': FeedPostSerializer(fp, context={'request': request}).data,
+                    'created_at': fp.created_at.isoformat(),
+                })
+
+        feed_items.sort(key=lambda x: x['created_at'], reverse=True)
+
+        page_size = self.pagination_class.page_size
+        page = int(request.query_params.get('page', 1))
+        start = (page - 1) * page_size
+        end = start + page_size
+        total = len(feed_items)
+
+        return Response({
+            'count': total,
+            'next': f'?page={page + 1}&type={content_type_filter}' if end < total else None,
+            'previous': f'?page={page - 1}&type={content_type_filter}' if page > 1 else None,
+            'results': feed_items[start:end],
+        })
+
+
+# ============================================================================
+# DISCUSSION SUMMARY (D12 — Moderator-mediated Beryl summaries)
+# ============================================================================
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def approve_discussion_summary(request, forum_slug, discussion_slug):
+    """Promote summary_pending → summary and fire a score event."""
+    forum = get_object_or_404(Forum, slug=forum_slug, is_archived=False)
+    discussion = get_object_or_404(forum.discussions.all(), slug=discussion_slug, is_deleted=False)
+
+    if not request.user.is_staff:
+        raise permissions.PermissionDenied("Only staff can approve summaries.")
+
+    if not discussion.summary_pending:
+        return Response({'error': 'No pending summary to approve.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    discussion.summary = discussion.summary_pending
+    discussion.summary_pending = None
+    discussion.summary_pending_delta = None
+    discussion.summary_pending_substantive = None
+    discussion.save(update_fields=[
+        'summary', 'summary_pending', 'summary_pending_delta', 'summary_pending_substantive',
+    ])
+
+    return Response(DiscussionDetailSerializer(discussion, context={'request': request}).data)
+
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def dismiss_discussion_summary(request, forum_slug, discussion_slug):
+    """Discard summary_pending without promoting it."""
+    forum = get_object_or_404(Forum, slug=forum_slug, is_archived=False)
+    discussion = get_object_or_404(forum.discussions.all(), slug=discussion_slug, is_deleted=False)
+
+    if not request.user.is_staff:
+        raise permissions.PermissionDenied("Only staff can dismiss summaries.")
+
+    discussion.summary_pending = None
+    discussion.summary_pending_delta = None
+    discussion.summary_pending_substantive = None
+    discussion.save(update_fields=['summary_pending', 'summary_pending_delta', 'summary_pending_substantive'])
+
+    return Response({'status': 'summary_dismissed'})
+
+
+# ============================================================================
 # GROUP-SCOPED VIEWS
 # ============================================================================
 
@@ -877,3 +1138,180 @@ class GroupPostDetailView(generics.RetrieveUpdateDestroyAPIView):
                 raise permissions.PermissionDenied("You can only delete your own posts.")
         instance.is_deleted = True
         instance.save()
+
+
+# ============================================================================
+# GROUP-SCOPED FEED POST VIEWS
+# ============================================================================
+
+class _GroupFeedPostForumMixin:
+    """Shared group forum lookup for group-scoped FeedPost views."""
+    def _get_group(self):
+        return get_group_or_404(self.kwargs['slug'])
+
+    def _get_forum(self):
+        return get_object_or_404(get_group_forum_queryset(self._get_group()), slug=self.kwargs['forum_slug'])
+
+    def _get_feed_post(self):
+        return get_object_or_404(FeedPost, id=self.kwargs['feed_post_id'], forum=self._get_forum(), is_deleted=False)
+
+
+class GroupFeedPostListCreateView(_GroupFeedPostForumMixin, generics.ListCreateAPIView):
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    pagination_class = StandardResultsSetPagination
+
+    def get_serializer_class(self):
+        return FeedPostCreateSerializer if self.request.method == 'POST' else FeedPostSerializer
+
+    def get_queryset(self):
+        return self._get_forum().feed_posts.filter(is_deleted=False).order_by('-created_at')
+
+    def perform_create(self, serializer):
+        serializer.save(forum=self._get_forum(), author=self.request.user)
+
+
+class GroupFeedPostDetailView(_GroupFeedPostForumMixin, generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    lookup_field = 'id'
+    lookup_url_kwarg = 'feed_post_id'
+
+    def get_serializer_class(self):
+        if self.request.method in ('PATCH', 'PUT'):
+            return FeedPostCreateSerializer
+        return FeedPostDetailSerializer
+
+    def get_queryset(self):
+        return self._get_forum().feed_posts.filter(is_deleted=False)
+
+    def perform_update(self, serializer):
+        feed_post = self.get_object()
+        group = self._get_group()
+        if self.request.user != feed_post.author and not canUserModerateGroupUser(self.request.user, group) and not self.request.user.is_staff:
+            raise permissions.PermissionDenied("You can only edit your own posts.")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        group = self._get_group()
+        if self.request.user != instance.author and not canUserModerateGroupUser(self.request.user, group) and not self.request.user.is_staff:
+            raise permissions.PermissionDenied("You can only delete your own posts.")
+        instance.is_deleted = True
+        instance.save()
+
+
+class GroupFeedPostImageUploadView(_GroupFeedPostForumMixin, generics.GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = FeedPostSerializer
+
+    def post(self, request, slug, forum_slug):
+        forum = self._get_forum()
+        image_file = request.FILES.get('image_file')
+        if not image_file:
+            return Response({'error': 'image_file required'}, status=status.HTTP_400_BAD_REQUEST)
+        feed_post = FeedPost.objects.create(
+            forum=forum, author=request.user, kind=FeedPost.KIND_IMAGE,
+            title=request.data.get('title', ''),
+            visibility_scope=request.data.get('visibility_scope', 'group'),
+            creation_signal=request.data.get('creation_signal') or None,
+            image_file=image_file,
+        )
+        return Response(FeedPostSerializer(feed_post, context={'request': request}).data, status=status.HTTP_201_CREATED)
+
+
+class GroupFeedPostVoiceUploadView(_GroupFeedPostForumMixin, generics.GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = FeedPostSerializer
+
+    def post(self, request, slug, forum_slug):
+        forum = self._get_forum()
+        audio_file = request.FILES.get('audio_file')
+        if not audio_file:
+            return Response({'error': 'audio_file required'}, status=status.HTTP_400_BAD_REQUEST)
+        feed_post = FeedPost.objects.create(
+            forum=forum, author=request.user, kind=FeedPost.KIND_VOICE,
+            title=request.data.get('title', ''),
+            visibility_scope=request.data.get('visibility_scope', 'group'),
+            creation_signal=request.data.get('creation_signal') or None,
+            audio_file=audio_file,
+        )
+        return Response(FeedPostSerializer(feed_post, context={'request': request}).data, status=status.HTTP_201_CREATED)
+
+
+class GroupFeedPostReplyListCreateView(_GroupFeedPostForumMixin, generics.ListCreateAPIView):
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    pagination_class = StandardResultsSetPagination
+
+    def get_serializer_class(self):
+        return PostCreateSerializer if self.request.method == 'POST' else PostSerializer
+
+    def get_queryset(self):
+        return self._get_feed_post().posts.filter(is_deleted=False).order_by('created_at')
+
+    def perform_create(self, serializer):
+        serializer.save(feed_post=self._get_feed_post(), author=self.request.user)
+
+
+class GroupFeedPostReplyDetailView(_GroupFeedPostForumMixin, generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    serializer_class = PostSerializer
+    lookup_field = 'id'
+    lookup_url_kwarg = 'post_id'
+
+    def get_queryset(self):
+        return self._get_feed_post().posts.filter(is_deleted=False)
+
+    def perform_update(self, serializer):
+        post = self.get_object()
+        group = self._get_group()
+        if self.request.user != post.author and not canUserModerateGroupUser(self.request.user, group) and not self.request.user.is_staff:
+            raise permissions.PermissionDenied("You can only edit your own posts.")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        group = self._get_group()
+        if self.request.user != instance.author and not canUserModerateGroupUser(self.request.user, group) and not self.request.user.is_staff:
+            raise permissions.PermissionDenied("You can only delete your own posts.")
+        instance.is_deleted = True
+        instance.save()
+
+
+class GroupForumFeedView(ForumFeedView):
+    """Group-scoped variant of ForumFeedView."""
+    def get(self, request, slug, forum_slug):
+        group = get_group_or_404(slug)
+        forum = get_object_or_404(get_group_forum_queryset(group), slug=forum_slug)
+        if not _user_can_access_forum(request.user, forum):
+            raise permissions.PermissionDenied()
+        return self._build_feed(request, forum)
+
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def group_approve_discussion_summary(request, slug, forum_slug, discussion_slug):
+    group = get_group_or_404(slug)
+    if not canUserModerateGroupUser(request.user, group) and not request.user.is_staff:
+        raise permissions.PermissionDenied("Only moderators can approve summaries.")
+    forum = get_object_or_404(get_group_forum_queryset(group), slug=forum_slug)
+    discussion = get_object_or_404(forum.discussions.all(), slug=discussion_slug, is_deleted=False)
+    if not discussion.summary_pending:
+        return Response({'error': 'No pending summary.'}, status=status.HTTP_400_BAD_REQUEST)
+    discussion.summary = discussion.summary_pending
+    discussion.summary_pending = None
+    discussion.summary_pending_delta = None
+    discussion.summary_pending_substantive = None
+    discussion.save(update_fields=['summary', 'summary_pending', 'summary_pending_delta', 'summary_pending_substantive'])
+    return Response(DiscussionDetailSerializer(discussion, context={'request': request}).data)
+
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def group_dismiss_discussion_summary(request, slug, forum_slug, discussion_slug):
+    group = get_group_or_404(slug)
+    if not canUserModerateGroupUser(request.user, group) and not request.user.is_staff:
+        raise permissions.PermissionDenied("Only moderators can dismiss summaries.")
+    forum = get_object_or_404(get_group_forum_queryset(group), slug=forum_slug)
+    discussion = get_object_or_404(forum.discussions.all(), slug=discussion_slug, is_deleted=False)
+    discussion.summary_pending = None
+    discussion.summary_pending_delta = None
+    discussion.summary_pending_substantive = None
+    discussion.save(update_fields=['summary_pending', 'summary_pending_delta', 'summary_pending_substantive'])
+    return Response({'status': 'summary_dismissed'})
