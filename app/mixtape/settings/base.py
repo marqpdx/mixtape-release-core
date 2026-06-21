@@ -29,6 +29,10 @@ PROSPECTS_NOTIFY_EMAIL = os.getenv("PROSPECTS_NOTIFY_EMAIL", "")
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
 
+# Field-level encryption (Fernet/AES-128-CBC). Used by EncryptedTextField.
+# Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+FIELD_ENCRYPTION_KEY = os.getenv("FIELD_ENCRYPTION_KEY")
+
 # AI / Initiatives
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 AI_PROVIDER = os.getenv("AI_PROVIDER", "anthropic")
