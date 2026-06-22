@@ -34,11 +34,13 @@ from chat.models import (
     ChatMessage,
     Conversation,
     ConversationAuditEvent,
+    ConversationKeyBundle,
     ConversationParticipant,
     ConversationRetentionPolicy,
     ConversationStatusTracker,
     MessageReaction,
     ParticipantVerification,
+    TrustProfile,
     UserDeviceSession,
 )
 from chat.permissions import IsConversationParticipant
@@ -710,3 +712,147 @@ def conversation_retention(request, slug):
         serializer.save()
         return Response(serializer.data)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(["POST"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+def register_device_key(request):
+    """
+    Register the calling device's ECDH public key (JWK format). Phase C LW-C2.
+    Body: { "device_id": "<uuid>", "public_key": "<JWK JSON string>" }
+    """
+    device_id = request.data.get("device_id")
+    public_key = request.data.get("public_key")
+
+    if not device_id or not public_key:
+        return Response(
+            {"detail": "device_id and public_key required."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    device = get_object_or_404(UserDeviceSession, device_id=device_id, user=request.user, is_active=True)
+    device.public_key = public_key
+    device.save(update_fields=["public_key", "updated_at"])
+
+    logger.info("[livewire/keys] Device %s registered public key for user %s", device_id, request.user.username)
+    return Response({"registered": True})
+
+
+@api_view(["GET"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+def conversation_my_key(request, slug):
+    """
+    Fetch the encrypted key bundle for the calling device in this conversation. Phase C LW-C2.
+    Device identified via X-Device-ID header or `device_id` query param.
+    Returns the latest key version. 404 if no bundle has been distributed yet.
+    """
+    conversation = get_object_or_404(Conversation, slug=slug)
+
+    if not ConversationParticipant.objects.filter(user=request.user, conversation=conversation).exists():
+        return Response({"detail": "Not a participant."}, status=status.HTTP_403_FORBIDDEN)
+
+    if conversation.trust_profile == TrustProfile.STANDARD:
+        return Response(
+            {"detail": "Key bundles are only for Private and Ephemeral conversations."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    device_id = request.headers.get("X-Device-ID") or request.query_params.get("device_id")
+    if not device_id:
+        return Response(
+            {"detail": "X-Device-ID header or device_id query param required."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    device = get_object_or_404(UserDeviceSession, device_id=device_id, user=request.user, is_active=True)
+
+    bundle = (
+        ConversationKeyBundle.objects
+        .filter(conversation=conversation, recipient_device=device)
+        .order_by("-key_version")
+        .first()
+    )
+
+    if not bundle:
+        return Response(
+            {"detail": "No key bundle found for this device."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    return Response({
+        "encrypted_key": bundle.encrypted_key,
+        "nonce": bundle.nonce,
+        "ephemeral_public_key": bundle.ephemeral_public_key,
+        "key_version": bundle.key_version,
+    })
+
+
+@api_view(["POST"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+def conversation_post_keys(request, slug):
+    """
+    Post encrypted key bundles for participant devices. Phase C LW-C2.
+    Called at conversation creation and on key rotation (LW-C4).
+    All bundles in a single POST share the same key_version (next increment).
+    Body: { "bundles": [{ "device_id": "<uuid>", "encrypted_key": "<b64>", "nonce": "<b64>" }] }
+    """
+    conversation = get_object_or_404(Conversation, slug=slug)
+
+    if not ConversationParticipant.objects.filter(user=request.user, conversation=conversation).exists():
+        return Response({"detail": "Not a participant."}, status=status.HTTP_403_FORBIDDEN)
+
+    if conversation.trust_profile == TrustProfile.STANDARD:
+        return Response(
+            {"detail": "Key bundles are only for Private and Ephemeral conversations."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    bundles = request.data.get("bundles", [])
+    if not bundles:
+        return Response({"detail": "bundles array required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    from django.db.models import Max
+    current_max = ConversationKeyBundle.objects.filter(
+        conversation=conversation
+    ).aggregate(max_v=Max("key_version"))["max_v"] or 0
+    next_version = current_max + 1
+
+    created_count = 0
+    errors = []
+
+    for item in bundles:
+        device_id = item.get("device_id")
+        encrypted_key = item.get("encrypted_key")
+        nonce = item.get("nonce")
+        ephemeral_public_key = item.get("ephemeral_public_key")
+
+        if not all([device_id, encrypted_key, nonce, ephemeral_public_key]):
+            errors.append(f"Bundle missing required fields: {item}")
+            continue
+
+        try:
+            device = UserDeviceSession.objects.get(device_id=device_id, is_active=True)
+        except UserDeviceSession.DoesNotExist:
+            errors.append(f"Device not found or inactive: {device_id}")
+            continue
+
+        ConversationKeyBundle.objects.create(
+            conversation=conversation,
+            recipient_device=device,
+            encrypted_key=encrypted_key,
+            nonce=nonce,
+            ephemeral_public_key=ephemeral_public_key,
+            key_version=next_version,
+        )
+        created_count += 1
+
+    logger.info(
+        "[livewire/keys] %d key bundles posted for conversation %s (v%d) by %s",
+        created_count, slug, next_version, request.user.username,
+    )
+
+    response_status = status.HTTP_201_CREATED if created_count else status.HTTP_400_BAD_REQUEST
+    return Response({"created": created_count, "key_version": next_version, "errors": errors}, status=response_status)

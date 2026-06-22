@@ -254,6 +254,9 @@ class UserDeviceSession(BaseModel):
     is_trusted = models.BooleanField(default=False, db_index=True)
     trusted_at = models.DateTimeField(null=True, blank=True)
 
+    # Phase C — ECDH public key (JWK format) for E2E key exchange
+    public_key = models.TextField(blank=True)
+
     class Meta:
         indexes = [
             models.Index(fields=["user", "is_active"]),
@@ -380,3 +383,36 @@ class ParticipantVerification(BaseModel):
 
     def __str__(self):
         return f"{self.verifier} → {self.verified_user}/{self.verified_device_id} in {self.conversation_id}"
+
+
+class ConversationKeyBundle(BaseModel):
+    """
+    Stores the conversation symmetric key, encrypted once per participant device.
+    Only the recipient device can unwrap it using its ECDH private key.
+    key_version increments on rotation (LW-C4); the latest version is authoritative.
+    Phase C (ADR-0046 LW-C1/C2).
+    """
+
+    conversation = models.ForeignKey(
+        Conversation,
+        on_delete=models.CASCADE,
+        related_name="key_bundles",
+    )
+    recipient_device = models.ForeignKey(
+        UserDeviceSession,
+        on_delete=models.CASCADE,
+        related_name="key_bundles",
+    )
+    encrypted_key = models.TextField()
+    nonce = models.CharField(max_length=64)
+    ephemeral_public_key = models.TextField()
+    key_version = models.PositiveSmallIntegerField(default=1)
+
+    class Meta:
+        unique_together = [("conversation", "recipient_device", "key_version")]
+        indexes = [
+            models.Index(fields=["conversation", "recipient_device"]),
+        ]
+
+    def __str__(self):
+        return f"KeyBundle conv={self.conversation_id} device={self.recipient_device_id} v{self.key_version}"

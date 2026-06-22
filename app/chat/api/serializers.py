@@ -258,7 +258,7 @@ class UserDeviceSessionSerializer(serializers.ModelSerializer):
         fields = [
             "id", "device_id", "device_name", "platform",
             "is_active", "is_trusted", "trusted_at",
-            "last_seen_at", "verification_fingerprint",
+            "last_seen_at", "verification_fingerprint", "public_key",
         ]
         read_only_fields = fields
 
@@ -272,7 +272,7 @@ class ParticipantDeviceSerializer(serializers.ModelSerializer):
         fields = [
             "id", "device_id", "device_name", "platform",
             "is_active", "is_trusted", "trusted_at",
-            "last_seen_at", "verification_fingerprint", "verified_by_me",
+            "last_seen_at", "verification_fingerprint", "public_key", "verified_by_me",
         ]
         read_only_fields = fields
 
