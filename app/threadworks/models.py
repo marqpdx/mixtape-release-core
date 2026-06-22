@@ -558,6 +558,7 @@ class MemoryValueEvent(BaseModel):
     CREATION_SIGNAL_EVENT = 'creation_signal'
     MODERATOR = 'moderator_adjustment'
     SUMMARY_APPROVED = 'summary_approved'
+    DECAY = 'decay'
 
     EVENT_TYPE_CHOICES = [
         (REACTION, 'Reaction'),
@@ -567,6 +568,7 @@ class MemoryValueEvent(BaseModel):
         (CREATION_SIGNAL_EVENT, 'Creation-Time Signal'),
         (MODERATOR, 'Moderator Adjustment'),
         (SUMMARY_APPROVED, 'Summary Approved'),
+        (DECAY, 'Scheduled Decay'),
     ]
 
     # GFK to Discussion or FeedPost (both use BigAutoField PKs)

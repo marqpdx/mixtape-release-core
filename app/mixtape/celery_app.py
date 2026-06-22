@@ -181,6 +181,9 @@ app.conf.task_routes = {
     "writing.tasks.transcribe_seed_task": {
         "queue": "transcription", "routing_key": "transcription"
     },
+    "threadworks.tasks.apply_memory_value_decay_task": {
+        "queue": "polling", "routing_key": "polling"
+    },
     "writing.tasks.cleanup_empty_drafts": {
         "queue": "polling", "routing_key": "polling"
     },
@@ -331,6 +334,10 @@ app.conf.beat_schedule = {
     "advance-recurring-actions": {
         "task": "recurring_action.tasks.advance_recurring_actions",
         "schedule": 900.0,  # every 15 minutes
+    },
+    "apply-memory-value-decay": {
+        "task": "threadworks.tasks.apply_memory_value_decay_task",
+        "schedule": 86400.0,  # daily — tune cadence alongside weight parameters
     },
 }
 
