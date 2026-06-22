@@ -484,10 +484,31 @@ from rest_framework.decorators import action
 # Phase B — Device verification endpoints
 # ---------------------------------------------------------------------------
 
-@api_view(["GET"])
+@api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def my_devices(request):
-    """List the current user's own active device sessions."""
+    """
+    GET  — list the current user's own active device sessions.
+    POST — create or upsert a device session (client-generated UUID). Phase C LW-C2.
+           Body: { "device_id": "<uuid>", "platform": "web"|"ios"|"android", "device_name": "<str>" }
+    """
+    if request.method == "POST":
+        device_id = request.data.get("device_id")
+        if not device_id:
+            return Response({"detail": "device_id required."}, status=status.HTTP_400_BAD_REQUEST)
+        platform = request.data.get("platform", "web")
+        device_name = request.data.get("device_name", "")[:200]
+
+        device, _ = UserDeviceSession.objects.get_or_create(
+            device_id=device_id,
+            user=request.user,
+            defaults={"platform": platform, "device_name": device_name, "is_active": True},
+        )
+        device.last_seen_at = timezone.now()
+        device.is_active = True
+        device.save(update_fields=["last_seen_at", "is_active", "updated_at"])
+        return Response(UserDeviceSessionSerializer(device).data, status=status.HTTP_200_OK)
+
     devices = UserDeviceSession.objects.filter(
         user=request.user, is_active=True
     ).order_by("-last_seen_at")
