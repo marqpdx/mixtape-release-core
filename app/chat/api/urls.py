@@ -24,7 +24,11 @@ urlpatterns = [
     path("conversations/<slug:slug>/devices/<uuid:device_id>/trust", views.trust_device, name="trust-device"),
 
     path("devices", views.my_devices, name="my-devices"),
+    path("devices/register-key", views.register_device_key, name="register-device-key"),
     path("devices/<uuid:device_id>", views.revoke_device, name="revoke-device"),
+
+    path("conversations/<slug:slug>/my-key", views.conversation_my_key, name="conversation-my-key"),
+    path("conversations/<slug:slug>/keys", views.conversation_post_keys, name="conversation-post-keys"),
 
     path("messages/<uuid:pk>/react", views.ChatMessageViewSet.as_view({"post": "react"}), name="message-react"),
     path("mention-autocomplete", views.mention_autocomplete, name="mention-autocomplete"),
