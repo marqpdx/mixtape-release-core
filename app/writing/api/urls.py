@@ -43,6 +43,7 @@ from .views import (
     WritingPieceCategoriesView,
     WritingPieceAnalysisExportView,
     WritingPiecePdfExportView,
+    WritingPieceImageUploadView,
     WritingPieceListCreateView,
     WritingPiecePinView,
     WritingPiecePublicView,
@@ -88,6 +89,7 @@ urlpatterns = [
     path("pieces", WritingPieceListCreateView.as_view(), name="writingpiece-list-create"),
     path("pieces/<uuid:pk>", WritingPieceRetrieveUpdateDestroyView.as_view(), name="writingpiece-detail"),
     path("pieces/view/<slug:slug>", WritingPiecePublicView.as_view(), name="writingpiece-public-view"),
+    path("pieces/<uuid:pk>/upload-image", WritingPieceImageUploadView.as_view(), name="writingpiece-upload-image"),
 
     # Working copy (autosave buffer)
     path("pieces/<uuid:pk>/working-copy", WorkingDocumentUpsertView.as_view(), name="writingpiece-working-document"),
