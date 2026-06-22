@@ -121,13 +121,44 @@ def _emit_transcript_ready(message):
 )
 def enforce_retention_policies():
     """
-    Phase A stub — framework only. Iterates Conversations with enforcement_enabled=True
-    and a non-indefinite retention_period. Deletion logic wired in Phase B.
+    Phase B — deletes messages older than the conversation's retention period.
+    Runs on all Conversations with enforcement_enabled=True and a non-indefinite policy.
+    Ephemeral conversations always have enforcement_enabled=True (enforced at creation).
     """
-    from chat.models import ConversationRetentionPolicy
+    from datetime import timedelta
+    from django.utils import timezone
+    from chat.models import ChatMessage, ConversationRetentionPolicy
+
+    PERIOD_MAP = {
+        "1d": timedelta(days=1),
+        "7d": timedelta(days=7),
+        "30d": timedelta(days=30),
+        "90d": timedelta(days=90),
+        "1y": timedelta(days=365),
+    }
 
     due = ConversationRetentionPolicy.objects.filter(
         enforcement_enabled=True,
     ).exclude(retention_period="indefinite").select_related("conversation")
 
-    logger.info("[livewire/retention] %d policies found — enforcement executes in Phase B.", due.count())
+    deleted_total = 0
+    for policy in due:
+        delta = PERIOD_MAP.get(policy.retention_period)
+        if not delta:
+            continue
+        cutoff = timezone.now() - delta
+        count, _ = ChatMessage.objects.filter(
+            conversation=policy.conversation,
+            created_at__lt=cutoff,
+        ).delete()
+        deleted_total += count
+        if count:
+            logger.info(
+                "[livewire/retention] Deleted %d messages from conversation %s (policy: %s)",
+                count,
+                policy.conversation_id,
+                policy.retention_period,
+            )
+
+    logger.info("[livewire/retention] Enforcement complete — %d messages deleted.", deleted_total)
+    return {"deleted": deleted_total}

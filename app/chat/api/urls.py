@@ -20,6 +20,11 @@ urlpatterns = [
     path("conversations/<slug:slug>/read", views.ConversationReadView.as_view()),
     path("conversations/<slug:slug>/voice-upload", views.conversation_voice_upload, name="conversation-voice-upload"),
     path("conversations/<slug:slug>/retention", views.conversation_retention, name="conversation-retention"),
+    path("conversations/<slug:slug>/devices", views.conversation_devices, name="conversation-devices"),
+    path("conversations/<slug:slug>/devices/<uuid:device_id>/trust", views.trust_device, name="trust-device"),
+
+    path("devices", views.my_devices, name="my-devices"),
+    path("devices/<uuid:device_id>", views.revoke_device, name="revoke-device"),
 
     path("messages/<uuid:pk>/react", views.ChatMessageViewSet.as_view({"post": "react"}), name="message-react"),
     path("mention-autocomplete", views.mention_autocomplete, name="mention-autocomplete"),
