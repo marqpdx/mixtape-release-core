@@ -249,11 +249,24 @@ class UserDeviceSession(BaseModel):
     last_seen_at = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True, db_index=True)
 
+    # Phase B — device identity and trust state
+    verification_fingerprint = models.CharField(max_length=48, blank=True)
+    is_trusted = models.BooleanField(default=False, db_index=True)
+    trusted_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         indexes = [
             models.Index(fields=["user", "is_active"]),
             models.Index(fields=["user", "-last_seen_at"]),
         ]
+
+    def save(self, *args, **kwargs):
+        if not self.verification_fingerprint:
+            import hashlib
+            raw = f"{self.user_id}:{self.device_id}"
+            digest = hashlib.sha256(raw.encode()).hexdigest()[:20].upper()
+            self.verification_fingerprint = " ".join(digest[i:i+5] for i in range(0, 20, 5))
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.user.username} / {self.platform} / {self.device_id}"
@@ -270,6 +283,8 @@ class ConversationAuditEvent(BaseModel):
         PARTICIPANT_JOINED = "participant_joined", "Participant Joined"
         PARTICIPANT_LEFT = "participant_left", "Participant Left"
         MESSAGE_SENT = "message_sent", "Message Sent"
+        DEVICE_VERIFIED = "device_verified", "Device Verified"
+        DEVICE_REVOKED = "device_revoked", "Device Revoked"
 
     conversation = models.ForeignKey(
         Conversation,
@@ -327,3 +342,41 @@ class ConversationRetentionPolicy(BaseModel):
 
     def __str__(self):
         return f"{self.conversation_id} / {self.retention_period}"
+
+
+class ParticipantVerification(BaseModel):
+    """
+    Append-only log: a verifier has confirmed a participant's device identity
+    within a specific Conversation. Phase B foundation for E2E trust. ADR-0046 D9 Phase B.
+    """
+
+    conversation = models.ForeignKey(
+        Conversation,
+        on_delete=models.CASCADE,
+        related_name="verifications",
+    )
+    verifier = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="verifications_given",
+    )
+    verified_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="verifications_received",
+    )
+    verified_device = models.ForeignKey(
+        UserDeviceSession,
+        on_delete=models.CASCADE,
+        related_name="verifications",
+    )
+
+    class Meta:
+        unique_together = [("conversation", "verifier", "verified_device")]
+        indexes = [
+            models.Index(fields=["conversation", "verifier"]),
+            models.Index(fields=["conversation", "verified_user"]),
+        ]
+
+    def __str__(self):
+        return f"{self.verifier} → {self.verified_user}/{self.verified_device_id} in {self.conversation_id}"

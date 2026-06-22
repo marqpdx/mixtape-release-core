@@ -13,6 +13,8 @@ from chat.models import (
     ConversationStatusTracker,
     MessageMention,
     MessageReaction,
+    ParticipantVerification,
+    UserDeviceSession,
 )
 
 
@@ -248,5 +250,34 @@ class ConversationStatusTrackerSerializer(serializers.ModelSerializer):
     class Meta:
         model = ConversationStatusTracker
         fields = ["is_muted", "last_viewed_at"]
+
+
+class UserDeviceSessionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserDeviceSession
+        fields = [
+            "id", "device_id", "device_name", "platform",
+            "is_active", "is_trusted", "trusted_at",
+            "last_seen_at", "verification_fingerprint",
+        ]
+        read_only_fields = fields
+
+
+class ParticipantDeviceSerializer(serializers.ModelSerializer):
+    """Device session augmented with per-caller verification state."""
+    verified_by_me = serializers.SerializerMethodField()
+
+    class Meta:
+        model = UserDeviceSession
+        fields = [
+            "id", "device_id", "device_name", "platform",
+            "is_active", "is_trusted", "trusted_at",
+            "last_seen_at", "verification_fingerprint", "verified_by_me",
+        ]
+        read_only_fields = fields
+
+    def get_verified_by_me(self, obj):
+        verified_ids = self.context.get("verified_device_ids", set())
+        return obj.pk in verified_ids
 
 

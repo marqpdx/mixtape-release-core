@@ -27,14 +27,19 @@ from chat.api.serializers import (
     ConversationSerializer,
     ConversationStatusTrackerSerializer,
     MessageReactionSerializer,
+    ParticipantDeviceSerializer,
+    UserDeviceSessionSerializer,
 )
 from chat.models import (
     ChatMessage,
     Conversation,
+    ConversationAuditEvent,
     ConversationParticipant,
     ConversationRetentionPolicy,
     ConversationStatusTracker,
     MessageReaction,
+    ParticipantVerification,
+    UserDeviceSession,
 )
 from chat.permissions import IsConversationParticipant
 from chat.utils import generate_conversation_title
@@ -469,7 +474,165 @@ def conversation_voice_upload(request, slug):
     return Response(ChatMessageSerializer(message).data, status=status.HTTP_201_CREATED)
 
 
+from django.utils import timezone as tz
 from rest_framework.decorators import action
+
+
+# ---------------------------------------------------------------------------
+# Phase B — Device verification endpoints
+# ---------------------------------------------------------------------------
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def my_devices(request):
+    """List the current user's own active device sessions."""
+    devices = UserDeviceSession.objects.filter(
+        user=request.user, is_active=True
+    ).order_by("-last_seen_at")
+    return Response(UserDeviceSessionSerializer(devices, many=True).data)
+
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def revoke_device(request, device_id):
+    """Deactivate one of the current user's own devices."""
+    device = get_object_or_404(UserDeviceSession, device_id=device_id, user=request.user)
+    device.is_active = False
+    device.save(update_fields=["is_active", "updated_at"])
+    logger.info(
+        "[livewire/devices] Device %s revoked by user %s", device_id, request.user.username
+    )
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def conversation_devices(request, slug):
+    """
+    List active devices for all participants in a Private or Ephemeral conversation.
+    Each device record includes a `verified_by_me` flag for the calling user.
+    Returns 403 for Standard conversations — device listing is not applicable.
+    """
+    conversation = get_object_or_404(Conversation, slug=slug)
+
+    if not ConversationParticipant.objects.filter(
+        user=request.user, conversation=conversation
+    ).exists():
+        return Response({"detail": "Not a participant."}, status=status.HTTP_403_FORBIDDEN)
+
+    if conversation.trust_profile == "standard":
+        return Response(
+            {"detail": "Device verification is not available for Standard conversations."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    participant_users = ConversationParticipant.objects.filter(
+        conversation=conversation
+    ).select_related("user")
+
+    user_ids = [p.user_id for p in participant_users]
+    devices = UserDeviceSession.objects.filter(
+        user_id__in=user_ids, is_active=True
+    ).select_related("user")
+
+    verified_device_ids = set(
+        ParticipantVerification.objects.filter(
+            conversation=conversation,
+            verifier=request.user,
+        ).values_list("verified_device_id", flat=True)
+    )
+
+    serializer_ctx = {"verified_device_ids": verified_device_ids}
+
+    grouped = []
+    user_map = {p.user_id: p.user for p in participant_users}
+    devices_by_user: dict = {}
+    for device in devices:
+        devices_by_user.setdefault(device.user_id, []).append(device)
+
+    for user_id, user_obj in user_map.items():
+        if user_obj == request.user:
+            continue
+        user_devices = devices_by_user.get(user_id, [])
+        grouped.append({
+            "username": user_obj.username,
+            "display_name": user_obj.get_full_name() or user_obj.username,
+            "devices": ParticipantDeviceSerializer(
+                user_devices, many=True, context=serializer_ctx
+            ).data,
+        })
+
+    return Response(grouped)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def trust_device(request, slug, device_id):
+    """
+    Mark a participant's device as verified within this conversation.
+    Creates a ParticipantVerification record and emits a DEVICE_VERIFIED audit event.
+    Only available in Private and Ephemeral conversations.
+    """
+    conversation = get_object_or_404(Conversation, slug=slug)
+
+    if not ConversationParticipant.objects.filter(
+        user=request.user, conversation=conversation
+    ).exists():
+        return Response({"detail": "Not a participant."}, status=status.HTTP_403_FORBIDDEN)
+
+    if conversation.trust_profile == "standard":
+        return Response(
+            {"detail": "Device verification is not available for Standard conversations."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    device = get_object_or_404(UserDeviceSession, device_id=device_id, is_active=True)
+
+    if device.user == request.user:
+        return Response(
+            {"detail": "Cannot verify your own device."}, status=status.HTTP_400_BAD_REQUEST
+        )
+
+    if not ConversationParticipant.objects.filter(
+        user=device.user, conversation=conversation
+    ).exists():
+        return Response(
+            {"detail": "Device owner is not a participant in this conversation."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    verification, created = ParticipantVerification.objects.get_or_create(
+        conversation=conversation,
+        verifier=request.user,
+        verified_device=device,
+        defaults={"verified_user": device.user},
+    )
+
+    if created:
+        if not device.is_trusted:
+            device.is_trusted = True
+            device.trusted_at = tz.now()
+            device.save(update_fields=["is_trusted", "trusted_at", "updated_at"])
+
+        ConversationAuditEvent.objects.create(
+            conversation=conversation,
+            actor=request.user,
+            event_type=ConversationAuditEvent.EventType.DEVICE_VERIFIED,
+            metadata={
+                "verified_user": device.user.username,
+                "device_id": str(device_id),
+                "fingerprint": device.verification_fingerprint,
+            },
+        )
+
+    return Response(
+        {
+            "verified": True,
+            "created": created,
+            "fingerprint": device.verification_fingerprint,
+        },
+        status=status.HTTP_200_OK,
+    )
 
 
 class ChatMessageViewSet(viewsets.ModelViewSet):
