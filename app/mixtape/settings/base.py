@@ -144,6 +144,7 @@ INSTALLED_APPS = [
     "drop",            # Drop — named ephemeral group knowledge packets
     "sprig",           # Sprig — mobile relational capture affordance (Mobile Capture ADR B)
     "bridge",          # Bridge — live gathering infrastructure (Bridge/Continuity ADR)
+    "atrium",          # Atrium — personal AI session surface (AtriumSession, AtriumSessionEntry)
 ]
 
 INSTALLED_APPS += ["rest_framework_simplejwt.token_blacklist"]
