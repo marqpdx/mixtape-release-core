@@ -26,6 +26,13 @@ SUMMARY_APPROVED_WEIGHT = 10.0
 MEMORY_VALUE_WORKTABLE_THRESHOLD = 15.0
 BERYL_TRIGGER_POST_INTERVAL = 10
 
+# Decay constants — initial values; tune against post-launch data (ADR-0047 §12)
+# DECAY_MODE: 'exponential' multiplies the score by (1 - rate) per run;
+#             'linear' subtracts rate (fixed points) per run.
+DECAY_MODE = 'exponential'
+BASE_DECAY_RATE = 0.02         # 2% per daily run — halves in ~35 days with no new signals
+TIMELINESS_DECAY_RATE = 0.05  # 5% per daily run when past content's timeliness_date
+
 
 def _log_event_and_update_score(container, event_type, delta, actor=None, notes=''):
     """Create a MemoryValueEvent and atomically increment the container's score."""
