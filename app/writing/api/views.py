@@ -57,6 +57,9 @@ MAX_SEED_AUDIO_BYTES = 20 * 1024 * 1024  # 20MB
 ALLOWED_AUDIO_PREFIXES = ("audio/",)
 ALLOWED_AUDIO_MIME = ("video/webm",)
 
+MAX_INLINE_IMAGE_BYTES = 10 * 1024 * 1024  # 10MB
+ALLOWED_INLINE_IMAGE_MIME = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+
 from ..models import WritingPiece, is_provisional_slug
 from ..permissions import CanEditWritingPiece, CanPublishWritingPiece
 from .serializers import (
@@ -2572,6 +2575,77 @@ class WritingPieceExecuteSplitView(generics.GenericAPIView):
                 "session_id": str(session.pk),
                 "surface_body_json": session.surface_document.body_json,
                 "new_piece_ids": new_piece_ids,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class WritingPieceImageUploadView(APIView):
+    """
+    Upload an inline image for a writing piece.
+
+    POST /api/writing/pieces/<uuid:pk>/upload-image  (multipart, field "image")
+
+    Saves the image to Stash, creates a StoredFile record, and returns a
+    *stable* serve URL (/api/files/<id>/serve) that the editor embeds in the
+    piece's body_json. The serve endpoint presigns on each request, so the
+    stored URL never expires. Requires edit permission on the piece (group
+    edit_writing for group-sponsored pieces, ownership for member-sponsored).
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [FormParser, MultiPartParser]
+
+    def post(self, request, pk):
+        piece = get_object_or_404(WritingPiece, pk=pk)
+
+        if not _user_can_import_to_sponsor(request.user, piece.sponsor):
+            return Response(
+                {"detail": "You do not have permission to edit this piece."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        image = request.FILES.get("image")
+        if not image:
+            return Response(
+                {"detail": "No image file provided."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if image.size > MAX_INLINE_IMAGE_BYTES:
+            return Response(
+                {"detail": f"Image too large (max {MAX_INLINE_IMAGE_BYTES // (1024 * 1024)}MB)."},
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+
+        content_type = (image.content_type or "").lower()
+        if content_type not in ALLOWED_INLINE_IMAGE_MIME:
+            return Response(
+                {"detail": f"Unsupported image type: {content_type or 'unknown'}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        base = get_valid_filename(image.name or "")
+        ext = base.rsplit(".", 1)[-1].lower() if "." in base else ""
+        unique = f"{uuid.uuid4()}.{ext}" if ext else str(uuid.uuid4())
+        s3_key = f"writing/images/{piece.pk}/{unique}"
+
+        image.seek(0)
+        saved_key = default_storage.save(s3_key, image)
+
+        stored = StoredFile.objects.create(
+            file_path=saved_key,
+            file_name=image.name or "",
+            file_type=image.content_type or "",
+            file_size=image.size or 0,
+            uploaded_by=request.user,
+            source="writing-inline",
+        )
+
+        return Response(
+            {
+                "id": str(stored.pk),
+                "serve_url": f"/api/files/{stored.pk}/serve",
             },
             status=status.HTTP_201_CREATED,
         )
