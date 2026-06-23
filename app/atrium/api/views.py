@@ -64,6 +64,39 @@ class AtriumSessionCreateView(generics.CreateAPIView):
         )
 
 
+class AtriumSessionContextView(APIView):
+    """
+    GET /api/atrium/sessions/<session_id>/context/
+
+    Returns the synthesized Beryl personal context that will be injected into
+    the system prompt for this session. Surfaces to the member as a preview
+    panel — transparent about what Claude knows before each exchange.
+
+    Response: { context: string, sources: string[] }
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, session_id):
+        profile = request.user.userprofile
+
+        try:
+            session = AtriumSession.objects.get(
+                id=session_id,
+                member=profile,
+                deleted_at__isnull=True,
+            )
+        except AtriumSession.DoesNotExist:
+            return Response({"detail": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        from atrium.ai.context import BerylPersonalContextBuilder
+        builder = BerylPersonalContextBuilder()
+        return Response({
+            "context": builder.build(session),
+            "sources": builder.sources(session),
+        })
+
+
 class AtriumSessionUpdateView(APIView):
     """
     PATCH /api/atrium/sessions/<session_id>/
