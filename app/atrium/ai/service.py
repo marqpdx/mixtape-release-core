@@ -120,6 +120,8 @@ class AtriumAIService:
 # ---------------------------------------------------------------------------
 
 def _build_system_prompt(session) -> str:
+    from atrium.ai.context import BerylPersonalContextBuilder
+
     parts = [
         "You are an AI thinking partner for a member working inside Mixtape — "
         "a collaborative platform for creative and professional work. "
@@ -127,7 +129,12 @@ def _build_system_prompt(session) -> str:
         "Be direct and specific. Match the depth of the question.",
     ]
     if session.session_context and session.session_context.strip():
-        parts.append(f"\n\nMember context:\n{session.session_context.strip()}")
+        parts.append(f"\n\nSession context:\n{session.session_context.strip()}")
+
+    personal_ctx = BerylPersonalContextBuilder().build(session)
+    if personal_ctx:
+        parts.append(f"\n\nPersonal context:\n{personal_ctx}")
+
     return "\n".join(parts)
 
 
