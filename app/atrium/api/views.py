@@ -64,6 +64,45 @@ class AtriumSessionCreateView(generics.CreateAPIView):
         )
 
 
+class AtriumSessionUpdateView(APIView):
+    """
+    PATCH /api/atrium/sessions/<session_id>/
+
+    Updates title and/or session_context on an AtriumSession.
+    Body: { title?: string, session_context?: string }
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, session_id):
+        profile = request.user.userprofile
+
+        try:
+            session = AtriumSession.objects.get(
+                id=session_id,
+                member=profile,
+                deleted_at__isnull=True,
+            )
+        except AtriumSession.DoesNotExist:
+            return Response({"detail": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        update_fields = []
+        if "title" in request.data:
+            session.title = request.data["title"]
+            update_fields.append("title")
+        if "session_context" in request.data:
+            session.session_context = request.data["session_context"]
+            update_fields.append("session_context")
+
+        if update_fields:
+            session.save(update_fields=update_fields)
+
+        return Response(
+            AtriumSessionListSerializer(session).data,
+            status=status.HTTP_200_OK,
+        )
+
+
 class AtriumSessionExchangeView(APIView):
     """
     POST /api/atrium/sessions/<session_id>/exchange
