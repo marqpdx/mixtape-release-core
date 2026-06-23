@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from atrium.models import AtriumSession, AtriumSessionStatus
-from .serializers import AtriumSessionListSerializer
+from .serializers import AtriumSessionListSerializer, AtriumSessionEntrySerializer
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,31 @@ class AtriumSessionCreateView(generics.CreateAPIView):
             AtriumSessionListSerializer(session).data,
             status=status.HTTP_201_CREATED,
         )
+
+
+class AtriumSessionEntryListView(generics.ListAPIView):
+    """
+    GET /api/atrium/sessions/<session_id>/entries/
+
+    Returns the persisted AtriumSessionEntry records for a session, in
+    chronological order. Used to restore conversation history when a
+    member reopens an existing session, and as the source for MillDraft
+    promotion (artifact landing, AT-D6).
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = AtriumSessionEntrySerializer
+
+    def get_queryset(self):
+        from atrium.models import AtriumSessionEntry
+
+        profile = self.request.user.userprofile
+        session_id = self.kwargs["session_id"]
+        return AtriumSessionEntry.objects.filter(
+            session_id=session_id,
+            session__member=profile,
+            session__deleted_at__isnull=True,
+        ).order_by("created_at")
 
 
 class AtriumSessionContextView(APIView):
