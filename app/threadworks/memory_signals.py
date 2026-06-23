@@ -81,10 +81,52 @@ def _maybe_surface_in_worktable(container):
 
 def _enqueue_worktable(container):
     """
-    Enqueue high-memory-value content for Worktable curator review (D16).
-    Stub — replace with concrete Worktable integration.
+    Surface high-memory-value content in Worktable for curator review (D16).
+    Creates a HubCapture note scoped to the group sponsor (if any) so moderators
+    can decide whether to mark it resolved, promote it, or let it stand.
     """
-    pass  # noqa: placeholder — Worktable integration pending
+    from groups.models import Group
+    from django.contrib.contenttypes.models import ContentType
+
+    # Only wire to Worktable when the Forum has a Group sponsor
+    forum = getattr(container, 'forum', None)
+    if not forum:
+        return
+
+    try:
+        group_ct = ContentType.objects.get_for_model(Group)
+        if forum.sponsor_content_type_id != group_ct.id:
+            return
+        group = Group.objects.filter(pk=forum.sponsor_object_id).first()
+        if not group:
+            return
+        owner = group.submitted_by
+        if not owner:
+            return
+    except Exception:
+        return
+
+    label = getattr(container, 'title', None) or str(container)
+    kind = 'Discussion' if isinstance(container, Discussion) else 'FeedPost'
+    body = (
+        f"[Worktable] High memory-value {kind}: \"{label}\"\n"
+        f"Score: {container.memory_value_score:.1f} | Forum: {forum.title}\n"
+        f"Consider marking resolved or curating this content."
+    )
+
+    try:
+        from console.models import HubCapture, HubCaptureKind
+        # One active entry per (group, body prefix) is sufficient — dedup on exact body
+        if HubCapture.objects.filter(group=group, body=body, archived_at__isnull=True).exists():
+            return
+        HubCapture.objects.create(
+            kind=HubCaptureKind.NOTE,
+            body=body,
+            owner=owner,
+            group=group,
+        )
+    except Exception:
+        pass  # Never block scoring pipeline on Worktable integration failures
 
 
 @receiver(post_save, sender=Discussion)

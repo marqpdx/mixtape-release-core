@@ -1315,3 +1315,83 @@ def group_dismiss_discussion_summary(request, slug, forum_slug, discussion_slug)
     discussion.summary_pending_substantive = None
     discussion.save(update_fields=['summary_pending', 'summary_pending_delta', 'summary_pending_substantive'])
     return Response({'status': 'summary_dismissed'})
+
+
+# ============================================================================
+# RESOLUTION STATE (D13 — Phase 3)
+# ============================================================================
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def resolve_discussion(request, forum_slug, discussion_slug):
+    """Set resolution_post on a discussion (staff only)."""
+    if not request.user.is_staff:
+        raise permissions.PermissionDenied("Only staff can mark discussions as resolved.")
+
+    forum = get_object_or_404(Forum, slug=forum_slug, is_archived=False)
+    discussion = get_object_or_404(forum.discussions.all(), slug=discussion_slug, is_deleted=False)
+
+    post_id = request.data.get('post_id')
+    if not post_id:
+        return Response({'error': 'post_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    post = get_object_or_404(Post, id=post_id, discussion=discussion, is_deleted=False)
+    discussion.resolution_post = post
+    discussion.save(update_fields=['resolution_post'])
+
+    return Response(DiscussionDetailSerializer(discussion, context={'request': request}).data)
+
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def unresolve_discussion(request, forum_slug, discussion_slug):
+    """Clear resolution_post from a discussion (staff only)."""
+    if not request.user.is_staff:
+        raise permissions.PermissionDenied("Only staff can unmark discussions as resolved.")
+
+    forum = get_object_or_404(Forum, slug=forum_slug, is_archived=False)
+    discussion = get_object_or_404(forum.discussions.all(), slug=discussion_slug, is_deleted=False)
+
+    discussion.resolution_post = None
+    discussion.save(update_fields=['resolution_post'])
+
+    return Response(DiscussionDetailSerializer(discussion, context={'request': request}).data)
+
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def group_resolve_discussion(request, slug, forum_slug, discussion_slug):
+    """Set resolution_post on a group-scoped discussion (moderator or staff)."""
+    group = get_group_or_404(slug)
+    if not canUserModerateGroupUser(request.user, group) and not request.user.is_staff:
+        raise permissions.PermissionDenied("Only moderators can mark discussions as resolved.")
+
+    forum = get_object_or_404(get_group_forum_queryset(group), slug=forum_slug)
+    discussion = get_object_or_404(forum.discussions.all(), slug=discussion_slug, is_deleted=False)
+
+    post_id = request.data.get('post_id')
+    if not post_id:
+        return Response({'error': 'post_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    post = get_object_or_404(Post, id=post_id, discussion=discussion, is_deleted=False)
+    discussion.resolution_post = post
+    discussion.save(update_fields=['resolution_post'])
+
+    return Response(DiscussionDetailSerializer(discussion, context={'request': request}).data)
+
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def group_unresolve_discussion(request, slug, forum_slug, discussion_slug):
+    """Clear resolution_post from a group-scoped discussion (moderator or staff)."""
+    group = get_group_or_404(slug)
+    if not canUserModerateGroupUser(request.user, group) and not request.user.is_staff:
+        raise permissions.PermissionDenied("Only moderators can unmark discussions as resolved.")
+
+    forum = get_object_or_404(get_group_forum_queryset(group), slug=forum_slug)
+    discussion = get_object_or_404(forum.discussions.all(), slug=discussion_slug, is_deleted=False)
+
+    discussion.resolution_post = None
+    discussion.save(update_fields=['resolution_post'])
+
+    return Response(DiscussionDetailSerializer(discussion, context={'request': request}).data)

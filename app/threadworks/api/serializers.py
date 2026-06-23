@@ -170,6 +170,7 @@ class DiscussionDetailSerializer(serializers.ModelSerializer):
     posts = PostSerializer(many=True, read_only=True)
     post_count = serializers.SerializerMethodField()
     participants = serializers.SerializerMethodField()
+    resolution_post = PostSerializer(read_only=True)
 
     class Meta:
         model = Discussion
@@ -194,6 +195,8 @@ class DiscussionDetailSerializer(serializers.ModelSerializer):
             'summary_pending',
             'summary_pending_delta',
             'summary_pending_substantive',
+            'resolution_post_id',
+            'resolution_post',
         ]
         read_only_fields = [
             'id',
@@ -205,6 +208,7 @@ class DiscussionDetailSerializer(serializers.ModelSerializer):
             'post_count',
             'participants',
             'memory_value_score',
+            'resolution_post',
         ]
 
     def get_post_count(self, obj):
