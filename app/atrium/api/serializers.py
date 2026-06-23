@@ -13,6 +13,7 @@ class AtriumSessionListSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "title",
+            "session_context",
             "status",
             "last_activity_at",
             "entry_count",
