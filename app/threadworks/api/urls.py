@@ -30,6 +30,10 @@ site_urlpatterns = [
     path('<slug:forum_slug>/discussions/<slug:discussion_slug>/summary/approve', views.approve_discussion_summary, name='discussion-summary-approve'),
     path('<slug:forum_slug>/discussions/<slug:discussion_slug>/summary/dismiss', views.dismiss_discussion_summary, name='discussion-summary-dismiss'),
 
+    # Resolution state (D13, Phase 3)
+    path('<slug:forum_slug>/discussions/<slug:discussion_slug>/resolve', views.resolve_discussion, name='discussion-resolve'),
+    path('<slug:forum_slug>/discussions/<slug:discussion_slug>/unresolve', views.unresolve_discussion, name='discussion-unresolve'),
+
     # Posts (Discussion replies)
     path('<slug:forum_slug>/discussions/<slug:discussion_slug>/posts', views.PostListCreateView.as_view(), name='post-list-create'),
     path('<slug:forum_slug>/discussions/<slug:discussion_slug>/posts/<uuid:post_id>', views.PostDetailView.as_view(), name='post-detail'),
@@ -87,6 +91,10 @@ group_threadworks_patterns = [
     # Discussion summary (group-scoped)
     path('<slug:forum_slug>/discussions/<slug:discussion_slug>/summary/approve', views.group_approve_discussion_summary, name='group-discussion-summary-approve'),
     path('<slug:forum_slug>/discussions/<slug:discussion_slug>/summary/dismiss', views.group_dismiss_discussion_summary, name='group-discussion-summary-dismiss'),
+
+    # Resolution state (group-scoped, D13, Phase 3)
+    path('<slug:forum_slug>/discussions/<slug:discussion_slug>/resolve', views.group_resolve_discussion, name='group-discussion-resolve'),
+    path('<slug:forum_slug>/discussions/<slug:discussion_slug>/unresolve', views.group_unresolve_discussion, name='group-discussion-unresolve'),
 
     # Posts (group-scoped, Discussion replies)
     path('<slug:forum_slug>/discussions/<slug:discussion_slug>/posts', views.GroupPostListCreateView.as_view(), name='group-post-list-create'),
