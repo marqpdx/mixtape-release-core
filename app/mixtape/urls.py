@@ -131,6 +131,9 @@ urlpatterns = [
     # Workbench (Review Queue, MillDrafts)
     path("api/workbench/", include("fundamentals.api.urls")),
 
+    # Atrium — personal AI session surface
+    path("api/atrium/", include("atrium.api.urls")),
+
     # === END PHASE 4 ENDPOINTS ===
 
     # Prospects — public intake (token-gated, no auth)
