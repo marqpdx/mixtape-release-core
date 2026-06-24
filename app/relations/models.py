@@ -1,3 +1,5 @@
+# relations/models.py
+
 import uuid
 
 from django.contrib.contenttypes.fields import GenericForeignKey

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 
@@ -11,6 +13,16 @@ class RelationshipService:
     Single entry point for all Relationship creation, archival, and traversal.
     Invariant: no direct ORM relationship writes from views, serializers, or agents.
     """
+
+    # -------------------------------------------------------------------------
+    # Thread metadata convention (ADR-0049 D9, D10; CM-4)
+    # -------------------------------------------------------------------------
+    # A Thread has no separate model. Identity lives in `metadata` on the
+    # `continues` Relationship set: a shared `thread_id` (UUID) and
+    # `thread_title`. Closure is a `thread_closed` flag on that same metadata.
+    THREAD_ID_KEY = "thread_id"
+    THREAD_TITLE_KEY = "thread_title"
+    THREAD_CLOSED_KEY = "thread_closed"
 
     # -------------------------------------------------------------------------
     # Writes
@@ -81,6 +93,76 @@ class RelationshipService:
         relationship.metadata = meta
         relationship.save(update_fields=["lifecycle", "metadata", "updated_at"])
         return relationship
+
+    @staticmethod
+    @transaction.atomic
+    def continue_thread(
+        *,
+        from_leaf,
+        to_leaf,
+        created_by,
+        position: int,
+        thread_id: str | None = None,
+        thread_title: str = "",
+    ) -> Relationship:
+        """
+        Link two Leaves in a Thread via `commons/continues` (D9). Pass
+        `thread_id=None` to mint a new Thread — this is the Close-time
+        'Begin' case, realized on the first link between two Leaves rather
+        than a standalone single-Leaf Thread (Thread identity model for a
+        lone Leaf is OQ-3, still open — gated before any Thread view ships,
+        not before this checkpoint).
+        """
+        if thread_id and RelationshipService.is_thread_closed(thread_id):
+            raise ValueError(f"Thread {thread_id} is closed; cannot add new Leaves.")
+
+        return RelationshipService.create_relationship(
+            type_slug="continues",
+            source=from_leaf,
+            target=to_leaf,
+            created_by=created_by,
+            position=position,
+            metadata={
+                RelationshipService.THREAD_ID_KEY: thread_id or str(uuid.uuid4()),
+                RelationshipService.THREAD_TITLE_KEY: thread_title,
+                RelationshipService.THREAD_CLOSED_KEY: False,
+            },
+        )
+
+    @staticmethod
+    def is_thread_closed(thread_id: str | None) -> bool:
+        if not thread_id:
+            return False
+        return Relationship.objects.filter(
+            relationship_type__slug="continues",
+            metadata__thread_id=thread_id,
+            metadata__thread_closed=True,
+        ).exists()
+
+    @staticmethod
+    def get_thread(thread_id: str):
+        """All `continues` Relationships in a Thread, in sequence order."""
+        return Relationship.objects.filter(
+            relationship_type__slug="continues",
+            metadata__thread_id=thread_id,
+            status=Relationship.STATUS_ACTIVE,
+        ).order_by("position", "created_at")
+
+    @staticmethod
+    @transaction.atomic
+    def close_thread(*, thread_id: str) -> int:
+        """
+        Mark every Relationship in a Thread closed (Close-time 'Close this
+        Thread', D10). No new `continues` Relationships may target a closed
+        thread_id — enforced in `continue_thread`. Returns the count updated.
+        """
+        relationships = list(RelationshipService.get_thread(thread_id))
+        for rel in relationships:
+            meta = rel.metadata or {}
+            meta[RelationshipService.THREAD_CLOSED_KEY] = True
+            rel.metadata = meta
+            rel.save(update_fields=["metadata", "updated_at"])
+        return len(relationships)
 
     @staticmethod
     @transaction.atomic

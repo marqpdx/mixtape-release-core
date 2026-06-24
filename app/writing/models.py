@@ -1104,6 +1104,38 @@ class Leaf(BaseModel):
     )
     published_at = models.DateTimeField(null=True, blank=True)
 
+    # Commons (ADR-0049) — Place anchor. Required for Commons-shared Leaves
+    # (library_only=False), optional for library-only Leaves; enforced at
+    # the service layer when state transitions to closed (OQ-5).
+    place = models.ForeignKey(
+        "tapestry.Place",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="leaves",
+    )
+
+    # When the session occurred — distinct from created_at (note may be written later)
+    occurred_at = models.DateTimeField(null=True, blank=True)
+
+    # Open / Closed lifecycle (ADR-0049 D5)
+    STATE_OPEN = "open"
+    STATE_CLOSED = "closed"
+    STATE_CHOICES = [
+        (STATE_OPEN, "Open"),
+        (STATE_CLOSED, "Closed"),
+    ]
+    state = models.CharField(max_length=10, choices=STATE_CHOICES, default=STATE_OPEN)
+
+    # Whether the Closed Leaf is shared to Commons or kept in personal library
+    library_only = models.BooleanField(default=False)
+
+    # Feeling state — future-facing, undecided; field reserved but not exposed in Phase 1 (D14)
+    feeling_state = models.CharField(max_length=30, blank=True, default="")
+
+    # Intent — future-facing; field reserved but not exposed in Phase 1 (D15)
+    intent_primary = models.CharField(max_length=30, blank=True, default="")
+    intent_secondary = models.CharField(max_length=30, blank=True, default="")
+
     class Meta(BaseModel.Meta):
         ordering = ["-published_at", "-created_at"]
         indexes = [
@@ -1122,6 +1154,56 @@ class Leaf(BaseModel):
     def __str__(self):
         ref = " (ref)" if self.is_reference else ""
         return f"Leaf<{self.kind}{ref}> by {self.author_id}"
+
+
+class LeafEntry(BaseModel):
+    """
+    Ordered content entries within a Leaf (ADR-0049 D6). The `shared` flag
+    governs trim-for-sharing: False entries stay in the author's library
+    (D7) and are excluded from the Commons-facing view of the Leaf.
+
+    Uses `files.StoredFile` for media, matching Leaf's own convention —
+    the ADR's draft spec named `stash.StashFile`, but no `stash` app exists
+    in this codebase; `files.StoredFile` is the live equivalent.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    leaf = models.ForeignKey(
+        Leaf,
+        on_delete=models.CASCADE,
+        related_name="entries",
+    )
+
+    KIND_TEXT = "text"
+    KIND_IMAGE = "image"
+    KIND_VOICE = "voice"
+    KIND_CHOICES = [
+        (KIND_TEXT, "Text"),
+        (KIND_IMAGE, "Image"),
+        (KIND_VOICE, "Voice"),
+    ]
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES)
+    position = models.PositiveIntegerField()
+
+    # Content by kind
+    body_text = models.TextField(blank=True, default="")
+    body_json = models.JSONField(null=True, blank=True)  # ProseMirror rich text
+    image_file = models.ForeignKey(
+        "files.StoredFile", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="leaf_entry_images",
+    )
+    audio_file = models.ForeignKey(
+        "files.StoredFile", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="leaf_entry_audio",
+    )
+
+    # Trim-for-sharing: False = library only, excluded from Commons view
+    shared = models.BooleanField(default=True)
+
+    class Meta(BaseModel.Meta):
+        ordering = ["position"]
+
+    def __str__(self):
+        return f"LeafEntry<{self.kind}> #{self.position} on {self.leaf_id}"
 
 
 # ============================================================================

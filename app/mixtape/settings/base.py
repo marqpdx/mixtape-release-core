@@ -145,6 +145,7 @@ INSTALLED_APPS = [
     "sprig",           # Sprig — mobile relational capture affordance (Mobile Capture ADR B)
     "bridge",          # Bridge — live gathering infrastructure (Bridge/Continuity ADR)
     "atrium",          # Atrium — personal AI session surface (AtriumSession, AtriumSessionEntry)
+    "tapestry",        # Tapestry — Place stub (CM-0, commons-adr.md D17); full GIS deferred
 ]
 
 INSTALLED_APPS += ["rest_framework_simplejwt.token_blacklist"]
