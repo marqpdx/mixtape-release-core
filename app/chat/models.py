@@ -147,6 +147,10 @@ class ChatMessage(BaseModel):
     # Base64 AES-GCM IV — set only when audio_file holds E2E-encrypted ciphertext
     # (Private/Ephemeral conversations, LW-C3). Empty for plaintext Standard audio.
     audio_iv = models.CharField(max_length=64, blank=True, default="")
+    # ConversationKeyBundle.key_version that encrypted this audio (LW-C4). Only
+    # meaningful when audio_iv is set — lets a client fetch the matching key
+    # bundle for playback after the conversation key has since been rotated.
+    audio_key_version = models.PositiveSmallIntegerField(default=1)
     transcript_text = models.TextField(null=True, blank=True)
     transcript_status = models.CharField(
         max_length=20, choices=TRANSCRIPT_STATUS_CHOICES, null=True, blank=True
