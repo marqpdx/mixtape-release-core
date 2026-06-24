@@ -76,7 +76,7 @@ class AgentAddCommandSerializer(serializers.Serializer):
     list_title = serializers.CharField()
     items = serializers.ListField(child=serializers.CharField(), min_length=1)
     create_if_missing = serializers.BooleanField(default=True)
-    surface = serializers.ChoiceField(choices=["mobile", "desktop"], default="mobile")
+    surface = serializers.ChoiceField(choices=["mobile", "desktop", "atrium"], default="mobile")
 
 
 class AgentFindCommandSerializer(serializers.Serializer):
@@ -84,7 +84,7 @@ class AgentFindCommandSerializer(serializers.Serializer):
     library_id = serializers.UUIDField(required=False, allow_null=True)
     limit = serializers.IntegerField(default=8, min_value=1, max_value=20)
     score_threshold = serializers.FloatField(default=0.0)
-    surface = serializers.ChoiceField(choices=["mobile", "desktop"], default="desktop")
+    surface = serializers.ChoiceField(choices=["mobile", "desktop", "atrium"], default="desktop")
 
 
 class AgentResearchCommandSerializer(serializers.Serializer):
