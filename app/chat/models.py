@@ -144,6 +144,9 @@ class ChatMessage(BaseModel):
         related_name="chat_messages",
     )
     audio_duration_seconds = models.FloatField(null=True, blank=True)
+    # Base64 AES-GCM IV — set only when audio_file holds E2E-encrypted ciphertext
+    # (Private/Ephemeral conversations, LW-C3). Empty for plaintext Standard audio.
+    audio_iv = models.CharField(max_length=64, blank=True, default="")
     transcript_text = models.TextField(null=True, blank=True)
     transcript_status = models.CharField(
         max_length=20, choices=TRANSCRIPT_STATUS_CHOICES, null=True, blank=True

@@ -138,7 +138,7 @@ class ChatMessageSerializer(serializers.ModelSerializer):
             "id", "text", "created_at", "sender", "reactions", "mentions",
             "reaction_summary",
             # Voice fields
-            "message_type", "audio_file_url", "audio_duration_seconds",
+            "message_type", "audio_file_url", "audio_duration_seconds", "audio_iv",
             "transcript_text", "transcript_status",
         ]
         read_only_fields = ["sender", "created_at", "reactions", "mentions", "message_type"]
