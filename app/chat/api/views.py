@@ -401,9 +401,15 @@ def conversation_voice_upload(request, slug):
     if not audio_file:
         return Response({"error": "audio file is required."}, status=status.HTTP_400_BAD_REQUEST)
 
-    # MIME validation
+    # LW-C3: Private/Ephemeral clients encrypt the blob with the conversation key
+    # before upload and send the AES-GCM IV alongside it. The server then holds
+    # opaque ciphertext — it cannot validate the audio MIME or transcribe it.
+    audio_iv = (request.data.get("iv") or "").strip()
     content_type = (audio_file.content_type or "").lower().split(";")[0].strip()
-    if content_type not in ALLOWED_AUDIO_MIMES:
+
+    if not audio_iv and content_type not in ALLOWED_AUDIO_MIMES:
+        # MIME validation — only meaningful for plaintext (Standard) audio.
+        # Encrypted ciphertext arrives as application/octet-stream and skips this check.
         return Response(
             {"error": f"Unsupported audio type: {content_type}. Use M4A, WebM, or OGG."},
             status=status.HTTP_400_BAD_REQUEST,
@@ -450,12 +456,15 @@ def conversation_voice_upload(request, slug):
         message_type="voice",
         audio_file=stored_file,
         audio_duration_seconds=duration_seconds,
-        transcript_status="pending",
+        audio_iv=audio_iv,
+        # Server holds ciphertext only for encrypted audio — nothing to transcribe
+        # (Private/Ephemeral has no AI features, per ADR-0046).
+        transcript_status=None if audio_iv else "pending",
     )
 
-    # Enqueue transcription
-    from chat.tasks import transcribe_chat_message_task
-    transcribe_chat_message_task.delay(str(message.id))
+    if not audio_iv:
+        from chat.tasks import transcribe_chat_message_task
+        transcribe_chat_message_task.delay(str(message.id))
 
     # Notify other participants via activity pipeline
     try:
