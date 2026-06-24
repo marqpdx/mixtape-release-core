@@ -405,6 +405,10 @@ def conversation_voice_upload(request, slug):
     # before upload and send the AES-GCM IV alongside it. The server then holds
     # opaque ciphertext — it cannot validate the audio MIME or transcribe it.
     audio_iv = (request.data.get("iv") or "").strip()
+    try:
+        audio_key_version = int(request.data.get("key_version") or 1)
+    except (TypeError, ValueError):
+        audio_key_version = 1
     content_type = (audio_file.content_type or "").lower().split(";")[0].strip()
 
     if not audio_iv and content_type not in ALLOWED_AUDIO_MIMES:
@@ -457,6 +461,7 @@ def conversation_voice_upload(request, slug):
         audio_file=stored_file,
         audio_duration_seconds=duration_seconds,
         audio_iv=audio_iv,
+        audio_key_version=audio_key_version if audio_iv else 1,
         # Server holds ciphertext only for encrypted audio — nothing to transcribe
         # (Private/Ephemeral has no AI features, per ADR-0046).
         transcript_status=None if audio_iv else "pending",
@@ -776,7 +781,9 @@ def conversation_my_key(request, slug):
     """
     Fetch the encrypted key bundle for the calling device in this conversation. Phase C LW-C2.
     Device identified via X-Device-ID header or `device_id` query param.
-    Returns the latest key version. 404 if no bundle has been distributed yet.
+    Returns the latest key version by default, or a specific version via
+    `?version=N` (LW-C4) — needed to decrypt history from before a rotation.
+    404 if no bundle exists for the requested version.
     """
     conversation = get_object_or_404(Conversation, slug=slug)
 
@@ -798,12 +805,16 @@ def conversation_my_key(request, slug):
 
     device = get_object_or_404(UserDeviceSession, device_id=device_id, user=request.user, is_active=True)
 
-    bundle = (
-        ConversationKeyBundle.objects
-        .filter(conversation=conversation, recipient_device=device)
-        .order_by("-key_version")
-        .first()
-    )
+    bundle_qs = ConversationKeyBundle.objects.filter(conversation=conversation, recipient_device=device)
+
+    requested_version = request.query_params.get("version")
+    if requested_version is not None:
+        try:
+            bundle = bundle_qs.filter(key_version=int(requested_version)).first()
+        except (TypeError, ValueError):
+            return Response({"detail": "version must be an integer."}, status=status.HTTP_400_BAD_REQUEST)
+    else:
+        bundle = bundle_qs.order_by("-key_version").first()
 
     if not bundle:
         return Response(
