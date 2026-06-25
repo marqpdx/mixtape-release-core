@@ -61,7 +61,7 @@ urlpatterns = [
         name="public-commons-list",
     ),
     path(
-        "commons/<slug:slug>",
+        "commons/<uuid:pk>",
         views_commons.PublicCommonsDetailView.as_view(),
         name="public-commons-detail",
     ),
