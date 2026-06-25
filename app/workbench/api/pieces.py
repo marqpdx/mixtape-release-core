@@ -260,7 +260,7 @@ class UnifiedPieceListView(APIView):
 
         # -- Leaves --
         if not type_filter or type_filter == "leaf":
-            from writing.models import Leaf
+            from commons.models import Leaf
             ct = ContentType.objects.get_for_model(Leaf)
             qs = Leaf.objects.filter(
                 author__in=_group_member_users(group)

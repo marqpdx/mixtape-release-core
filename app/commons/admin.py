@@ -2,7 +2,13 @@
 
 from django.contrib import admin
 
-from .models import CommonsItem
+from .models import CommonsItem, Leaf
+
+
+@admin.register(Leaf)
+class LeafAdmin(admin.ModelAdmin):
+    list_display = ["id", "author", "kind", "visibility", "published_at", "is_reference"]
+    list_filter = ["kind", "visibility"]
 
 
 @admin.register(CommonsItem)

@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from files.models import StoredFile
-from writing.models import Leaf, LeafEntry
+from commons.models import Leaf, LeafEntry
 
 
 User = get_user_model()

@@ -3,7 +3,7 @@
 from rest_framework import generics, permissions
 
 from fundamentals.services.follow_service import get_following_ids
-from writing.models import Leaf
+from commons.models import Leaf
 
 from .serializers import LeafSerializer
 

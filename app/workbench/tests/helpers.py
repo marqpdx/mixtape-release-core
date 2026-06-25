@@ -8,7 +8,8 @@ from fundamentals.models import MillDraft, MillDraftStatus
 from groups.models.group import Group, GroupType
 from groups.models.membership import GroupMembership
 from workbench.models import WorkingItem, WorkingItemStatus
-from writing.models import Leaf, Seed, WorkingDocument, WritingPiece
+from writing.models import Seed, WorkingDocument, WritingPiece
+from commons.models import Leaf
 
 
 User = get_user_model()

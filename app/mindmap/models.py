@@ -73,7 +73,7 @@ class MindMapNode(BaseModel):
         max_length=8, choices=BackingKind.choices, default=BackingKind.INLINE
     )
     leaf = models.ForeignKey(
-        "writing.Leaf", null=True, blank=True, on_delete=models.SET_NULL
+        "commons.Leaf", null=True, blank=True, on_delete=models.SET_NULL
     )
 
     # Inline content (used when backing_kind = inline)

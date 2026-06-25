@@ -15,7 +15,8 @@ from rest_framework.views import APIView
 from files.models import StoredFile
 from utils.shared.contenttypes import resolve_content_type
 from writing.api.permissions import IsAuthorOrStaff
-from writing.models import Leaf, Seed
+from writing.models import Seed
+from commons.models import Leaf
 from writing.services import (
     create_reference_leaf,
     promote_leaf_to_working_copy,

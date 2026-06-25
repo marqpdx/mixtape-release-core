@@ -3,7 +3,8 @@
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from writing.models import Leaf, Seed, WorkingDocument, WritingPiece
+from writing.models import Seed, WorkingDocument, WritingPiece
+from commons.models import Leaf
 
 
 @receiver(post_save, sender=Seed)

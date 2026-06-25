@@ -3,7 +3,7 @@ from django.test import TestCase
 
 from relations.models import Relationship, RelationshipType
 from relations.service import RelationshipService
-from writing.models import Leaf
+from commons.models import Leaf
 
 
 User = get_user_model()
