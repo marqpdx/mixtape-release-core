@@ -37,7 +37,9 @@ tests=(
   "projects.tests"
   "public_api.tests"
   "publishing.tests"
+  "relations.tests"
   "workbench.tests"
+  "writing.tests_commons_models"
   "writing.tests_copy_desk_intelligence"
   "writing.tests"
 )
@@ -109,3 +111,7 @@ done
 
 total=$((passed + failed))
 echo "${passed} of ${total} test runs passed"
+
+if [[ $failed -gt 0 ]]; then
+  exit 1
+fi
