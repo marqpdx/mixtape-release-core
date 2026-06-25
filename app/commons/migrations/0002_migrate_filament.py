@@ -25,8 +25,13 @@ def migrate_filaments(apps, schema_editor):
     Relationship = apps.get_model("relations", "Relationship")
     RelationshipType = apps.get_model("relations", "RelationshipType")
     ContentType = apps.get_model("contenttypes", "ContentType")
+    CommonsItem = apps.get_model("commons", "CommonsItem")
 
-    commons_item_ct = ContentType.objects.get(app_label="commons", model="commonsitem")
+    # ContentType rows are created by Django's post_migrate signal, which has
+    # not run yet during a fresh database migration.  Use get_for_model() so a
+    # clean test database can create the historical CommonsItem content type
+    # before migrating Filament rows into generic Relationships.
+    commons_item_ct = ContentType.objects.get_for_model(CommonsItem)
     type_cache = {rt.slug: rt for rt in RelationshipType.objects.filter(domain="commons")}
 
     for f in Filament.objects.all():

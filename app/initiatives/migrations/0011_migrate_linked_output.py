@@ -15,13 +15,18 @@ def migrate_linked_outputs(apps, schema_editor):
     Relationship = apps.get_model("relations", "Relationship")
     RelationshipType = apps.get_model("relations", "RelationshipType")
     ContentType = apps.get_model("contenttypes", "ContentType")
+    Initiative = apps.get_model("initiatives", "Initiative")
 
     try:
         rel_type = RelationshipType.objects.get(slug="outputs-from")
     except RelationshipType.DoesNotExist:
         return
 
-    initiative_ct = ContentType.objects.get(app_label="initiatives", model="initiative")
+    # ContentType rows are normally populated by Django's post_migrate signal,
+    # which has not run yet while a fresh database is still applying
+    # migrations.  Create/reuse the historical Initiative content type here so
+    # clean test database creation can complete.
+    initiative_ct = ContentType.objects.get_for_model(Initiative)
 
     for lo in LinkedOutput.objects.all():
         if lo.output_content_type_id is None or lo.output_object_id is None:
