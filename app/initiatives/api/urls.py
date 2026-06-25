@@ -3,7 +3,7 @@
 
 from django.urls import path
 
-from . import views
+from . import views, views_me
 
 # ---------------------------------------------------------------------------
 # Aperture-log endpoints — included at api/initiatives/
@@ -53,6 +53,24 @@ mobile_command_patterns = [
 worktable_group_patterns = [
     path("<slug:slug>/reminders", views.GroupReminderListView.as_view(), name="group-reminder-list"),
     path("<slug:slug>/tasks", views.GroupTaskListView.as_view(), name="group-task-list"),
+]
+
+# ---------------------------------------------------------------------------
+# Radar patterns — personal work radar (W-16)
+# Included at api/initiatives/ in mixtape/urls.py
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Personal initiative (me) patterns — included at api/initiatives/
+# ---------------------------------------------------------------------------
+
+me_patterns = [
+    path("me", views_me.MeInitiativeView.as_view(), name="me-initiative"),
+    path("me/sessions", views_me.MeSessionListCreateView.as_view(), name="me-session-list-create"),
+    path("me/sessions/<uuid:session_id>", views_me.MeSessionDetailView.as_view(), name="me-session-detail"),
+    path("me/sessions/<uuid:session_id>/exchange", views_me.MeSessionExchangeView.as_view(), name="me-session-exchange"),
+    path("me/sessions/<uuid:session_id>/artifacts", views_me.MeArtifactListView.as_view(), name="me-artifact-list"),
+    path("me/notes", views_me.MeNoteCreateView.as_view(), name="me-note-create"),
 ]
 
 # ---------------------------------------------------------------------------
