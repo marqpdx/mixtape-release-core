@@ -32,7 +32,8 @@ class UserSerializer(serializers.ModelSerializer):
 class ConversationRetentionPolicySerializer(serializers.ModelSerializer):
     class Meta:
         model = ConversationRetentionPolicy
-        fields = ["retention_period", "enforcement_enabled"]
+        fields = ["retention_period", "enforcement_enabled", "next_rotation_due_at"]
+        read_only_fields = ["next_rotation_due_at"]
 
 
 class BaseConversationSerializer(serializers.ModelSerializer):
@@ -98,14 +99,21 @@ class ConversationSerializer(BaseConversationSerializer):
 
 
 class ConversationReadSerializer(BaseConversationSerializer):
-    participants = serializers.SerializerMethodField()  # ✅ override participant logic
+    participants = serializers.SerializerMethodField()
+    next_rotation_due_at = serializers.SerializerMethodField()
 
     class Meta(BaseConversationSerializer.Meta):
-        fields = BaseConversationSerializer.Meta.fields + ["participants"]
+        fields = BaseConversationSerializer.Meta.fields + ["participants", "next_rotation_due_at"]
 
     def get_participants(self, obj):
-            # ✅ Returns list of usernames, or you could return full user dicts
-            return [p.user.username for p in obj.participants.all()]
+        return [p.user.username for p in obj.participants.all()]
+
+    def get_next_rotation_due_at(self, obj):
+        try:
+            p = obj.retention_policy
+            return p.next_rotation_due_at.isoformat() if p.next_rotation_due_at else None
+        except Exception:
+            return None
 
 
 
