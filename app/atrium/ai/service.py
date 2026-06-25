@@ -11,7 +11,11 @@ import logging
 import os
 from typing import Generator
 
+from atrium.ai.tools import TOOLS, dispatch_tool
+
 logger = logging.getLogger(__name__)
+
+MAX_TOOL_ITERATIONS = 6
 
 
 class AtriumAnthropicAdapter:
@@ -34,17 +38,47 @@ class AtriumAnthropicAdapter:
         Yields SSE-formatted byte chunks:
           data: {"type": "delta", "text": "..."}\n\n
           data: {"type": "done"}\n\n
+
+        Runs Claude's tool_use loop internally (query_canon, get_document,
+        read_file, grep — all read-only, see atrium/ai/tools.py) so the
+        streamed text is always the final assistant turn. Tool calls
+        themselves are not streamed to the client in Stage 1.
         """
-        with self._client.messages.stream(
-            model=self.MODEL,
-            max_tokens=self.MAX_TOKENS,
-            system=system_prompt,
-            messages=messages,
-        ) as stream:
-            for text in stream.text_stream:
-                payload = json.dumps({"type": "delta", "text": text})
-                yield f"data: {payload}\n\n".encode()
-            yield b"data: " + json.dumps({"type": "done"}).encode() + b"\n\n"
+        working_messages = list(messages)
+
+        for _ in range(MAX_TOOL_ITERATIONS):
+            with self._client.messages.stream(
+                model=self.MODEL,
+                max_tokens=self.MAX_TOKENS,
+                system=system_prompt,
+                messages=working_messages,
+                tools=TOOLS,
+            ) as stream:
+                for text in stream.text_stream:
+                    payload = json.dumps({"type": "delta", "text": text})
+                    yield f"data: {payload}\n\n".encode()
+                final_message = stream.get_final_message()
+
+            if final_message.stop_reason != "tool_use":
+                break
+
+            assistant_content = [block.model_dump() for block in final_message.content]
+            working_messages.append({"role": "assistant", "content": assistant_content})
+
+            tool_results = []
+            for block in final_message.content:
+                if block.type == "tool_use":
+                    result_text = dispatch_tool(block.name, block.input)
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": result_text,
+                    })
+            working_messages.append({"role": "user", "content": tool_results})
+        else:
+            logger.warning("Atrium exchange_stream hit MAX_TOOL_ITERATIONS without a final answer.")
+
+        yield b"data: " + json.dumps({"type": "done"}).encode() + b"\n\n"
 
 
 class AtriumAIService:
