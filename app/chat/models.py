@@ -349,6 +349,9 @@ class ConversationRetentionPolicy(BaseModel):
     )
     # Ephemeral conversations require a retention period — enforced at creation in services.
     enforcement_enabled = models.BooleanField(default=False)
+    # LW-D2: server-side signal for client-driven periodic rotation (Ephemeral only).
+    # Set to now + (retention_period / 4), clamped 6h–7d. Null for Private/Standard.
+    next_rotation_due_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.conversation_id} / {self.retention_period}"

@@ -2,7 +2,8 @@
 
 import logging
 
-from django.db.models import Count, Q
+from django.db import transaction
+from django.db.models import Count, Max, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -726,6 +727,18 @@ class ChatMessageViewSet(viewsets.ModelViewSet):
         return Response(MessageReactionSerializer(reactions, many=True).data)
 
 
+def _rotation_interval(retention_period: str):
+    """Returns the rotation interval for an Ephemeral conversation's retention period.
+    Formula: retention_period / 4, clamped to min 6h / max 7d. LW-D2."""
+    from datetime import timedelta
+    PERIOD_DAYS = {"1d": 1, "7d": 7, "30d": 30, "90d": 90, "1y": 365}
+    days = PERIOD_DAYS.get(retention_period)
+    if not days:
+        return None
+    interval = timedelta(days=days) / 4
+    return max(timedelta(hours=6), min(interval, timedelta(days=7)))
+
+
 @api_view(["GET", "PATCH"])
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
@@ -745,7 +758,16 @@ def conversation_retention(request, slug):
     serializer = ConversationRetentionPolicySerializer(policy, data=request.data, partial=True)
     if serializer.is_valid():
         serializer.save()
-        return Response(serializer.data)
+        if (
+            conversation.trust_profile == TrustProfile.EPHEMERAL
+            and policy.enforcement_enabled
+            and policy.retention_period != ConversationRetentionPolicy.RetentionPeriod.INDEFINITE
+        ):
+            interval = _rotation_interval(policy.retention_period)
+            if interval:
+                policy.next_rotation_due_at = timezone.now() + interval
+                policy.save(update_fields=["next_rotation_due_at", "updated_at"])
+        return Response(ConversationRetentionPolicySerializer(policy).data)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -822,12 +844,21 @@ def conversation_my_key(request, slug):
             status=status.HTTP_404_NOT_FOUND,
         )
 
-    return Response({
+    response_data = {
         "encrypted_key": bundle.encrypted_key,
         "nonce": bundle.nonce,
         "ephemeral_public_key": bundle.ephemeral_public_key,
         "key_version": bundle.key_version,
-    })
+    }
+    if conversation.trust_profile == TrustProfile.EPHEMERAL:
+        try:
+            p = conversation.retention_policy
+            response_data["next_rotation_due_at"] = (
+                p.next_rotation_due_at.isoformat() if p.next_rotation_due_at else None
+            )
+        except ConversationRetentionPolicy.DoesNotExist:
+            response_data["next_rotation_due_at"] = None
+    return Response(response_data)
 
 
 @api_view(["POST"])
@@ -855,40 +886,59 @@ def conversation_post_keys(request, slug):
     if not bundles:
         return Response({"detail": "bundles array required."}, status=status.HTTP_400_BAD_REQUEST)
 
-    from django.db.models import Max
-    current_max = ConversationKeyBundle.objects.filter(
-        conversation=conversation
-    ).aggregate(max_v=Max("key_version"))["max_v"] or 0
-    next_version = current_max + 1
-
     created_count = 0
     errors = []
 
-    for item in bundles:
-        device_id = item.get("device_id")
-        encrypted_key = item.get("encrypted_key")
-        nonce = item.get("nonce")
-        ephemeral_public_key = item.get("ephemeral_public_key")
+    with transaction.atomic():
+        # Lock the conversation row so concurrent rotation calls serialize here,
+        # preventing two clients from computing the same next_version. LW-D2.
+        conversation = Conversation.objects.select_for_update().get(pk=conversation.pk)
 
-        if not all([device_id, encrypted_key, nonce, ephemeral_public_key]):
-            errors.append(f"Bundle missing required fields: {item}")
-            continue
+        current_max = ConversationKeyBundle.objects.filter(
+            conversation=conversation
+        ).aggregate(max_v=Max("key_version"))["max_v"] or 0
+        next_version = current_max + 1
 
-        try:
-            device = UserDeviceSession.objects.get(device_id=device_id, is_active=True)
-        except UserDeviceSession.DoesNotExist:
-            errors.append(f"Device not found or inactive: {device_id}")
-            continue
+        for item in bundles:
+            device_id = item.get("device_id")
+            encrypted_key = item.get("encrypted_key")
+            nonce = item.get("nonce")
+            ephemeral_public_key = item.get("ephemeral_public_key")
 
-        ConversationKeyBundle.objects.create(
-            conversation=conversation,
-            recipient_device=device,
-            encrypted_key=encrypted_key,
-            nonce=nonce,
-            ephemeral_public_key=ephemeral_public_key,
-            key_version=next_version,
-        )
-        created_count += 1
+            if not all([device_id, encrypted_key, nonce, ephemeral_public_key]):
+                errors.append(f"Bundle missing required fields: {item}")
+                continue
+
+            try:
+                device = UserDeviceSession.objects.get(device_id=device_id, is_active=True)
+            except UserDeviceSession.DoesNotExist:
+                errors.append(f"Device not found or inactive: {device_id}")
+                continue
+
+            ConversationKeyBundle.objects.create(
+                conversation=conversation,
+                recipient_device=device,
+                encrypted_key=encrypted_key,
+                nonce=nonce,
+                ephemeral_public_key=ephemeral_public_key,
+                key_version=next_version,
+            )
+            created_count += 1
+
+        # LW-D2: reset next_rotation_due_at on successful rotation for Ephemeral.
+        if created_count > 0 and conversation.trust_profile == TrustProfile.EPHEMERAL:
+            try:
+                policy = conversation.retention_policy
+                if (
+                    policy.enforcement_enabled
+                    and policy.retention_period != ConversationRetentionPolicy.RetentionPeriod.INDEFINITE
+                ):
+                    interval = _rotation_interval(policy.retention_period)
+                    if interval:
+                        policy.next_rotation_due_at = timezone.now() + interval
+                        policy.save(update_fields=["next_rotation_due_at", "updated_at"])
+            except ConversationRetentionPolicy.DoesNotExist:
+                pass
 
     logger.info(
         "[livewire/keys] %d key bundles posted for conversation %s (v%d) by %s",

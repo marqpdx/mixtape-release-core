@@ -115,6 +115,26 @@ def _emit_transcript_ready(message):
     emit_transcript_ready_task.delay(event_data)
 
 
+def _min_referenced_key_version(messages_qs) -> int | None:
+    """Returns the lowest key_version still referenced by any message in the queryset."""
+    min_version = None
+    for msg in messages_qs:
+        if msg.message_type == "voice":
+            v = msg.audio_key_version or 1
+        else:
+            if msg.text and msg.text.startswith("e2e:"):
+                parts = msg.text.split(":", 2)
+                try:
+                    v = int(parts[1]) if len(parts) >= 2 else 1
+                except ValueError:
+                    v = 1
+            else:
+                continue
+        if min_version is None or v < min_version:
+            min_version = v
+    return min_version
+
+
 @shared_task(
     name="chat.tasks.enforce_retention_policies",
     queue="default",
@@ -122,12 +142,11 @@ def _emit_transcript_ready(message):
 def enforce_retention_policies():
     """
     Phase B — deletes messages older than the conversation's retention period.
-    Runs on all Conversations with enforcement_enabled=True and a non-indefinite policy.
-    Ephemeral conversations always have enforcement_enabled=True (enforced at creation).
+    LW-D2 — also prunes ConversationKeyBundle rows for Ephemeral conversations
+    whose key_version is no longer referenced by any remaining message.
     """
     from datetime import timedelta
-    from django.utils import timezone
-    from chat.models import ChatMessage, ConversationRetentionPolicy
+    from chat.models import ChatMessage, ConversationKeyBundle, ConversationRetentionPolicy, TrustProfile
 
     PERIOD_MAP = {
         "1d": timedelta(days=1),
@@ -142,13 +161,16 @@ def enforce_retention_policies():
     ).exclude(retention_period="indefinite").select_related("conversation")
 
     deleted_total = 0
+    pruned_bundle_total = 0
+
     for policy in due:
         delta = PERIOD_MAP.get(policy.retention_period)
         if not delta:
             continue
+        conversation = policy.conversation
         cutoff = timezone.now() - delta
         count, _ = ChatMessage.objects.filter(
-            conversation=policy.conversation,
+            conversation=conversation,
             created_at__lt=cutoff,
         ).delete()
         deleted_total += count
@@ -160,5 +182,38 @@ def enforce_retention_policies():
                 policy.retention_period,
             )
 
-    logger.info("[livewire/retention] Enforcement complete — %d messages deleted.", deleted_total)
-    return {"deleted": deleted_total}
+        # LW-D2: key-bundle pruning — Ephemeral only. Server never holds plaintext keys;
+        # deleting bundles for expired key versions removes the server-side wrapping
+        # material, so a future key compromise cannot decrypt messages already deleted.
+        if conversation.trust_profile != TrustProfile.EPHEMERAL:
+            continue
+
+        remaining_qs = ChatMessage.objects.filter(conversation=conversation).only(
+            "text", "audio_key_version", "message_type"
+        )
+        if not remaining_qs.exists():
+            pruned, _ = ConversationKeyBundle.objects.filter(conversation=conversation).delete()
+        else:
+            min_version = _min_referenced_key_version(remaining_qs)
+            if min_version is not None and min_version > 1:
+                pruned, _ = ConversationKeyBundle.objects.filter(
+                    conversation=conversation,
+                    key_version__lt=min_version,
+                ).delete()
+            else:
+                pruned = 0
+
+        if pruned:
+            pruned_bundle_total += pruned
+            logger.info(
+                "[livewire/keys] Pruned %d key bundles from conversation %s",
+                pruned,
+                conversation.id,
+            )
+
+    logger.info(
+        "[livewire/retention] Enforcement complete — %d messages deleted, %d key bundles pruned.",
+        deleted_total,
+        pruned_bundle_total,
+    )
+    return {"deleted": deleted_total, "bundles_pruned": pruned_bundle_total}
