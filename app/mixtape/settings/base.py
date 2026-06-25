@@ -327,6 +327,18 @@ SERVICE_JWT_AUD_IR = os.getenv("SERVICE_JWT_AUD_IR", "django-ir")  # <-- Phase 1
 
 STACKROOM_BASE_URL = os.getenv("STACKROOM_BASE_URL", "http://127.0.0.1:8012")
 
+# Atrium read-only bridge (Stage 1/1b, decisions/atrium-adr/atrium-readonly-bridge-addendum.md)
+# ATRIUM_CANON_USER_ID is the Stackroom canon-bundle owner (the CTO's personal
+# Puddlejump canon replica) — not a Mixtape Django User pk. Must match whatever
+# STACKROOM_USER_ID the puddlejump/tools/post-push.sh ingest hook used.
+ATRIUM_CANON_USER_ID = os.getenv("ATRIUM_CANON_USER_ID", "00000000-0000-0000-0000-000000000001")
+
+# Read-only codebase roots Atrium's read_file/grep tools are scoped to.
+ATRIUM_CODEBASE_ROOTS = {
+    "mixtape-release-core": (BASE_DIR / ".." ).resolve(),
+    "mixtape-release-frontend": (BASE_DIR / ".." / ".." / "mixtape-release-frontend").resolve(),
+}
+
 # Switchboard async proxy
 SWITCHBOARD_DEFAULT_TENANT_ID = os.getenv("SWITCHBOARD_DEFAULT_TENANT_ID", "00000000-0000-0000-0000-000000000001")
 SWITCHBOARD_DEFAULT_TENANT_NAMESPACE = os.getenv("SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", "platform:crossroads")
