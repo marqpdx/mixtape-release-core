@@ -197,74 +197,58 @@ def promote_draft_view(request, draft_id):
         })
 
     elif ast['type'] == 'commons':
-        commons_item = _promote_commons(ast, request.user, sponsor)
+        leaf = _promote_commons(ast, request.user)
 
-        from commons.models import CommonsItem
-        draft.promoted_content_type = ContentType.objects.get_for_model(CommonsItem)
-        draft.promoted_object_id = commons_item.id
+        from commons.models import Leaf
+        draft.promoted_content_type = ContentType.objects.get_for_model(Leaf)
+        draft.promoted_object_id = leaf.id
         draft.status = 'promoted'
         draft.promoted_at = timezone.now()
         draft.save()
 
         return Response({
             'draft_id': str(draft.id),
-            'commons_item_id': str(commons_item.id),
-            'commons_item_slug': commons_item.slug,
+            'leaf_id': str(leaf.id),
         })
 
     return Response({'error': 'Unknown block type'}, status=400)
 
 
-def _promote_commons(ast, user, sponsor):
+def _promote_commons(ast, user):
     """
-    Create CommonsItem from AST.
-    Declaration line may be a URL or a title.
+    Create a Leaf from AST (ADR-0049 CM-17).
+    Declaration line becomes caption; url field sets link_url and kind='link'.
     """
-    from commons import services as commons_service
+    from commons.models import Leaf
 
     fields = ast['fields']
     declaration = ast['title']
 
-    # If declaration looks like a URL, treat it as source_url
-    source_url = ""
-    title = declaration
+    link_url = None
+    kind = 'text'
+
     if declaration.startswith("http://") or declaration.startswith("https://"):
-        source_url = declaration
-        title = fields.get('title', declaration)
+        link_url = declaration
+        kind = 'link'
+        caption = fields.get('caption', '')
+    else:
+        caption = declaration
 
-    # Also check explicit url field
     if fields.get('url'):
-        source_url = fields['url']
+        link_url = fields['url']
+        kind = 'link'
 
-    item = commons_service.capture_item(
-        user=user,
-        source_url=source_url,
-        title=title,
-        why_recommended=fields.get('why', ''),
-        sponsor=sponsor,
+    leaf = Leaf(
+        author=user,
+        caption=caption,
+        body_text=fields.get('body', ''),
+        kind=kind,
+        link_url=link_url,
+        visibility='public',
+        state=Leaf.STATE_OPEN,
     )
-
-    # Apply optional fields
-    if fields.get('location'):
-        item.location_name = fields['location']
-    if fields.get('type'):
-        item.item_type = fields['type']
-    if fields.get('body'):
-        item.body = fields['body']
-
-    if any(fields.get(k) for k in ('location', 'type', 'body')):
-        item.save()
-
-    # Trigger async extraction if a source URL was submitted.
-    # Runs in the background — failure is silent, curator fills in manually.
-    if item.source_url:
-        try:
-            from commons.tasks import extract_commons_item_task
-            extract_commons_item_task.delay(str(item.id))
-        except Exception:
-            pass  # Celery unavailable — item is still captured, no data loss
-
-    return item
+    leaf.save()
+    return leaf
 
 
 def _promote_course(ast, user, sponsor):

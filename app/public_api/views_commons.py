@@ -5,140 +5,106 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from commons.models import CommonsItem
+from commons.models import Leaf
+
+
+def _leaf_list_item(leaf):
+    author_name = getattr(leaf.author, "display_name", None) or str(leaf.author)
+    return {
+        "id": str(leaf.id),
+        "kind": leaf.kind,
+        "caption": leaf.caption,
+        "body_text": leaf.body_text,
+        "link_url": leaf.link_url,
+        "link_preview": leaf.link_preview,
+        "author_display_name": author_name,
+        "place_id": str(leaf.place_id) if leaf.place_id else None,
+        "occurred_at": leaf.occurred_at,
+        "published_at": leaf.published_at,
+    }
 
 
 class PublicCommonsListView(APIView):
     """
     GET /api/public/commons
 
-    Returns published CommonsItems with geo data for map + listing.
-    Supports ?type= and ?search= filters.
+    Returns closed, Commons-shared, public Leaf records.
+    Supports ?kind= and ?search= filters.
     """
 
     permission_classes = [AllowAny]
 
     def get(self, request):
         qs = (
-            CommonsItem.objects.filter(
-                curation_status=CommonsItem.CurationStatus.PUBLISHED,
-                deleted_at__isnull=True,
+            Leaf.objects.filter(
+                state=Leaf.STATE_CLOSED,
+                library_only=False,
+                visibility="public",
             )
-            .select_related("recommended_by")
+            .select_related("author")
             .order_by("-published_at")
         )
 
-        item_type = request.query_params.get("type")
-        if item_type:
-            qs = qs.filter(item_type=item_type)
+        kind = request.query_params.get("kind")
+        if kind:
+            qs = qs.filter(kind=kind)
 
         search = request.query_params.get("search")
         if search:
             from django.db.models import Q
-
             qs = qs.filter(
-                Q(title__icontains=search)
-                | Q(summary__icontains=search)
-                | Q(location_name__icontains=search)
+                Q(caption__icontains=search) | Q(body_text__icontains=search)
             )
 
-        items = []
-        for item in qs:
-            recommender = None
-            if item.recommended_by:
-                recommender = getattr(
-                    item.recommended_by, "display_name", str(item.recommended_by)
-                )
-            items.append(
-                {
-                    "id": str(item.id),
-                    "title": item.title,
-                    "slug": item.slug,
-                    "item_type": item.item_type,
-                    "summary": item.summary,
-                    "location_name": item.location_name,
-                    "latitude": item.latitude,
-                    "longitude": item.longitude,
-                    "website": item.website,
-                    "why_recommended": item.why_recommended,
-                    "recommended_by_name": recommender,
-                    "published_at": item.published_at,
-                }
-            )
-
-        return Response(items)
+        return Response([_leaf_list_item(leaf) for leaf in qs])
 
 
 class PublicCommonsDetailView(APIView):
     """
-    GET /api/public/commons/{slug}
+    GET /api/public/commons/{id}
 
-    Returns full detail for a single published CommonsItem.
+    Returns full detail for a single Commons-shared Leaf, including entries.
     """
 
     permission_classes = [AllowAny]
 
-    def get(self, request, slug):
-        item = get_object_or_404(
-            CommonsItem.objects.filter(
-                curation_status=CommonsItem.CurationStatus.PUBLISHED,
-                deleted_at__isnull=True,
-            ).select_related("recommended_by"),
-            slug=slug,
+    def get(self, request, pk):
+        leaf = get_object_or_404(
+            Leaf.objects.filter(
+                state=Leaf.STATE_CLOSED,
+                library_only=False,
+                visibility="public",
+            ).select_related("author", "place").prefetch_related("entries"),
+            pk=pk,
         )
 
-        recommender = None
-        if item.recommended_by:
-            recommender = getattr(
-                item.recommended_by, "display_name", str(item.recommended_by)
-            )
+        author_name = getattr(leaf.author, "display_name", None) or str(leaf.author)
 
-        # Filaments (outgoing + incoming)
-        filaments = []
-        for f in item.filaments_out.select_related("target").all():
-            filaments.append(
-                {
-                    "direction": "out",
-                    "relation_type": f.relation_type,
-                    "related_id": str(f.target.id),
-                    "related_title": f.target.title,
-                    "related_slug": f.target.slug,
-                    "note": f.note,
-                }
-            )
-        for f in item.filaments_in.select_related("source").all():
-            filaments.append(
-                {
-                    "direction": "in",
-                    "relation_type": f.relation_type,
-                    "related_id": str(f.source.id),
-                    "related_title": f.source.title,
-                    "related_slug": f.source.slug,
-                    "note": f.note,
-                }
-            )
+        entries = [
+            {
+                "id": str(e.id),
+                "kind": e.kind,
+                "position": e.position,
+                "body_text": e.body_text,
+                "body_json": e.body_json,
+                "shared": e.shared,
+            }
+            for e in leaf.entries.filter(shared=True)
+        ]
 
         data = {
-            "id": str(item.id),
-            "title": item.title,
-            "slug": item.slug,
-            "item_type": item.item_type,
-            "summary": item.summary,
-            "body": item.body,
-            "location_name": item.location_name,
-            "latitude": item.latitude,
-            "longitude": item.longitude,
-            "website": item.website,
-            "contact_email": item.contact_email,
-            "contact_links": item.contact_links,
-            "instagram": item.instagram,
-            "youtube": item.youtube,
-            "rss": item.rss,
-            "founder": item.founder,
-            "why_recommended": item.why_recommended,
-            "recommended_by_name": recommender,
-            "published_at": item.published_at,
-            "filaments": filaments,
+            "id": str(leaf.id),
+            "kind": leaf.kind,
+            "caption": leaf.caption,
+            "body_text": leaf.body_text,
+            "body_json": leaf.body_json,
+            "link_url": leaf.link_url,
+            "link_preview": leaf.link_preview,
+            "author_display_name": author_name,
+            "place_id": str(leaf.place_id) if leaf.place_id else None,
+            "occurred_at": leaf.occurred_at,
+            "published_at": leaf.published_at,
+            "entries": entries,
         }
 
         return Response(data)

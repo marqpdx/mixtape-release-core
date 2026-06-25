@@ -140,33 +140,28 @@ ISSUE_SCHEMA = {
 
 COMMONS_SCHEMA = {
     'type': 'commons',
-    'model': 'commons.CommonsItem',
+    'model': 'commons.Leaf',
     'required_fields': ['title'],
     'fields': {
         'title': {
             'type': 'string',
-            'max_length': 255,
-            'source': 'declaration',  # /commons <url-or-title>
+            'max_length': 500,
+            'source': 'declaration',  # /commons <url-or-caption>
         },
         'url': {
             'type': 'string',
             'max_length': 500,
-            'maps_to': 'source_url',
+            'maps_to': 'link_url',
         },
-        'why': {
+        'caption': {
+            'type': 'string',
+            'max_length': 500,
+            'maps_to': 'caption',
+        },
+        'body': {
             'type': 'markdown',
             'multiline': True,
-            'maps_to': 'why_recommended',
-        },
-        'location': {
-            'type': 'string',
-            'max_length': 255,
-            'maps_to': 'location_name',
-        },
-        'type': {
-            'type': 'choice',
-            'choices': ['person', 'organization', 'group', 'project', 'place', 'event'],
-            'maps_to': 'item_type',
+            'maps_to': 'body_text',
         },
     }
 }
