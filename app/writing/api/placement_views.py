@@ -8,7 +8,8 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from writing.models import Leaf, LeafComment, LeafPlacement, LeafPlacementReaction
+from writing.models import LeafComment, LeafPlacement, LeafPlacementReaction
+from commons.models import Leaf
 
 from .serializers import (
     LeafCommentSerializer,

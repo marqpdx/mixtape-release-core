@@ -1,7 +1,6 @@
 from django.contrib import admin
 
 from writing.models import (
-    Leaf,
     LeafComment,
     Seed,
     SeedDispatch,
@@ -54,12 +53,6 @@ class WritingSynopsisAdmin(admin.ModelAdmin):
     list_filter = ["status", "generated_by", "sponsor_type"]
     search_fields = ["title", "teaser"]
     readonly_fields = ["piece", "generated_by", "source_version", "published_at", "created_at", "updated_at"]
-
-
-@admin.register(Leaf)
-class LeafAdmin(admin.ModelAdmin):
-    list_display = ["id", "author", "kind", "visibility", "published_at", "is_reference"]
-    list_filter = ["kind", "visibility"]
 
 
 @admin.register(LeafComment)

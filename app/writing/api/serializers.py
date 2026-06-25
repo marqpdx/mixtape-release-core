@@ -10,7 +10,6 @@ from utils.shared.contenttypes import resolve_content_type
 from writing.choices import ContentStatus
 
 from ..models import (
-    Leaf,
     LeafComment,
     LeafPlacement,
     LeafPlacementReaction,
@@ -27,6 +26,7 @@ from ..models import (
     WritingFidelityReport,
     WritingSuggestedRevision,
 )
+from commons.models import Leaf
 
 
 User = get_user_model()

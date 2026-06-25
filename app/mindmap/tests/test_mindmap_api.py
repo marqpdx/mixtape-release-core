@@ -6,7 +6,7 @@ from rest_framework.test import APIClient
 
 from mindmap.models import MindMap, MindMapEdge, MindMapNode, MindMapNodeAttachment
 from mindmap.services import mindmap_service
-from writing.models import Leaf
+from commons.models import Leaf
 
 
 User = get_user_model()
