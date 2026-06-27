@@ -12,6 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from atrium.models import AtriumSession, AtriumSessionStatus
+from profiles.services.profiles import ensure_user_profile
 from .serializers import AtriumSessionListSerializer, AtriumSessionEntrySerializer
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ class AtriumSessionListView(generics.ListAPIView):
     serializer_class = AtriumSessionListSerializer
 
     def get_queryset(self):
-        profile = self.request.user.userprofile
+        profile = ensure_user_profile(self.request.user)
         return (
             AtriumSession.objects.filter(
                 member=profile,
@@ -52,7 +53,7 @@ class AtriumSessionCreateView(generics.CreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
-        profile = request.user.userprofile
+        profile = ensure_user_profile(request.user)
         session = AtriumSession.objects.create(
             member=profile,
             title=request.data.get("title", ""),
@@ -80,7 +81,7 @@ class AtriumSessionEntryListView(generics.ListAPIView):
     def get_queryset(self):
         from atrium.models import AtriumSessionEntry
 
-        profile = self.request.user.userprofile
+        profile = ensure_user_profile(self.request.user)
         session_id = self.kwargs["session_id"]
         return AtriumSessionEntry.objects.filter(
             session_id=session_id,
@@ -103,7 +104,7 @@ class AtriumSessionContextView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, session_id):
-        profile = request.user.userprofile
+        profile = ensure_user_profile(request.user)
 
         try:
             session = AtriumSession.objects.get(
@@ -133,7 +134,7 @@ class AtriumSessionUpdateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def patch(self, request, session_id):
-        profile = request.user.userprofile
+        profile = ensure_user_profile(request.user)
 
         try:
             session = AtriumSession.objects.get(
@@ -178,7 +179,7 @@ class AtriumSessionExchangeView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, session_id):
-        profile = request.user.userprofile
+        profile = ensure_user_profile(request.user)
 
         try:
             session = AtriumSession.objects.get(

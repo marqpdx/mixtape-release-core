@@ -62,7 +62,7 @@ class AtriumAnthropicAdapter:
             if final_message.stop_reason != "tool_use":
                 break
 
-            assistant_content = [block.model_dump() for block in final_message.content]
+            assistant_content = [_serialize_content_block(b) for b in final_message.content]
             working_messages.append({"role": "assistant", "content": assistant_content})
 
             tool_results = []
@@ -170,6 +170,19 @@ def _build_system_prompt(session) -> str:
         parts.append(f"\n\nPersonal context:\n{personal_ctx}")
 
     return "\n".join(parts)
+
+
+def _serialize_content_block(block) -> dict:
+    """Serialize an Anthropic content block to the wire format the API accepts.
+
+    block.model_dump() includes SDK-internal fields (e.g. parsed_output) that
+    the API rejects when the block is sent back as part of conversation history.
+    """
+    if block.type == "tool_use":
+        return {"type": "tool_use", "id": block.id, "name": block.name, "input": block.input}
+    if block.type == "text":
+        return {"type": "text", "text": block.text}
+    return {"type": block.type}
 
 
 def _session_to_messages(session) -> list[dict]:
