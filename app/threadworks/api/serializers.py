@@ -471,6 +471,43 @@ class NotificationSerializer(serializers.ModelSerializer):
 
 
 # ============================================================================
+# RECENT DISCUSSIONS (cross-forum, MX-12)
+# ============================================================================
+
+class DiscussionSummarySerializer(serializers.ModelSerializer):
+    """Slim cross-forum serializer for the mobile recent-discussions list."""
+    forum_slug = serializers.CharField(source='forum.slug', read_only=True)
+    forum_name = serializers.CharField(source='forum.title', read_only=True)
+    post_count = serializers.SerializerMethodField()
+    unread_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Discussion
+        fields = [
+            'id', 'slug', 'title',
+            'forum_slug', 'forum_name',
+            'updated_at', 'created_at',
+            'post_count', 'unread_count', 'status',
+        ]
+
+    def get_post_count(self, obj):
+        return obj.posts.filter(is_deleted=False).count()
+
+    def get_unread_count(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            try:
+                view = DiscussionView.objects.get(discussion=obj, user=request.user)
+                return obj.posts.filter(
+                    created_at__gt=view.updated_at,
+                    is_deleted=False,
+                ).count()
+            except DiscussionView.DoesNotExist:
+                return obj.posts.filter(is_deleted=False).count()
+        return 0
+
+
+# ============================================================================
 # SEARCH & VIEW TRACKING
 # ============================================================================
 

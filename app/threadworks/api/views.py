@@ -27,6 +27,7 @@ from .serializers import (
     ForumSerializer,
     ForumCreateSerializer,
     DiscussionSerializer,
+    DiscussionSummarySerializer,
     DiscussionDetailSerializer,
     DiscussionCreateSerializer,
     PostSerializer,
@@ -490,6 +491,35 @@ def mark_discussion_viewed(request, forum_slug, discussion_slug):
     )
 
     return Response({'status': 'discussion_marked_viewed'})
+
+
+# ============================================================================
+# RECENT DISCUSSIONS — cross-forum activity list (MX-12)
+# ============================================================================
+
+class DiscussionRecentListView(generics.ListAPIView):
+    """
+    GET /api/threadworks/discussions/recent/
+    Returns discussions from all forums the requesting user has active
+    membership in, ordered by updated_at desc (most recently posted-to first).
+    FeedPost interleaving deferred to MX-12b.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+    serializer_class = DiscussionSummarySerializer
+
+    def get_queryset(self):
+        return (
+            Discussion.objects.filter(
+                forum__memberships__user=self.request.user,
+                forum__memberships__is_active=True,
+                is_deleted=False,
+                forum__is_archived=False,
+            )
+            .select_related('forum', 'created_by')
+            .order_by('-updated_at')
+            .distinct()
+        )
 
 
 # ============================================================================
