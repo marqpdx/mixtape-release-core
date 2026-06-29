@@ -122,7 +122,12 @@ def _min_referenced_key_version(messages_qs) -> int | None:
         if msg.message_type == "voice":
             v = msg.audio_key_version or 1
         else:
-            if msg.text and msg.text.startswith("e2e:"):
+            # M1 (LW-D3): prefer the server-recorded version (set at write time, clamped to
+            # max known bundle version). Fall back to text parsing only for legacy messages
+            # written before message_key_version existed.
+            if msg.message_key_version is not None:
+                v = msg.message_key_version
+            elif msg.text and msg.text.startswith("e2e:"):
                 parts = msg.text.split(":", 2)
                 try:
                     v = int(parts[1]) if len(parts) >= 2 else 1
@@ -169,11 +174,35 @@ def enforce_retention_policies():
             continue
         conversation = policy.conversation
         cutoff = timezone.now() - delta
+        # H4: collect audio file references before deleting messages —
+        # audio_file uses SET_NULL on delete, leaving StoredFile and the
+        # underlying object-storage file orphaned without this step.
+        expiring_audio_file_ids = list(
+            ChatMessage.objects.filter(
+                conversation=conversation,
+                created_at__lt=cutoff,
+                audio_file__isnull=False,
+            ).values_list("audio_file_id", flat=True)
+        )
+
         count, _ = ChatMessage.objects.filter(
             conversation=conversation,
             created_at__lt=cutoff,
         ).delete()
         deleted_total += count
+
+        if expiring_audio_file_ids:
+            from django.core.files.storage import default_storage
+            from files.models import StoredFile
+            for sf in StoredFile.objects.filter(id__in=expiring_audio_file_ids):
+                try:
+                    default_storage.delete(sf.file_path)
+                except Exception as exc:
+                    logger.warning(
+                        "[livewire/retention] Failed to delete audio file %s: %s", sf.file_path, exc
+                    )
+            StoredFile.objects.filter(id__in=expiring_audio_file_ids).delete()
+
         if count:
             logger.info(
                 "[livewire/retention] Deleted %d messages from conversation %s (policy: %s)",
@@ -189,7 +218,7 @@ def enforce_retention_policies():
             continue
 
         remaining_qs = ChatMessage.objects.filter(conversation=conversation).only(
-            "text", "audio_key_version", "message_type"
+            "text", "audio_key_version", "audio_iv", "message_key_version", "message_type"
         )
         if not remaining_qs.exists():
             pruned, _ = ConversationKeyBundle.objects.filter(conversation=conversation).delete()
