@@ -151,6 +151,10 @@ class ChatMessage(BaseModel):
     # meaningful when audio_iv is set — lets a client fetch the matching key
     # bundle for playback after the conversation key has since been rotated.
     audio_key_version = models.PositiveSmallIntegerField(default=1)
+    # M1 (LW-D3): key version recorded server-side at write time for text messages.
+    # Prevents attacker-controlled version prefix from driving bundle-pruning min-version.
+    # Null for legacy messages written before this field existed; those fall back to text parsing.
+    message_key_version = models.PositiveSmallIntegerField(null=True, blank=True)
     transcript_text = models.TextField(null=True, blank=True)
     transcript_status = models.CharField(
         max_length=20, choices=TRANSCRIPT_STATUS_CHOICES, null=True, blank=True
