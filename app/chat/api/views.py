@@ -969,5 +969,15 @@ def conversation_post_keys(request, slug):
         created_count, slug, next_version, request.user.username,
     )
 
+    # H2 (LW-D3): push a key_rotated event so other connected devices know to evict
+    # their cached key and fetch the new bundle without waiting for next conversation open.
+    if created_count > 0:
+        from utils.chat.notify_socket_server import notify_socket_server_task
+        notify_socket_server_task.delay({
+            "event": "conversation:key_rotated",
+            "slug": slug,
+            "key_version": next_version,
+        })
+
     response_status = status.HTTP_201_CREATED if created_count else status.HTTP_400_BAD_REQUEST
     return Response({"created": created_count, "key_version": next_version, "errors": errors}, status=response_status)
