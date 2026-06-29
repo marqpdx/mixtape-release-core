@@ -173,13 +173,32 @@ class ChatMessageSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data):
-        # Your existing create method with mentions...
+        from django.db.models import Max
+        from chat.models import ConversationKeyBundle
+
         conversation = self.context.get("conversation")
+        text = validated_data["text"]
+
+        # M1 (LW-D3): parse key version from E2E text at write time and clamp to the
+        # max known bundle version, so _min_referenced_key_version never trusts
+        # client-supplied version strings from stored ciphertext.
+        message_key_version = None
+        if text and text.startswith("e2e:"):
+            parts = text.split(":", 2)
+            try:
+                parsed = int(parts[1]) if len(parts) >= 2 else 1
+            except (ValueError, IndexError):
+                parsed = 1
+            max_v = ConversationKeyBundle.objects.filter(
+                conversation=conversation
+            ).aggregate(max_v=Max("key_version"))["max_v"] or 1
+            message_key_version = min(max(parsed, 1), max_v)
 
         message = ChatMessage.objects.create(
             conversation=conversation,
             sender=validated_data["sender"],
-            text=validated_data["text"]
+            text=text,
+            message_key_version=message_key_version,
         )
 
         self._create_mentions(message)
