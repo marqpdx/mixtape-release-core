@@ -886,6 +886,24 @@ def conversation_post_keys(request, slug):
     if not bundles:
         return Response({"detail": "bundles array required."}, status=status.HTTP_400_BAD_REQUEST)
 
+    # M2: verify submitted bundles cover all active participant devices with registered public keys.
+    participant_user_ids = ConversationParticipant.objects.filter(
+        conversation=conversation
+    ).values_list("user_id", flat=True)
+    required_device_ids = set(
+        UserDeviceSession.objects.filter(
+            user_id__in=participant_user_ids,
+            is_active=True,
+        ).exclude(public_key="").values_list("device_id", flat=True)
+    )
+    submitted_device_ids = {item.get("device_id") for item in bundles if item.get("device_id")}
+    missing_devices = required_device_ids - submitted_device_ids
+    if missing_devices:
+        return Response(
+            {"detail": "Missing bundles for required participant devices.", "missing": list(missing_devices)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     created_count = 0
     errors = []
 
@@ -915,6 +933,13 @@ def conversation_post_keys(request, slug):
                 errors.append(f"Device not found or inactive: {device_id}")
                 continue
 
+            # H1: verify device owner is a current conversation participant.
+            if not ConversationParticipant.objects.filter(
+                user=device.user, conversation=conversation
+            ).exists():
+                errors.append(f"Device owner is not a conversation participant: {device_id}")
+                continue
+
             ConversationKeyBundle.objects.create(
                 conversation=conversation,
                 recipient_device=device,
@@ -926,19 +951,18 @@ def conversation_post_keys(request, slug):
             created_count += 1
 
         # LW-D2: reset next_rotation_due_at on successful rotation for Ephemeral.
+        # M3: use get_or_create so the policy exists after first key distribution,
+        # ensuring a subsequent retention PATCH can always find and update it.
         if created_count > 0 and conversation.trust_profile == TrustProfile.EPHEMERAL:
-            try:
-                policy = conversation.retention_policy
-                if (
-                    policy.enforcement_enabled
-                    and policy.retention_period != ConversationRetentionPolicy.RetentionPeriod.INDEFINITE
-                ):
-                    interval = _rotation_interval(policy.retention_period)
-                    if interval:
-                        policy.next_rotation_due_at = timezone.now() + interval
-                        policy.save(update_fields=["next_rotation_due_at", "updated_at"])
-            except ConversationRetentionPolicy.DoesNotExist:
-                pass
+            policy, _ = ConversationRetentionPolicy.objects.get_or_create(conversation=conversation)
+            if (
+                policy.enforcement_enabled
+                and policy.retention_period != ConversationRetentionPolicy.RetentionPeriod.INDEFINITE
+            ):
+                interval = _rotation_interval(policy.retention_period)
+                if interval:
+                    policy.next_rotation_due_at = timezone.now() + interval
+                    policy.save(update_fields=["next_rotation_due_at", "updated_at"])
 
     logger.info(
         "[livewire/keys] %d key bundles posted for conversation %s (v%d) by %s",
