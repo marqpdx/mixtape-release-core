@@ -108,9 +108,9 @@ def conversation_list_create(request):
                 )
 
                 # F-001 (LW-D3): also match on trust_profile — returning an existing Standard conversation
-        # when the caller requested Private or Ephemeral would silently drop E2E encryption.
-        requested_profile = request.data.get("trust_profile", TrustProfile.STANDARD)
-        for convo in existing:
+                # when the caller requested Private or Ephemeral would silently drop E2E encryption.
+                requested_profile = request.data.get("trust_profile", TrustProfile.STANDARD)
+                for convo in existing:
                     convo_users = convo.participants.values_list("user__username", flat=True)
                     if set(convo_users) == set(usernames) and convo.trust_profile == requested_profile:
                         return Response(ConversationReadSerializer(convo).data, status=status.HTTP_200_OK)
@@ -769,6 +769,17 @@ def conversation_retention(request, slug):
 
     serializer = ConversationRetentionPolicySerializer(policy, data=request.data, partial=True)
     if serializer.is_valid():
+        # Claude F-001 (LW-D3): Ephemeral conversations must retain enforcement and a finite retention
+        # period — disabling either defeats the forward secrecy mechanism (messages never deleted,
+        # periodic rotation never triggered).
+        if conversation.trust_profile == TrustProfile.EPHEMERAL:
+            new_enforcement = serializer.validated_data.get("enforcement_enabled", policy.enforcement_enabled)
+            new_period = serializer.validated_data.get("retention_period", policy.retention_period)
+            if not new_enforcement or new_period == ConversationRetentionPolicy.RetentionPeriod.INDEFINITE:
+                return Response(
+                    {"detail": "Ephemeral conversations require enforcement_enabled=true and a non-indefinite retention period."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         serializer.save()
         if (
             conversation.trust_profile == TrustProfile.EPHEMERAL
