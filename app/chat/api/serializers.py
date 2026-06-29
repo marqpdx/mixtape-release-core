@@ -1,9 +1,19 @@
 # chat/api/serializers.py
 
 import logging
+from datetime import timedelta
 
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from rest_framework import serializers
+
+# GPT F-002 (LW-D3 Pass 4): rotation intervals mirror _rotation_interval() in views.py.
+# Cannot import from views (circular); kept in sync manually. Values: period / 4, clamped [6h, 7d].
+_EPHEMERAL_ROTATION_INTERVALS = {
+    "1d": timedelta(hours=6),
+    "7d": timedelta(hours=42),
+    "30d": timedelta(days=7),
+}
 
 from chat.models import (
     ChatMessage,
@@ -101,11 +111,16 @@ class ConversationSerializer(BaseConversationSerializer):
         # F-002/F-005 (LW-D3): Ephemeral conversations require a mandatory retention policy.
         # Create it at conversation creation so enforcement is active even if the user never
         # PATCHes /retention. Default to 7 days; the user can change it via the retention endpoint.
+        # GPT F-002 (LW-D3 Pass 4): also set next_rotation_due_at so the frontend auto-rotation
+        # trigger fires from the first conversation open, not only after a key posting or PATCH.
         if conversation.trust_profile == TrustProfile.EPHEMERAL:
+            default_period = ConversationRetentionPolicy.RetentionPeriod.SEVEN_DAYS
+            interval = _EPHEMERAL_ROTATION_INTERVALS.get(default_period.value)
             ConversationRetentionPolicy.objects.create(
                 conversation=conversation,
                 enforcement_enabled=True,
-                retention_period=ConversationRetentionPolicy.RetentionPeriod.SEVEN_DAYS,
+                retention_period=default_period,
+                next_rotation_due_at=timezone.now() + interval if interval else None,
             )
 
         logger.info(f"Created new conversation: {conversation.slug}")
