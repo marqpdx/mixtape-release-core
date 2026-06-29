@@ -6,6 +6,7 @@ from .sponsor_views import (
     SponsorForumsListView,
     SponsorDiscussionsListView,
 )
+from .views import DiscussionRecentListView
 
 app_name = 'threadworks'
 
@@ -14,6 +15,9 @@ site_urlpatterns = [
     # Sponsor-based queries (generic for groups and members)
     path('forums', SponsorForumsListView.as_view(), name='sponsor-forums-list'),
     path('discussions', SponsorDiscussionsListView.as_view(), name='sponsor-discussions-list'),
+
+    # Cross-forum recent discussions — must precede <slug:forum_slug>/... patterns
+    path('discussions/recent/', DiscussionRecentListView.as_view(), name='discussion-recent-list'),
 
     # Forums
     path('', views.ForumListCreateView.as_view(), name='forum-list-create'),

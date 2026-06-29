@@ -211,6 +211,7 @@ class Discussion(BaseData):
             models.Index(fields=['created_by', '-created_at']),
             models.Index(fields=['status', '-created_at']),
             models.Index(fields=['forum', '-memory_value_score']),
+            models.Index(fields=['-updated_at'], name='discussion_updated_at_desc'),
         ]
 
     def __str__(self):
