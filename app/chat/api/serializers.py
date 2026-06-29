@@ -14,6 +14,7 @@ from chat.models import (
     MessageMention,
     MessageReaction,
     ParticipantVerification,
+    TrustProfile,
     UserDeviceSession,
 )
 
@@ -80,9 +81,12 @@ class ConversationSerializer(BaseConversationSerializer):
                 participants__user=participants[0]
             ).distinct()
 
+            # F-001 (LW-D3): also match on trust_profile so a request for a Private or Ephemeral
+            # conversation never silently reuses an existing Standard one (and vice versa).
+            requested_profile = validated_data.get("trust_profile", TrustProfile.STANDARD)
             for convo in conversations:
                 convo_users = set(p.user.username for p in convo.participants.all())
-                if convo_users == set(all_usernames):
+                if convo_users == set(all_usernames) and convo.trust_profile == requested_profile:
                     logger.info(f"Reusing existing conversation: {convo.slug}")
                     return convo
 
@@ -93,6 +97,16 @@ class ConversationSerializer(BaseConversationSerializer):
         )
         for user in participants:
             ConversationParticipant.objects.create(user=user, conversation=conversation)
+
+        # F-002/F-005 (LW-D3): Ephemeral conversations require a mandatory retention policy.
+        # Create it at conversation creation so enforcement is active even if the user never
+        # PATCHes /retention. Default to 7 days; the user can change it via the retention endpoint.
+        if conversation.trust_profile == TrustProfile.EPHEMERAL:
+            ConversationRetentionPolicy.objects.create(
+                conversation=conversation,
+                enforcement_enabled=True,
+                retention_period=ConversationRetentionPolicy.RetentionPeriod.SEVEN_DAYS,
+            )
 
         logger.info(f"Created new conversation: {conversation.slug}")
         return conversation

@@ -107,9 +107,12 @@ def conversation_list_create(request):
                     .distinct()
                 )
 
-                for convo in existing:
+                # F-001 (LW-D3): also match on trust_profile — returning an existing Standard conversation
+        # when the caller requested Private or Ephemeral would silently drop E2E encryption.
+        requested_profile = request.data.get("trust_profile", TrustProfile.STANDARD)
+        for convo in existing:
                     convo_users = convo.participants.values_list("user__username", flat=True)
-                    if set(convo_users) == set(usernames):
+                    if set(convo_users) == set(usernames) and convo.trust_profile == requested_profile:
                         return Response(ConversationReadSerializer(convo).data, status=status.HTTP_200_OK)
 
         # Otherwise, create new
@@ -410,6 +413,15 @@ def conversation_voice_upload(request, slug):
         audio_key_version = int(request.data.get("key_version") or 1)
     except (TypeError, ValueError):
         audio_key_version = 1
+
+    # M4 (LW-D3): clamp audio_key_version to the max known bundle version, matching the M1
+    # fix for text messages. Prevents a participant from inflating the version to manipulate
+    # pruning (premature or indefinitely deferred bundle deletion).
+    if audio_iv:
+        max_v = ConversationKeyBundle.objects.filter(
+            conversation=conversation
+        ).aggregate(max_v=Max("key_version"))["max_v"] or 1
+        audio_key_version = min(max(audio_key_version, 1), max_v)
     content_type = (audio_file.content_type or "").lower().split(";")[0].strip()
 
     if not audio_iv and content_type not in ALLOWED_AUDIO_MIMES:
@@ -896,7 +908,14 @@ def conversation_post_keys(request, slug):
             is_active=True,
         ).exclude(public_key="").values_list("device_id", flat=True)
     )
-    submitted_device_ids = {item.get("device_id") for item in bundles if item.get("device_id")}
+    # F-001 GPT (LW-D3): only count bundles that have all required wrapping fields toward the
+    # coverage check. A bundle with just device_id but missing encrypted_key/nonce/ephemeral_public_key
+    # would be skipped during insertion but still counted here, letting a caller satisfy the M2
+    # preflight while leaving one device without a valid bundle.
+    submitted_device_ids = {
+        item.get("device_id") for item in bundles
+        if item.get("device_id") and item.get("encrypted_key") and item.get("nonce") and item.get("ephemeral_public_key")
+    }
     missing_devices = required_device_ids - submitted_device_ids
     if missing_devices:
         return Response(
@@ -954,7 +973,16 @@ def conversation_post_keys(request, slug):
         # M3: use get_or_create so the policy exists after first key distribution,
         # ensuring a subsequent retention PATCH can always find and update it.
         if created_count > 0 and conversation.trust_profile == TrustProfile.EPHEMERAL:
-            policy, _ = ConversationRetentionPolicy.objects.get_or_create(conversation=conversation)
+            # F-002/F-005 (LW-D3): if this is the first key posting, create the policy with
+            # enforcement_enabled=True and a default retention period so the Ephemeral contract
+            # (deletion + key rotation) activates even if the user never PATCHes /retention.
+            policy, _ = ConversationRetentionPolicy.objects.get_or_create(
+                conversation=conversation,
+                defaults={
+                    "enforcement_enabled": True,
+                    "retention_period": ConversationRetentionPolicy.RetentionPeriod.SEVEN_DAYS,
+                },
+            )
             if (
                 policy.enforcement_enabled
                 and policy.retention_period != ConversationRetentionPolicy.RetentionPeriod.INDEFINITE
