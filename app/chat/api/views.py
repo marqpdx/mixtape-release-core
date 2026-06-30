@@ -408,7 +408,14 @@ def conversation_voice_upload(request, slug):
     # LW-C3: Private/Ephemeral clients encrypt the blob with the conversation key
     # before upload and send the AES-GCM IV alongside it. The server then holds
     # opaque ciphertext — it cannot validate the audio MIME or transcribe it.
+    # GPT F-001 (LW-D3 Pass 5): enforce iv for Private/Ephemeral — omitting it would
+    # store plaintext audio and queue transcription, violating the E2E guarantee.
     audio_iv = (request.data.get("iv") or "").strip()
+    if not audio_iv and conversation.trust_profile != TrustProfile.STANDARD:
+        return Response(
+            {"error": "Encrypted audio (iv required) must be provided for Private and Ephemeral conversations."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     try:
         audio_key_version = int(request.data.get("key_version") or 1)
     except (TypeError, ValueError):
@@ -772,12 +779,19 @@ def conversation_retention(request, slug):
         # Claude F-001 (LW-D3): Ephemeral conversations must retain enforcement and a finite retention
         # period — disabling either defeats the forward secrecy mechanism (messages never deleted,
         # periodic rotation never triggered).
+        # GPT F-003 (LW-D3 Pass 5): also reject 90d/1y — the ADR specifies 24h/7d/30d as the
+        # allowed Ephemeral windows. Longer windows undermine the bounded-exposure guarantee.
+        _EPHEMERAL_ALLOWED_PERIODS = {
+            ConversationRetentionPolicy.RetentionPeriod.ONE_DAY,
+            ConversationRetentionPolicy.RetentionPeriod.SEVEN_DAYS,
+            ConversationRetentionPolicy.RetentionPeriod.THIRTY_DAYS,
+        }
         if conversation.trust_profile == TrustProfile.EPHEMERAL:
             new_enforcement = serializer.validated_data.get("enforcement_enabled", policy.enforcement_enabled)
             new_period = serializer.validated_data.get("retention_period", policy.retention_period)
-            if not new_enforcement or new_period == ConversationRetentionPolicy.RetentionPeriod.INDEFINITE:
+            if not new_enforcement or new_period not in _EPHEMERAL_ALLOWED_PERIODS:
                 return Response(
-                    {"detail": "Ephemeral conversations require enforcement_enabled=true and a non-indefinite retention period."},
+                    {"detail": "Ephemeral conversations require enforcement_enabled=true and a retention period of 1d, 7d, or 30d."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
         serializer.save()
