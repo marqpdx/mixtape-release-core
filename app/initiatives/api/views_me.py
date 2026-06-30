@@ -1,9 +1,9 @@
 # initiatives/api/views_me.py
 #
-# Member-facing personal initiative surface (MX-V6).
-# All endpoints are IsAuthenticated only — no _superuser_required gate.
+# Personal initiative surface — superuser-only (v0).
 # Resolves the personal initiative via sponsor=user, is_personal=True.
 # MemberStartupService guarantees this exists for every member at signup.
+# Remove _superuser_required gates when member access is formally designed.
 
 import json
 import logging
@@ -40,8 +40,13 @@ User = get_user_model()
 
 
 # ---------------------------------------------------------------------------
-# Helper
+# Helpers
 # ---------------------------------------------------------------------------
+
+def _superuser_required(request):
+    """v0: initiatives/me is superuser-only. Returns True if allowed."""
+    return request.user.is_superuser
+
 
 def _get_personal_initiative(user):
     """Return the user's personal initiative. 404 means a data integrity gap."""
@@ -62,6 +67,8 @@ class MeInitiativeView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
+        if not _superuser_required(request):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         initiative = _get_personal_initiative(request.user)
         return Response(InitiativeSerializer(initiative).data)
 
@@ -74,11 +81,15 @@ class MeSessionListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
+        if not _superuser_required(request):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         initiative = _get_personal_initiative(request.user)
         sessions = initiative.sessions.all()
         return Response(SessionSerializer(sessions, many=True).data)
 
     def post(self, request):
+        if not _superuser_required(request):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         initiative = _get_personal_initiative(request.user)
 
         serializer = SessionSerializer(data=request.data)
@@ -106,10 +117,14 @@ class MeSessionDetailView(APIView):
         return get_object_or_404(Session, id=session_id, initiative=initiative)
 
     def get(self, request, session_id):
+        if not _superuser_required(request):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         session = self._get_session(request.user, session_id)
         return Response(SessionSerializer(session).data)
 
     def patch(self, request, session_id):
+        if not _superuser_required(request):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         session = self._get_session(request.user, session_id)
 
         if request.data.get("end") is True and session.ended_at is None:
@@ -137,6 +152,8 @@ class MeSessionExchangeView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, session_id):
+        if not _superuser_required(request):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         message = request.data.get("message", "").strip()
         if not message:
             return Response({"detail": "message is required."}, status=status.HTTP_400_BAD_REQUEST)
@@ -242,6 +259,8 @@ class MeArtifactListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, session_id):
+        if not _superuser_required(request):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         initiative = _get_personal_initiative(request.user)
         session = get_object_or_404(Session, id=session_id, initiative=initiative)
         artifacts = Artifact.objects.filter(initiative=initiative, session=session)
@@ -264,6 +283,8 @@ class MeNoteCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
+        if not _superuser_required(request):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         initiative = _get_personal_initiative(request.user)
 
         data = {**request.data, "initiative_id": str(initiative.id)}
