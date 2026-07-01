@@ -105,7 +105,17 @@ class WorkingDocumentUpsertView(generics.GenericAPIView):
 
         if not wc:
             return Response(status=status.HTTP_204_NO_CONTENT)
-        return Response(self.get_serializer(wc).data)
+
+        data = self.get_serializer(wc).data
+
+        # If working copy body_json is empty, fall back to the canonical piece content.
+        # This handles imported pieces where the working copy was reset or never saved.
+        wc_body = data.get("body_json")
+        if not wc_body or not isinstance(wc_body, dict) or not wc_body.get("content"):
+            if piece.body_json and isinstance(piece.body_json, dict) and piece.body_json.get("content"):
+                data["body_json"] = piece.body_json
+
+        return Response(data)
 
     def put(self, request, pk=None):
         piece = self.get_piece(pk)

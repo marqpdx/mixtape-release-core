@@ -515,8 +515,14 @@ class WorkingDocumentListSerializer(WorkingDocumentSerializer):
     body_preview = serializers.SerializerMethodField()
 
     def get_body_preview(self, obj):
-        """Extract first 300 chars of plain text from body_json for list previews."""
+        """Extract first 300 chars of plain text from body_json for list previews.
+        Falls back to the canonical piece body_json when the working copy is empty."""
         body = obj.body_json
+        # If working copy body is empty, fall back to the piece's canonical body
+        if not body or not isinstance(body, dict) or not body.get("content"):
+            piece_body = obj.piece.body_json if obj.piece_id else None
+            if piece_body and isinstance(piece_body, dict) and piece_body.get("content"):
+                body = piece_body
         if not body or not isinstance(body, dict):
             return ""
         content = body.get("content", [])
