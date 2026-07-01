@@ -119,23 +119,25 @@ class WorkingDocumentUpsertView(generics.GenericAPIView):
             and piece.body_json.get("content")
         )
 
-        # auto_save_count > 0 means the user has edited and autosaved at least
-        # once — wc.body_json is the authoritative working state. Trust it as-is,
-        # even if it's shorter than piece.body_json (intentional edits).
-        # auto_save_count == 0 means the WC was just created (e.g. Yjs initial
-        # snapshot for a collaborative doc, or a brand-new import) and body_json
-        # has not been written by the user yet — fall back to piece.body_json.
+        # auto_save_count > 0: user has edited and autosaved — wc.body_json is
+        # authoritative. Trust it as-is (intentional edits may shorten the doc).
+        #
+        # auto_save_count == 0: WC was created but never autosaved (e.g. Yjs
+        # initial snapshot for a collaborative doc, or a brand-new import).
+        # Fall back to piece.body_json if it is richer, then bootstrap the WC
+        # so subsequent reads don't need the fallback at all.
         if wc.auto_save_count == 0 and piece_has_content:
             wc_body = data.get("body_json")
-            if not wc_body or not isinstance(wc_body, dict) or not wc_body.get("content"):
+            wc_nodes = len(wc_body.get("content", [])) if isinstance(wc_body, dict) else 0
+            piece_nodes = len(piece.body_json["content"])
+            if wc_nodes < piece_nodes:
                 data["body_json"] = piece.body_json
-            else:
-                # WC has some content but was never autosaved — still prefer
-                # piece if it has more nodes (covers the Yjs 1-node snapshot case).
-                wc_nodes = len(wc_body["content"])
-                piece_nodes = len(piece.body_json["content"])
-                if wc_nodes < piece_nodes:
-                    data["body_json"] = piece.body_json
+                # Bootstrap the WC so future GETs don't need this fallback.
+                # Use update() to skip model hooks; do not touch auto_save_count
+                # so it remains an honest signal that the user has not yet edited.
+                WorkingDocument.objects.filter(pk=wc.pk).update(
+                    body_json=piece.body_json
+                )
 
         return Response(data)
 
