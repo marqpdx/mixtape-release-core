@@ -119,15 +119,23 @@ class WorkingDocumentUpsertView(generics.GenericAPIView):
             and piece.body_json.get("content")
         )
 
-        wc_body = data.get("body_json")
-        wc_nodes = len(wc_body.get("content", [])) if isinstance(wc_body, dict) else 0
-        piece_nodes = len(piece.body_json.get("content", [])) if piece_has_content else 0
-
-        if wc_nodes < piece_nodes:
-            # WC body is absent, empty, or a sparse Yjs initial snapshot — prefer
-            # the richer piece.body_json. Covers both collaborative docs (where the
-            # Yjs snapshot is often 1 node) and imported docs with no autosave yet.
-            data["body_json"] = piece.body_json
+        # auto_save_count > 0 means the user has edited and autosaved at least
+        # once — wc.body_json is the authoritative working state. Trust it as-is,
+        # even if it's shorter than piece.body_json (intentional edits).
+        # auto_save_count == 0 means the WC was just created (e.g. Yjs initial
+        # snapshot for a collaborative doc, or a brand-new import) and body_json
+        # has not been written by the user yet — fall back to piece.body_json.
+        if wc.auto_save_count == 0 and piece_has_content:
+            wc_body = data.get("body_json")
+            if not wc_body or not isinstance(wc_body, dict) or not wc_body.get("content"):
+                data["body_json"] = piece.body_json
+            else:
+                # WC has some content but was never autosaved — still prefer
+                # piece if it has more nodes (covers the Yjs 1-node snapshot case).
+                wc_nodes = len(wc_body["content"])
+                piece_nodes = len(piece.body_json["content"])
+                if wc_nodes < piece_nodes:
+                    data["body_json"] = piece.body_json
 
         return Response(data)
 
