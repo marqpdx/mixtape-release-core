@@ -516,12 +516,20 @@ class WorkingDocumentListSerializer(WorkingDocumentSerializer):
 
     def get_body_preview(self, obj):
         """Extract first 300 chars of plain text from body_json for list previews.
-        Falls back to the canonical piece body_json when the working copy is empty."""
+        Falls back to the canonical piece body_json when the working copy is empty
+        or when the doc is collaborative (wc.body_json is only the Yjs snapshot)."""
+        piece_body = obj.piece.body_json if obj.piece_id else None
+        piece_has_content = (
+            piece_body and isinstance(piece_body, dict) and piece_body.get("content")
+        )
+
         body = obj.body_json
-        # If working copy body is empty, fall back to the piece's canonical body
-        if not body or not isinstance(body, dict) or not body.get("content"):
-            piece_body = obj.piece.body_json if obj.piece_id else None
-            if piece_body and isinstance(piece_body, dict) and piece_body.get("content"):
+        # Collaborative docs: wc.body_json is only the Yjs initial snapshot.
+        # piece.body_json is the authoritative content; prefer it.
+        if obj.dispatch_content_id and piece_has_content:
+            body = piece_body
+        elif not body or not isinstance(body, dict) or not body.get("content"):
+            if piece_has_content:
                 body = piece_body
         if not body or not isinstance(body, dict):
             return ""

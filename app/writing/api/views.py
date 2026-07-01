@@ -113,12 +113,23 @@ class WorkingDocumentUpsertView(generics.GenericAPIView):
 
         data = self.get_serializer(wc).data
 
-        # If working copy body_json is empty, fall back to the canonical piece content.
-        # This handles imported pieces where the working copy was reset or never saved.
-        wc_body = data.get("body_json")
-        if not wc_body or not isinstance(wc_body, dict) or not wc_body.get("content"):
-            if piece.body_json and isinstance(piece.body_json, dict) and piece.body_json.get("content"):
-                data["body_json"] = piece.body_json
+        piece_has_content = (
+            piece.body_json
+            and isinstance(piece.body_json, dict)
+            and piece.body_json.get("content")
+        )
+
+        # Collaborative docs: wc.body_json holds only the Yjs initial snapshot
+        # (often 1 node). Live content lives in Yjs; piece.body_json is the
+        # authoritative snapshot updated on promote/publish. Always prefer it.
+        if wc.dispatch_content_id and piece_has_content:
+            data["body_json"] = piece.body_json
+        else:
+            # Non-collaborative: fall back to piece if wc body is empty/missing.
+            wc_body = data.get("body_json")
+            if not wc_body or not isinstance(wc_body, dict) or not wc_body.get("content"):
+                if piece_has_content:
+                    data["body_json"] = piece.body_json
 
         return Response(data)
 
