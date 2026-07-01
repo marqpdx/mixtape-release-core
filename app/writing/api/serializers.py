@@ -516,24 +516,29 @@ class WorkingDocumentListSerializer(WorkingDocumentSerializer):
 
     def get_body_preview(self, obj):
         """Extract first 300 chars of plain text from body_json for list previews.
-        Falls back to the canonical piece body_json when the working copy is empty
-        or when the doc is collaborative (wc.body_json is only the Yjs snapshot)."""
-        piece_body = obj.piece.body_json if obj.piece_id else None
-        piece_has_content = (
-            piece_body and isinstance(piece_body, dict) and piece_body.get("content")
-        )
 
+        Collaborative docs save to DispatchContent.content_snapshot (not wc.body_json),
+        so for those we read content_snapshot. Solo docs fall back to piece.body_json
+        only when auto_save_count == 0 (never user-edited)."""
         body = obj.body_json
 
-        # Only fall back to piece.body_json when the WC has never been autosaved
-        # (auto_save_count == 0). Once the user has edited and saved, wc.body_json
-        # is the authoritative working state — even if it's shorter than the piece
-        # (intentional cuts must not be silently overridden).
-        if obj.auto_save_count == 0 and piece_has_content:
-            wc_nodes = len(body.get("content", [])) if isinstance(body, dict) else 0
-            piece_nodes = len(piece_body["content"])
-            if wc_nodes < piece_nodes:
-                body = piece_body
+        if obj.dispatch_content:
+            # Collaborative: collab autosave writes to content_snapshot, not wc.body_json.
+            dc_body = obj.dispatch_content.content_snapshot
+            if dc_body and isinstance(dc_body, dict) and dc_body.get("content"):
+                wc_nodes = len(body.get("content", [])) if isinstance(body, dict) else 0
+                dc_nodes = len(dc_body["content"])
+                if wc_nodes < dc_nodes:
+                    body = dc_body
+        elif obj.auto_save_count == 0:
+            # Solo, never autosaved: fall back to piece.body_json if richer.
+            piece_body = obj.piece.body_json if obj.piece_id else None
+            piece_has_content = piece_body and isinstance(piece_body, dict) and piece_body.get("content")
+            if piece_has_content:
+                wc_nodes = len(body.get("content", [])) if isinstance(body, dict) else 0
+                piece_nodes = len(piece_body["content"])
+                if wc_nodes < piece_nodes:
+                    body = piece_body
         if not body or not isinstance(body, dict):
             return ""
         content = body.get("content", [])
