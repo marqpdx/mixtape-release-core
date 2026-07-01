@@ -517,21 +517,13 @@ class WorkingDocumentListSerializer(WorkingDocumentSerializer):
     def get_body_preview(self, obj):
         """Extract first 300 chars of plain text from body_json for list previews.
 
-        Collaborative docs save to DispatchContent.content_snapshot (not wc.body_json),
-        so for those we read content_snapshot. Solo docs fall back to piece.body_json
-        only when auto_save_count == 0 (never user-edited)."""
+        For collaborative docs, the dispatch PATCH handler keeps wc.body_json in sync
+        with content_snapshot, so wc.body_json is always current here.
+        For solo docs that have never been autosaved (auto_save_count == 0), fall back
+        to piece.body_json (e.g. imported content that pre-dates the WC row)."""
         body = obj.body_json
 
-        if obj.dispatch_content:
-            # Collaborative: collab autosave writes to content_snapshot, not wc.body_json.
-            dc_body = obj.dispatch_content.content_snapshot
-            if dc_body and isinstance(dc_body, dict) and dc_body.get("content"):
-                wc_nodes = len(body.get("content", [])) if isinstance(body, dict) else 0
-                dc_nodes = len(dc_body["content"])
-                if wc_nodes < dc_nodes:
-                    body = dc_body
-        elif obj.auto_save_count == 0:
-            # Solo, never autosaved: fall back to piece.body_json if richer.
+        if obj.auto_save_count == 0:
             piece_body = obj.piece.body_json if obj.piece_id else None
             piece_has_content = piece_body and isinstance(piece_body, dict) and piece_body.get("content")
             if piece_has_content:
