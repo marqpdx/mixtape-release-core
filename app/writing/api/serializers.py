@@ -524,13 +524,16 @@ class WorkingDocumentListSerializer(WorkingDocumentSerializer):
         )
 
         body = obj.body_json
-        wc_nodes = len(body.get("content", [])) if isinstance(body, dict) else 0
-        piece_nodes = len(piece_body.get("content", [])) if piece_has_content else 0
 
-        if wc_nodes < piece_nodes:
-            # WC body is absent, sparse (e.g. Yjs initial snapshot), or empty —
-            # prefer the richer piece.body_json for the preview.
-            body = piece_body
+        # Only fall back to piece.body_json when the WC has never been autosaved
+        # (auto_save_count == 0). Once the user has edited and saved, wc.body_json
+        # is the authoritative working state — even if it's shorter than the piece
+        # (intentional cuts must not be silently overridden).
+        if obj.auto_save_count == 0 and piece_has_content:
+            wc_nodes = len(body.get("content", [])) if isinstance(body, dict) else 0
+            piece_nodes = len(piece_body["content"])
+            if wc_nodes < piece_nodes:
+                body = piece_body
         if not body or not isinstance(body, dict):
             return ""
         content = body.get("content", [])
