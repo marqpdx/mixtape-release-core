@@ -199,6 +199,14 @@ class DispatchContentDetailView(generics.RetrieveUpdateAPIView):
 
         content.save(update_fields=update_fields)
 
+        # Keep the linked WorkingDocument(s) in sync so the writing list and
+        # working-copy GET always have current body_json without special-casing.
+        if content_snapshot:
+            from writing.models import WorkingDocument
+            WorkingDocument.objects.filter(dispatch_content=content).update(
+                body_json=content_snapshot
+            )
+
         return Response({
             "status": "saved",
             "yjs_state_updated_at": content.yjs_state_updated_at,

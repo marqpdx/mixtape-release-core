@@ -96,16 +96,12 @@ class WorkingDocumentUpsertView(generics.GenericAPIView):
         piece = self.get_piece(pk)
 
         # First try to find user's own working copy
-        wc = WorkingDocument.objects.select_related('dispatch_content').filter(
-            piece=piece, user=request.user
-        ).first()
+        wc = WorkingDocument.objects.filter(piece=piece, user=request.user).first()
 
         # If not found and piece is collaborative, find the author's working copy
         # (collaborators work on the same shared document via Yjs)
         if not wc and piece.author_id != request.user.id:
-            wc = WorkingDocument.objects.select_related('dispatch_content').filter(
-                piece=piece, user=piece.author
-            ).first()
+            wc = WorkingDocument.objects.filter(piece=piece, user=piece.author).first()
 
         if not wc:
             # No working copy exists yet. If the piece has canonical content
@@ -117,25 +113,15 @@ class WorkingDocumentUpsertView(generics.GenericAPIView):
 
         data = self.get_serializer(wc).data
 
-        # Determine the best body_json to return.
+        # auto_save_count > 0: user has solo-edited and autosaved — wc.body_json is
+        # authoritative (intentional edits may shorten the doc; don't override).
         #
-        # Collaborative docs: collab autosave writes to DispatchContent.content_snapshot,
-        # NOT to wc.body_json — so auto_save_count never increments for collab docs.
-        # content_snapshot is always the freshest browser-visible state.
-        #
-        # Solo docs: auto_save_count == 0 means WC has never been user-edited;
-        # fall back to piece.body_json (e.g. imported content) if it is richer.
-        best_body = None
-
-        if wc.dispatch_content:
-            dc_body = wc.dispatch_content.content_snapshot
-            if dc_body and isinstance(dc_body, dict) and dc_body.get("content"):
-                wc_body = data.get("body_json")
-                wc_nodes = len(wc_body.get("content", [])) if isinstance(wc_body, dict) else 0
-                dc_nodes = len(dc_body["content"])
-                if wc_nodes < dc_nodes:
-                    best_body = dc_body
-        elif wc.auto_save_count == 0:
+        # auto_save_count == 0: WC has never been solo-edited. For collab docs,
+        # the dispatch PATCH handler now keeps wc.body_json in sync with
+        # content_snapshot, so wc.body_json is already current. For solo docs
+        # (e.g. imported pieces where WC was never touched), fall back to
+        # piece.body_json if it is richer, then bootstrap.
+        if wc.auto_save_count == 0:
             piece_has_content = (
                 piece.body_json
                 and isinstance(piece.body_json, dict)
@@ -146,13 +132,10 @@ class WorkingDocumentUpsertView(generics.GenericAPIView):
                 wc_nodes = len(wc_body.get("content", [])) if isinstance(wc_body, dict) else 0
                 piece_nodes = len(piece.body_json["content"])
                 if wc_nodes < piece_nodes:
-                    best_body = piece.body_json
-
-        if best_body is not None:
-            data["body_json"] = best_body
-            # Bootstrap the WC so the list serializer can use wc.body_json directly.
-            # Use update() to skip model hooks; do not touch auto_save_count.
-            WorkingDocument.objects.filter(pk=wc.pk).update(body_json=best_body)
+                    data["body_json"] = piece.body_json
+                    WorkingDocument.objects.filter(pk=wc.pk).update(
+                        body_json=piece.body_json
+                    )
 
         return Response(data)
 
