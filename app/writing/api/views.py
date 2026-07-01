@@ -119,17 +119,15 @@ class WorkingDocumentUpsertView(generics.GenericAPIView):
             and piece.body_json.get("content")
         )
 
-        # Collaborative docs: wc.body_json holds only the Yjs initial snapshot
-        # (often 1 node). Live content lives in Yjs; piece.body_json is the
-        # authoritative snapshot updated on promote/publish. Always prefer it.
-        if wc.dispatch_content_id and piece_has_content:
+        wc_body = data.get("body_json")
+        wc_nodes = len(wc_body.get("content", [])) if isinstance(wc_body, dict) else 0
+        piece_nodes = len(piece.body_json.get("content", [])) if piece_has_content else 0
+
+        if wc_nodes < piece_nodes:
+            # WC body is absent, empty, or a sparse Yjs initial snapshot — prefer
+            # the richer piece.body_json. Covers both collaborative docs (where the
+            # Yjs snapshot is often 1 node) and imported docs with no autosave yet.
             data["body_json"] = piece.body_json
-        else:
-            # Non-collaborative: fall back to piece if wc body is empty/missing.
-            wc_body = data.get("body_json")
-            if not wc_body or not isinstance(wc_body, dict) or not wc_body.get("content"):
-                if piece_has_content:
-                    data["body_json"] = piece.body_json
 
         return Response(data)
 
