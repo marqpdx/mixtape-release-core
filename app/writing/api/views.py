@@ -104,6 +104,11 @@ class WorkingDocumentUpsertView(generics.GenericAPIView):
             wc = WorkingDocument.objects.filter(piece=piece, user=piece.author).first()
 
         if not wc:
+            # No working copy exists yet. If the piece has canonical content
+            # (e.g. imported doc), return it so the editor isn't blank.
+            # The PUT on first autosave will create the working copy row.
+            if piece.body_json and isinstance(piece.body_json, dict) and piece.body_json.get("content"):
+                return Response({"body_json": piece.body_json})
             return Response(status=status.HTTP_204_NO_CONTENT)
 
         data = self.get_serializer(wc).data
