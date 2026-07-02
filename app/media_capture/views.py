@@ -77,6 +77,37 @@ class MediaCaptureUploadView(APIView):
         )
 
 
+class MediaCaptureListView(APIView):
+    """
+    GET /api/media-capture/
+
+    Returns all captures authored by the current user, newest first.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        captures = (
+            MediaCapture.objects.filter(author=request.user)
+            .select_related("transcript")
+            .order_by("-created_at")
+        )
+        results = []
+        for c in captures:
+            results.append({
+                "capture_id": str(c.id),
+                "title": c.title,
+                "status": c.status,
+                "source_type": c.source_type,
+                "created_at": c.created_at.isoformat(),
+                "duration_seconds": c.duration_seconds,
+                "has_transcript": c.transcript is not None,
+                "stackroom_ingested": bool(
+                    c.transcript and c.transcript.stackroom_ingested_at
+                ),
+            })
+        return Response(results)
+
+
 class MediaCaptureDetailView(APIView):
     """
     GET /api/media-capture/{capture_id}/
