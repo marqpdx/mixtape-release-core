@@ -146,6 +146,7 @@ INSTALLED_APPS = [
     "bridge",          # Bridge — live gathering infrastructure (Bridge/Continuity ADR)
     "atrium",          # Atrium — personal AI session surface (AtriumSession, AtriumSessionEntry)
     "tapestry",        # Tapestry — Place stub (CM-0, commons-adr.md D17); full GIS deferred
+    "media_capture",   # MediaCapture — screencast & media ingestion pipeline (Bridge Phase D)
 ]
 
 INSTALLED_APPS += ["rest_framework_simplejwt.token_blacklist"]

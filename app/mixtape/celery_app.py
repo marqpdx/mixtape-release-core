@@ -147,6 +147,14 @@ app.conf.task_routes = {
         "queue": "transcription", "routing_key": "transcription"
     },
 
+    # --- MediaCapture: screencast transcription + Stackroom ingestion ---
+    "media_capture.tasks.transcribe_capture": {
+        "queue": "transcription", "routing_key": "transcription"
+    },
+    "media_capture.tasks.ingest_to_stackroom": {
+        "queue": "commons", "routing_key": "commons"
+    },
+
     # --- Initiatives: AI-backed quality scan, rolling summary, handover draft ---
     "initiatives.tasks.run_artifact_quality_scan": {
         "queue": "commons", "routing_key": "commons"
