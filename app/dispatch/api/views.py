@@ -143,6 +143,11 @@ class DispatchContentDetailView(generics.RetrieveUpdateAPIView):
         # Extract save payload
         yjs_state_b64 = request.data.get('yjs_state')
         content_snapshot = request.data.get('body_json') or request.data.get('content_snapshot')
+        # external_update=True signals a save from outside the collab editor
+        # (e.g. DualPanelEditor). It bypasses the write-storm throttle and
+        # clears the Yjs binary state so the next room initialization
+        # bootstraps from content_snapshot rather than the stale binary.
+        is_external_update = bool(request.data.get('external_update', False))
 
         # At least one must be provided
         if not yjs_state_b64 and not content_snapshot:
@@ -167,8 +172,10 @@ class DispatchContentDetailView(generics.RetrieveUpdateAPIView):
                     status=400
                 )
 
-        # Throttle: Check if last save was too recent
-        if content.yjs_state_updated_at:
+        # Throttle: Check if last save was too recent.
+        # External updates (from DualPanelEditor) bypass this — they are
+        # explicit user-initiated saves, not high-frequency autosave beats.
+        if not is_external_update and content.yjs_state_updated_at:
             from datetime import timedelta
             time_since_last_save = timezone.now() - content.yjs_state_updated_at
 
@@ -191,6 +198,16 @@ class DispatchContentDetailView(generics.RetrieveUpdateAPIView):
             content.content_snapshot = content_snapshot
             content.snapshot_updated_at = timezone.now()
             update_fields.extend(['content_snapshot', 'snapshot_updated_at'])
+
+        # External update: clear the Yjs binary state so the next livewire room
+        # initialization starts empty and bootstraps from content_snapshot.
+        # TipTap Collaboration applies initialContent only when the Yjs doc is
+        # empty, so this is the mechanism that gets the new content into the editor.
+        if is_external_update and not yjs_state_b64:
+            content.yjs_state = None
+            content.yjs_state_updated_at = None
+            if 'yjs_state' not in update_fields:
+                update_fields.extend(['yjs_state', 'yjs_state_updated_at'])
 
         # Update edit tracking
         content.last_edited_by = request.user
