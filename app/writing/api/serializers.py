@@ -460,9 +460,15 @@ class WorkingDocumentSerializer(serializers.ModelSerializer):
     is_collaborative = serializers.SerializerMethodField()
     collaborator_count = serializers.SerializerMethodField()
     collaborators = serializers.SerializerMethodField()
+    dispatch_content_id = serializers.SerializerMethodField()
 
     # Living Book field
     living_book_id = serializers.SerializerMethodField()
+
+    def get_dispatch_content_id(self, obj):
+        if obj.dispatch_content:
+            return str(obj.dispatch_content.id)
+        return None
 
     def get_living_book_id(self, obj):
         lb_id = obj.piece.living_books_as_trunk.values_list('id', flat=True).first()
@@ -504,6 +510,7 @@ class WorkingDocumentSerializer(serializers.ModelSerializer):
             "is_collaborative",
             "collaborator_count",
             "collaborators",
+            "dispatch_content_id",
             # Living Book
             "living_book_id",
         ]
