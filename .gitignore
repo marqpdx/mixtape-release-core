@@ -54,3 +54,7 @@ check.sh
 # */migrations/*.py
 # !*/migrations/__init__.py
 llm_models/
+
+# Meridian / OpenWiki — generated wiki prose; VPS-only by default
+# Client deployments may override this policy via their own git server configuration
+openwiki/
