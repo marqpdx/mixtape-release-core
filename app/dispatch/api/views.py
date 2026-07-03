@@ -1,6 +1,7 @@
 # dispatch/api/views.py
 
 import base64
+import requests as http_requests
 from rest_framework import generics
 from rest_framework import permissions
 from rest_framework import viewsets
@@ -8,6 +9,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
+from django.conf import settings
 from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -380,6 +382,23 @@ class DispatchContentCollaboratorsView(generics.GenericAPIView):
         return Response({
             "collaborators": UserSerializer(content.collaborators.all(), many=True).data
         })
+
+
+class DispatchContentPresenceView(generics.GenericAPIView):
+    """Proxy presence check to Livewire: returns how many clients have this doc open."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, id):
+        livewire_url = getattr(settings, "LIVEWIRE_INTERNAL_URL", "http://127.0.0.1:5001")
+        try:
+            resp = http_requests.get(
+                f"{livewire_url}/presence",
+                params={"contentId": str(id)},
+                timeout=2,
+            )
+            return Response(resp.json())
+        except Exception:
+            return Response({"active": False, "clients": 0})
 
 
 # DispatchContentVersion
