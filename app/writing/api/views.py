@@ -105,11 +105,17 @@ class WorkingDocumentUpsertView(generics.GenericAPIView):
 
         if not wc:
             # No working copy exists yet. If the piece has canonical content
-            # (e.g. imported doc), return it so the editor isn't blank.
-            # The PUT on first autosave will create the working copy row.
+            # (e.g. imported doc), create the WC inline so the editor gets a
+            # full WC-shaped response and downstream consumers don't crash on
+            # missing piece fields. The PUT on first autosave will update it.
             if piece.body_json and isinstance(piece.body_json, dict) and piece.body_json.get("content"):
-                return Response({"body_json": piece.body_json})
-            return Response(status=status.HTTP_204_NO_CONTENT)
+                wc = WorkingDocument.objects.create(
+                    piece=piece,
+                    user=request.user,
+                    body_json=piece.body_json,
+                )
+            else:
+                return Response(status=status.HTTP_204_NO_CONTENT)
 
         data = self.get_serializer(wc).data
 
@@ -2500,7 +2506,8 @@ class WritingSynopsisLinkedInCopyView(generics.GenericAPIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        body_preview = _extract_plain_text(piece.body_json or {}, char_limit=400)
+        export_source = get_export_source_for_user(piece, request.user)
+        body_preview = _extract_plain_text(export_source["body_json"] or {}, char_limit=400)
         inkwell_url = getattr(settings, "INKWELL_BASE_URL", "http://127.0.0.1:8020")
 
         try:
