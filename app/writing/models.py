@@ -406,6 +406,9 @@ class WorkingDocument(BaseModel):
     last_saved_at = models.DateTimeField(auto_now=True)
     auto_save_count = models.PositiveIntegerField(default=0)
     client_session_id = models.CharField(max_length=64, blank=True)
+    # Set once when piece.body_json is bootstrapped into this WC on first GET.
+    # Null means the bootstrap check has not yet run for this WC row.
+    bootstrapped_at = models.DateTimeField(null=True, blank=True)
 
     # === Composable Workflow Layers (Decorator Pattern) ===
 
@@ -490,7 +493,7 @@ class WorkingDocument(BaseModel):
             piece.excerpt = self.excerpt
             changed_fields.append("excerpt")
 
-        if self.body_json and self.body_json != piece.body_json:
+        if self.body_json is not None and self.body_json != piece.body_json:
             piece.body_json = self.body_json
             changed_fields.append("body_json")
 

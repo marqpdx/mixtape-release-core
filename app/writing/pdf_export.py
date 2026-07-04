@@ -108,7 +108,7 @@ def get_pdf_export_source_for_user(piece: WritingPiece, user) -> dict:
 
     if working_doc and working_doc.dispatch_content:
         dispatch_content = working_doc.dispatch_content
-        body_json = dispatch_content.content_snapshot or working_doc.body_json or piece.body_json or {}
+        body_json = working_doc.body_json or dispatch_content.content_snapshot or piece.body_json or {}
         return {
             "title": working_doc.title or piece.title or "Untitled",
             "excerpt": working_doc.excerpt or piece.excerpt or "",

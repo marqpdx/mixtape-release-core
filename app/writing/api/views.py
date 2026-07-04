@@ -113,21 +113,18 @@ class WorkingDocumentUpsertView(generics.GenericAPIView):
                     piece=piece,
                     user=request.user,
                     body_json=piece.body_json,
+                    bootstrapped_at=timezone.now(),
                 )
             else:
                 return Response(status=status.HTTP_204_NO_CONTENT)
 
         data = self.get_serializer(wc).data
 
-        # auto_save_count > 0: user has solo-edited and autosaved — wc.body_json is
-        # authoritative (intentional edits may shorten the doc; don't override).
-        #
-        # auto_save_count == 0: WC has never been solo-edited. For collab docs,
-        # the dispatch PATCH handler now keeps wc.body_json in sync with
-        # content_snapshot, so wc.body_json is already current. For solo docs
-        # (e.g. imported pieces where WC was never touched), fall back to
-        # piece.body_json if it is richer, then bootstrap.
-        if wc.auto_save_count == 0:
+        # bootstrapped_at is None: this WC has never been checked against piece.body_json.
+        # For solo docs where piece.body_json is richer (e.g. imported pieces where WC
+        # was never edited), bootstrap once and set the flag so this never repeats.
+        # bootstrapped_at is set: skip — either already bootstrapped, or user-edited.
+        if wc.bootstrapped_at is None:
             piece_has_content = (
                 piece.body_json
                 and isinstance(piece.body_json, dict)
@@ -140,8 +137,13 @@ class WorkingDocumentUpsertView(generics.GenericAPIView):
                 if wc_nodes < piece_nodes:
                     data["body_json"] = piece.body_json
                     WorkingDocument.objects.filter(pk=wc.pk).update(
-                        body_json=piece.body_json
+                        body_json=piece.body_json,
+                        bootstrapped_at=timezone.now(),
                     )
+            else:
+                WorkingDocument.objects.filter(pk=wc.pk).update(
+                    bootstrapped_at=timezone.now(),
+                )
 
         return Response(data)
 
