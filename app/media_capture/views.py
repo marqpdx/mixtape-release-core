@@ -128,7 +128,9 @@ class MediaCaptureDetailView(APIView):
         video_url: str | None = None
         if capture.media_file:
             try:
-                video_url = default_storage.url(capture.media_file)
+                from urllib.parse import urlparse
+                raw_url = default_storage.url(capture.media_file)
+                video_url = raw_url if urlparse(raw_url).scheme else request.build_absolute_uri(raw_url)
             except Exception:
                 pass
 
