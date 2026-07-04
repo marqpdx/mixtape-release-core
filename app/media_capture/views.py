@@ -125,12 +125,20 @@ class MediaCaptureDetailView(APIView):
         except MediaCapture.DoesNotExist:
             return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
+        video_url: str | None = None
+        if capture.media_file:
+            try:
+                video_url = default_storage.url(capture.media_file)
+            except Exception:
+                pass
+
         data: dict = {
             "capture_id": str(capture.id),
             "title": capture.title,
             "status": capture.status,
             "source_type": capture.source_type,
             "created_at": capture.created_at.isoformat(),
+            "video_url": video_url,
         }
 
         if capture.transcript:
