@@ -135,6 +135,7 @@ class MediaCaptureDetailView(APIView):
         data: dict = {
             "capture_id": str(capture.id),
             "title": capture.title,
+            "purpose": capture.purpose,
             "status": capture.status,
             "source_type": capture.source_type,
             "created_at": capture.created_at.isoformat(),
@@ -154,6 +155,52 @@ class MediaCaptureDetailView(APIView):
             }
 
         return Response(data)
+
+    def patch(self, request, capture_id):
+        try:
+            capture = MediaCapture.objects.get(id=capture_id, author=request.user)
+        except MediaCapture.DoesNotExist:
+            return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        fields = []
+        if "title" in request.data:
+            capture.title = request.data["title"]
+            fields.append("title")
+        if "purpose" in request.data:
+            capture.purpose = request.data["purpose"]
+            fields.append("purpose")
+
+        if fields:
+            fields.append("updated_at")
+            capture.save(update_fields=fields)
+
+        return Response({"capture_id": str(capture.id), "title": capture.title, "purpose": capture.purpose})
+
+    def delete(self, request, capture_id):
+        try:
+            capture = MediaCapture.objects.select_related("transcript").get(
+                id=capture_id, author=request.user
+            )
+        except MediaCapture.DoesNotExist:
+            return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Deactivate from Stackroom IR if ingested
+        if capture.transcript and capture.transcript.stackroom_ingested_at:
+            try:
+                from inkwell.stackroom_integration_service import deactivate_object
+                deactivate_object(capture.transcript, reason="capture_deleted")
+            except Exception as exc:
+                logger.warning("Stackroom deactivation failed for capture %s: %s", capture_id, exc)
+
+        # Remove file from storage
+        if capture.media_file:
+            try:
+                default_storage.delete(capture.media_file)
+            except Exception as exc:
+                logger.warning("Storage delete failed for capture %s: %s", capture_id, exc)
+
+        capture.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class MediaCaptureStreamView(APIView):

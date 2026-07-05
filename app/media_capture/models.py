@@ -58,6 +58,7 @@ class MediaCapture(BaseModel):
         default=CaptureSourceType.SCREENCAST,
     )
     title = models.CharField(max_length=255, blank=True)
+    purpose = models.TextField(blank=True)
     author = models.ForeignKey(
         "users.CustomUser",
         on_delete=models.SET_NULL,
