@@ -3,7 +3,10 @@ from __future__ import annotations
 import logging
 from datetime import date
 
+import mimetypes
+
 from django.core.files.uploadedfile import InMemoryUploadedFile
+from django.http import FileResponse, StreamingHttpResponse
 from django.utils.text import get_valid_filename
 from django.core.files.storage import default_storage
 from rest_framework import status
@@ -127,12 +130,7 @@ class MediaCaptureDetailView(APIView):
 
         video_url: str | None = None
         if capture.media_file:
-            try:
-                from urllib.parse import urlparse
-                raw_url = default_storage.url(capture.media_file)
-                video_url = raw_url if urlparse(raw_url).scheme else request.build_absolute_uri(raw_url)
-            except Exception:
-                pass
+            video_url = request.build_absolute_uri(f"/api/media-capture/{capture.id}/stream")
 
         data: dict = {
             "capture_id": str(capture.id),
@@ -156,3 +154,32 @@ class MediaCaptureDetailView(APIView):
             }
 
         return Response(data)
+
+
+class MediaCaptureStreamView(APIView):
+    """
+    GET /api/media-capture/{capture_id}/stream
+
+    Streams the raw media file through Django, avoiding direct MinIO/S3 CORS issues.
+    Only the capture's author can stream their own file.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, capture_id):
+        try:
+            capture = MediaCapture.objects.get(id=capture_id, author=request.user)
+        except MediaCapture.DoesNotExist:
+            return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if not capture.media_file:
+            return Response({"error": "No file."}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            f = default_storage.open(capture.media_file, "rb")
+            content_type = mimetypes.guess_type(capture.media_file)[0] or "video/webm"
+            response = FileResponse(f, content_type=content_type)
+            response["Content-Disposition"] = f'inline; filename="{capture.media_file.split("/")[-1]}"'
+            return response
+        except Exception as exc:
+            logger.error("MediaCapture stream failed for %s: %s", capture_id, exc)
+            return Response({"error": "Stream failed."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
