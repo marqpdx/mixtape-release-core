@@ -512,9 +512,20 @@ class CollectionItemListView(APIView):
             content_type = None
             content_obj = None
             content_model = None
+
+        elif content_type_label == 'media_capture':
+            from media_capture.models import MediaCapture
+            content_obj = get_object_or_404(MediaCapture, id=data['content_id'])
+            if content_obj.status != 'ready':
+                return Response(
+                    {'detail': 'Only ready screencasts (transcription complete) can be added to Collections'},
+                    status=drf_status.HTTP_400_BAD_REQUEST,
+                )
+            content_model = MediaCapture
+
         else:
             return Response(
-                {'detail': "Invalid content_type. Must be 'writing_piece', 'dispatch_post', 'collection', or 'source_file'"},
+                {'detail': "Invalid content_type. Must be 'writing_piece', 'dispatch_post', 'collection', 'source_file', or 'media_capture'"},
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
 

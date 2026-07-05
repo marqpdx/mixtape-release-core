@@ -113,6 +113,8 @@ class CollectionItemSerializer(serializers.Serializer):
             return 'writing_piece'
         if model_name == 'collection':
             return 'collection'
+        if model_name == 'mediacapture':
+            return 'media_capture'
         # source_file and other types: return as-is (loose UUID reference to Stackroom)
         return model_name
 
@@ -159,13 +161,27 @@ class CollectionItemSerializer(serializers.Serializer):
                 'created_at': content_obj.created_at.isoformat(),
             }
 
+        if model_name == 'mediacapture':
+            content_obj = obj.content_object
+            if not content_obj:
+                return None
+            return {
+                'id': str(content_obj.id),
+                'title': content_obj.title,
+                'purpose': content_obj.purpose,
+                'status': content_obj.status,
+                'source_type': content_obj.source_type,
+                'created_at': content_obj.created_at.isoformat(),
+                'has_transcript': content_obj.transcript is not None,
+            }
+
         # source_file and other types: content lives in Stackroom; return UUID only
         return {'id': str(obj.content_object_id)}
 
 
 class CollectionItemCreateSerializer(serializers.Serializer):
     content_type = serializers.ChoiceField(
-        choices=['writing_piece', 'collection', 'source_file'],
+        choices=['writing_piece', 'collection', 'source_file', 'media_capture'],
     )
     content_id = serializers.UUIDField()
     title = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
