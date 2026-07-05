@@ -14,7 +14,50 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from django.contrib.contenttypes.models import ContentType
+
 from .models import CaptureStatus, MediaCapture
+
+
+def _user_can_view_capture(user, capture_id: str) -> bool:
+    """
+    Returns True if the user may read this capture. Two paths:
+      1. Author — always allowed.
+      2. Group member — capture is in a non-private collection sponsored by a
+         group the user belongs to (covers public / members / unlisted).
+    """
+    if MediaCapture.objects.filter(id=capture_id, author=user).exists():
+        return True
+
+    from curation.models import CollectionItem
+    from groups.models import GroupMembership
+
+    mc_ct = ContentType.objects.get_for_model(MediaCapture)
+    user_ct = ContentType.objects.get_for_model(user.__class__)
+
+    items = (
+        CollectionItem.objects
+        .filter(
+            content_type=mc_ct,
+            content_object_id=capture_id,
+            collection__visibility__in=['public', 'members', 'unlisted'],
+        )
+        .select_related('collection__sponsor_content_type')
+    )
+
+    for item in items:
+        col = item.collection
+        if col.visibility == 'public':
+            return True
+        if col.sponsor_content_type.model == 'group':
+            if GroupMembership.objects.filter(
+                group_id=col.sponsor_object_id,
+                member_content_type=user_ct,
+                member_object_id=user.id,
+            ).exists():
+                return True
+
+    return False
 
 logger = logging.getLogger(__name__)
 
@@ -120,11 +163,11 @@ class MediaCaptureDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, capture_id):
+        if not _user_can_view_capture(request.user, capture_id):
+            return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
         try:
-            capture = MediaCapture.objects.select_related("transcript").get(
-                id=capture_id,
-                author=request.user,
-            )
+            capture = MediaCapture.objects.select_related("transcript").get(id=capture_id)
         except MediaCapture.DoesNotExist:
             return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -213,8 +256,11 @@ class MediaCaptureStreamView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, capture_id):
+        if not _user_can_view_capture(request.user, capture_id):
+            return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
         try:
-            capture = MediaCapture.objects.get(id=capture_id, author=request.user)
+            capture = MediaCapture.objects.get(id=capture_id)
         except MediaCapture.DoesNotExist:
             return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
