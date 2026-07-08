@@ -4,6 +4,8 @@ import json
 import logging
 import hashlib
 import os
+import requests
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from celery import shared_task
@@ -41,13 +43,35 @@ def publish_scheduled_pieces():
     return {"published": count}
 
 
+def _notify_seed_transcribed(seed: Seed) -> None:
+    """Push seed:transcribed to the owner's socket via Livewire /notify. Fire-and-forget."""
+    livewire_url = getattr(settings, "LIVEWIRE_INTERNAL_URL", "http://127.0.0.1:5001")
+    secret = getattr(settings, "LIVEWIRE_NOTIFY_SECRET", "")
+    headers = {"Content-Type": "application/json"}
+    if secret:
+        headers["X-Notify-Secret"] = secret
+    try:
+        requests.post(
+            f"{livewire_url}/notify",
+            json={
+                "event": "seed:transcribed",
+                "username": seed.author.username,
+                "payload": {"seed_id": str(seed.id), "body_text": seed.body_text or ""},
+            },
+            headers=headers,
+            timeout=3,
+        )
+    except Exception as exc:
+        logger.warning("[seeds] Failed to notify livewire of transcription: %s", exc)
+
+
 @shared_task(bind=True, max_retries=3, default_retry_delay=10, queue="transcription")
 def transcribe_seed_task(self, seed_id: str):
     """
     Background transcription for voice seeds.
     """
     try:
-        seed = Seed.objects.get(id=seed_id)
+        seed = Seed.objects.select_related("author").get(id=seed_id)
     except Seed.DoesNotExist:
         logger.error("[seeds] Seed %s not found", seed_id)
         return {"status": "missing"}
@@ -93,6 +117,7 @@ def transcribe_seed_task(self, seed_id: str):
             "transcript_error",
             "updated_at",
         ])
+        _notify_seed_transcribed(seed)
         return {"status": "ok", "chars": len(transcript)}
     except Exception as exc:
         logger.error("[seeds] Transcription failed for %s: %s", seed_id, exc, exc_info=True)
