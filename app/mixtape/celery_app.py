@@ -147,6 +147,11 @@ app.conf.task_routes = {
         "queue": "transcription", "routing_key": "transcription"
     },
 
+    # --- Feedback: voice transcription ---
+    "feedback.tasks.transcribe_feedback_voice_task": {
+        "queue": "transcription", "routing_key": "transcription"
+    },
+
     # --- MediaCapture: screencast transcription + Stackroom ingestion ---
     "media_capture.tasks.transcribe_capture": {
         "queue": "transcription", "routing_key": "transcription"

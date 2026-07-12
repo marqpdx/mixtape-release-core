@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 from django.conf import settings
 from django.db import models
 
@@ -46,9 +48,37 @@ class FeedbackItem(models.Model):
     kind = models.CharField(max_length=16, choices=Kind.choices)
     message = models.TextField()
     page_url = models.TextField(blank=True, default="")
+    work_area = models.CharField(max_length=128, blank=True, default="")
+    voice_file = models.ForeignKey(
+        "files.StoredFile",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="feedback_items",
+    )
+    voice_transcript = models.TextField(blank=True, default="")
+    media_capture = models.ForeignKey(
+        "media_capture.MediaCapture",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="feedback_items",
+    )
     user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.NEW)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self) -> str:
         return f"{self.beacon.key} • {self.kind} • {self.created_at.date()}"
+
+
+class FeedbackAttachment(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    feedback_item = models.ForeignKey(FeedbackItem, on_delete=models.CASCADE, related_name="attachments")
+    stored_file = models.ForeignKey(
+        "files.StoredFile",
+        on_delete=models.CASCADE,
+        related_name="feedback_attachments",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return f"Attachment({self.id}) for {self.feedback_item_id}"

@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import FeedbackBeacon, FeedbackItem
+from .models import FeedbackBeacon, FeedbackItem, FeedbackAttachment
 
 
 @admin.register(FeedbackBeacon)
@@ -12,6 +12,13 @@ class FeedbackBeaconAdmin(admin.ModelAdmin):
 
 @admin.register(FeedbackItem)
 class FeedbackItemAdmin(admin.ModelAdmin):
-    list_display = ("beacon", "kind", "status", "user", "created_at")
+    list_display = ("beacon", "kind", "status", "user", "work_area", "created_at")
     list_filter = ("kind", "status")
-    search_fields = ("message", "page_url")
+    search_fields = ("message", "page_url", "work_area", "voice_transcript")
+    raw_id_fields = ("voice_file", "media_capture")
+
+
+@admin.register(FeedbackAttachment)
+class FeedbackAttachmentAdmin(admin.ModelAdmin):
+    list_display = ("feedback_item", "stored_file", "created_at")
+    raw_id_fields = ("feedback_item", "stored_file")
