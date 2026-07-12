@@ -5,9 +5,36 @@ This module sets up each worker process when it starts.
 """
 
 import logging
-from celery.signals import worker_process_init
+import traceback as tb
+
+from celery.signals import task_failure, worker_process_init
 
 logger = logging.getLogger(__name__)
+
+
+@task_failure.connect
+def on_task_failure(sender, task_id, exception, args, kwargs, traceback, einfo, **extra):
+    """
+    Write a TaskFailureLog row whenever any Celery task fails after exhausting retries.
+    Only fires on terminal failure, not on intermediate retries.
+    """
+    retries = getattr(sender.request, "retries", 0)
+    max_retries = getattr(sender, "max_retries", None)
+    if max_retries is not None and retries < max_retries:
+        return
+
+    try:
+        from ops.models import TaskFailureLog
+        TaskFailureLog.objects.create(
+            task_name=sender.name,
+            exception_type=type(exception).__name__,
+            exception_message=str(exception),
+            traceback="".join(tb.format_exception(type(exception), exception, traceback)),
+            queue=getattr(sender.request, "delivery_info", {}).get("routing_key", ""),
+            retries=retries,
+        )
+    except Exception as log_exc:
+        logger.error("TaskFailureLog write failed: %s", log_exc)
 
 
 @worker_process_init.connect
