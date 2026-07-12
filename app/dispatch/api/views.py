@@ -277,6 +277,15 @@ class DispatchContentYjsStateView(generics.RetrieveUpdateAPIView):
                 content.yjs_state_updated_at = timezone.now()
                 content.save(update_fields=['yjs_state', 'yjs_state_updated_at'])
 
+                # Mirror DispatchContentDetailView: keep linked WorkingDocuments in
+                # sync so the writing list and working-copy GET always reflect the
+                # latest content without special-casing the collab path.
+                if content.content_snapshot:
+                    from writing.models import WorkingDocument
+                    WorkingDocument.objects.filter(dispatch_content=content).update(
+                        body_json=content.content_snapshot
+                    )
+
                 return Response({
                     "status": "updated",
                     "yjs_state_updated_at": content.yjs_state_updated_at,
