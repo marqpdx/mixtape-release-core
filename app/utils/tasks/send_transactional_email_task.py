@@ -89,18 +89,11 @@ def send_transactional_email_task(
     except Exception as e:
         debug_ts(f"[celery] ERROR in send_transactional_email_task: {type(e).__name__}: {e}")
         traceback.print_exc()
-        # For now, just fail fast so we can see the error
+        if invitation_id:
+            from groups.models import GroupInvitation
+            invitation = GroupInvitation.objects.filter(id=invitation_id).first()
+            if invitation:
+                invitation.email_status = EmailStatus.FAILED
+                invitation.save()
+                debug_ts(f"[celery] Marked invitation {invitation_id} as FAILED")
         raise
-        # once fixed, you can go back to retrying if you want
-        # raise self.retry(exc=e)
-
-    # except Exception as e:
-    #     # Mark as failed
-    #     if invitation_id:
-    #         from groups.models import GroupInvitation
-    #         invitation = GroupInvitation.objects.filter(id=invitation_id).first()
-    #         if invitation:
-    #             invitation.email_status = EmailStatus.FAILED
-    #             invitation.save()
-
-    #     raise self.retry(exc=e)
