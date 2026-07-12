@@ -77,6 +77,21 @@ class OpsAuditLog(models.Model):
         ordering = ["-created_at"]
 
 
+class TaskFailureLog(models.Model):
+    task_name = models.CharField(max_length=256, db_index=True)
+    exception_type = models.CharField(max_length=256)
+    exception_message = models.TextField(blank=True)
+    traceback = models.TextField(blank=True)
+    queue = models.CharField(max_length=128, blank=True, default="")
+    retries = models.IntegerField(default=0)
+    failed_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-failed_at"]
+        verbose_name = "Task Failure"
+        verbose_name_plural = "Task Failures"
+
+
 class BuildLogEntry(models.Model):
     commit_hash = models.CharField(max_length=12, unique=True, db_index=True)
     commit_message = models.TextField(blank=True)

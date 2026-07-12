@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from ops.models import BuildLogEntry, OpsAuditLog, OpsCheckResult, OpsIncidentSnapshot, OpsSnapshot
+from ops.models import BuildLogEntry, OpsAuditLog, OpsCheckResult, OpsIncidentSnapshot, OpsSnapshot, TaskFailureLog
 
 
 @admin.register(OpsSnapshot)
@@ -31,6 +31,21 @@ class OpsAuditLogAdmin(admin.ModelAdmin):
     list_filter = ("result", "action")
     search_fields = ("action", "target")
     ordering = ("-created_at",)
+
+
+@admin.register(TaskFailureLog)
+class TaskFailureLogAdmin(admin.ModelAdmin):
+    list_display = ("task_name", "exception_type", "queue", "retries", "failed_at")
+    list_filter = ("exception_type", "queue")
+    search_fields = ("task_name", "exception_type", "exception_message")
+    ordering = ("-failed_at",)
+    readonly_fields = ("task_name", "exception_type", "exception_message", "traceback", "queue", "retries", "failed_at")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(BuildLogEntry)
