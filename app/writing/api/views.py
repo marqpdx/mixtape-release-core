@@ -165,7 +165,10 @@ class WorkingDocumentUpsertView(generics.GenericAPIView):
         ser = self.get_serializer(instance=wc, data=request.data, partial=True)
         ser.is_valid(raise_exception=True)
         wc = ser.save()
-        WorkingDocument.objects.filter(pk=wc.pk).update(auto_save_count=F("auto_save_count") + 1)
+        WorkingDocument.objects.filter(pk=wc.pk).update(
+            auto_save_count=F("auto_save_count") + 1,
+            bootstrapped_at=timezone.now(),
+        )
         wc.refresh_from_db()
         response_data = self.get_serializer(wc).data
         response_data["split_suggestion_status"] = _check_and_trigger_split_suggestion(piece, wc)

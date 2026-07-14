@@ -201,6 +201,38 @@ class PublishingV1Tests(TestCase):
         self.assertEqual(display_body, version.body_json)
         self.assertNotEqual(display_body, updated_body)
 
+    def test_working_copy_get_does_not_restore_stale_piece_body_after_save(self):
+        piece = _create_piece(author=self.user, sponsor=self.user)
+        original_body = piece.body_json
+        saved_body = _body_json("dual pane target edit")
+        wc = WorkingDocument.objects.create(
+            piece=piece,
+            user=self.user,
+            title=piece.title,
+            excerpt=piece.excerpt,
+            body_json=original_body,
+            bootstrapped_at=None,
+        )
+
+        save_response = self.client.put(
+            f"/api/writing/pieces/{piece.id}/working-copy",
+            {
+                "title": wc.title,
+                "excerpt": wc.excerpt,
+                "body_json": saved_body,
+            },
+            format="json",
+        )
+        self.assertEqual(save_response.status_code, status.HTTP_200_OK)
+
+        get_response = self.client.get(f"/api/writing/pieces/{piece.id}/working-copy")
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(get_response.data["body_json"], saved_body)
+        self.assertNotEqual(get_response.data["body_json"], original_body)
+
+        wc.refresh_from_db()
+        self.assertIsNotNone(wc.bootstrapped_at)
+
 
 class WritingAnalysisExportTests(TestCase):
     def setUp(self):
