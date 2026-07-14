@@ -68,7 +68,7 @@ class FeedbackItemListSerializer(serializers.ModelSerializer):
     user_first_name = serializers.CharField(source="user.first_name", read_only=True)
     attachments = FeedbackAttachmentSerializer(many=True, read_only=True)
     voice_file_url = serializers.SerializerMethodField()
-    media_capture_id = serializers.UUIDField(source="media_capture_id", read_only=True)
+    media_capture_id = serializers.UUIDField(read_only=True)
 
     class Meta:
         model = FeedbackItem
