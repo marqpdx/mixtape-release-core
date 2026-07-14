@@ -11,6 +11,7 @@ from spellbook.api.views import (
     SpellSuggestionRejectView,
     UserDictionaryView,
     UserDictionaryEntryListCreateView,
+    UserDictionaryEntryDetailView,
 )
 
 app_name = "spellbook"
@@ -27,4 +28,5 @@ urlpatterns = [
     path("suggestions/<uuid:suggestion_id>/reject/", SpellSuggestionRejectView.as_view(), name="suggestion-reject"),
     path("dictionary", UserDictionaryView.as_view(), name="user-dictionary"),
     path("dictionary/entries", UserDictionaryEntryListCreateView.as_view(), name="user-dictionary-entries"),
+    path("dictionary/entries/<uuid:entry_id>/", UserDictionaryEntryDetailView.as_view(), name="user-dictionary-entry-detail"),
 ]

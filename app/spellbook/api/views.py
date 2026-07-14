@@ -202,19 +202,24 @@ class UserDictionaryView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        entries = UserDictionaryEntry.objects.filter(owner_user=request.user, is_active=True)
-        ignores = sorted(
-            entry.token for entry in entries if entry.kind == UserDictionaryEntry.Kind.IGNORE
-        )
+        qs = list(UserDictionaryEntry.objects.filter(owner_user=request.user, is_active=True))
+        ignores = sorted(e.token for e in qs if e.kind == UserDictionaryEntry.Kind.IGNORE)
         replacements = {
-            entry.token: entry.replacement
-            for entry in entries
-            if entry.kind == UserDictionaryEntry.Kind.REPLACE and entry.replacement
+            e.token: e.replacement
+            for e in qs
+            if e.kind == UserDictionaryEntry.Kind.REPLACE and e.replacement
         }
-        return Response({
-            "ignores": ignores,
-            "replacements": replacements,
-        })
+        entries = [
+            {
+                "id": str(e.id),
+                "kind": e.kind,
+                "token": e.token,
+                "display": e.display or e.token,
+                "replacement": e.replacement,
+            }
+            for e in qs
+        ]
+        return Response({"ignores": ignores, "replacements": replacements, "entries": entries})
 
 
 class UserDictionaryEntryListCreateView(APIView):
@@ -256,3 +261,16 @@ class UserDictionaryEntryListCreateView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+class UserDictionaryEntryDetailView(APIView):
+    """
+    DELETE /api/spellbook/dictionary/entries/<id>/ - Delete a user dictionary entry.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, entry_id):
+        entry = get_object_or_404(UserDictionaryEntry, id=entry_id, owner_user=request.user)
+        entry.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
