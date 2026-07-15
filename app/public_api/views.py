@@ -485,3 +485,49 @@ class PublicCourseDetailView(APIView):
             "flow_mode": course.flow_mode,
             "items": outline,
         })
+
+
+class PublicWritingRunView(APIView):
+    """
+    GET /api/public/writing/runs/{slug}
+
+    Public reader view for a published WritingRun.
+    Returns Run metadata and ordered member Doc list for the sequential reader.
+    ADR-0054 P1-10.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, slug):
+        from writing.models import WritingRun
+        run = get_object_or_404(WritingRun, slug=slug, status="published")
+
+        memberships = run.memberships.select_related("piece__author").order_by("order_index")
+
+        pieces = []
+        for m in memberships:
+            piece = m.piece
+            if piece.status != "published":
+                continue
+            author_profile = getattr(piece.author, "profile", None)
+            pieces.append({
+                "order_index": m.order_index,
+                "piece_id": str(piece.id),
+                "piece_slug": piece.slug,
+                "piece_title": piece.title,
+                "piece_excerpt": piece.excerpt,
+                "published_at": piece.published_at,
+                "author": {
+                    "username": piece.author.username,
+                    "display_name": author_profile.display_name if author_profile else piece.author.username,
+                },
+            })
+
+        return Response({
+            "id": str(run.id),
+            "slug": run.slug,
+            "title": run.title,
+            "status": run.status,
+            "published_at": run.published_at,
+            "piece_count": len(pieces),
+            "pieces": pieces,
+        })
