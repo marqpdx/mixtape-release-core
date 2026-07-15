@@ -180,6 +180,18 @@ class WritingPiece(BaseContent, PublishableContentMixin):
     view_count = models.PositiveIntegerField(default=0)
     comment_count = models.PositiveIntegerField(default=0)  # denormalized
 
+    # Writing Assembly — Run readiness signals
+    spellcheck_clean = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="Set by spellcheck tool on confirmed-clean; cleared on next body edit.",
+    )
+    signed_off = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="Set by manual author action; cleared on next body edit.",
+    )
+
     # Manager
     objects = WritingPieceManager()
 
@@ -496,6 +508,9 @@ class WorkingDocument(BaseModel):
         if self.body_json is not None and self.body_json != piece.body_json:
             piece.body_json = self.body_json
             changed_fields.append("body_json")
+            piece.signed_off = False
+            piece.spellcheck_clean = False
+            changed_fields.extend(["signed_off", "spellcheck_clean"])
 
         if changed_fields:
             # You might recalc reading time here
@@ -1249,3 +1264,91 @@ class WritingSynopsis(BaseModel):
 
     def __str__(self):
         return f"WritingSynopsis<{self.piece_id}> — {self.title[:60]}"
+
+
+# ---------------------------------------------------------------------------
+# Writing Assembly (ADR-0054)
+# ---------------------------------------------------------------------------
+
+class WritingRun(BaseModel):
+    """
+    An ordered, mutable grouping of WritingPieces that publish together and
+    are read together as one structural unit. Operational in nature — pieces
+    may be assembled differently into another Run.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    title = models.CharField(max_length=255)
+    slug = models.SlugField(max_length=255, blank=True)
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        PUBLISHED = "published", "Published"
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.DRAFT,
+        db_index=True,
+    )
+
+    # Polymorphic sponsor (member or group)
+    sponsor_content_type = models.ForeignKey(
+        ContentType,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    sponsor_object_id = models.UUIDField(null=True, blank=True)
+    sponsor = GenericForeignKey("sponsor_content_type", "sponsor_object_id")
+
+    published_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(BaseModel.Meta):
+        verbose_name = "Writing Run"
+        verbose_name_plural = "Writing Runs"
+        indexes = [
+            models.Index(fields=["sponsor_content_type", "sponsor_object_id", "status"]),
+            models.Index(fields=["status", "published_at"]),
+        ]
+
+    def __str__(self):
+        return f"[{self.status.upper()}] Run: {self.title}"
+
+    def save(self, *args, **kwargs):
+        if not self.slug and self.title:
+            from django.utils.text import slugify
+            base = slugify(self.title)
+            self.slug = f"{base}-{str(self.id)[:8]}"
+        super().save(*args, **kwargs)
+
+
+class WritingRunMembership(BaseModel):
+    """
+    Through-model linking a WritingPiece to a WritingRun with explicit ordering.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    run = models.ForeignKey(
+        WritingRun,
+        on_delete=models.CASCADE,
+        related_name="memberships",
+    )
+    piece = models.ForeignKey(
+        WritingPiece,
+        on_delete=models.CASCADE,
+        related_name="run_memberships",
+    )
+    order_index = models.PositiveIntegerField(default=0)
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta(BaseModel.Meta):
+        verbose_name = "Writing Run Membership"
+        verbose_name_plural = "Writing Run Memberships"
+        unique_together = [["run", "piece"]]
+        ordering = ["order_index"]
+        indexes = [
+            models.Index(fields=["run", "order_index"]),
+        ]
+
+    def __str__(self):
+        return f"Run<{self.run_id}> ← Piece<{self.piece_id}> @ {self.order_index}"
