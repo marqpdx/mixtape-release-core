@@ -24,6 +24,15 @@ from .placement_views import (
     PlacementCommentListCreateView,
     PlacementReactionView,
 )
+from .run_views import (
+    WritingRunListCreateView,
+    WritingRunDetailView,
+    WritingRunPublishView,
+    WritingRunMembersView,
+    WritingRunMemberDetailView,
+    WritingRunMembersReorderView,
+    WritingPieceSignOffView,
+)
 from .streams_views import StreamsView
 from .views import (
     DocumentImportBatchConfirmView,
@@ -176,5 +185,16 @@ urlpatterns = [
 
     # Streams (chronological feed from followed users)
     path("streams", StreamsView.as_view(), name="streams"),
+
+    # Writing Assembly — Runs (ADR-0054)
+    path("runs", WritingRunListCreateView.as_view(), name="run-list-create"),
+    path("runs/<uuid:run_id>", WritingRunDetailView.as_view(), name="run-detail"),
+    path("runs/<uuid:run_id>/publish", WritingRunPublishView.as_view(), name="run-publish"),
+    path("runs/<uuid:run_id>/members", WritingRunMembersView.as_view(), name="run-members"),
+    path("runs/<uuid:run_id>/members/<uuid:piece_id>", WritingRunMemberDetailView.as_view(), name="run-member-detail"),
+    path("runs/<uuid:run_id>/members/reorder", WritingRunMembersReorderView.as_view(), name="run-members-reorder"),
+
+    # Sign-off toggle (ADR-0054 D10)
+    path("pieces/<uuid:pk>/sign-off", WritingPieceSignOffView.as_view(), name="writingpiece-sign-off"),
 
 ]

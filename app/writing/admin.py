@@ -6,6 +6,8 @@ from writing.models import (
     SeedDispatch,
     WorkingDocument,
     WritingPiece,
+    WritingRun,
+    WritingRunMembership,
     WritingSeries,
     WritingSynopsis,
 )
@@ -59,3 +61,26 @@ class WritingSynopsisAdmin(admin.ModelAdmin):
 class LeafCommentAdmin(admin.ModelAdmin):
     list_display = ["id", "author", "placement", "is_approved", "is_flagged", "created_at"]
     list_filter = ["is_approved", "is_flagged"]
+
+
+class WritingRunMembershipInline(admin.TabularInline):
+    model = WritingRunMembership
+    fields = ["piece", "order_index", "added_at"]
+    readonly_fields = ["added_at"]
+    extra = 0
+    ordering = ["order_index"]
+
+
+@admin.register(WritingRun)
+class WritingRunAdmin(admin.ModelAdmin):
+    list_display = ["id", "title", "status", "published_at", "created_at"]
+    list_filter = ["status"]
+    search_fields = ["title", "slug"]
+    readonly_fields = ["id", "created_at", "updated_at", "published_at"]
+    inlines = [WritingRunMembershipInline]
+
+
+@admin.register(WritingRunMembership)
+class WritingRunMembershipAdmin(admin.ModelAdmin):
+    list_display = ["id", "run", "piece", "order_index", "added_at"]
+    raw_id_fields = ["run", "piece"]
