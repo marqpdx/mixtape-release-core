@@ -2,6 +2,7 @@
 
 from django.urls import path
 from . import views, views_commons
+from .views import PublicWritingRunView
 
 urlpatterns = [
     path(
@@ -53,6 +54,11 @@ urlpatterns = [
         "writing/<slug:slug>",
         views.PublicWritingPieceView.as_view(),
         name="public-writing-piece",
+    ),
+    path(
+        "writing/runs/<slug:slug>",
+        PublicWritingRunView.as_view(),
+        name="public-writing-run",
     ),
     # Commons
     path(
