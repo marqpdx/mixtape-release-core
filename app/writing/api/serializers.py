@@ -173,6 +173,7 @@ class WritingPieceCatalogSerializer(serializers.ModelSerializer):
     """Lightweight serializer for catalog/list views. No body_json."""
     author_name = serializers.CharField(source="author.get_full_name", read_only=True)
     series = WritingSeriesSerializer(read_only=True)
+    categories_list = serializers.SerializerMethodField()
 
     class Meta:
         model = WritingPiece
@@ -187,8 +188,12 @@ class WritingPieceCatalogSerializer(serializers.ModelSerializer):
             "reading_time",
             "series",
             "series_order",
+            "categories_list",
         ]
         read_only_fields = fields
+
+    def get_categories_list(self, obj):
+        return _get_categories_for_piece(obj)
 
 
 class SplitSuggestionSerializer(serializers.ModelSerializer):
