@@ -4,6 +4,7 @@
 from django.urls import path
 
 from .sponsor_views import (
+    SponsorCategoriesView,
     SponsorDraftDeleteView,
     SponsorDraftsListView,
     SponsorPlacementsListView,
@@ -84,6 +85,7 @@ urlpatterns = [
     # Sponsor-based queries (generic for groups and members)
     # DEPRECATED: SponsorPlacementsListView — to be removed once frontend migrates to /api/storyline/
     path("placements", SponsorPlacementsListView.as_view(), name="sponsor-placements-list"),
+    path("categories", SponsorCategoriesView.as_view(), name="sponsor-categories-list"),
 
     # LeafPlacement — Storyline social placements
     path("placements/create", LeafPlacementCreateView.as_view(), name="leaf-placement-create"),

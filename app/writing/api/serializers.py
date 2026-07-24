@@ -47,6 +47,22 @@ def _get_tag_titles_for_piece(piece: WritingPiece) -> list[str]:
     except Exception:
         return []
 
+
+def _get_categories_for_piece(piece: WritingPiece) -> list[dict]:
+    try:
+        from classifications.models import Category, ClassificationUsage
+        cat_ct = ContentType.objects.get_for_model(Category)
+        piece_ct = ContentType.objects.get_for_model(WritingPiece)
+        cat_ids = ClassificationUsage.objects.filter(
+            classification_client_content_type=piece_ct,
+            classification_client_object_id=str(piece.id),
+            classification_content_type=cat_ct,
+        ).values_list("classification_object_id", flat=True)
+        cats = Category.objects.filter(id__in=cat_ids).order_by("title")
+        return [{"id": str(c.id), "title": c.title, "slug": c.slug} for c in cats]
+    except Exception:
+        return []
+
 class WritingPieceSerializer(serializers.ModelSerializer):
     status = serializers.ChoiceField(
         choices=ContentStatus.choices,
@@ -432,6 +448,7 @@ class UserMinimalSerializer(serializers.ModelSerializer):
 class WritingPieceMinimalSerializer(serializers.ModelSerializer):
     """Minimal piece info for working copy context."""
     tags_list = serializers.SerializerMethodField()
+    categories_list = serializers.SerializerMethodField()
     series_id = serializers.UUIDField(source="series.id", read_only=True, allow_null=True, default=None)
     series_title = serializers.CharField(source="series.title", read_only=True, allow_null=True, default=None)
     series_phase_num = serializers.IntegerField(source="series.phase_num", read_only=True, allow_null=True, default=None)
@@ -440,12 +457,15 @@ class WritingPieceMinimalSerializer(serializers.ModelSerializer):
         model = WritingPiece
         fields = [
             "id", "slug", "title", "writing_kind",
-            "status", "created_at", "updated_at", "excerpt", "tags_list", "enable_outline",
-            "series_id", "series_title", "series_phase_num", "series_order",
+            "status", "created_at", "updated_at", "excerpt", "tags_list", "categories_list",
+            "enable_outline", "series_id", "series_title", "series_phase_num", "series_order",
         ]
 
     def get_tags_list(self, obj):
         return _get_tag_titles_for_piece(obj)
+
+    def get_categories_list(self, obj):
+        return _get_categories_for_piece(obj)
 
 
 class WorkingDocumentSerializer(serializers.ModelSerializer):
