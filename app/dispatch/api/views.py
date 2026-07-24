@@ -16,13 +16,18 @@ from django.utils import timezone
 
 # from classifications.api.views import ClassificationUsageListCreateView
 # from classifications.models import Category, Tag
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.views import APIView
+
 from dispatch.api.serializers import (
+    DispatchCommentSerializer,
     DispatchContentSerializer,
     DispatchContentVersionSerializer,
     DispatchEditSessionSerializer,
     DispatchOutlineNodeSerializer,
 )
 from dispatch.models import (
+    DispatchComment,
     DispatchContent,
     DispatchContentVersion,
     DispatchEditSession,
@@ -493,6 +498,134 @@ class DispatchOutlineDetailView(generics.GenericAPIView):
 
         node.delete()
         return Response(status=204)
+
+
+# ── Dispatch Comments ─────────────────────────────────────────────────────────
+
+def _get_dispatch_content_for_piece(piece):
+    """Return the DispatchContent linked to this piece, or None."""
+    from writing.models import WorkingDocument
+    wd = WorkingDocument.objects.filter(piece=piece, dispatch_content__isnull=False).first()
+    return wd.dispatch_content if wd else None
+
+
+def _can_comment_on_piece(user, piece):
+    if not user or not user.is_authenticated:
+        return False
+    if piece.author_id == user.id:
+        return True
+    dc = _get_dispatch_content_for_piece(piece)
+    return dc is not None and dc.can_comment(user)
+
+
+def _can_resolve_on_piece(user, piece):
+    if not user or not user.is_authenticated:
+        return False
+    if piece.author_id == user.id:
+        return True
+    dc = _get_dispatch_content_for_piece(piece)
+    return dc is not None and dc.can_edit(user)
+
+
+class DispatchCommentCreateView(APIView):
+    """POST /api/dispatch/comments — create a comment."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        ser = DispatchCommentSerializer(data=request.data, context={"request": request})
+        ser.is_valid(raise_exception=True)
+        piece = ser.validated_data["writing_piece"]
+        dc = _get_dispatch_content_for_piece(piece)
+        if dc is None and piece.author_id != request.user.id:
+            raise PermissionDenied("This piece has no collaborative session.")
+        if not _can_comment_on_piece(request.user, piece):
+            raise PermissionDenied
+        comment = ser.save(author=request.user)
+        return Response(DispatchCommentSerializer(comment, context={"request": request}).data, status=201)
+
+
+class DispatchCommentByIdView(APIView):
+    """
+    GET  /api/dispatch/comments/<id> — list (if id is a WritingPiece) or single comment
+    PATCH/DELETE /api/dispatch/comments/<id> — edit/delete a comment by comment id
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, id):
+        # Try as WritingPiece first (list endpoint)
+        piece = WritingPiece.objects.filter(id=id).first()
+        if piece:
+            if not _can_comment_on_piece(request.user, piece):
+                raise PermissionDenied
+            qs = (
+                DispatchComment.objects.filter(writing_piece=piece, parent__isnull=True)
+                .select_related("author", "resolved_by")
+                .prefetch_related("replies__author", "replies__resolved_by")
+                .order_by("created_at")
+            )
+            data = DispatchCommentSerializer(qs, many=True, context={"request": request}).data
+            return Response({
+                "comments": data,
+                "counts": {
+                    "total": DispatchComment.objects.filter(writing_piece=piece).count(),
+                    "resolved": DispatchComment.objects.filter(
+                        writing_piece=piece, resolved_at__isnull=False
+                    ).count(),
+                },
+            })
+        # Fall through to single comment
+        comment = get_object_or_404(DispatchComment, id=id, deleted_at__isnull=True)
+        if not _can_comment_on_piece(request.user, comment.writing_piece):
+            raise PermissionDenied
+        return Response(DispatchCommentSerializer(comment, context={"request": request}).data)
+
+    def patch(self, request, id):
+        comment = get_object_or_404(DispatchComment, id=id, deleted_at__isnull=True)
+        if comment.author_id != request.user.id:
+            raise PermissionDenied("Only the comment author can edit.")
+        body = request.data.get("body", "").strip()
+        if not body:
+            return Response({"body": "Required."}, status=400)
+        comment.body = body
+        comment.save(update_fields=["body", "updated_at"])
+        return Response(DispatchCommentSerializer(comment, context={"request": request}).data)
+
+    def delete(self, request, id):
+        comment = get_object_or_404(DispatchComment, id=id, deleted_at__isnull=True)
+        is_author = comment.author_id == request.user.id
+        is_editor = _can_resolve_on_piece(request.user, comment.writing_piece)
+        if not (is_author or is_editor):
+            raise PermissionDenied
+        comment.delete()
+        return Response(status=204)
+
+
+class DispatchCommentResolveView(APIView):
+    """POST /api/dispatch/comments/<id>/resolve — editors only."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, id):
+        comment = get_object_or_404(DispatchComment, id=id, deleted_at__isnull=True)
+        if not _can_resolve_on_piece(request.user, comment.writing_piece):
+            raise PermissionDenied("Only editors can resolve comments.")
+        comment.resolved_at = timezone.now()
+        comment.resolved_by = request.user
+        comment.save(update_fields=["resolved_at", "resolved_by", "updated_at"])
+        return Response(DispatchCommentSerializer(comment, context={"request": request}).data)
+
+
+class DispatchCommentUnresolveView(APIView):
+    """POST /api/dispatch/comments/<id>/unresolve — editors only."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, id):
+        comment = get_object_or_404(DispatchComment, id=id, deleted_at__isnull=True)
+        if not _can_resolve_on_piece(request.user, comment.writing_piece):
+            raise PermissionDenied("Only editors can unresolve comments.")
+        comment.resolved_at = None
+        comment.resolved_by = None
+        comment.save(update_fields=["resolved_at", "resolved_by", "updated_at"])
+        return Response(DispatchCommentSerializer(comment, context={"request": request}).data)
 
 
 

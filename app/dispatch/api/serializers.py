@@ -8,6 +8,7 @@ from django.template.defaultfilters import slugify
 from accounts.api.serializers import UserSerializer
 from writing.api.serializers import UserMinimalSerializer
 from dispatch.models import (
+    DispatchComment,
     DispatchContent,
     DispatchContentVersion,
     DispatchEditSession,
@@ -86,6 +87,46 @@ from writing.models import WritingPiece
 #     #     if isinstance(sponsor, Group) and sponsor.slug:
 #     #         return f"/groups/{sponsor.slug}/posts/{obj.slug}"
 #     #     return None
+
+
+class DispatchCommentSerializer(serializers.ModelSerializer):
+    author = UserMinimalSerializer(read_only=True)
+    replies = serializers.SerializerMethodField()
+    is_resolved = serializers.BooleanField(read_only=True)
+    writing_piece = serializers.PrimaryKeyRelatedField(
+        queryset=WritingPiece.objects.all(), write_only=True
+    )
+
+    class Meta:
+        model = DispatchComment
+        fields = [
+            "id",
+            "writing_piece",
+            "author",
+            "body",
+            "block_id",
+            "anchor_from",
+            "anchor_to",
+            "quoted_text",
+            "parent",
+            "replies",
+            "is_resolved",
+            "resolved_at",
+            "resolved_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id", "author", "is_resolved", "resolved_at", "resolved_by",
+            "created_at", "updated_at",
+        ]
+
+    def get_replies(self, obj):
+        if obj.parent_id is not None:
+            return []
+        return DispatchCommentSerializer(
+            obj.replies.all(), many=True, context=self.context
+        ).data
 
 
 class DispatchCollaboratorMinimalSerializer(serializers.ModelSerializer):

@@ -304,6 +304,59 @@ class DispatchOutlineNode(BaseModel):
         return f"OutlineNode: {self.title} ({self.writing_piece_id})"
 
 
+class DispatchComment(BaseModel):
+    """
+    Inline comment on a Dispatch doc (WritingPiece with dispatch_content).
+    Anchored to a block by block_id + char offsets within that block.
+    Roles: editors can create/resolve; commenters can create but not resolve.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    writing_piece = models.ForeignKey(
+        "writing.WritingPiece",
+        on_delete=models.CASCADE,
+        related_name="dispatch_comments",
+    )
+    author = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="dispatch_comments_authored"
+    )
+    body = models.TextField()
+
+    # Anchor — nullable for document-level (unanchored) comments
+    block_id = models.CharField(max_length=64, blank=True, db_index=True)
+    anchor_from = models.IntegerField(null=True, blank=True)
+    anchor_to = models.IntegerField(null=True, blank=True)
+    quoted_text = models.CharField(max_length=512, blank=True)
+
+    # Threading — one level; replies attach to a root comment
+    parent = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.CASCADE, related_name="replies"
+    )
+
+    # Resolution
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolved_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="dispatch_comments_resolved",
+    )
+
+    class Meta(BaseModel.Meta):
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(fields=["writing_piece", "parent"]),
+        ]
+
+    @property
+    def is_resolved(self):
+        return self.resolved_at is not None
+
+    def __str__(self):
+        return f"DispatchComment<{self.id}> on {self.writing_piece_id} by {self.author_id}"
+
+
 class DispatchSnapshot(BaseVersion):
     """
     Immutable snapshot of collaborative DispatchContent.

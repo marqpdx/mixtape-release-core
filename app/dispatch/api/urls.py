@@ -5,6 +5,10 @@ from django.urls import path
 # from classifications.api.views import ClassificationUsageDeleteView
 # from dispatch.api.views import PostCategoryListCreateView
 from dispatch.api.views import (
+    DispatchCommentByIdView,
+    DispatchCommentCreateView,
+    DispatchCommentResolveView,
+    DispatchCommentUnresolveView,
     DispatchContentListCreateView,
     DispatchContentDetailView,
     DispatchContentYjsStateView,
@@ -38,4 +42,10 @@ urlpatterns = [
     path("outline/<uuid:piece_id>", DispatchOutlineListView.as_view(), name="dispatch-outline-list"),
     path("outline", DispatchOutlineCreateView.as_view(), name="dispatch-outline-create"),
     path("outline/node/<uuid:id>", DispatchOutlineDetailView.as_view(), name="dispatch-outline-detail"),
+
+    # Comments
+    path("comments", DispatchCommentCreateView.as_view(), name="dispatch-comment-create"),
+    path("comments/<uuid:id>", DispatchCommentByIdView.as_view(), name="dispatch-comment-by-id"),
+    path("comments/<uuid:id>/resolve", DispatchCommentResolveView.as_view(), name="dispatch-comment-resolve"),
+    path("comments/<uuid:id>/unresolve", DispatchCommentUnresolveView.as_view(), name="dispatch-comment-unresolve"),
 ]
