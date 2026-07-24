@@ -2,7 +2,7 @@ from django.contrib import admin
 
 from dispatch.models import Post
 
-from .models import DispatchContent, DispatchContentVersion, DispatchEditSession, DispatchCollaborator
+from .models import DispatchComment, DispatchContent, DispatchContentVersion, DispatchEditSession, DispatchCollaborator
 # Register your models here.
 
 
@@ -31,6 +31,18 @@ class DispatchCollaboratorAdmin(admin.ModelAdmin):
 class DispatchContentVersionAdmin(admin.ModelAdmin):
     list_display = ("content", "created_by", "created_at", "is_manual")
     readonly_fields = ("content_snapshot",)
+
+@admin.register(DispatchComment)
+class DispatchCommentAdmin(admin.ModelAdmin):
+    list_display = ("id", "author", "writing_piece", "block_id", "is_resolved", "created_at")
+    list_filter = ("resolved_at",)
+    search_fields = ("author__username", "body")
+    readonly_fields = ("id", "created_at", "updated_at", "resolved_at", "resolved_by")
+
+    @admin.display(boolean=True)
+    def is_resolved(self, obj):
+        return obj.resolved_at is not None
+
 
 @admin.register(DispatchEditSession)
 class DispatchEditSessionAdmin(admin.ModelAdmin):
