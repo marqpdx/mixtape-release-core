@@ -115,6 +115,7 @@ class SponsorPlacementsListView(APIView):
                     "is_announcement": piece.writing_kind == "announcement",
                     "order": 0,
                     "tags": _get_tag_titles_for_piece(piece),
+                    "categories": _get_categories_for_piece(piece),
                     "created_at": placement.created_at,
                     "updated_at": placement.updated_at,
                     "series_id": str(series.id) if series else None,
@@ -245,3 +246,100 @@ def _get_tag_titles_for_piece(piece: WritingPiece) -> list[str]:
         return [tag.title for tag in tags]
     except Exception:
         return []
+
+
+def _get_categories_for_piece(piece: WritingPiece) -> list[dict]:
+    try:
+        from classifications.models import Category, ClassificationUsage
+        cat_ct = ContentType.objects.get_for_model(Category)
+        piece_ct = ContentType.objects.get_for_model(WritingPiece)
+        cat_ids = ClassificationUsage.objects.filter(
+            classification_client_content_type=piece_ct,
+            classification_client_object_id=str(piece.id),
+            classification_content_type=cat_ct,
+        ).values_list("classification_object_id", flat=True)
+        cats = Category.objects.filter(id__in=cat_ids).order_by("title")
+        return [{"id": str(c.id), "title": c.title, "slug": c.slug} for c in cats]
+    except Exception:
+        return []
+
+
+class SponsorCategoriesView(APIView):
+    """
+    GET /api/writing/categories?sponsor_type=group&sponsor_slug=<slug>
+
+    Returns all categories associated with at least one piece for this sponsor,
+    with each category's most-recently-updated piece date for sort ordering.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        from classifications.models import Category, ClassificationUsage
+
+        sponsor_type = request.query_params.get("sponsor_type")
+        sponsor_slug = request.query_params.get("sponsor_slug")
+
+        if not sponsor_type or not sponsor_slug:
+            return Response([], status=status.HTTP_200_OK)
+
+        sponsor = None
+        if sponsor_type == "group":
+            from groups.models import Group
+            sponsor = Group.objects.filter(slug=sponsor_slug).first()
+            sponsor_ct = ContentType.objects.get_for_model(Group) if sponsor else None
+        elif sponsor_type == "member":
+            User = get_user_model()
+            sponsor = User.objects.filter(username=sponsor_slug).first()
+            sponsor_ct = ContentType.objects.get_for_model(User) if sponsor else None
+        else:
+            return Response([], status=status.HTTP_200_OK)
+
+        if not sponsor:
+            return Response([], status=status.HTTP_200_OK)
+
+        piece_ct = ContentType.objects.get_for_model(WritingPiece)
+        cat_ct = ContentType.objects.get_for_model(Category)
+
+        # Get all pieces for this sponsor
+        piece_ids = list(
+            WritingPiece.objects.filter(
+                sponsor_content_type=sponsor_ct,
+                sponsor_object_id=sponsor.id,
+            ).values_list("id", flat=True)
+        )
+        piece_id_strs = [str(pid) for pid in piece_ids]
+
+        # Find categories used by any of these pieces
+        usage_qs = ClassificationUsage.objects.filter(
+            classification_client_content_type=piece_ct,
+            classification_client_object_id__in=piece_id_strs,
+            classification_content_type=cat_ct,
+        )
+
+        cat_id_to_latest: dict[int, str] = {}
+        for usage in usage_qs.select_related():
+            # Track latest updated piece per category
+            try:
+                piece = WritingPiece.objects.filter(id=usage.classification_client_object_id).values("updated_at").first()
+                if piece:
+                    cat_id = usage.classification_object_id
+                    dt_str = piece["updated_at"].isoformat() if hasattr(piece["updated_at"], "isoformat") else str(piece["updated_at"])
+                    if cat_id not in cat_id_to_latest or dt_str > cat_id_to_latest[cat_id]:
+                        cat_id_to_latest[cat_id] = dt_str
+            except Exception:
+                pass
+
+        if not cat_id_to_latest:
+            return Response([], status=status.HTTP_200_OK)
+
+        cats = Category.objects.filter(id__in=list(cat_id_to_latest.keys())).order_by("title")
+        result = [
+            {
+                "id": str(c.id),
+                "title": c.title,
+                "slug": c.slug,
+                "latest_piece_updated_at": cat_id_to_latest.get(c.id, ""),
+            }
+            for c in cats
+        ]
+        return Response(result, status=status.HTTP_200_OK)
