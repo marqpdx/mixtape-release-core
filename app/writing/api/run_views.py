@@ -5,90 +5,17 @@ from django.db import transaction
 from django.db.models import Max
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from rest_framework import serializers, status
+from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from writing.models import WritingPiece, WritingRun, WritingRunMembership
-
-
-# ---------------------------------------------------------------------------
-# Serializers
-# ---------------------------------------------------------------------------
-
-class RunMemberSerializer(serializers.ModelSerializer):
-    piece_id = serializers.UUIDField(source="piece.id", read_only=True)
-    piece_title = serializers.CharField(source="piece.title", read_only=True)
-    piece_status = serializers.CharField(source="piece.status", read_only=True)
-    spellcheck_clean = serializers.BooleanField(source="piece.spellcheck_clean", read_only=True)
-    signed_off = serializers.BooleanField(source="piece.signed_off", read_only=True)
-    word_count = serializers.SerializerMethodField()
-
-    class Meta:
-        model = WritingRunMembership
-        fields = [
-            "id", "order_index", "added_at",
-            "piece_id", "piece_title", "piece_status",
-            "spellcheck_clean", "signed_off", "word_count",
-        ]
-
-    def get_word_count(self, obj):
-        from utils.writing.writing_utils import count_words_in_prosemirror
-        try:
-            return count_words_in_prosemirror(obj.piece.body_json) if obj.piece.body_json else 0
-        except Exception:
-            return 0
-
-
-class WritingRunSerializer(serializers.ModelSerializer):
-    memberships = RunMemberSerializer(many=True, read_only=True)
-    member_count = serializers.SerializerMethodField()
-    is_publishable = serializers.SerializerMethodField()
-
-    class Meta:
-        model = WritingRun
-        fields = [
-            "id", "title", "slug", "status", "published_at",
-            "created_at", "updated_at",
-            "memberships", "member_count", "is_publishable",
-        ]
-        read_only_fields = ["id", "slug", "status", "published_at", "created_at", "updated_at"]
-
-    def get_member_count(self, obj):
-        return obj.memberships.count()
-
-    def get_is_publishable(self, obj):
-        if obj.status == "published":
-            return False
-        memberships = obj.memberships.select_related("piece")
-        if not memberships.exists():
-            return False
-        return all(m.piece.spellcheck_clean and m.piece.signed_off for m in memberships)
-
-
-class WritingRunListSerializer(serializers.ModelSerializer):
-    member_count = serializers.SerializerMethodField()
-    is_publishable = serializers.SerializerMethodField()
-
-    class Meta:
-        model = WritingRun
-        fields = [
-            "id", "title", "slug", "status", "published_at",
-            "created_at", "updated_at", "member_count", "is_publishable",
-        ]
-        read_only_fields = fields
-
-    def get_member_count(self, obj):
-        return obj.memberships.count()
-
-    def get_is_publishable(self, obj):
-        if obj.status == "published":
-            return False
-        memberships = obj.memberships.select_related("piece")
-        if not memberships.exists():
-            return False
-        return all(m.piece.spellcheck_clean and m.piece.signed_off for m in memberships)
+from writing.api.serializers import (
+    RunMemberSerializer,
+    WritingRunSerializer,
+    WritingRunListSerializer,
+)
 
 
 # ---------------------------------------------------------------------------
