@@ -25,6 +25,8 @@ from ..models import (
     WritingAnalysisSession,
     WritingFidelityReport,
     WritingSuggestedRevision,
+    WritingRun,
+    WritingRunMembership,
 )
 from commons.models import Leaf
 
@@ -115,7 +117,7 @@ class WritingPieceSerializer(serializers.ModelSerializer):
 class WritingSeriesSerializer(serializers.ModelSerializer):
     class Meta:
         model = WritingSeries
-        fields = ["id", "title", "slug", "phase_num", "subtitle", "group"]
+        fields = ["id", "title", "slug", "phase_num", "subtitle", "group", "user"]
         read_only_fields = ["id"]
 
 
@@ -160,13 +162,6 @@ class WritingPieceDetailSerializer(serializers.ModelSerializer):
         if obj.sponsor:
             return str(obj.sponsor)
         return None
-
-
-class WritingPieceMinimalSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = WritingPiece
-        fields = ["id", "slug", "status", "writing_kind", "is_empty", "target_wordcount", "suggest_splits"]
-        read_only_fields = ["id", "slug", "status"]
 
 
 class WritingPieceCatalogSerializer(serializers.ModelSerializer):
@@ -311,7 +306,7 @@ class WritingVersionSerializer(serializers.ModelSerializer):
         model = WritingVersion
         fields = [
             "id", "version_no", "title", "excerpt",
-            "created_at", "changelog"
+            "body_json", "created_at", "changelog"
         ]
         read_only_fields = fields
 
@@ -464,6 +459,7 @@ class WritingPieceMinimalSerializer(serializers.ModelSerializer):
             "id", "slug", "title", "writing_kind",
             "status", "created_at", "updated_at", "excerpt", "tags_list", "categories_list",
             "enable_outline", "series_id", "series_title", "series_phase_num", "series_order",
+            "is_empty",
         ]
 
     def get_tags_list(self, obj):
@@ -806,3 +802,73 @@ class WritingSynopsisSerializer(serializers.ModelSerializer):
             "id", "piece", "published_at", "source_version",
             "generated_by", "created_at", "updated_at",
         ]
+
+
+# ============================================================================
+# Writing Run Serializers (ADR-0054)
+# ============================================================================
+
+class RunMemberSerializer(serializers.ModelSerializer):
+    piece_id = serializers.UUIDField(source="piece.id", read_only=True)
+    piece_title = serializers.CharField(source="piece.title", read_only=True)
+    piece_status = serializers.CharField(source="piece.status", read_only=True)
+    spellcheck_clean = serializers.BooleanField(source="piece.spellcheck_clean", read_only=True)
+    signed_off = serializers.BooleanField(source="piece.signed_off", read_only=True)
+    word_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WritingRunMembership
+        fields = [
+            "id", "order_index", "added_at",
+            "piece_id", "piece_title", "piece_status",
+            "spellcheck_clean", "signed_off", "word_count",
+        ]
+
+    def get_word_count(self, obj):
+        from utils.writing.writing_utils import count_words_in_prosemirror
+        try:
+            wc = obj.piece.working_copies.order_by("-last_saved_at").first()
+            body = wc.body_json if wc else obj.piece.body_json
+            return count_words_in_prosemirror(body) if body else 0
+        except Exception:
+            return 0
+
+
+class WritingRunSerializer(serializers.ModelSerializer):
+    memberships = RunMemberSerializer(many=True, read_only=True)
+    member_count = serializers.SerializerMethodField()
+    is_publishable = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WritingRun
+        fields = [
+            "id", "title", "slug", "status", "published_at",
+            "created_at", "updated_at",
+            "memberships", "member_count", "is_publishable",
+        ]
+        read_only_fields = ["id", "slug", "status", "published_at", "created_at", "updated_at"]
+
+    def get_member_count(self, obj):
+        return obj.memberships.count()
+
+    def get_is_publishable(self, obj):
+        return obj.is_publishable
+
+
+class WritingRunListSerializer(serializers.ModelSerializer):
+    member_count = serializers.SerializerMethodField()
+    is_publishable = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WritingRun
+        fields = [
+            "id", "title", "slug", "status", "published_at",
+            "created_at", "updated_at", "member_count", "is_publishable",
+        ]
+        read_only_fields = fields
+
+    def get_member_count(self, obj):
+        return obj.memberships.count()
+
+    def get_is_publishable(self, obj):
+        return obj.is_publishable

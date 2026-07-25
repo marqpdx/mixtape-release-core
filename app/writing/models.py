@@ -69,15 +69,38 @@ class WritingSeries(BaseModel):
         on_delete=models.SET_NULL,
         related_name="writing_series",
     )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="writing_series",
+    )
 
     class Meta(BaseModel.Meta):
         ordering = ["phase_num", "title"]
-        unique_together = [("group", "slug")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["group", "slug"],
+                condition=models.Q(group__isnull=False),
+                name="unique_writing_series_group_slug",
+            ),
+            models.UniqueConstraint(
+                fields=["user", "slug"],
+                condition=models.Q(user__isnull=False),
+                name="unique_writing_series_user_slug",
+            ),
+        ]
         verbose_name = "Writing Series"
         verbose_name_plural = "Writing Series"
 
     def __str__(self):
-        prefix = f"{self.group.slug}/" if self.group_id else ""
+        if self.group_id:
+            prefix = f"{self.group.slug}/"
+        elif self.user_id:
+            prefix = f"@{self.user.username}/"
+        else:
+            prefix = ""
         num = f"[{self.phase_num}] " if self.phase_num is not None else ""
         return f"{prefix}{num}{self.title}"
 
@@ -1314,6 +1337,15 @@ class WritingRun(BaseModel):
 
     def __str__(self):
         return f"[{self.status.upper()}] Run: {self.title}"
+
+    @property
+    def is_publishable(self):
+        if self.status == "published":
+            return False
+        memberships = self.memberships.select_related("piece")
+        if not memberships.exists():
+            return False
+        return all(m.piece.spellcheck_clean and m.piece.signed_off for m in memberships)
 
     def save(self, *args, **kwargs):
         if not self.slug and self.title:
