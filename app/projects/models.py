@@ -2,6 +2,7 @@
 
 import uuid
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils import timezone
@@ -17,9 +18,41 @@ class ProjectMode(models.TextChoices):
 class ProjectColumnSemanticType(models.TextChoices):
     BACKLOG = "backlog", "Backlog"
     READY = "ready", "Ready"
-    DOING = "doing", "Doing"
-    BLOCKED = "blocked", "Blocked"
+    DOING = "doing", "Doing"        # legacy — kept for existing boards
+    STARTED = "started", "Started"
+    NEEDS_REVIEW = "needs_review", "Needs Review"
+    BLOCKED = "blocked", "Blocked"  # legacy — kept for existing boards
     DONE = "done", "Done"
+
+
+class TaskSeverity(models.TextChoices):
+    LOW = "low", "Low"
+    MEDIUM = "medium", "Medium"
+    HIGH = "high", "High"
+    CRITICAL = "critical", "Critical"
+
+
+class TaskTimeliness(models.TextChoices):
+    PRESSING = "pressing", "Pressing"
+    NORMAL = "normal", "Normal"
+    EVENTUALLY = "eventually", "Eventually"
+
+
+class TaskType(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=80, unique=True)
+    slug = models.SlugField(unique=True)
+    description = models.TextField(blank=True, default="")
+    is_active = models.BooleanField(default=True)
+    position = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["position", "name"]
+
+    def __str__(self):
+        return self.name
 
 
 class Project(BaseContent):
@@ -101,8 +134,8 @@ class ProjectColumn(BaseModel):
         defaults = [
             ("Backlog", ProjectColumnSemanticType.BACKLOG),
             ("Ready", ProjectColumnSemanticType.READY),
-            ("Doing", ProjectColumnSemanticType.DOING),
-            ("Blocked", ProjectColumnSemanticType.BLOCKED),
+            ("Started", ProjectColumnSemanticType.STARTED),
+            ("Needs Review", ProjectColumnSemanticType.NEEDS_REVIEW),
             ("Done", ProjectColumnSemanticType.DONE),
         ]
         columns = [
@@ -127,6 +160,33 @@ class Task(BaseData):
     position = models.PositiveIntegerField()
     completed_at = models.DateTimeField(null=True, blank=True)
     archived_at = models.DateTimeField(null=True, blank=True)
+    task_type = models.ForeignKey(
+        TaskType,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="tasks",
+    )
+    severity = models.CharField(
+        max_length=20,
+        choices=TaskSeverity.choices,
+        default=TaskSeverity.LOW,
+    )
+    timeliness = models.CharField(
+        max_length=20,
+        choices=TaskTimeliness.choices,
+        default=TaskTimeliness.NORMAL,
+    )
+    assignee = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="assigned_tasks",
+    )
+    sign_off_criteria = models.TextField(blank=True, default="")
+    due_date = models.DateField(null=True, blank=True)
+    due_date_overridden = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["position", "created_at"]

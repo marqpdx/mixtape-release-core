@@ -1,5 +1,6 @@
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import permissions, status
@@ -8,15 +9,28 @@ from rest_framework.views import APIView
 from rest_framework.generics import CreateAPIView
 
 from projects.api.serializers import (
+    ColumnCreateSerializer,
+    ColumnUpdateSerializer,
     ProjectSerializer,
     ProjectColumnSerializer,
     TaskSerializer,
     TaskCreateSerializer,
     TaskMoveSerializer,
+    TaskTypeSerializer,
+    TaskTypeUpsertSerializer,
     TaskUpdateSerializer,
 )
-from projects.models import Project, ProjectColumn, Task
-from projects.permissions import CanArchiveTask, CanCreateTask, CanEditProject, CanEditTask, CanMoveTask, CanViewProject, can_user_access_sponsor
+from projects.models import Project, ProjectColumn, Task, TaskType
+from projects.permissions import (
+    CanArchiveTask,
+    CanBoardAdmin,
+    CanCreateTask,
+    CanEditProject,
+    CanEditTask,
+    CanMoveTask,
+    CanViewProject,
+    can_user_access_sponsor,
+)
 from utils.shared.contenttypes import resolve_content_type
 
 
@@ -63,10 +77,7 @@ class ProjectListView(APIView):
         user = request.user
 
         if not can_user_access_sponsor(user, sponsor_content_type, sponsor_object_id, "can_view_project"):
-            self.permission_denied(
-                request,
-                message="You don't have permission to view projects for this sponsor.",
-            )
+            self.permission_denied(request, message="You don't have permission to view projects for this sponsor.")
 
         projects = Project.objects.filter(
             sponsor_content_type=sponsor_content_type,
@@ -83,14 +94,17 @@ class ProjectBoardView(APIView):
         project = get_object_or_404(Project, id=project_id)
         self.check_object_permissions(request, project)
 
-        columns = project.columns.order_by("position")
+        columns = project.columns.filter(is_hidden=False).order_by("position")
         tasks = (
             Task.objects.filter(project=project, archived_at__isnull=True)
+            .select_related("task_type", "assignee")
             .order_by("column__position", "position", "created_at")
         )
         tasks_by_column = {str(column.id): [] for column in columns}
         for task in tasks:
-            tasks_by_column[str(task.column_id)].append(TaskSerializer(task).data)
+            col_key = str(task.column_id)
+            if col_key in tasks_by_column:
+                tasks_by_column[col_key].append(TaskSerializer(task).data)
 
         payload = {
             "project": ProjectSerializer(project).data,
@@ -140,12 +154,45 @@ class TaskMoveView(APIView):
                 for item in column_tasks
             ]
 
-        payload = {
-            "task": TaskSerializer(task).data,
-            "columns": column_payload,
-        }
-        return Response(payload, status=status.HTTP_200_OK)
+        return Response(
+            {"task": TaskSerializer(task).data, "columns": column_payload},
+            status=status.HTTP_200_OK,
+        )
 
+
+class TaskUpdateView(APIView):
+    permission_classes = [permissions.IsAuthenticated, CanEditTask]
+
+    def patch(self, request, task_id):
+        task = get_object_or_404(Task, id=task_id, archived_at__isnull=True)
+        self.check_object_permissions(request, task)
+
+        serializer = TaskUpdateSerializer(data=request.data, context={"task": task})
+        serializer.is_valid(raise_exception=True)
+
+        update_fields = list(serializer.validated_data.keys()) + ["updated_at"]
+        for field, value in serializer.validated_data.items():
+            setattr(task, field, value)
+        task.save(update_fields=update_fields)
+
+        task.refresh_from_db()
+        return Response(TaskSerializer(task).data, status=status.HTTP_200_OK)
+
+
+class TaskArchiveView(APIView):
+    permission_classes = [permissions.IsAuthenticated, CanArchiveTask]
+
+    def post(self, request, task_id):
+        task = get_object_or_404(Task, id=task_id, archived_at__isnull=True)
+        self.check_object_permissions(request, task)
+
+        task.archived_at = timezone.now()
+        task.save(update_fields=["archived_at", "updated_at"])
+
+        return Response({"detail": "Task archived."}, status=status.HTTP_200_OK)
+
+
+# --- Column management (board admin only) ---
 
 class ColumnToggleHiddenView(APIView):
     permission_classes = [permissions.IsAuthenticated, CanEditProject]
@@ -165,31 +212,122 @@ class ColumnToggleHiddenView(APIView):
         return Response(ProjectColumnSerializer(column).data, status=status.HTTP_200_OK)
 
 
-class TaskUpdateView(APIView):
-    permission_classes = [permissions.IsAuthenticated, CanEditTask]
+class ColumnUpdateView(APIView):
+    """Rename or reorder a column. Board admin only."""
+    permission_classes = [permissions.IsAuthenticated, CanBoardAdmin]
 
-    def patch(self, request, task_id):
-        task = get_object_or_404(Task, id=task_id, archived_at__isnull=True)
-        self.check_object_permissions(request, task)
+    def patch(self, request, project_id, column_id):
+        project = get_object_or_404(Project, id=project_id)
+        self.check_object_permissions(request, project)
 
-        serializer = TaskUpdateSerializer(data=request.data)
+        column = get_object_or_404(ProjectColumn, id=column_id, project=project)
+        serializer = ColumnUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        for field, value in serializer.validated_data.items():
-            setattr(task, field, value)
-        task.save(update_fields=list(serializer.validated_data.keys()) + ["updated_at"])
+        new_position = serializer.validated_data.get("position")
+        new_title = serializer.validated_data.get("title")
 
-        return Response(TaskSerializer(task).data, status=status.HTTP_200_OK)
+        with transaction.atomic():
+            if new_title:
+                column.title = new_title
+            if new_position is not None and new_position != column.position:
+                # Shift other columns to make room
+                old_position = column.position
+                cols = list(
+                    ProjectColumn.objects.select_for_update()
+                    .filter(project=project)
+                    .exclude(pk=column.pk)
+                    .order_by("position")
+                )
+                cols.insert(new_position, column)
+                for idx, col in enumerate(cols):
+                    col.position = idx
+                ProjectColumn.objects.bulk_update(cols, ["position"])
+                column.position = new_position
+            column.save(update_fields=["title", "position", "updated_at"])
+
+        return Response(ProjectColumnSerializer(column).data, status=status.HTTP_200_OK)
 
 
-class TaskArchiveView(APIView):
-    permission_classes = [permissions.IsAuthenticated, CanArchiveTask]
+class ColumnCreateView(APIView):
+    """Add a new column to a project. Board admin only."""
+    permission_classes = [permissions.IsAuthenticated, CanBoardAdmin]
 
-    def post(self, request, task_id):
-        task = get_object_or_404(Task, id=task_id, archived_at__isnull=True)
-        self.check_object_permissions(request, task)
+    def post(self, request, project_id):
+        project = get_object_or_404(Project, id=project_id)
+        self.check_object_permissions(request, project)
 
-        task.archived_at = timezone.now()
-        task.save(update_fields=["archived_at", "updated_at"])
+        serializer = ColumnCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        return Response({"detail": "Task archived."}, status=status.HTTP_200_OK)
+        last_position = (
+            ProjectColumn.objects.filter(project=project)
+            .order_by("-position")
+            .values_list("position", flat=True)
+            .first()
+        )
+        position = (last_position + 1) if last_position is not None else 0
+
+        column = ProjectColumn.objects.create(
+            project=project,
+            title=serializer.validated_data["title"],
+            position=position,
+        )
+        return Response(ProjectColumnSerializer(column).data, status=status.HTTP_201_CREATED)
+
+
+class ColumnDeleteView(APIView):
+    """
+    Delete a column. Board admin only.
+    Blocked if any active tasks remain in the column — move them first.
+    """
+    permission_classes = [permissions.IsAuthenticated, CanBoardAdmin]
+
+    def delete(self, request, project_id, column_id):
+        project = get_object_or_404(Project, id=project_id)
+        self.check_object_permissions(request, project)
+
+        column = get_object_or_404(ProjectColumn, id=column_id, project=project)
+
+        active_count = Task.objects.filter(column=column, archived_at__isnull=True).count()
+        if active_count > 0:
+            return Response(
+                {
+                    "detail": (
+                        f"Cannot delete a column that contains {active_count} active task(s). "
+                        "Move or archive them first."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        column.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# --- TaskType management (superuser only) ---
+
+class TaskTypeListView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        types = TaskType.objects.filter(is_active=True)
+        return Response(TaskTypeSerializer(types, many=True).data)
+
+
+class TaskTypeAdminView(APIView):
+    """Create or update (upsert by slug) a task type. Superuser only."""
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request):
+        serializer = TaskTypeUpsertSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        task_type = serializer.save()
+        return Response(TaskTypeSerializer(task_type).data, status=status.HTTP_201_CREATED)
+
+    def patch(self, request, task_type_id):
+        task_type = get_object_or_404(TaskType, id=task_type_id)
+        serializer = TaskTypeUpsertSerializer(task_type, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        task_type = serializer.save()
+        return Response(TaskTypeSerializer(task_type).data, status=status.HTTP_200_OK)

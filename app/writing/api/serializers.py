@@ -269,6 +269,30 @@ class WritingFidelityReportSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class WritingPieceMinimalSerializer(serializers.ModelSerializer):
+    """Minimal piece info for working copy context."""
+    tags_list = serializers.SerializerMethodField()
+    categories_list = serializers.SerializerMethodField()
+    series_id = serializers.UUIDField(source="series.id", read_only=True, allow_null=True, default=None)
+    series_title = serializers.CharField(source="series.title", read_only=True, allow_null=True, default=None)
+    series_phase_num = serializers.IntegerField(source="series.phase_num", read_only=True, allow_null=True, default=None)
+
+    class Meta:
+        model = WritingPiece
+        fields = [
+            "id", "slug", "title", "writing_kind",
+            "status", "created_at", "updated_at", "excerpt", "tags_list", "categories_list",
+            "enable_outline", "series_id", "series_title", "series_phase_num", "series_order",
+            "is_empty",
+        ]
+
+    def get_tags_list(self, obj):
+        return _get_tag_titles_for_piece(obj)
+
+    def get_categories_list(self, obj):
+        return _get_categories_for_piece(obj)
+
+
 class WorkingDocumentLightSerializer(serializers.ModelSerializer):
     """Lightweight serializer for autosave operations (no nested data)"""
     piece = WritingPieceMinimalSerializer(read_only=True)
@@ -443,30 +467,6 @@ class UserMinimalSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ["id", "username"]
-
-
-class WritingPieceMinimalSerializer(serializers.ModelSerializer):
-    """Minimal piece info for working copy context."""
-    tags_list = serializers.SerializerMethodField()
-    categories_list = serializers.SerializerMethodField()
-    series_id = serializers.UUIDField(source="series.id", read_only=True, allow_null=True, default=None)
-    series_title = serializers.CharField(source="series.title", read_only=True, allow_null=True, default=None)
-    series_phase_num = serializers.IntegerField(source="series.phase_num", read_only=True, allow_null=True, default=None)
-
-    class Meta:
-        model = WritingPiece
-        fields = [
-            "id", "slug", "title", "writing_kind",
-            "status", "created_at", "updated_at", "excerpt", "tags_list", "categories_list",
-            "enable_outline", "series_id", "series_title", "series_phase_num", "series_order",
-            "is_empty",
-        ]
-
-    def get_tags_list(self, obj):
-        return _get_tag_titles_for_piece(obj)
-
-    def get_categories_list(self, obj):
-        return _get_categories_for_piece(obj)
 
 
 class WorkingDocumentSerializer(serializers.ModelSerializer):
