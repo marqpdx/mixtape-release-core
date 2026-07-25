@@ -1,4 +1,4 @@
-# app/lists/models.py
+# lists/models.py
 
 import hashlib
 import uuid
