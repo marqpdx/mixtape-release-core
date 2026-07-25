@@ -182,56 +182,18 @@ class Group(LayoutParent, BaseContent):
         ).exists()
 
     def can_user_view_drafts(self, user):
-
-        return True
-        # TODO  make this real.
-
-
-        """
-        Check if user can view drafts in this group.
-        Implement your permission logic here.
-        """
         if not user.is_authenticated:
             return False
-
-        # Example permission logic - adjust based on your needs:
-        # - Group members can view drafts
-        # - Public groups allow any authenticated user
-
-        if self.is_member(user):
-            return True
-
-        # If it's a public group, allow any authenticated user
-        if getattr(self, "visibility", None) == "public":
-            return True
-
-        return False
+        from groups.services.groups import GroupService
+        membership = GroupService.get_user_membership(self, user)
+        return membership is not None and (membership.is_admin() or membership.is_steward())
 
     def can_user_view_content(self, user):
-        """
-        Check if user can view content in this group.
-        Implement your permission logic here.
-        """
-
-        return True
-
-        # TODO make this real.
-
+        if self.visibility == GroupVisibility.PUBLIC:
+            return True
         if not user.is_authenticated:
             return False
-
-        # Example permission logic - adjust based on your needs:
-        # - Group members can view content
-        # - Public groups allow any authenticated user
-
-        if self.is_member(user):
-            return True
-
-        # If it's a public group, allow any authenticated user
-        if getattr(self, "visibility", None) == "public":
-            return True
-
-        return False
+        return self.is_member(user)
 
 
 # INVITATION MODELS

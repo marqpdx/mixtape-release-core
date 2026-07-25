@@ -83,3 +83,10 @@ class CanEditTask(ProjectPermissionBase):
 
 class CanArchiveTask(ProjectPermissionBase):
     required_permission = "can_archive_task"
+
+
+class CanBoardAdmin(permissions.BasePermission):
+    """Column management: superuser only."""
+
+    def has_object_permission(self, request, view, obj):
+        return request.user and (request.user.is_staff or request.user.is_superuser)
