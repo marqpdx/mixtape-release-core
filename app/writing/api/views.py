@@ -2553,19 +2553,26 @@ class WritingSynopsisLinkedInCopyView(generics.GenericAPIView):
 
 class WritingSeriesListView(generics.GenericAPIView):
     """
-    GET /api/writing/series?group=<slug>  — list series for a group
-    POST /api/writing/series              — create a new series (admin/owner only)
+    GET /api/writing/series?group=<slug>   — series for a group
+    GET /api/writing/series?member=<slug>  — series for a member (by username)
+    POST /api/writing/series               — create (group: admin/owner only; member: self only)
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         from writing.api.serializers import WritingSeriesSerializer
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
         group_slug = request.query_params.get("group")
+        member_slug = request.query_params.get("member")
         if group_slug:
             group = get_object_or_404(Group, slug=group_slug)
             qs = WritingSeries.objects.filter(group=group)
+        elif member_slug:
+            member = get_object_or_404(User, username=member_slug)
+            qs = WritingSeries.objects.filter(user=member)
         else:
-            qs = WritingSeries.objects.filter(group__isnull=True)
+            qs = WritingSeries.objects.filter(group__isnull=True, user__isnull=True)
         return Response(WritingSeriesSerializer(qs, many=True).data)
 
     def post(self, request):
@@ -2573,10 +2580,14 @@ class WritingSeriesListView(generics.GenericAPIView):
         serializer = WritingSeriesSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         group = serializer.validated_data.get("group")
+        user = serializer.validated_data.get("user")
         if group:
             roles = PermissionService.get_user_roles_in_group(request.user, group.slug)
             if not any(r in roles for r in ["owner", "admin"]):
                 raise PermissionDenied("Only group owners/admins can create series.")
+        elif user:
+            if user != request.user:
+                raise PermissionDenied("You can only create series for yourself.")
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
