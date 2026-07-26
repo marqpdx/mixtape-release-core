@@ -96,6 +96,16 @@ def deactivate_object(obj, *, reason: str) -> StackroomSyncState | None:
             logger.warning(
                 "Stackroom deactivate failed: %s %s — %s", adapter.adapter_name, obj.pk, exc
             )
+    else:
+        # source_file_id is null — ingest never completed or source_file_id was never
+        # recorded. Stackroom cleanup is skipped; any SourceFile and blob that were
+        # partially created will remain until a reconciliation pass (SR4-M2).
+        logger.warning(
+            "Stackroom deactivate skipped — no source_file_id recorded: adapter=%s object_pk=%s "
+            "sync_status=%s library_id=%s",
+            adapter.adapter_name, obj.pk,
+            sync_state.status, sync_state.stackroom_library_id,
+        )
 
     sync_state.status = StackroomSyncState.STATUS_DEACTIVATED
     sync_state.metadata = {**(sync_state.metadata or {}), "deactivation_reason": reason}
