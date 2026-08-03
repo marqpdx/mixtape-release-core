@@ -24,6 +24,7 @@ DECORATOR_PERMISSIONS = {
 ROLE_PERMISSIONS = {
     "owner": [
         # All admin permissions
+        "manage_public_page",  # Crossroads Page management (DB-0002)
         "create_course",
         "edit_course",
         "delete_course",
@@ -61,6 +62,7 @@ ROLE_PERMISSIONS = {
 
     "admin": [
         # Course management
+        "manage_public_page",  # Crossroads Page management (DB-0002)
         "create_course",
         "edit_course",
         "delete_course",
@@ -103,6 +105,7 @@ ROLE_PERMISSIONS = {
 
     "steward": [
         # Course management (limited)
+        "manage_public_page",  # Crossroads Page management (DB-0002)
         "create_course",
         "edit_course",
         "publish_course",

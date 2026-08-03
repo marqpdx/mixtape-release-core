@@ -29,3 +29,6 @@ from .group_context import *
 
 # 9. Circle-specific extensions
 from .circle import *
+
+# 10. Public page (Crossroads Page — DB-0002)
+from .public_page import PublicPage

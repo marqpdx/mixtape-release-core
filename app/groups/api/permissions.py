@@ -204,3 +204,8 @@ class CanCreateOrEditCourse(HasAnyPermission):
 class CanManageGroupAndMembers(HasAllPermissions):
     """Check if user can manage both group settings AND members."""
     required_permissions = ["edit_group", "manage_members"]
+
+
+class IsGroupStewardOrAbove(HasPermission):
+    """Steward, Admin, or Owner of the group in the URL slug. Required for all Crossroads Page management endpoints (DB-0002 Decision 7)."""
+    required_permission = "manage_public_page"
