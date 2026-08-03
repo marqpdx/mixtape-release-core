@@ -60,6 +60,12 @@ urlpatterns = [
         PublicWritingRunView.as_view(),
         name="public-writing-run",
     ),
+    # Crossroads Page — public read (DB-0002)
+    path(
+        "groups/<slug:slug>/page",
+        views.PublicGroupPageView.as_view(),
+        name="public-group-page",
+    ),
     # Commons
     path(
         "commons",

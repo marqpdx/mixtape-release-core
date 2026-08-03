@@ -64,6 +64,13 @@ from .circle_decorator_views import (
     CircleRemoveDecoratorView,
     CircleDeliverableIntentView,
 )
+from .page_views import (
+    PublicPageView,
+    PublicPageUpdateView,
+    PublicPageSubmitView,
+    PublicPagePublishView,
+    PublicPageArchiveView,
+)
 from writing.api.views import WritingPieceDetailView
 from drop.api.urls import urlpatterns as drop_urlpatterns
 
@@ -173,6 +180,13 @@ urlpatterns = [
     # PHASE 3: Emblems (Enabled)
     # ============================================================================
 
+
+    # Crossroads Page management (DB-0002) — Steward or above only
+    path("<slug:slug>/public-page", PublicPageView.as_view(), name="group-public-page"),
+    path("<slug:slug>/public-page/draft", PublicPageUpdateView.as_view(), name="group-public-page-draft"),
+    path("<slug:slug>/public-page/submit", PublicPageSubmitView.as_view(), name="group-public-page-submit"),
+    path("<slug:slug>/public-page/publish", PublicPagePublishView.as_view(), name="group-public-page-publish"),
+    path("<slug:slug>/public-page/archive", PublicPageArchiveView.as_view(), name="group-public-page-archive"),
 
     # Group Announcements
     path('<slug:group_slug>/announcements/', GroupAnnouncementListCreateView.as_view(), name='group-announcements-list'),

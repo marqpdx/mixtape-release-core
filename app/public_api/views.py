@@ -28,6 +28,7 @@ from earthlab.models import Course, CourseItem
 from django.db.models import Count, Q
 
 from groups.models.group import Group
+from groups.models.public_page import PublicPage
 from groups.services.join_service import get_admission_status
 
 from .serializers import (
@@ -530,4 +531,39 @@ class PublicWritingRunView(APIView):
             "published_at": run.published_at,
             "piece_count": len(pieces),
             "pieces": pieces,
+        })
+
+
+class PublicGroupPageView(APIView):
+    """
+    GET /api/public/groups/<slug>/page
+
+    Returns the published content snapshot for a group's Crossroads Page.
+    AllowAny — no authentication required. Returns 404 if no published page
+    exists for the group.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, slug):
+        group = get_object_or_404(Group, slug=slug)
+        try:
+            page = group.public_page
+        except PublicPage.DoesNotExist:
+            return Response(
+                {"detail": "This group has no public page."},
+                status=drf_status.HTTP_404_NOT_FOUND,
+            )
+
+        if page.status != PublicPage.Status.PUBLISHED:
+            return Response(
+                {"detail": "This group has no published public page."},
+                status=drf_status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response({
+            "group_slug": group.slug,
+            "group_id": str(group.id),
+            "status": page.status,
+            "content": page.published_content,
+            "published_at": page.published_at,
         })
