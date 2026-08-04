@@ -23,6 +23,12 @@ class PublicPage(models.Model):
         PUBLISHED = "published", "Published"
         ARCHIVED = "archived", "Archived"
 
+    class LayoutTemplate(models.TextChoices):
+        STANDARD = "standard", "Standard"
+        HERO = "hero", "Hero"
+        FOCUS = "focus", "Focus"
+        DIRECTORY = "directory", "Directory"
+
     group = models.OneToOneField(
         "groups.Group",
         on_delete=models.PROTECT,
@@ -41,6 +47,15 @@ class PublicPage(models.Model):
         null=True,
         blank=True,
         help_text="Content snapshot as of last approval; served to anonymous readers.",
+    )
+    layout_template = models.CharField(
+        max_length=20,
+        choices=LayoutTemplate.choices,
+        default=LayoutTemplate.STANDARD,
+    )
+    needs_review = models.BooleanField(
+        default=False,
+        help_text="Steward-flagged: this page needs attention. Does not remove it from public view.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -73,8 +88,16 @@ class PublicPage(models.Model):
         self.status = self.Status.DRAFT
         self.save(update_fields=["status", "updated_at"])
 
+    def unpublish(self):
+        """Take a published page offline — returns to draft for re-editing."""
+        if self.status != self.Status.PUBLISHED:
+            raise ValueError(f"Cannot unpublish from status '{self.status}'.")
+        self.status = self.Status.DRAFT
+        self.published_at = None
+        self.save(update_fields=["status", "published_at", "updated_at"])
+
     def archive(self):
-        """Archive a published page."""
+        """Permanently retire a published page."""
         if self.status != self.Status.PUBLISHED:
             raise ValueError(f"Cannot archive from status '{self.status}'.")
         self.status = self.Status.ARCHIVED

@@ -69,7 +69,10 @@ from .page_views import (
     PublicPageUpdateView,
     PublicPageSubmitView,
     PublicPagePublishView,
+    PublicPageUnpublishView,
     PublicPageArchiveView,
+    PageComponentListCreateView,
+    PageComponentDetailView,
 )
 from writing.api.views import WritingPieceDetailView
 from drop.api.urls import urlpatterns as drop_urlpatterns
@@ -186,7 +189,10 @@ urlpatterns = [
     path("<slug:slug>/public-page/draft", PublicPageUpdateView.as_view(), name="group-public-page-draft"),
     path("<slug:slug>/public-page/submit", PublicPageSubmitView.as_view(), name="group-public-page-submit"),
     path("<slug:slug>/public-page/publish", PublicPagePublishView.as_view(), name="group-public-page-publish"),
+    path("<slug:slug>/public-page/unpublish", PublicPageUnpublishView.as_view(), name="group-public-page-unpublish"),
     path("<slug:slug>/public-page/archive", PublicPageArchiveView.as_view(), name="group-public-page-archive"),
+    path("<slug:slug>/public-page/components", PageComponentListCreateView.as_view(), name="group-public-page-components"),
+    path("<slug:slug>/public-page/components/<int:component_id>", PageComponentDetailView.as_view(), name="group-public-page-component-detail"),
 
     # Group Announcements
     path('<slug:group_slug>/announcements/', GroupAnnouncementListCreateView.as_view(), name='group-announcements-list'),
