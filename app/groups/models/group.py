@@ -161,6 +161,26 @@ class Group(LayoutParent, BaseContent):
         blank=True,
     )
 
+    # ============================================================================
+    # TENANT FLAGS (convergence-pilot / FN-0010 FN-D10)
+    # ============================================================================
+    crossroads_enabled = models.BooleanField(
+        default=False,
+        help_text="This group is active as a Crossroads tenant."
+    )
+    catalyst_enabled = models.BooleanField(
+        default=False,
+        help_text="Catalyst features are enabled for this group."
+    )
+    in_crossroads_commons = models.BooleanField(
+        default=False,
+        help_text=(
+            "This group has explicitly opted into the Crossroads public directory. "
+            "Must default False — every group is standalone until an admin sets this. "
+            "Defaulting True would opt all existing groups into the commons on migration."
+        )
+    )
+
     def is_member(self, user):
         """
         Check if user is a member of this group.
