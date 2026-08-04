@@ -561,10 +561,23 @@ class PublicGroupPageView(APIView):
                 status=drf_status.HTTP_404_NOT_FOUND,
             )
 
+        components = [
+            {
+                "id": c.id,
+                "slot": c.slot,
+                "component_type": c.component_type,
+                "content_json": c.content_json,
+                "sort_order": c.sort_order,
+            }
+            for c in page.components.all()
+        ]
+
         return Response({
             "group_slug": group.slug,
             "group_id": str(group.id),
             "status": page.status,
+            "layout_template": page.layout_template,
             "content": page.published_content,
+            "components": components,
             "published_at": page.published_at,
         })
