@@ -208,6 +208,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",              # 🔄 Basic middleware like GZip, Conditional GET
     "django.middleware.csrf.CsrfViewMiddleware",              # 🔒 CSRF protection middleware
     "django.contrib.auth.middleware.AuthenticationMiddleware",# 🔑 Populates `request.user` ✅
+    "mixtape.middleware.TenantMiddleware",                    # 🏢 Resolves request.tenant from subdomain
     # 'users.middleware.AuthorizationMiddleware',               # 🚀 Our custom Authorization Middleware 🔥
     "django.contrib.messages.middleware.MessageMiddleware",   # ✉️ Flash messages for users
     "django.middleware.clickjacking.XFrameOptionsMiddleware", # ❌ Prevents clickjacking
