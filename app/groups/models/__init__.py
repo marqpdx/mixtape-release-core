@@ -32,3 +32,4 @@ from .circle import *
 
 # 10. Public page (Crossroads Page — DB-0002)
 from .public_page import PublicPage
+from .page_component import PageComponent

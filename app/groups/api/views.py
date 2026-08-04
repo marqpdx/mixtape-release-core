@@ -227,6 +227,41 @@ class GroupDetailView(generics.RetrieveUpdateAPIView):
 
         return obj
 
+    # Fields that map to live PublicPage slots (CR-01A)
+    _PAGE_SLOT_FIELDS = {"title", "description", "profile_image", "background_image"}
+
+    def partial_update(self, request, *args, **kwargs):
+        """
+        CR-01A: if the group has a published PublicPage and the PATCH touches a
+        live slot field, intercept and return a confirmation flag before saving.
+        The caller must re-PATCH with `confirm_public_update: true` to proceed.
+        """
+        from groups.models.public_page import PublicPage
+
+        group = self.get_object()
+        touched = set(request.data.keys()) & self._PAGE_SLOT_FIELDS
+
+        if touched and not request.data.get("confirm_public_update"):
+            try:
+                page = group.public_page
+                if page.status == PublicPage.Status.PUBLISHED:
+                    return Response(
+                        {
+                            "public_page_confirmation_required": True,
+                            "affected_slots": sorted(touched),
+                            "detail": (
+                                "One or more fields you are editing are live on your "
+                                "public Crossroads Page. Re-submit with "
+                                "'confirm_public_update: true' to save."
+                            ),
+                        },
+                        status=status.HTTP_200_OK,
+                    )
+            except PublicPage.DoesNotExist:
+                pass
+
+        return super().partial_update(request, *args, **kwargs)
+
     def delete(self, request, *args, **kwargs):
         if not request.user or not request.user.is_superuser:
             raise PermissionDenied("You don't have permission to delete groups.")
