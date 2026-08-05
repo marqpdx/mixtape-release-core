@@ -603,6 +603,8 @@ class CatalystIntakeView(APIView):
 
         org_name = request.data.get("org_name", "").strip()
         email = request.data.get("email", "").strip()
+        org_description = request.data.get("org_description", "").strip()
+        knowledge_goal = request.data.get("knowledge_goal", "").strip()
 
         if not org_name:
             return Response({"detail": "org_name is required."}, status=drf_status.HTTP_400_BAD_REQUEST)
@@ -620,6 +622,8 @@ class CatalystIntakeView(APIView):
             name=org_name,
             slug=slug,
             primary_contact_email=email,
+            org_description=org_description,
+            knowledge_goal=knowledge_goal,
             status="new",
         )
 
