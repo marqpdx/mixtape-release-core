@@ -28,6 +28,8 @@ class BusinessProspect(models.Model):
     primary_contact_phone = models.CharField(max_length=50, blank=True)
     status = models.CharField(max_length=30, choices=STATUS_CHOICES, default="new")
     summary = models.TextField(blank=True)
+    org_description = models.TextField(blank=True)
+    knowledge_goal = models.TextField(blank=True)
     converted_to_group = models.ForeignKey(
         "groups.Group",
         null=True,

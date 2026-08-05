@@ -19,6 +19,7 @@ class BusinessProspectAdmin(admin.ModelAdmin):
     search_fields = ("name", "primary_contact_email")
     prepopulated_fields = {"slug": ("name",)}
     raw_id_fields = ("sponsor_content_type",)
+    readonly_fields = ("org_description", "knowledge_goal")
 
     def has_module_perms(self, request, app_label=None):
         return request.user.is_superuser
