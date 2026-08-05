@@ -581,3 +581,46 @@ class PublicGroupPageView(APIView):
             "components": components,
             "published_at": page.published_at,
         })
+
+
+class CatalystIntakeView(APIView):
+    """
+    POST /api/public/client-intake
+
+    Ersatz intake form for the Catalyst pilot. Creates a BusinessProspect
+    record (status=new) for admin review and activation. Disabled via
+    INTAKE_FORM_ENABLED=False in settings.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        from django.conf import settings
+        if not getattr(settings, "INTAKE_FORM_ENABLED", False):
+            return Response({"detail": "Not found."}, status=drf_status.HTTP_404_NOT_FOUND)
+
+        from django.utils.text import slugify
+        from prospects.models import BusinessProspect
+
+        org_name = request.data.get("org_name", "").strip()
+        email = request.data.get("email", "").strip()
+
+        if not org_name:
+            return Response({"detail": "org_name is required."}, status=drf_status.HTTP_400_BAD_REQUEST)
+        if not email:
+            return Response({"detail": "email is required."}, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        base_slug = slugify(org_name)
+        slug = base_slug
+        counter = 1
+        while BusinessProspect.objects.filter(slug=slug).exists():
+            slug = f"{base_slug}-{counter}"
+            counter += 1
+
+        BusinessProspect.objects.create(
+            name=org_name,
+            slug=slug,
+            primary_contact_email=email,
+            status="new",
+        )
+
+        return Response({"detail": "Request received."}, status=drf_status.HTTP_201_CREATED)

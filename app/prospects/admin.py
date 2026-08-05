@@ -14,11 +14,26 @@ from .models import (
 
 @admin.register(BusinessProspect)
 class BusinessProspectAdmin(admin.ModelAdmin):
-    list_display = ("name", "status", "primary_contact_email", "sponsor_content_type", "created_at")
-    list_filter = ("status", "sponsor_content_type")
+    list_display = ("name", "status", "primary_contact_email", "converted_to_group", "created_at")
+    list_filter = ("status",)
     search_fields = ("name", "primary_contact_email")
     prepopulated_fields = {"slug": ("name",)}
     raw_id_fields = ("sponsor_content_type",)
+
+    def has_module_perms(self, request, app_label=None):
+        return request.user.is_superuser
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_add_permission(self, request):
+        return request.user.is_superuser
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser
 
 
 @admin.register(ProspectIntakeSession)
