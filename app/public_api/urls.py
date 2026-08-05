@@ -2,7 +2,7 @@
 
 from django.urls import path
 from . import views, views_commons
-from .views import PublicWritingRunView
+from .views import PublicWritingRunView, CatalystIntakeView
 
 urlpatterns = [
     path(
@@ -66,6 +66,13 @@ urlpatterns = [
         views.PublicGroupPageView.as_view(),
         name="public-group-page",
     ),
+    # Catalyst client intake (pilot — feature-flagged via INTAKE_FORM_ENABLED)
+    path(
+        "client-intake",
+        CatalystIntakeView.as_view(),
+        name="catalyst-client-intake",
+    ),
+
     # Commons
     path(
         "commons",

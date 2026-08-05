@@ -614,6 +614,13 @@ CSRF_TRUSTED_ORIGINS = [
 
 
 
+# ---------------------------------------------------------------------------
+# Catalyst client intake form (pilot)
+# Set False to disable POST /api/public/client-intake — returns 404.
+# ---------------------------------------------------------------------------
+INTAKE_FORM_ENABLED = True
+
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
