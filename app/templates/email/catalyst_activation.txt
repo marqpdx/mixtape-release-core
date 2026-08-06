@@ -1,0 +1,16 @@
+Your Catalyst workspace is ready — {{ org_name }}
+
+Hi {{ contact_name }},
+
+Your Catalyst workspace for {{ org_name }} has been activated and is ready to use.
+
+Your workspace: {{ workspace_url }}
+
+Your knowledge base has been seeded with the Catalyst CORE library — the foundation your team will build on. You can start exploring, capturing notes, and building context right away.
+
+If you have any questions or need a walkthrough, just reply to this email.
+
+Looking forward to working together.
+
+—
+The Mixtape team

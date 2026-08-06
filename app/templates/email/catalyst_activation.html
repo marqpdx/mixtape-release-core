@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Catalyst workspace is ready — {{ org_name }}</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background-color: #1a1a2e;
+            color: white;
+            padding: 30px 20px;
+            text-align: center;
+            border-radius: 8px 8px 0 0;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 22px;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+        }
+        .header p {
+            margin: 8px 0 0;
+            font-size: 14px;
+            opacity: 0.7;
+        }
+        .content {
+            background-color: #f9fafb;
+            padding: 30px 20px;
+            border-radius: 0 0 8px 8px;
+        }
+        .button {
+            display: inline-block;
+            background-color: #1a1a2e;
+            color: white;
+            text-decoration: none;
+            padding: 12px 28px;
+            border-radius: 6px;
+            margin: 20px 0;
+            font-weight: 500;
+            font-size: 15px;
+        }
+        .detail-box {
+            background-color: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 16px 18px;
+            margin: 20px 0;
+            font-size: 14px;
+        }
+        .detail-box ul {
+            margin: 8px 0 0;
+            padding-left: 18px;
+        }
+        .detail-box li {
+            margin-bottom: 6px;
+        }
+        .footer {
+            text-align: center;
+            color: #6B7280;
+            font-size: 13px;
+            margin-top: 24px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Your workspace is ready.</h1>
+        <p>Catalyst — {{ org_name }}</p>
+    </div>
+
+    <div class="content">
+        <p>Hi {{ contact_name }},</p>
+
+        <p>Your Catalyst workspace for <strong>{{ org_name }}</strong> has been activated.</p>
+
+        <div class="detail-box">
+            <strong>What's ready:</strong>
+            <ul>
+                <li>Your knowledge base has been seeded with the Catalyst CORE library</li>
+                <li>Your team can start capturing notes and building context right away</li>
+                <li>START-HERE.md is your entry point — it's waiting in your workspace</li>
+            </ul>
+        </div>
+
+        <div style="text-align: center;">
+            <a href="{{ workspace_url }}" class="button">Open your workspace</a>
+        </div>
+
+        <p style="font-size: 14px; color: #6B7280;">Or copy and paste this link:</p>
+        <div style="background-color: #F3F4F6; border: 1px solid #D1D5DB; border-radius: 6px; padding: 10px 14px; margin: 4px 0 16px; word-break: break-all;">
+            <a href="{{ workspace_url }}" style="color: #1a1a2e; font-size: 13px;">{{ workspace_url }}</a>
+        </div>
+
+        <p>If you have any questions or want a walkthrough, just reply to this email.</p>
+
+        <p>Looking forward to working together.</p>
+    </div>
+
+    <div class="footer">
+        <p>— The Mixtape team</p>
+    </div>
+</body>
+</html>

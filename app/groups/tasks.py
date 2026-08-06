@@ -32,7 +32,6 @@ def send_invitation_email(self, invitation_id: int) -> None:
     """
     from django.conf import settings
     from django.template.loader import render_to_string
-    from mailjet_rest import Client
 
     from groups.models import GroupInvitation
     from groups.models.group import EmailStatus
@@ -106,66 +105,23 @@ def send_invitation_email(self, invitation_id: int) -> None:
         raise
 
     # ── Send via Mailjet HTTP API ──────────────────────────────────────────
-    from_email, from_name = _parse_from_email(settings.DEFAULT_FROM_EMAIL)
-
-    mailjet = Client(
-        auth=(settings.EMAIL_HOST_USER, settings.EMAIL_HOST_PASSWORD),
-        version="v3.1",
-    )
-
-    payload = {
-        "Messages": [
-            {
-                "From": {"Email": from_email, "Name": from_name},
-                "To": [{"Email": invitation.invited_email}],
-                "Subject": f"You're invited to join {invitation.group.title}",
-                "TextPart": text_body,
-                "HTMLPart": html_body,
-                "CustomID": f"invitation-{invitation_id}",
-            }
-        ]
-    }
+    from utils.email.mailjet_client import MailjetSendError, send_via_mailjet
 
     try:
-        response = mailjet.send.create(data=payload)
-    except Exception as exc:
-        err = f"Mailjet request error: {exc}\n{traceback.format_exc()}"
-        logger.exception("[invite-task] Mailjet request failed for invitation %s", invitation_id)
+        provider_message_id = send_via_mailjet(
+            to_email=invitation.invited_email,
+            subject=f"You're invited to join {invitation.group.title}",
+            text_body=text_body,
+            html_body=html_body,
+            custom_id=f"invitation-{invitation_id}",
+        ) or None
+    except MailjetSendError as exc:
+        err = str(exc)
+        logger.exception("[invite-task] Mailjet failed for invitation %s", invitation_id)
         invitation.last_send_error = err
         invitation.email_status = EmailStatus.FAILED
         invitation.save(update_fields=["last_send_error", "email_status"])
         raise self.retry(exc=exc)
-
-    # ── Parse response ─────────────────────────────────────────────────────
-    status_code = response.status_code
-    response_json = response.json()
-
-    if status_code != 200:
-        err = f"Mailjet HTTP {status_code}: {response_json}"
-        logger.error("[invite-task] Mailjet rejected invitation %s — %s", invitation_id, err)
-        invitation.last_send_error = err
-        invitation.email_status = EmailStatus.FAILED
-        invitation.save(update_fields=["last_send_error", "email_status"])
-        raise self.retry(exc=Exception(err))
-
-    # Extract MessageID from first message / first recipient
-    try:
-        message_result = response_json["Messages"][0]
-        if message_result.get("Status") != "success":
-            err = f"Mailjet message status not success: {message_result}"
-            logger.error("[invite-task] %s invitation=%s", err, invitation_id)
-            invitation.last_send_error = err
-            invitation.email_status = EmailStatus.FAILED
-            invitation.save(update_fields=["last_send_error", "email_status"])
-            raise self.retry(exc=Exception(err))
-
-        provider_message_id = str(message_result["To"][0]["MessageID"])
-    except (KeyError, IndexError, TypeError) as exc:
-        logger.warning(
-            "[invite-task] Could not extract MessageID for invitation %s: %s",
-            invitation_id, exc,
-        )
-        provider_message_id = None
 
     # ── Mark sent ──────────────────────────────────────────────────────────
     invitation.email_status = EmailStatus.SENT
@@ -185,17 +141,6 @@ def send_invitation_email(self, invitation_id: int) -> None:
         provider_message_id,
     )
 
-
-def _parse_from_email(from_email_setting: str) -> tuple[str, str]:
-    """
-    Parse 'Display Name <email@domain.com>' into (email, name).
-    Falls back to (raw_string, "") if no angle-bracket format.
-    """
-    import re
-    match = re.match(r"^(.+?)\s*<(.+?)>\s*$", from_email_setting)
-    if match:
-        return match.group(2), match.group(1).strip()
-    return from_email_setting, ""
 
 
 @shared_task(bind=True, max_retries=3)
