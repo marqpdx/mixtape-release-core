@@ -153,14 +153,67 @@ class CatalystActivationService:
             self._git("commit", "-m", "activation: stamp FIXTURE provenance")
 
     # -------------------------------------------------------------------------
-    # Step 6 — seed IR (Qdrant)
-    # Stub: indexing integration wired separately once IR client is available.
+    # Step 6 — seed IR
+    # Minimal viable indexing: provisions a Stackroom library for the tenant
+    # group and indexes all CORE + FIXTURE .md files via ingest_text().
+    # Full inception-ingestion pipeline (Chapter registry, envelopes, Winnow)
+    # is Phase 3B+ work — not in scope here.
     # -------------------------------------------------------------------------
 
     def seed_ir(self):
-        # TODO: index CORE files into the tenant IR namespace via InkwellClient
-        # or a direct Qdrant call. Stub logs intent; caller can check return value.
-        return {"status": "stub", "slug": self.slug, "message": "IR seeding not yet wired"}
+        from inkwell.stackroom_http_client import get_or_create_group_library, ingest_text, StackroomClientError
+
+        group = self.prospect.converted_to_group
+        if not group:
+            raise CatalystActivationError(
+                "prospect.converted_to_group is not set — admin activation must run before seed_ir."
+            )
+
+        library_id = get_or_create_group_library(group)
+
+        SKIP_DIRS = {"CONTENT", ".catalyst", ".git"}
+        md_files = sorted(
+            f for f in self.codex_root.rglob("*.md")
+            if not any(part in SKIP_DIRS for part in f.parts)
+        )
+
+        indexed = 0
+        already_current = 0
+        errors = []
+
+        for md_file in md_files:
+            rel = str(md_file.relative_to(self.codex_root))
+            try:
+                result = ingest_text(
+                    library_id=library_id,
+                    source_path=rel,
+                    filename=md_file.name,
+                    text=md_file.read_text(encoding="utf-8"),
+                )
+                if result.get("already_current"):
+                    already_current += 1
+                else:
+                    indexed += 1
+            except StackroomClientError as e:
+                errors.append(f"{rel}: {e}")
+
+        if errors:
+            raise CatalystActivationError(
+                f"IR seeding failed for {len(errors)} file(s):\n" + "\n".join(errors)
+            )
+
+        total = indexed + already_current
+        return {
+            "status": "ok",
+            "slug": self.slug,
+            "library_id": str(library_id),
+            "files_indexed": indexed,
+            "files_already_current": already_current,
+            "message": (
+                f"Indexed {indexed} file(s), {already_current} already current "
+                f"({total} total) into library {library_id}."
+            ),
+        }
 
     # -------------------------------------------------------------------------
     # Step 7 — generate START-HERE.md from docent.template.md
