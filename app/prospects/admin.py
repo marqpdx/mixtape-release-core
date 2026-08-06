@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.db import transaction
 
 from .models import (
     BusinessProspect,
@@ -20,6 +21,86 @@ class BusinessProspectAdmin(admin.ModelAdmin):
     prepopulated_fields = {"slug": ("name",)}
     raw_id_fields = ("sponsor_content_type",)
     readonly_fields = ("org_description", "knowledge_goal")
+    actions = ["activate_as_catalyst_client"]
+
+    @admin.action(description="Activate as Catalyst client (provisions Group + Client record)")
+    def activate_as_catalyst_client(self, request, queryset):
+        from business.models import Client
+        from django.contrib.contenttypes.models import ContentType
+        from groups.models.group import Group
+        from groups.models.dec_enums import GroupType, GroupVisibility
+
+        if queryset.count() != 1:
+            self.message_user(request, "Select exactly one prospect to activate.", level="error")
+            return
+
+        prospect = queryset.first()
+
+        if prospect.converted_to_group_id:
+            self.message_user(
+                request,
+                f"'{prospect.name}' is already linked to group '{prospect.converted_to_group}'. "
+                "No changes made.",
+                level="error",
+            )
+            return
+
+        if not prospect.slug:
+            self.message_user(
+                request,
+                f"'{prospect.name}' has no slug set. Add one before activating.",
+                level="error",
+            )
+            return
+
+        if Group.objects.filter(slug=prospect.slug).exists():
+            self.message_user(
+                request,
+                f"A Group with slug '{prospect.slug}' already exists. "
+                "Resolve the conflict before activating.",
+                level="error",
+            )
+            return
+
+        with transaction.atomic():
+            # Mirror the self-sponsor bootstrap from provision_tenant
+            group = Group(
+                slug=prospect.slug,
+                title=prospect.name,
+                group_type=GroupType.ORGANIZATION,
+                visibility=GroupVisibility.PUBLIC,
+                is_active=True,
+                crossroads_enabled=True,
+                catalyst_enabled=True,
+                in_crossroads_commons=False,
+            )
+            ct = ContentType.objects.get_for_model(Group)
+            group.sponsor_content_type = ct
+            group.sponsor_object_id = group.id
+            group.save()
+
+            Client.objects.create(
+                group=group,
+                prospect=prospect,
+                primary_contact_name=prospect.primary_contact_name,
+                primary_contact_email=prospect.primary_contact_email,
+                primary_contact_phone=prospect.primary_contact_phone,
+                website=prospect.website,
+                business_type=prospect.business_type,
+                created_by=request.user,
+            )
+
+            prospect.converted_to_group = group
+            prospect.status = "won"
+            prospect.save(update_fields=["converted_to_group", "status", "updated_at"])
+
+        self.message_user(
+            request,
+            f"Activated '{prospect.name}' — Group '{group.slug}' (pk={group.pk}) and Client "
+            f"record created. Next: run the Catalyst Codex provisioning sequence "
+            f"(git init, copy CORE+FIXTURE, generate START-HERE.md) for this tenant.",
+            level="success",
+        )
 
     def has_module_perms(self, request, app_label=None):
         return request.user.is_superuser
