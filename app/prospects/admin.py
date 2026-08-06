@@ -26,9 +26,14 @@ class BusinessProspectAdmin(admin.ModelAdmin):
     @admin.action(description="Activate as Catalyst client (provisions Group + Client record)")
     def activate_as_catalyst_client(self, request, queryset):
         from business.models import Client
+        from django.contrib.auth import get_user_model
         from django.contrib.contenttypes.models import ContentType
+        from django.utils.text import slugify
         from groups.models.group import Group
         from groups.models.dec_enums import GroupType, GroupVisibility
+        from groups.services.memberships import ensure_user_membership
+
+        User = get_user_model()
 
         if queryset.count() != 1:
             self.message_user(request, "Select exactly one prospect to activate.", level="error")
@@ -89,15 +94,34 @@ class BusinessProspectAdmin(admin.ModelAdmin):
                 created_by=request.user,
             )
 
+            # Create or get a user account for the primary contact, add as owner
+            contact_email = prospect.primary_contact_email
+            owner_user = None
+            if contact_email:
+                owner_user, user_created = User.objects.get_or_create(
+                    email=contact_email,
+                    defaults={
+                        "username": slugify(contact_email.split("@")[0])[:150],
+                        "is_active": False,  # inactive until they set a password via invite
+                    },
+                )
+                ensure_user_membership(group, owner_user, role="owner")
+
             prospect.converted_to_group = group
             prospect.status = "won"
             prospect.save(update_fields=["converted_to_group", "status", "updated_at"])
 
+        user_note = (
+            f" User '{contact_email}' created (inactive) and set as owner."
+            if contact_email and user_created
+            else f" User '{contact_email}' already existed — set as owner."
+            if contact_email and not user_created
+            else " No primary_contact_email set — no user created."
+        )
         self.message_user(
             request,
             f"Activated '{prospect.name}' — Group '{group.slug}' (pk={group.pk}) and Client "
-            f"record created. Next: run the Catalyst Codex provisioning sequence "
-            f"(git init, copy CORE+FIXTURE, generate START-HERE.md) for this tenant.",
+            f"record created.{user_note} Next: run activate_catalyst_tenant --slug={group.slug}",
             level="success",
         )
 

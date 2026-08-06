@@ -92,29 +92,32 @@ class Command(BaseCommand):
         except Exception as exc:
             self.stderr.write(f"  [warn] WelcomeEmailDraft delete failed: {exc}")
 
-        # ── 4. Group (CASCADE: memberships, invitations, GroupInvitation, etc.) ─
+        # ── 4. Group — match slug exactly OR slug-N variants from test runs ────
         try:
             from groups.models.group import Group
-            group_qs = Group.objects.filter(slug=slug)
+            group_qs = Group.objects.filter(slug=slug) | Group.objects.filter(slug__regex=rf"^{slug}-\d+$")
+            group_qs = group_qs.exclude(catalyst_enabled=False)  # never touch non-Catalyst groups
             n = group_qs.count()
             if n:
+                slugs_found = list(group_qs.values_list("slug", flat=True))
                 if not dry_run:
                     group_qs.delete()
-                deleted.append(f"Group + cascade ({n})")
+                deleted.append(f"Group + cascade ({n}): {slugs_found}")
             else:
                 skipped.append("Group (none found)")
         except Exception as exc:
             self.stderr.write(f"  [warn] Group delete failed: {exc}")
 
-        # ── 5. BusinessProspect (CASCADE: sessions, responses, notes, insights) ─
+        # ── 5. BusinessProspect — match slug exactly OR slug-N variants ───────
         try:
             from prospects.models import BusinessProspect
-            prospect_qs = BusinessProspect.objects.filter(slug=slug)
+            prospect_qs = BusinessProspect.objects.filter(slug=slug) | BusinessProspect.objects.filter(slug__regex=rf"^{slug}-\d+$")
             n = prospect_qs.count()
             if n:
+                slugs_found = list(prospect_qs.values_list("slug", flat=True))
                 if not dry_run:
                     prospect_qs.delete()
-                deleted.append(f"BusinessProspect + cascade ({n})")
+                deleted.append(f"BusinessProspect + cascade ({n}): {slugs_found}")
             else:
                 skipped.append("BusinessProspect (none found)")
         except Exception as exc:
@@ -134,14 +137,21 @@ class Command(BaseCommand):
         except Exception as exc:
             self.stderr.write(f"  [warn] CustomUser delete failed: {exc}")
 
-        # ── 7. Codex directory ───────────────────────────────────────────────
-        codex_dir = Path(settings.CATALYST_CODEX_ROOT) / slug
-        if codex_dir.exists():
-            if not dry_run:
-                shutil.rmtree(codex_dir)
-            deleted.append(f"Codex dir ({codex_dir})")
+        # ── 7. Codex directories — slug and any slug-N variants ──────────────
+        import re as _re
+        codex_root = Path(settings.CATALYST_CODEX_ROOT)
+        codex_removed = []
+        if codex_root.exists():
+            pattern = _re.compile(rf"^{_re.escape(slug)}(-\d+)?$")
+            for entry in codex_root.iterdir():
+                if entry.is_dir() and pattern.match(entry.name):
+                    if not dry_run:
+                        shutil.rmtree(entry)
+                    codex_removed.append(str(entry))
+        if codex_removed:
+            deleted.append(f"Codex dir(s): {codex_removed}")
         else:
-            skipped.append(f"Codex dir (not found at {codex_dir})")
+            skipped.append(f"Codex dir (none found under {codex_root})")
 
         # ── Summary ──────────────────────────────────────────────────────────
         self.stdout.write("")

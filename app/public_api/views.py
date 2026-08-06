@@ -611,10 +611,15 @@ class CatalystIntakeView(APIView):
         if not email:
             return Response({"detail": "email is required."}, status=drf_status.HTTP_400_BAD_REQUEST)
 
+        from groups.models.group import Group as CatalystGroup
+
         base_slug = slugify(org_name)
         slug = base_slug
         counter = 1
-        while BusinessProspect.objects.filter(slug=slug).exists():
+        while (
+            BusinessProspect.objects.filter(slug=slug).exists()
+            or CatalystGroup.objects.filter(slug=slug).exists()
+        ):
             slug = f"{base_slug}-{counter}"
             counter += 1
 
