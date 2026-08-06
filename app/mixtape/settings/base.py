@@ -147,6 +147,7 @@ INSTALLED_APPS = [
     "atrium",          # Atrium — personal AI session surface (AtriumSession, AtriumSessionEntry)
     "tapestry",        # Tapestry — Place stub (CM-0, commons-adr.md D17); full GIS deferred
     "media_capture",   # MediaCapture — screencast & media ingestion pipeline (Bridge Phase D)
+    "catalyst",        # Catalyst — per-tenant Codex provisioning and activation
 ]
 
 INSTALLED_APPS += ["rest_framework_simplejwt.token_blacklist"]
@@ -619,6 +620,22 @@ CSRF_TRUSTED_ORIGINS = [
 # Set False to disable POST /api/public/client-intake — returns 404.
 # ---------------------------------------------------------------------------
 INTAKE_FORM_ENABLED = True
+
+# ---------------------------------------------------------------------------
+# Catalyst Codex root — local filesystem path where per-tenant Codex
+# directories are initialized and managed. Each tenant gets a subdirectory
+# named by slug: {CATALYST_CODEX_ROOT}/{slug}/
+#
+# Must be a real POSIX path (not S3/SeaweedFS) — git runs here.
+# Stash handles binary assets; zip exports of the Codex are uploaded to Stash.
+# Override in local.py / production.py as needed.
+# ---------------------------------------------------------------------------
+CATALYST_CODEX_ROOT = BASE_DIR / "catalyst_codex"
+
+# Path to the mixtape-release-catalyst seed repo (CORE + FIXTURE source).
+# Override in local.py to point at your local checkout.
+# Example: CATALYST_SEED_PATH = Path("/Users/you/Sites/ml/active/mixtape/release/mixtape-release-catalyst")
+CATALYST_SEED_PATH = None
 
 
 LOGGING = {
