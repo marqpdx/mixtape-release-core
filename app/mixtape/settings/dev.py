@@ -81,6 +81,9 @@ from .base import *
 
 # Development overrides
 DEBUG = True
+
+# Catalyst seed repo — local checkout path for dev activation testing
+CATALYST_SEED_PATH = Path(__file__).resolve().parent.parent.parent.parent.parent / "mixtape-release-catalyst"
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-unsafe-secret-key")
 
 DJANGO_ENV = "dev"
