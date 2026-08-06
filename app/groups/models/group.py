@@ -164,10 +164,6 @@ class Group(LayoutParent, BaseContent):
     # ============================================================================
     # TENANT FLAGS (convergence-pilot / FN-0010 FN-D10)
     # ============================================================================
-    crossroads_enabled = models.BooleanField(
-        default=False,
-        help_text="This group is active as a Crossroads tenant."
-    )
     catalyst_enabled = models.BooleanField(
         default=False,
         help_text="Catalyst features are enabled for this group."
