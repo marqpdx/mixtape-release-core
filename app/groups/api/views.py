@@ -1585,3 +1585,57 @@ class GroupAnnouncementCreateFromContentView(generics.GenericAPIView):
             GroupAnnouncement.objects.filter(pk=announcement.pk).update(notification_sent_at=timezone.now())
 
         return Response(GroupAnnouncementSerializer(announcement).data, status=status.HTTP_201_CREATED)
+
+
+class GroupCatalystIntakeView(generics.GenericAPIView):
+    """
+    POST /api/groups/<slug>/catalyst-intake
+
+    Lets an existing group's owner or admin request Catalyst activation from
+    within the Group Work Area. Creates a BusinessProspect keyed to the group
+    slug so the admin 'Link existing Group' action can find and activate it.
+
+    Body (all optional — org_name and email are derived from group + user):
+        org_description  str  — what the organization does
+        knowledge_goal   str  — one thing the team should always be able to find
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, slug):
+        from prospects.models import BusinessProspect
+
+        group = get_object_or_404(Group, slug=slug, is_active=True)
+        membership = GroupService.get_user_membership(group, request.user)
+        if not membership or not membership.is_admin():
+            return Response({"detail": "Owner or admin required."}, status=status.HTTP_403_FORBIDDEN)
+
+        if group.catalyst_enabled:
+            return Response(
+                {"detail": "Catalyst is already active for this group."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        if BusinessProspect.objects.filter(slug=group.slug).exists():
+            return Response(
+                {"detail": "A Catalyst request already exists for this group. An administrator will be in touch."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        contact_name = request.user.get_full_name() or request.user.username
+        org_description = request.data.get("org_description", "").strip()
+        knowledge_goal = request.data.get("knowledge_goal", "").strip()
+
+        BusinessProspect.objects.create(
+            name=group.title,
+            slug=group.slug,
+            primary_contact_email=request.user.email,
+            primary_contact_name=contact_name,
+            org_description=org_description,
+            knowledge_goal=knowledge_goal,
+            status="new",
+        )
+
+        return Response(
+            {"detail": "Request received. A Mixtape administrator will activate Catalyst for your group."},
+            status=status.HTTP_201_CREATED,
+        )

@@ -158,9 +158,13 @@ CORS_ALLOWED_ORIGINS = [
     "https://mindfulbrilliance.com",
 ]
 
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.crossroads\.place$",
+]
+
 # CSRF - Production domains
 CSRF_TRUSTED_ORIGINS = [
-    "https://www.crossroads.place",
+    "https://*.crossroads.place",
     "https://crossroads.place",
 ]
 

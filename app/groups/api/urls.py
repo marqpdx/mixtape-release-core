@@ -83,7 +83,7 @@ from drop.api.urls import urlpatterns as drop_urlpatterns
 # ============================================================================
 # from assets.api.views import GroupAssetFolderListView, GroupAssetListView, GroupAssetPresignView, GroupAssetUploadView
 # from writing.api.views import WritingPieceDetailView
-from .views import GroupAnnouncementCreateFromContentView, GroupAnnouncementDetailView, GroupAnnouncementDismissView, GroupAnnouncementListCreateView, GroupAnnouncementVisibleQueueView
+from .views import GroupAnnouncementCreateFromContentView, GroupAnnouncementDetailView, GroupAnnouncementDismissView, GroupAnnouncementListCreateView, GroupAnnouncementVisibleQueueView, GroupCatalystIntakeView
 # from .views import GroupInvitationDetailView, GroupInvitationsListView, GroupMemberSearchView, GroupMembersListView, GroupMembersView, GroupMembershipListView, GroupNoticeBoardView, invite_to_group
 # from .views import GroupEmblemAttachView, GroupEmblemResetView, GroupWritingDetailView, GroupWritingDraftsListView, GroupWritingListCreateView  # PHASE 3+
 from threadworks.api.urls import group_threadworks_patterns
@@ -193,6 +193,9 @@ urlpatterns = [
     path("<slug:slug>/public-page/archive", PublicPageArchiveView.as_view(), name="group-public-page-archive"),
     path("<slug:slug>/public-page/components", PageComponentListCreateView.as_view(), name="group-public-page-components"),
     path("<slug:slug>/public-page/components/<int:component_id>", PageComponentDetailView.as_view(), name="group-public-page-component-detail"),
+
+    # Catalyst intake (existing group requesting activation)
+    path('<slug:slug>/catalyst-intake', GroupCatalystIntakeView.as_view(), name='group-catalyst-intake'),
 
     # Group Announcements
     path('<slug:group_slug>/announcements/', GroupAnnouncementListCreateView.as_view(), name='group-announcements-list'),
