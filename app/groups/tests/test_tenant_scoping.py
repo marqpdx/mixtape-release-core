@@ -30,7 +30,6 @@ def make_group(slug, **kwargs):
         group_type="organization",
         is_active=kwargs.get("is_active", True),
         visibility=kwargs.get("visibility", "public"),
-        crossroads_enabled=kwargs.get("crossroads_enabled", False),
         catalyst_enabled=kwargs.get("catalyst_enabled", False),
         in_crossroads_commons=kwargs.get("in_crossroads_commons", False),
     )
@@ -180,7 +179,7 @@ class TenantMiddlewareTests(TestCase):
 
     def setUp(self):
         self.factory = RequestFactory()
-        self.group = make_group("acme", crossroads_enabled=True)
+        self.group = make_group("acme")
 
     @override_settings(DEBUG=True)
     def test_header_override_in_debug(self):

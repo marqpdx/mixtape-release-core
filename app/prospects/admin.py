@@ -70,7 +70,6 @@ class BusinessProspectAdmin(admin.ModelAdmin):
                 group_type=GroupType.ORGANIZATION,
                 visibility=GroupVisibility.PUBLIC,
                 is_active=True,
-                crossroads_enabled=True,
                 catalyst_enabled=True,
                 in_crossroads_commons=False,
             )

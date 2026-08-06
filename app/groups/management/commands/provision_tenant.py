@@ -8,13 +8,11 @@ create memberships, public pages, or Catalyst Codex — those are separate steps
 Usage:
     python manage.py provision_tenant --slug=mindful-brilliance \\
         --title="Mindful Brilliance" \\
-        --crossroads-enabled \\
         --catalyst-enabled
 
 Options:
     --slug           Group slug (required, must be unique)
     --title          Display title (required)
-    --crossroads-enabled   Set crossroads_enabled=True
     --catalyst-enabled     Set catalyst_enabled=True
     --commons        Set in_crossroads_commons=True (default: False; use with care)
     --dry-run        Print what would be created without writing to the database
@@ -30,12 +28,6 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--slug", required=True, help="Group slug (unique, URL-safe)")
         parser.add_argument("--title", required=True, help="Display title for the group")
-        parser.add_argument(
-            "--crossroads-enabled",
-            action="store_true",
-            default=False,
-            help="Enable Crossroads routing for this tenant",
-        )
         parser.add_argument(
             "--catalyst-enabled",
             action="store_true",
@@ -61,7 +53,6 @@ class Command(BaseCommand):
 
         slug = options["slug"]
         title = options["title"]
-        crossroads_enabled = options["crossroads_enabled"]
         catalyst_enabled = options["catalyst_enabled"]
         in_crossroads_commons = options["commons"]
         dry_run = options["dry_run"]
@@ -73,7 +64,6 @@ class Command(BaseCommand):
         self.stdout.write(f"\nTenant provisioning {'(DRY RUN) ' if dry_run else ''}—")
         self.stdout.write(f"  slug:                  {slug}")
         self.stdout.write(f"  title:                 {title}")
-        self.stdout.write(f"  crossroads_enabled:    {crossroads_enabled}")
         self.stdout.write(f"  catalyst_enabled:      {catalyst_enabled}")
         self.stdout.write(f"  in_crossroads_commons: {in_crossroads_commons}")
 
@@ -94,7 +84,6 @@ class Command(BaseCommand):
                 group_type=GroupType.ORGANIZATION,
                 visibility=GroupVisibility.PUBLIC,
                 is_active=True,
-                crossroads_enabled=crossroads_enabled,
                 catalyst_enabled=catalyst_enabled,
                 in_crossroads_commons=in_crossroads_commons,
             )
