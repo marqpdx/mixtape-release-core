@@ -67,7 +67,7 @@ class BusinessProspectAdmin(admin.ModelAdmin):
             group = Group(
                 slug=prospect.slug,
                 title=prospect.name,
-                group_type=GroupType.ORGANIZATION,
+                group_type=GroupType.COMMUNITY,
                 visibility=GroupVisibility.PUBLIC,
                 is_active=True,
                 catalyst_enabled=True,
