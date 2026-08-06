@@ -5,10 +5,14 @@ Deletes in dependency order (PROTECT constraints first), then wipes the
 Codex directory from the filesystem. Safe to run repeatedly. Never run
 against production — the command aborts if DEBUG=False.
 
+The slug argument may be specified multiple times. For each slug the command
+also sweeps integer-suffix variants (mindful-brilliance-1, -2, etc.). Non-
+integer suffixes (mindful-brilliance-test) must be named explicitly.
+
 Usage:
     python manage.py reset_catalyst_test_tenant
-    python manage.py reset_catalyst_test_tenant --slug=mindful-brilliance --email=info@mindfulbrilliance.com
-    python manage.py reset_catalyst_test_tenant --dry-run
+    python manage.py reset_catalyst_test_tenant --slug=mindful-brilliance --slug=mindful-brilliance-test
+    python manage.py reset_catalyst_test_tenant --email=info@mindfulbrilliance.com --dry-run
 """
 
 import shutil
@@ -22,10 +26,11 @@ EMAIL_DEFAULT = "info@mindfulbrilliance.com"
 
 
 class Command(BaseCommand):
-    help = "Reset Catalyst test tenant data (dev only)."
+    help = "Reset Catalyst test tenant data (dev only). --slug may be repeated."
 
     def add_arguments(self, parser):
-        parser.add_argument("--slug", default=SLUG_DEFAULT)
+        parser.add_argument("--slug", action="append", dest="slugs", metavar="SLUG",
+                            help="Tenant slug to reset (repeatable). Defaults to mindful-brilliance.")
         parser.add_argument("--email", default=EMAIL_DEFAULT)
         parser.add_argument("--dry-run", action="store_true", default=False)
 
@@ -35,13 +40,13 @@ class Command(BaseCommand):
         if not settings.DEBUG:
             raise CommandError("This command only runs in DEBUG mode.")
 
-        slug = options["slug"]
+        slugs = options["slugs"] or [SLUG_DEFAULT]
         email = options["email"]
         dry_run = options["dry_run"]
 
         self.stdout.write(
-            f"\nReset Catalyst test tenant {'(DRY RUN) ' if dry_run else ''}—\n"
-            f"  slug:   {slug}\n"
+            f"\nReset Catalyst test tenant(s) {'(DRY RUN) ' if dry_run else ''}—\n"
+            f"  slugs:  {slugs}\n"
             f"  email:  {email}\n"
         )
 
@@ -52,7 +57,7 @@ class Command(BaseCommand):
         try:
             from business.models import Client
             from groups.models.group import Group
-            client_qs = Client.objects.filter(group__slug=slug)
+            client_qs = Client.objects.filter(group__slug__in=slugs)
             n = client_qs.count()
             if n:
                 if not dry_run:
@@ -63,10 +68,20 @@ class Command(BaseCommand):
         except Exception as exc:
             self.stderr.write(f"  [warn] Client delete failed: {exc}")
 
+        import re as _re
+
+        def _slug_variants_q(model, field, slug_list):
+            """Return a Q that matches exact slugs plus integer-suffix variants."""
+            from django.db.models import Q
+            q = Q(**{f"{field}__in": slug_list})
+            for s in slug_list:
+                q |= Q(**{f"{field}__regex": rf"^{_re.escape(s)}-\d+$"})
+            return q
+
         # ── 2. PublicPage (PROTECT on Group — must go before Group) ──────────
         try:
             from groups.models.public_page import PublicPage
-            page_qs = PublicPage.objects.filter(group__slug=slug)
+            page_qs = PublicPage.objects.filter(_slug_variants_q(PublicPage, "group__slug", slugs))
             n = page_qs.count()
             if n:
                 if not dry_run:
@@ -80,8 +95,7 @@ class Command(BaseCommand):
         # ── 3. WelcomeEmailDraft (explicit; would cascade from prospect) ──────
         try:
             from lanternmail.models import WelcomeEmailDraft
-            from prospects.models import BusinessProspect
-            draft_qs = WelcomeEmailDraft.objects.filter(prospect__slug=slug)
+            draft_qs = WelcomeEmailDraft.objects.filter(_slug_variants_q(WelcomeEmailDraft, "prospect__slug", slugs))
             n = draft_qs.count()
             if n:
                 if not dry_run:
@@ -92,32 +106,33 @@ class Command(BaseCommand):
         except Exception as exc:
             self.stderr.write(f"  [warn] WelcomeEmailDraft delete failed: {exc}")
 
-        # ── 4. Group — match slug exactly OR slug-N variants from test runs ────
+        # ── 4. Group — exact slugs + integer-suffix variants; Catalyst only ───
         try:
             from groups.models.group import Group
-            group_qs = Group.objects.filter(slug=slug) | Group.objects.filter(slug__regex=rf"^{slug}-\d+$")
-            group_qs = group_qs.exclude(catalyst_enabled=False)  # never touch non-Catalyst groups
+            group_qs = Group.objects.filter(
+                _slug_variants_q(Group, "slug", slugs)
+            ).filter(catalyst_enabled=True)  # never touch non-Catalyst groups
             n = group_qs.count()
             if n:
-                slugs_found = list(group_qs.values_list("slug", flat=True))
+                found = list(group_qs.values_list("slug", flat=True))
                 if not dry_run:
                     group_qs.delete()
-                deleted.append(f"Group + cascade ({n}): {slugs_found}")
+                deleted.append(f"Group + cascade ({n}): {found}")
             else:
                 skipped.append("Group (none found)")
         except Exception as exc:
             self.stderr.write(f"  [warn] Group delete failed: {exc}")
 
-        # ── 5. BusinessProspect — match slug exactly OR slug-N variants ───────
+        # ── 5. BusinessProspect — exact slugs + integer-suffix variants ───────
         try:
             from prospects.models import BusinessProspect
-            prospect_qs = BusinessProspect.objects.filter(slug=slug) | BusinessProspect.objects.filter(slug__regex=rf"^{slug}-\d+$")
+            prospect_qs = BusinessProspect.objects.filter(_slug_variants_q(BusinessProspect, "slug", slugs))
             n = prospect_qs.count()
             if n:
-                slugs_found = list(prospect_qs.values_list("slug", flat=True))
+                found = list(prospect_qs.values_list("slug", flat=True))
                 if not dry_run:
                     prospect_qs.delete()
-                deleted.append(f"BusinessProspect + cascade ({n}): {slugs_found}")
+                deleted.append(f"BusinessProspect + cascade ({n}): {found}")
             else:
                 skipped.append("BusinessProspect (none found)")
         except Exception as exc:
@@ -137,17 +152,16 @@ class Command(BaseCommand):
         except Exception as exc:
             self.stderr.write(f"  [warn] CustomUser delete failed: {exc}")
 
-        # ── 7. Codex directories — slug and any slug-N variants ──────────────
-        import re as _re
+        # ── 7. Codex directories — all named slugs + integer-suffix variants ──
         codex_root = Path(settings.CATALYST_CODEX_ROOT)
         codex_removed = []
         if codex_root.exists():
-            pattern = _re.compile(rf"^{_re.escape(slug)}(-\d+)?$")
+            patterns = [_re.compile(rf"^{_re.escape(s)}(-\d+)?$") for s in slugs]
             for entry in codex_root.iterdir():
-                if entry.is_dir() and pattern.match(entry.name):
+                if entry.is_dir() and any(p.match(entry.name) for p in patterns):
                     if not dry_run:
                         shutil.rmtree(entry)
-                    codex_removed.append(str(entry))
+                    codex_removed.append(entry.name)
         if codex_removed:
             deleted.append(f"Codex dir(s): {codex_removed}")
         else:
