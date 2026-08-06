@@ -260,7 +260,28 @@ class CatalystActivationService:
         return str(output_path)
 
     # -------------------------------------------------------------------------
-    # Orchestrator — steps 2–7
+    # Step 8 — send activation email
+    # -------------------------------------------------------------------------
+
+    def send_activation_email(self):
+        to_email = self.prospect.primary_contact_email
+        if not to_email:
+            return {
+                "status": "skipped",
+                "reason": "primary_contact_email not set on prospect",
+            }
+
+        from catalyst.tasks import send_catalyst_activation_email
+        task = send_catalyst_activation_email.delay(self.prospect.pk)
+
+        return {
+            "status": "queued",
+            "to": to_email,
+            "task_id": task.id,
+        }
+
+    # -------------------------------------------------------------------------
+    # Orchestrator — steps 2–8
     # -------------------------------------------------------------------------
 
     def activate(self):
@@ -271,6 +292,7 @@ class CatalystActivationService:
         self.stamp_fixture_provenance()
         results["ir"] = self.seed_ir()
         results["docent"] = self.generate_docent()
+        results["email"] = self.send_activation_email()
         return results
 
     # -------------------------------------------------------------------------

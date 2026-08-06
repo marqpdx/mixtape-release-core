@@ -76,13 +76,21 @@ class Command(BaseCommand):
         except CatalystActivationError as e:
             raise CommandError(str(e))
 
-        self.stdout.write(self.style.SUCCESS("Activation complete."))
+        email = results["email"]
+        email_line = (
+            f"queued → {email['to']} (task {email['task_id']})"
+            if email["status"] == "queued"
+            else f"skipped — {email.get('reason', '')}"
+        )
+
+        self.stdout.write(self.style.SUCCESS("Activation complete — all 8 steps wired."))
         self.stdout.write(f"  Codex root:  {results['codex_root']}")
         self.stdout.write(f"  START-HERE:  {results['docent']}")
         self.stdout.write(f"  IR seeding:  {results['ir']['message']}")
+        self.stdout.write(f"  Email:       {email_line}")
         self.stdout.write("")
-        self.stdout.write(self.style.WARNING(
-            "Remaining manual steps:\n"
-            "  Step 1 — create Qdrant IR namespace (not yet wired)\n"
-            "  Step 8 — send activation email (not yet wired)"
-        ))
+        self.stdout.write(
+            "  Note: Steps 1 (IR namespace) and 6 (IR seeding) are resolved\n"
+            "  by the same call — get_or_create_group_library() provisions the\n"
+            "  Qdrant collection when the Stackroom library is created."
+        )
