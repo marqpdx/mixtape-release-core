@@ -105,7 +105,14 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3011",
     "http://127.0.0.1:3020",
 ]
+# Allow tenant subdomains (*.localhost) for local Catalyst tenant testing
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^http://[a-z0-9-]+\.localhost:\d+$",
+]
 CORS_ALLOW_CREDENTIALS = True
+
+# Share refresh-token cookie across *.localhost subdomains in dev
+SESSION_COOKIE_DOMAIN = ".localhost"
 
 # JWT Cookie settings for development
 # Note: SameSite=None allows cross-port cookies (localhost:3010 → localhost:8000)
