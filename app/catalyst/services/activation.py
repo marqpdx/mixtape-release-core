@@ -96,9 +96,10 @@ class CatalystActivationService:
         changed = False
 
         # Replace any "[sha256]" placeholder with the real hash of the file
+        # rel_path is already CORE-prefixed (e.g. "CORE/VERSION") — resolve from codex_root directly
         for match in re.finditer(r'"path":\s*"([^"]+)"', text):
             rel_path = match.group(1)
-            file_path = self.codex_root / "CORE" / rel_path
+            file_path = self.codex_root / rel_path
             if not file_path.exists():
                 continue
             sha = hashlib.sha256(file_path.read_bytes()).hexdigest()

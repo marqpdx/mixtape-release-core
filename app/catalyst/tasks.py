@@ -7,6 +7,7 @@ Route: push queue (Celery-only; must not be consumed by Uvicorn).
 import logging
 
 from celery import shared_task
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,8 @@ def send_catalyst_activation_email(self, prospect_id: int) -> None:
         logger.error("[catalyst-email] Prospect %s has no converted_to_group — aborting", prospect_id)
         return
 
-    workspace_url = f"https://{group.slug}.crossroads.place"
+    url_template = getattr(settings, "CATALYST_TENANT_URL_TEMPLATE", "https://{slug}.crossroads.place")
+    workspace_url = url_template.format(slug=group.slug)
     contact_name = prospect.primary_contact_name or prospect.name
 
     context = {
