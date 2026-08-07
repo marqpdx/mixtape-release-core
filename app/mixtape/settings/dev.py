@@ -87,7 +87,7 @@ CATALYST_SEED_PATH = Path(__file__).resolve().parent.parent.parent.parent.parent
 
 # Catalyst tenant URL template — overridden locally so activation emails link to the dev frontend.
 # {slug} is replaced with the group slug at send time.
-CATALYST_TENANT_URL_TEMPLATE = "http://{slug}.localhost:3010"
+CATALYST_TENANT_URL_TEMPLATE = "http://{slug}.localhost:3010/catalyst"
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-unsafe-secret-key")
 
 DJANGO_ENV = "dev"

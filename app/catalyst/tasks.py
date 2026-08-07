@@ -47,7 +47,7 @@ def send_catalyst_activation_email(self, prospect_id: int) -> None:
         logger.error("[catalyst-email] Prospect %s has no converted_to_group — aborting", prospect_id)
         return
 
-    url_template = getattr(settings, "CATALYST_TENANT_URL_TEMPLATE", "https://{slug}.crossroads.place")
+    url_template = getattr(settings, "CATALYST_TENANT_URL_TEMPLATE", "https://{slug}.crossroads.place/catalyst")
     workspace_url = url_template.format(slug=group.slug)
     contact_name = prospect.primary_contact_name or prospect.name
 
