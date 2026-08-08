@@ -5,6 +5,7 @@ Route: push queue (Celery-only; must not be consumed by Uvicorn).
 """
 
 import logging
+import urllib.parse
 
 from celery import shared_task
 from django.conf import settings
@@ -83,7 +84,10 @@ def _get_or_create_activation_invite(group):
         )
 
     frontend_url = getattr(settings, "FRONTEND_URL", "https://app.crossroads.place")
-    return f"{frontend_url}/app/invitations/accept/{invite_link.shortcode}/new"
+    url_template = getattr(settings, "CATALYST_TENANT_URL_TEMPLATE", "https://{slug}.crossroads.place/catalyst")
+    workspace_url = url_template.format(slug=group.slug)
+    next_param = urllib.parse.quote(workspace_url, safe="")
+    return f"{frontend_url}/app/invitations/accept/{invite_link.shortcode}/new?next={next_param}"
 
 
 @shared_task(
