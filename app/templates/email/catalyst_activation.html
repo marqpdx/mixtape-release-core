@@ -90,14 +90,32 @@
             </ul>
         </div>
 
+        {% if activation_url %}
+        <p><strong>Step 1 — Activate your account</strong></p>
+        <p style="font-size: 14px;">You'll need to set a username and password before you can sign in. This takes about 30 seconds.</p>
+        <div style="text-align: center;">
+            <a href="{{ activation_url }}" class="button">Activate your account</a>
+        </div>
+        <div style="background-color: #F3F4F6; border: 1px solid #D1D5DB; border-radius: 6px; padding: 10px 14px; margin: 4px 0 24px; word-break: break-all;">
+            <a href="{{ activation_url }}" style="color: #1a1a2e; font-size: 13px;">{{ activation_url }}</a>
+        </div>
+
+        <p><strong>Step 2 — Open your workspace</strong></p>
+        <div style="text-align: center;">
+            <a href="{{ workspace_url }}" style="display: inline-block; background-color: #4B5563; color: white; text-decoration: none; padding: 12px 28px; border-radius: 6px; margin: 8px 0; font-weight: 500; font-size: 15px;">Open your workspace</a>
+        </div>
+        <div style="background-color: #F3F4F6; border: 1px solid #D1D5DB; border-radius: 6px; padding: 10px 14px; margin: 4px 0 16px; word-break: break-all;">
+            <a href="{{ workspace_url }}" style="color: #1a1a2e; font-size: 13px;">{{ workspace_url }}</a>
+        </div>
+        {% else %}
         <div style="text-align: center;">
             <a href="{{ workspace_url }}" class="button">Open your workspace</a>
         </div>
-
         <p style="font-size: 14px; color: #6B7280;">Or copy and paste this link:</p>
         <div style="background-color: #F3F4F6; border: 1px solid #D1D5DB; border-radius: 6px; padding: 10px 14px; margin: 4px 0 16px; word-break: break-all;">
             <a href="{{ workspace_url }}" style="color: #1a1a2e; font-size: 13px;">{{ workspace_url }}</a>
         </div>
+        {% endif %}
 
         <p>If you have any questions or want a walkthrough, just reply to this email.</p>
 

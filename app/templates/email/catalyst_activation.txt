@@ -4,7 +4,15 @@ Hi {{ contact_name }},
 
 Your Catalyst workspace for {{ org_name }} has been activated and is ready to use.
 
+{% if activation_url %}
+First, activate your account and set your password:
+{{ activation_url }}
+
+Once your account is active, your workspace is here:
+{{ workspace_url }}
+{% else %}
 Your workspace: {{ workspace_url }}
+{% endif %}
 
 Your knowledge base has been seeded with the Catalyst CORE library — the foundation your team will build on. You can start exploring, capturing notes, and building context right away.
 
