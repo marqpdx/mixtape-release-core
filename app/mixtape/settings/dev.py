@@ -164,7 +164,7 @@ DATABASES = {
 # EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 # for emailing
-FRONTEND_URL = "http://127.0.0.1:3011"
+FRONTEND_URL = "http://localhost:3011"
 
 # Local-only project status tooling for /api/ops/project-status.
 PUDDLEJUMP_PATH = os.getenv(

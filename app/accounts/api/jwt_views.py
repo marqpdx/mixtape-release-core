@@ -31,13 +31,14 @@ class TokenViewBaseWithCookie(TokenViewBase):
 
     def post(self, request, *args, **kwargs):
 
-        # logger.warning(f"""
-        #     🔍 Token Request to {self.__class__.__name__}:
-        #     Cookies received: {list(request.COOKIES.keys())}
-        #     Has refresh_token: {'refresh_token' in request.COOKIES}
-        #     Referer: {request.META.get('HTTP_REFERER', 'None')}
-        #     Origin: {request.META.get('HTTP_ORIGIN', 'None')}
-        #     """)
+        logger.warning(
+            "🔍 Token Request to %s: cookies=%s has_refresh=%s origin=%s referer=%s",
+            self.__class__.__name__,
+            list(request.COOKIES.keys()),
+            settings.JWT_COOKIE_NAME in request.COOKIES,
+            request.META.get('HTTP_ORIGIN', 'None'),
+            request.META.get('HTTP_REFERER', 'None'),
+        )
 
         serializer = self.get_serializer(
             data=request.data,
@@ -73,8 +74,13 @@ class TokenViewBaseWithCookie(TokenViewBase):
             return resp
 
         except (InvalidToken, AuthenticationFailed) as e:
-            # Handle auth failures
-            error_code = getattr(e, "code", "token_error")
+            # Handle auth failures — DRF stores code in e.detail.code, not e.code
+            detail = getattr(e, "detail", None)
+            error_code = (
+                str(getattr(detail, "code", None))
+                if detail is not None
+                else getattr(e, "code", "token_error")
+            ) or "token_error"
             error_detail = getattr(e, "detail", str(e))
 
             logger.warning(
