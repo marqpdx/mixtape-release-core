@@ -91,6 +91,60 @@ def _get_or_create_activation_invite(group):
 
 
 @shared_task(
+    name="catalyst.tasks.provision_catalyst_for_group",
+    bind=True,
+    max_retries=1,
+    default_retry_delay=30,
+)
+def provision_catalyst_for_group(self, group_id: int) -> None:
+    """
+    Self-serve Catalyst provisioning for an existing group whose owner already
+    has an active Crossroads account (Path B).  Runs Codex steps 2–7 against
+    a GroupAdapter shim — no BusinessProspect, no activation email.
+    Sets catalyst_status='ready' and catalyst_enabled=True on success,
+    or catalyst_status='failed' on error.
+    """
+    from groups.models.group import Group
+    from catalyst.services.activation import CatalystActivationService, CatalystActivationError
+
+    try:
+        group = Group.objects.get(pk=group_id)
+    except Group.DoesNotExist:
+        logger.error("[catalyst-provision] Group %s not found", group_id)
+        return
+
+    class _GroupAdapter:
+        """Minimal shim so CatalystActivationService can work without a BusinessProspect."""
+        def __init__(self, g):
+            self.slug = g.slug
+            self.name = g.title or g.slug
+            self.converted_to_group = g
+            self.org_description = g.summary or ""
+            self.knowledge_goal = ""
+            self.primary_contact_email = None
+
+    service = CatalystActivationService(_GroupAdapter(group))
+
+    try:
+        service.init_codex()
+        service.copy_seed_files()
+        service.stamp_manifest_hashes()
+        service.stamp_fixture_provenance()
+        service.seed_ir()
+        service.generate_docent()
+    except CatalystActivationError as exc:
+        logger.error("[catalyst-provision] Failed for group %s: %s", group.slug, exc)
+        Group.objects.filter(pk=group_id).update(catalyst_status="failed")
+        return
+
+    Group.objects.filter(pk=group_id).update(
+        catalyst_status="ready",
+        catalyst_enabled=True,
+    )
+    logger.info("[catalyst-provision] Provisioning complete for group %s", group.slug)
+
+
+@shared_task(
     name="catalyst.tasks.send_catalyst_activation_email",
     bind=True,
     max_retries=2,

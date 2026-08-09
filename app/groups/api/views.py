@@ -1639,3 +1639,61 @@ class GroupCatalystIntakeView(generics.GenericAPIView):
             {"detail": "Request received. A Mixtape administrator will activate Catalyst for your group."},
             status=status.HTTP_201_CREATED,
         )
+
+
+class GroupCatalystActivateView(generics.GenericAPIView):
+    """
+    POST /api/groups/<slug>/catalyst/activate
+
+    Self-serve Catalyst provisioning for an existing group.  Idempotent on
+    'pending' (returns 202 without re-queuing).  Requires owner or admin role.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, slug):
+        from catalyst.tasks import provision_catalyst_for_group
+
+        group = get_object_or_404(Group, slug=slug, is_active=True)
+        membership = GroupService.get_user_membership(group, request.user)
+        if not membership or not membership.is_admin():
+            return Response({"detail": "Owner or admin required."}, status=status.HTTP_403_FORBIDDEN)
+
+        if group.catalyst_enabled or group.catalyst_status == "ready":
+            return Response({"status": "ready"}, status=status.HTTP_409_CONFLICT)
+
+        if group.catalyst_status == "pending":
+            return Response({"status": "pending"}, status=status.HTTP_202_ACCEPTED)
+
+        Group.objects.filter(pk=group.pk).update(catalyst_status="pending")
+        provision_catalyst_for_group.delay(group.pk)
+
+        return Response({"status": "pending"}, status=status.HTTP_202_ACCEPTED)
+
+
+class GroupCatalystStatusView(generics.GenericAPIView):
+    """
+    GET /api/groups/<slug>/catalyst/status
+
+    Returns the current Catalyst provisioning state and, when ready,
+    the workspace URL for the frontend polling loop.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, slug):
+        group = get_object_or_404(Group, slug=slug, is_active=True)
+        membership = GroupService.get_user_membership(group, request.user)
+        if not membership:
+            return Response({"detail": "Not a member."}, status=status.HTTP_403_FORBIDDEN)
+
+        url_template = getattr(
+            settings,
+            "CATALYST_TENANT_URL_TEMPLATE",
+            "https://{slug}.crossroads.place/catalyst",
+        )
+        workspace_url = url_template.format(slug=group.slug)
+
+        return Response({
+            "status": group.catalyst_status,
+            "catalyst_enabled": group.catalyst_enabled,
+            "workspace_url": workspace_url if group.catalyst_status == "ready" else None,
+        })
