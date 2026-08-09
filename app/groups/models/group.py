@@ -168,6 +168,18 @@ class Group(LayoutParent, BaseContent):
         default=False,
         help_text="Catalyst features are enabled for this group."
     )
+    CATALYST_STATUS_CHOICES = [
+        ("none", "None"),
+        ("pending", "Pending"),
+        ("ready", "Ready"),
+        ("failed", "Failed"),
+    ]
+    catalyst_status = models.CharField(
+        max_length=10,
+        choices=CATALYST_STATUS_CHOICES,
+        default="none",
+        help_text="Self-serve Catalyst provisioning state.",
+    )
     in_crossroads_commons = models.BooleanField(
         default=False,
         help_text=(

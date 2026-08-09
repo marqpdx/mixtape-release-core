@@ -301,6 +301,9 @@ app.conf.task_routes = {
     "catalyst.tasks.send_catalyst_activation_email": {
         "queue": "push", "routing_key": "push"
     },
+    "catalyst.tasks.provision_catalyst_for_group": {
+        "queue": "push", "routing_key": "push"
+    },
 }
 
 # ---- Sensible defaults ----
