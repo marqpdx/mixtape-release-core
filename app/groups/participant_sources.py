@@ -3,7 +3,10 @@ from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 
 from groups.models import Group, GroupMembership  # adjust to your schema
-from livewire.participant_sources import register
+try:
+    from livewire.participant_sources import register
+except ImportError:
+    register = lambda model: lambda fn: fn  # noqa: E731
 
 
 User = get_user_model()
