@@ -201,6 +201,14 @@ LOGGING = {
 }
 
 # ============================================================================
+# CATALYST
+# ============================================================================
+CATALYST_CODEX_ROOT = Path(os.getenv("CATALYST_CODEX_ROOT", BASE_DIR / "catalyst_codex"))
+CATALYST_SEED_PATH = Path(os.getenv("CATALYST_SEED_PATH", "")) if os.getenv("CATALYST_SEED_PATH") else None
+
+INTAKE_FORM_ENABLED = True
+
+# ============================================================================
 # DEFERRED SETTINGS (Phase 2+)
 # ============================================================================
 # S3 Storage - Phase 2
