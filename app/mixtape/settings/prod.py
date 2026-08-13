@@ -160,6 +160,7 @@ CORS_ALLOWED_ORIGINS = [
 
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https://[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.crossroads\.place$",
+    r"^https://[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.apps\.crossroads\.place$",
 ]
 
 # CSRF - Production domains
@@ -205,6 +206,7 @@ LOGGING = {
 # ============================================================================
 CATALYST_CODEX_ROOT = Path(os.getenv("CATALYST_CODEX_ROOT", BASE_DIR / "catalyst_codex"))
 CATALYST_SEED_PATH = Path(os.getenv("CATALYST_SEED_PATH", "")) if os.getenv("CATALYST_SEED_PATH") else None
+CATALYST_TENANT_URL_TEMPLATE = "https://{slug}.apps.crossroads.place/catalyst"
 
 INTAKE_FORM_ENABLED = True
 
