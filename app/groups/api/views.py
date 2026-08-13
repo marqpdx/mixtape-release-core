@@ -1682,8 +1682,8 @@ class GroupCatalystStatusView(generics.GenericAPIView):
     def get(self, request, slug):
         group = get_object_or_404(Group, slug=slug, is_active=True)
         membership = GroupService.get_user_membership(group, request.user)
-        if not membership:
-            return Response({"detail": "Not a member."}, status=status.HTTP_403_FORBIDDEN)
+        if not membership or not membership.is_admin():
+            return Response({"detail": "Admin or owner required."}, status=status.HTTP_403_FORBIDDEN)
 
         url_template = getattr(
             settings,

@@ -58,3 +58,6 @@ llm_models/
 # Meridian / OpenWiki — generated wiki prose; VPS-only by default
 # Client deployments may override this policy via their own git server configuration
 openwiki/
+
+# Catalyst — per-tenant Codex git repos (runtime-generated, not source)
+app/catalyst_codex/
