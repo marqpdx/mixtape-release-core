@@ -96,6 +96,7 @@ INSTALLED_APPS = [
 
     # Catalyst — the product
     "catalyst",        # Codex provisioning, activate_catalyst_tenant command
+    "lists",           # Lightweight text-first lists (sponsor GFK, /track verb)
 
     # Admin surface
     "studio",          # Group / member admin surface
