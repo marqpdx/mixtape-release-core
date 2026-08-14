@@ -206,7 +206,7 @@ LOGGING = {
 # ============================================================================
 CATALYST_CODEX_ROOT = Path(os.getenv("CATALYST_CODEX_ROOT", BASE_DIR / "catalyst_codex"))
 CATALYST_SEED_PATH = Path(os.getenv("CATALYST_SEED_PATH", "")) if os.getenv("CATALYST_SEED_PATH") else None
-CATALYST_TENANT_URL_TEMPLATE = "https://{slug}.apps.crossroads.place/catalyst"
+CATALYST_TENANT_URL_TEMPLATE = "https://{slug}.apps.crossroads.place/app/groups/{slug}/catalyst"
 
 INTAKE_FORM_ENABLED = True
 
