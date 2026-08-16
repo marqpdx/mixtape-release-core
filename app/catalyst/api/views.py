@@ -13,6 +13,9 @@ GET  /api/catalyst/groups/{slug}/registers/{register_slug}/
 
 PATCH /api/catalyst/groups/{slug}/registers/{register_slug}/
   Updates body markdown and/or canonizes the register (status → canon).
+
+POST /api/catalyst/groups/{slug}/parse-files/
+  Accepts multipart file uploads; returns proposed register shapes (Stage 3).
 """
 
 import logging
@@ -394,3 +397,67 @@ class RegisterDetailView(APIView):
             "commit": commit_hash,
             "canonized": canonize,
         })
+
+
+class ParseFilesView(APIView):
+    """
+    POST /api/catalyst/groups/{slug}/parse-files/
+
+    Multipart form upload — one or more files under the key "files".
+    Returns proposed register shapes derived from file structure (Stage 3).
+
+    Response:
+      {
+        "proposed_registers": [
+          {
+            "slug": "meals",
+            "display_name": "Meal Register",
+            "entry_count": 16,
+            "source_file": "2026_Temple_Menu.docx",
+            "canon_synonym": "Canon",
+            "notes": ""
+          },
+          ...
+        ],
+        "files_processed": 2,
+        "errors": []
+      }
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, slug):
+        group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
+        if not _is_group_admin(request.user, group):
+            return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+
+        from catalyst.services.parse_service import parse_file
+
+        uploaded = request.FILES.getlist("files")
+        if not uploaded:
+            return Response({"detail": "No files uploaded."}, status=status.HTTP_400_BAD_REQUEST)
+
+        proposed = []
+        errors = []
+
+        for f in uploaded:
+            try:
+                results = parse_file(f.name, f.read())
+                for r in results:
+                    proposed.append({
+                        "slug": r.slug,
+                        "display_name": r.display_name,
+                        "entry_count": r.entry_count,
+                        "source_file": r.source_file,
+                        "canon_synonym": r.canon_synonym,
+                        "notes": r.notes,
+                    })
+            except Exception as exc:
+                logger.exception("parse_file failed for %s", f.name)
+                errors.append({"file": f.name, "error": str(exc)})
+
+        return Response({
+            "proposed_registers": proposed,
+            "files_processed": len(uploaded),
+            "errors": errors,
+        }, status=status.HTTP_200_OK)
