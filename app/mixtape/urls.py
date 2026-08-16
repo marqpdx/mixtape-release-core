@@ -136,6 +136,9 @@ urlpatterns = [
     # Atrium — personal AI session surface
     path("api/atrium/", include("atrium.api.urls")),
 
+    # Catalyst — Codex ingest and materialization
+    path("api/catalyst/", include("catalyst.api.urls")),
+
     # === END PHASE 4 ENDPOINTS ===
 
     # Prospects — public intake (token-gated, no auth)

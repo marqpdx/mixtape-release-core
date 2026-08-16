@@ -111,8 +111,8 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
 ]
 CORS_ALLOW_CREDENTIALS = True
 
-# Share refresh-token cookie across *.localhost subdomains in dev
-SESSION_COOKIE_DOMAIN = ".localhost"
+# 127.0.0.1 — matches dev server binding; avoids .localhost ↔ 127.0.0.1 mismatch
+SESSION_COOKIE_DOMAIN = "127.0.0.1"
 
 # JWT Cookie settings for development
 # Note: SameSite=None allows cross-port cookies (localhost:3010 → localhost:8000)
