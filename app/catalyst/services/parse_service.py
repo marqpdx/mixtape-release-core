@@ -24,10 +24,18 @@ Confidence:
 from __future__ import annotations
 
 import io
+import json
+import logging
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 import unicodedata
 from dataclasses import dataclass, field
 from typing import BinaryIO
+
+logger = logging.getLogger(__name__)
 
 # Sheet/section names that are structural noise, not registers
 NOISE_SHEET_NAMES = frozenset({
@@ -39,6 +47,150 @@ NOISE_SHEET_NAMES = frozenset({
 })
 
 _CONF_RANK = {"high": 2, "medium": 1, "low": 0}
+
+_SEMANTIC_PROMPT = """\
+A file is being imported into a knowledge base for a team event.
+File name: "{filename}"
+
+Content preview (may be truncated to first ~4000 characters):
+---
+{content}
+---
+
+Count the distinct named ITEMS in this file. Use common sense about what counts as one item:
+- Recipe or menu file → count individual dish names (e.g. "Cashew dill sauce") — NOT ingredient rows, measurements, or quantity cells
+- Staff or people file → count individual people by name — NOT their roles, shifts, or contact fields
+- Supplier or partner file → count distinct organization names — NOT products they carry or line items
+- Meeting notes file → count distinct meeting sessions — NOT individual action items or attendees
+- Task or prep list → count distinct named tasks or prep steps
+
+Respond with JSON only — no explanation, no markdown fences:
+{{"entity_type": "recipes", "entity_plural": "recipes", "count": 39, "examples": ["Cashew dill sauce", "Root hash", "Beet salad ~est"], "confidence": "high"}}
+
+entity_type must be one of: recipes, people, suppliers, meeting_notes, tasks, documents\
+"""
+
+
+def extract_text_preview(filename: str, data: bytes, max_chars: int = 4000) -> str:
+    """Extract a plain-text preview from any supported file type."""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    buf = io.BytesIO(data)
+    parts: list[str] = []
+
+    try:
+        if ext in ("xlsx", "xls"):
+            import openpyxl
+            wb = openpyxl.load_workbook(buf, read_only=True, data_only=True)
+            for sheet_name in wb.sheetnames[:4]:
+                ws = wb[sheet_name]
+                parts.append(f"[Sheet: {sheet_name}]")
+                for row in ws.iter_rows(values_only=True, max_row=80):
+                    cells = [str(c) for c in row if c is not None]
+                    if cells:
+                        parts.append("\t".join(cells))
+        elif ext == "csv":
+            import csv
+            text = data.decode("utf-8", errors="replace")
+            for row in list(csv.reader(text.splitlines()))[:120]:
+                if any(c.strip() for c in row):
+                    parts.append("\t".join(row))
+        elif ext == "docx":
+            from docx import Document
+            doc = Document(buf)
+            for p in doc.paragraphs:
+                if p.text.strip():
+                    parts.append(p.text.strip())
+        elif ext == "pdf":
+            from pypdf import PdfReader
+            reader = PdfReader(buf)
+            for page in reader.pages[:6]:
+                t = page.extract_text() or ""
+                if t.strip():
+                    parts.append(t.strip())
+        else:
+            parts.append(data.decode("utf-8", errors="replace"))
+    except Exception:
+        parts.append(data[:max_chars].decode("utf-8", errors="replace"))
+
+    return "\n".join(parts)[:max_chars]
+
+
+def semantic_analyze(
+    filename: str,
+    data: bytes,
+    codex_cwd: str | None = None,
+    timeout: int = 45,
+) -> dict | None:
+    """
+    Ask the local Claude Code instance to count distinct named items in a file.
+    Returns dict with entity_type, entity_plural, count, examples, confidence — or None on failure.
+    Falls back gracefully; never raises.
+    """
+    claude_bin = shutil.which("claude") or os.getenv("CLAUDE_CODE_PATH", "claude")
+
+    text_preview = extract_text_preview(filename, data)
+    if not text_preview.strip():
+        return None
+
+    prompt = _SEMANTIC_PROMPT.format(filename=filename, content=text_preview)
+
+    # Write prompt to a temp file to avoid shell quoting issues with long content
+    tmp_prompt = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
+            f.write(prompt)
+            tmp_prompt = f.name
+
+        result = subprocess.run(
+            [claude_bin, "-p", "--dangerously-skip-permissions", prompt],
+            cwd=codex_cwd or os.getcwd(),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+
+        if result.returncode != 0:
+            logger.warning("[catalyst] claude -p returned %s for %s: %s", result.returncode, filename, result.stderr[:200])
+            return None
+
+        raw = result.stdout.strip()
+        if not raw:
+            return None
+
+        # Try direct parse first, then extract first JSON object
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            m = re.search(r'\{.*\}', raw, re.DOTALL)
+            if not m:
+                logger.warning("[catalyst] no JSON in claude response for %s: %r", filename, raw[:300])
+                return None
+            parsed = json.loads(m.group())
+
+        # Validate required fields
+        if not isinstance(parsed.get("count"), int):
+            return None
+
+        return {
+            "entity_type": str(parsed.get("entity_type", "documents")),
+            "entity_plural": str(parsed.get("entity_plural", "records")),
+            "count": max(0, int(parsed["count"])),
+            "examples": list(parsed.get("examples", []))[:5],
+            "confidence": str(parsed.get("confidence", "medium")),
+        }
+
+    except subprocess.TimeoutExpired:
+        logger.warning("[catalyst] claude -p timed out for %s", filename)
+        return None
+    except Exception as exc:
+        logger.warning("[catalyst] semantic_analyze failed for %s: %s", filename, exc)
+        return None
+    finally:
+        if tmp_prompt:
+            try:
+                os.unlink(tmp_prompt)
+            except OSError:
+                pass
 
 
 @dataclass

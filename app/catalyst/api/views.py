@@ -451,11 +451,14 @@ class ParseFilesView(APIView):
         if not _is_group_admin(request.user, group):
             return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
 
-        from catalyst.services.parse_service import parse_file
+        from catalyst.services.parse_service import parse_file, semantic_analyze
 
         uploaded = request.FILES.getlist("files")
         if not uploaded:
             return Response({"detail": "No files uploaded."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Codex root gives Claude Code the right project context (CLAUDE.md, file structure)
+        codex_cwd = str(Path(settings.CATALYST_CODEX_ROOT) / slug) if hasattr(settings, "CATALYST_CODEX_ROOT") else None
 
         _conf_rank = {"high": 2, "medium": 1, "low": 0}
 
@@ -465,7 +468,27 @@ class ParseFilesView(APIView):
 
         for f in uploaded:
             try:
-                result = parse_file(f.name, f.read())
+                file_bytes = f.read()
+                result = parse_file(f.name, file_bytes)
+
+                # ── Semantic AI analysis via local Claude Code ─────────────
+                ai = semantic_analyze(f.name, file_bytes, codex_cwd=codex_cwd)
+                if ai and ai.get("count", 0) > 0 and result.registers:
+                    # AI gives us the true semantic count for the whole file.
+                    # Apply to the primary (first) register; if only one register it's exact.
+                    # Multi-register files (xlsx sheets) keep structural counts per sheet —
+                    # the AI count is the file-level truth, surfaced as file_notes.
+                    if len(result.registers) == 1:
+                        result.registers[0].entry_count = ai["count"]
+                        result.registers[0].confidence = ai.get("confidence", "high")
+                    result.file_notes = (
+                        f"{ai['count']} {ai['entity_plural']} detected"
+                        + (f" — e.g. {', '.join(ai['examples'][:3])}" if ai.get("examples") else "")
+                    )
+                    # Store examples for UI display
+                    for reg in result.registers:
+                        if not reg.notes:
+                            reg.notes = f"e.g. {', '.join(ai['examples'][:3])}" if ai.get("examples") else ""
 
                 file_registers = [
                     {
@@ -487,6 +510,8 @@ class ParseFilesView(APIView):
                     "registers": file_registers,
                     "skipped": result.skipped,
                     "file_notes": result.file_notes,
+                    "ai_examples": ai.get("examples", []) if ai else [],
+                    "ai_analyzed": ai is not None,
                 })
 
                 for r in result.registers:
