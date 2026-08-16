@@ -368,6 +368,11 @@ class RegisterDetailView(APIView):
 
         new_body = request.data.get("body_markdown", body)
         canonize = request.data.get("canonize", False)
+        new_synonym = request.data.get("canon_synonym")
+        new_display_name = request.data.get("display_name")
+        decanonize = request.data.get("decanonize", False)
+
+        changed_fields = []
 
         if canonize:
             fm["status"] = "canon"
@@ -375,6 +380,19 @@ class RegisterDetailView(APIView):
                 fm["provenance"] = {}
             fm["provenance"]["canonized_by"] = request.user.username
             fm["provenance"]["canonized_at"] = NOW_ISO()
+            changed_fields.append("canonize")
+
+        if decanonize:
+            fm["status"] = "pre-canon"
+            changed_fields.append("decanonize")
+
+        if new_synonym is not None:
+            fm["canon_synonym"] = new_synonym
+            changed_fields.append("synonym")
+
+        if new_display_name is not None:
+            fm["display_name"] = new_display_name
+            changed_fields.append("display_name")
 
         codex_root = _codex_root(slug)
         _write_index(path, fm, new_body)
@@ -382,7 +400,7 @@ class RegisterDetailView(APIView):
         try:
             rel = str(path.relative_to(codex_root))
             _git(codex_root, "add", rel)
-            verb = "canonize" if canonize else "edit"
+            verb = ", ".join(changed_fields) if changed_fields else "edit"
             _git(codex_root, "commit", "-m",
                  f"{verb}: {register_slug} — by {request.user.username} at {NOW_ISO()}")
             commit_hash = _git(codex_root, "rev-parse", "--short", "HEAD")
@@ -394,6 +412,8 @@ class RegisterDetailView(APIView):
         return Response({
             "slug": register_slug,
             "status": fm.get("status"),
+            "canon_synonym": fm.get("canon_synonym", ""),
+            "display_name": fm.get("display_name", register_slug),
             "commit": commit_hash,
             "canonized": canonize,
         })
