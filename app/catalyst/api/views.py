@@ -1,21 +1,28 @@
 # catalyst/api/views.py
 """
-Catalyst Codex API — file materialization endpoints.
+Catalyst Codex API — file materialization and browse endpoints.
 
 POST /api/catalyst/groups/{slug}/materialize-registers/
-  Accepts confirmed register shapes from the Stage 4 review UI and writes
-  CONTENT/registers/{register_slug}/_index.md for each register into the
-  tenant's Codex directory. Does a git commit after writing.
+  Writes CONTENT/registers/{register_slug}/_index.md for each confirmed register.
 
-  Bootstraps the Codex directory (git init + CONTENT skeleton) if it does
-  not yet exist — allows pilot use before the full activation flow is run.
+GET  /api/catalyst/groups/{slug}/registers/
+  Lists all materialized registers for the group's Codex.
+
+GET  /api/catalyst/groups/{slug}/registers/{register_slug}/
+  Returns frontmatter + body markdown for a single register _index.md.
+
+PATCH /api/catalyst/groups/{slug}/registers/{register_slug}/
+  Updates body markdown and/or canonizes the register (status → canon).
 """
 
 import logging
+import re
 import subprocess
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+
+import yaml
 
 from django.conf import settings
 from django.shortcuts import get_object_or_404
@@ -240,3 +247,150 @@ class MaterializeRegistersView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+# ── Shared helpers ─────────────────────────────────────────────────────────────
+
+_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?(.*)", re.DOTALL)
+
+
+def _parse_index(path: Path) -> tuple[dict, str]:
+    """Return (frontmatter_dict, body_markdown) from a _index.md file."""
+    raw = path.read_text(encoding="utf-8")
+    m = _FRONTMATTER_RE.match(raw)
+    if not m:
+        return {}, raw
+    try:
+        fm = yaml.safe_load(m.group(1)) or {}
+    except yaml.YAMLError:
+        fm = {}
+    return fm, m.group(2).strip()
+
+
+def _write_index(path: Path, fm: dict, body: str) -> None:
+    fm_str = yaml.dump(fm, default_flow_style=False, allow_unicode=True).strip()
+    path.write_text(f"---\n{fm_str}\n---\n\n{body}\n", encoding="utf-8")
+
+
+def _codex_root(slug: str) -> Path:
+    return Path(settings.CATALYST_CODEX_ROOT) / slug
+
+
+class ListRegistersView(APIView):
+    """
+    GET /api/catalyst/groups/{slug}/registers/
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, slug):
+        group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
+        if not _is_group_admin(request.user, group):
+            return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+
+        registers_dir = _codex_root(slug) / "CONTENT" / "registers"
+        if not registers_dir.exists():
+            return Response([], status=status.HTTP_200_OK)
+
+        results = []
+        for reg_dir in sorted(registers_dir.iterdir()):
+            if not reg_dir.is_dir():
+                continue
+            index = reg_dir / "_index.md"
+            if not index.exists():
+                continue
+            fm, _ = _parse_index(index)
+            results.append({
+                "slug": reg_dir.name,
+                "display_name": fm.get("id", reg_dir.name),
+                "title": _title_from_body(index),
+                "canon_synonym": fm.get("canon_synonym", ""),
+                "entry_count": fm.get("entry_count", 0),
+                "status": fm.get("status", "pre-canon"),
+                "source_file": fm.get("source_file", ""),
+            })
+
+        return Response(results)
+
+
+def _title_from_body(index_path: Path) -> str:
+    _, body = _parse_index(index_path)
+    for line in body.splitlines():
+        if line.startswith("# "):
+            return line[2:].strip()
+    return index_path.parent.name
+
+
+class RegisterDetailView(APIView):
+    """
+    GET  /api/catalyst/groups/{slug}/registers/{register_slug}/
+    PATCH /api/catalyst/groups/{slug}/registers/{register_slug}/
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def _get_index(self, slug, register_slug):
+        path = _codex_root(slug) / "CONTENT" / "registers" / register_slug / "_index.md"
+        if not path.exists():
+            return None, None, None
+        fm, body = _parse_index(path)
+        return path, fm, body
+
+    def get(self, request, slug, register_slug):
+        group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
+        if not _is_group_admin(request.user, group):
+            return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+
+        path, fm, body = self._get_index(slug, register_slug)
+        if path is None:
+            return Response({"detail": "Register not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response({
+            "slug": register_slug,
+            "frontmatter": fm,
+            "body_markdown": body,
+            "canon_synonym": fm.get("canon_synonym", ""),
+            "entry_count": fm.get("entry_count", 0),
+            "status": fm.get("status", "pre-canon"),
+        })
+
+    def patch(self, request, slug, register_slug):
+        group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
+        if not _is_group_admin(request.user, group):
+            return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+
+        path, fm, body = self._get_index(slug, register_slug)
+        if path is None:
+            return Response({"detail": "Register not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        new_body = request.data.get("body_markdown", body)
+        canonize = request.data.get("canonize", False)
+
+        if canonize:
+            fm["status"] = "canon"
+            if "provenance" not in fm:
+                fm["provenance"] = {}
+            fm["provenance"]["canonized_by"] = request.user.username
+            fm["provenance"]["canonized_at"] = NOW_ISO()
+
+        codex_root = _codex_root(slug)
+        _write_index(path, fm, new_body)
+
+        try:
+            rel = str(path.relative_to(codex_root))
+            _git(codex_root, "add", rel)
+            verb = "canonize" if canonize else "edit"
+            _git(codex_root, "commit", "-m",
+                 f"{verb}: {register_slug} — by {request.user.username} at {NOW_ISO()}")
+            commit_hash = _git(codex_root, "rev-parse", "--short", "HEAD")
+        except Exception as exc:
+            logger.exception("git commit failed for register %s/%s", slug, register_slug)
+            return Response({"detail": f"File written but git commit failed: {exc}"},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({
+            "slug": register_slug,
+            "status": fm.get("status"),
+            "commit": commit_hash,
+            "canonized": canonize,
+        })
