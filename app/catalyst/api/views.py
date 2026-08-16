@@ -457,27 +457,67 @@ class ParseFilesView(APIView):
         if not uploaded:
             return Response({"detail": "No files uploaded."}, status=status.HTTP_400_BAD_REQUEST)
 
-        proposed = []
+        _conf_rank = {"high": 2, "medium": 1, "low": 0}
+
         errors = []
+        parsed_files = []
+        merged: dict[str, dict] = {}  # slug → best accumulated register dict
 
         for f in uploaded:
             try:
-                results = parse_file(f.name, f.read())
-                for r in results:
-                    proposed.append({
+                result = parse_file(f.name, f.read())
+
+                file_registers = [
+                    {
                         "slug": r.slug,
                         "display_name": r.display_name,
                         "entry_count": r.entry_count,
                         "source_file": r.source_file,
                         "canon_synonym": r.canon_synonym,
                         "notes": r.notes,
-                    })
+                        "confidence": r.confidence,
+                        "columns": r.columns,
+                    }
+                    for r in result.registers
+                ]
+
+                parsed_files.append({
+                    "filename": result.filename,
+                    "file_type": result.file_type,
+                    "registers": file_registers,
+                    "skipped": result.skipped,
+                    "file_notes": result.file_notes,
+                })
+
+                for r in result.registers:
+                    if r.slug in merged:
+                        merged[r.slug]["entry_count"] += r.entry_count
+                        if r.source_file not in merged[r.slug]["source_file"]:
+                            merged[r.slug]["source_file"] += f", {r.source_file}"
+                        if r.notes:
+                            merged[r.slug]["notes"] += f"; {r.notes}"
+                        # keep highest confidence
+                        if _conf_rank.get(r.confidence, 1) > _conf_rank.get(merged[r.slug]["confidence"], 1):
+                            merged[r.slug]["confidence"] = r.confidence
+                            merged[r.slug]["columns"] = r.columns
+                    else:
+                        merged[r.slug] = {
+                            "slug": r.slug,
+                            "display_name": r.display_name,
+                            "entry_count": r.entry_count,
+                            "source_file": r.source_file,
+                            "canon_synonym": r.canon_synonym,
+                            "notes": r.notes,
+                            "confidence": r.confidence,
+                            "columns": r.columns,
+                        }
             except Exception as exc:
                 logger.exception("parse_file failed for %s", f.name)
                 errors.append({"file": f.name, "error": str(exc)})
 
         return Response({
-            "proposed_registers": proposed,
+            "files": parsed_files,
+            "merged_registers": list(merged.values()),
             "files_processed": len(uploaded),
             "errors": errors,
         }, status=status.HTTP_200_OK)
