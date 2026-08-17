@@ -674,3 +674,94 @@ def _parse_text(filename: str, base: str, ext: str, data: BinaryIO) -> ParsedFil
         skipped=[],
         file_notes=file_notes,
     )
+
+
+# ── Vocabulary alignment helpers ───────────────────────────────────────────────
+
+_CATEGORY_KEYWORDS: dict[str, list[str]] = {
+    "recipes": ["recipe", "menu", "meal", "dish", "breakfast", "lunch", "dinner",
+                "sauce", "cook", "food", "ingredient", "prep"],
+    "partners": ["purveyor", "vendor", "supplier", "partner", "fundrais", "outreach",
+                 "grant", "sponsor", "donation", "confirmed"],
+    "people":   ["people", "person", "staff", "volunteer", "crew", "team", "member",
+                 "contact", "worker", "role"],
+    "meeting_notes": ["meeting", "minutes", "notes", "agenda", "action", "carried"],
+    "tasks":    ["task", "checklist", "todo", "shift", "schedule", "prep"],
+}
+
+
+def classify_register_category(slug: str, display_name: str, columns: list[str]) -> str:
+    """Return a broad category slug for vocabulary alignment."""
+    text = (slug + " " + display_name + " " + " ".join(columns)).lower()
+    for cat, keywords in _CATEGORY_KEYWORDS.items():
+        if any(kw in text for kw in keywords):
+            return cat
+    return "records"
+
+
+def _extract_declared_types(expectations_text: str) -> list[str]:
+    """Parse one entity-type name per line from client vocabulary text."""
+    types: list[str] = []
+    for line in expectations_text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        name = re.split(r"[:\-–]", line)[0].strip().lower()
+        if name and len(name) < 40:
+            types.append(name)
+    return types
+
+
+def _declared_to_category(decl_name: str) -> str | None:
+    """Map a declared entity name to an internal category slug."""
+    for cat, keywords in _CATEGORY_KEYWORDS.items():
+        if any(kw in decl_name or decl_name in kw for kw in keywords):
+            return cat
+    return None
+
+
+def align_vocabulary(
+    entity_expectations: str,
+    found_registers: list[dict],
+) -> dict:
+    """
+    Given client-declared vocabulary text and structural parse results,
+    return {aligned, unexpected, absent, declared_types}.
+
+    aligned   — registers whose category matches a declared type
+    unexpected — registers not matching any declared type
+    absent    — declared types with no matching register found
+    """
+    declared_types = _extract_declared_types(entity_expectations)
+
+    # Build declared_type → category mapping
+    declared_cat: dict[str, str] = {}  # category → declared label
+    for decl in declared_types:
+        cat = _declared_to_category(decl)
+        if cat and cat not in declared_cat:
+            declared_cat[cat] = decl
+
+    aligned: list[dict] = []
+    unexpected: list[dict] = []
+    found_cats: set[str] = set()
+
+    for reg in found_registers:
+        cat = classify_register_category(
+            reg.get("slug", ""),
+            reg.get("display_name", ""),
+            reg.get("columns", []),
+        )
+        found_cats.add(cat)
+        if cat in declared_cat:
+            aligned.append({**reg, "matched_declared": declared_cat[cat]})
+        else:
+            unexpected.append(reg)
+
+    absent = [label for cat, label in declared_cat.items() if cat not in found_cats]
+
+    return {
+        "aligned": aligned,
+        "unexpected": unexpected,
+        "absent": absent,
+        "declared_types": declared_types,
+    }

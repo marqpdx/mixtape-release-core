@@ -1,6 +1,18 @@
 # catalyst/api/views.py
 """
-Catalyst Codex API — file materialization and browse endpoints.
+Catalyst Codex API — file materialization, browse, and async parse endpoints.
+
+POST /api/catalyst/groups/{slug}/parse-files/
+  Phase 1 — structural parse only (fast, no AI). Returns shape proposals
+  aligned against client vocabulary, creates a CatalystParseJob, stores
+  uploaded files on disk for Phase 2.
+
+POST /api/catalyst/groups/{slug}/parse-jobs/{job_id}/start-analysis/
+  Phase 2 — enqueue per-file Celery semantic-analysis tasks. Client calls
+  this after confirming Phase 1 shape and optionally adding enrichment context.
+
+GET  /api/catalyst/groups/{slug}/parse-jobs/{job_id}/status/
+  Returns current job status and, when complete, merged_registers.
 
 POST /api/catalyst/groups/{slug}/materialize-registers/
   Writes CONTENT/registers/{register_slug}/_index.md for each confirmed register.
@@ -13,16 +25,12 @@ GET  /api/catalyst/groups/{slug}/registers/{register_slug}/
 
 PATCH /api/catalyst/groups/{slug}/registers/{register_slug}/
   Updates body markdown and/or canonizes the register (status → canon).
-
-POST /api/catalyst/groups/{slug}/parse-files/
-  Accepts multipart file uploads; returns proposed register shapes (Stage 3).
 """
 
 import logging
 import re
 import subprocess
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -90,10 +98,6 @@ def _git(codex_root: Path, *args) -> str:
 
 
 def _bootstrap_codex(codex_root: Path, group_slug: str) -> bool:
-    """
-    Ensure the Codex directory exists with a git repo and CONTENT skeleton.
-    Returns True if bootstrapped fresh, False if already existed.
-    """
     if codex_root.exists() and (codex_root / ".git").exists():
         return False
 
@@ -128,32 +132,286 @@ def _is_group_admin(user, group) -> bool:
     ).exists()
 
 
-class MaterializeRegistersView(APIView):
-    """
-    POST /api/catalyst/groups/{slug}/materialize-registers/
+# ── Shared helpers ─────────────────────────────────────────────────────────────
 
-    Body:
-      {
-        "registers": [
-          {
-            "slug": "meals",
-            "display_name": "Meal Register",
-            "canon_synonym": "Final Menu",
-            "entry_count": 16,
-            "source_file": "2026_Temple_Menu. UPDATED.docx"
-          },
-          ...
-        ]
-      }
+_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?(.*)", re.DOTALL)
+
+
+def _parse_index(path: Path) -> tuple[dict, str]:
+    raw = path.read_text(encoding="utf-8")
+    m = _FRONTMATTER_RE.match(raw)
+    if not m:
+        return {}, raw
+    try:
+        fm = yaml.safe_load(m.group(1)) or {}
+    except yaml.YAMLError:
+        fm = {}
+    return fm, m.group(2).strip()
+
+
+def _write_index(path: Path, fm: dict, body: str) -> None:
+    fm_str = yaml.dump(fm, default_flow_style=False, allow_unicode=True).strip()
+    path.write_text(f"---\n{fm_str}\n---\n\n{body}\n", encoding="utf-8")
+
+
+def _codex_root(slug: str) -> Path:
+    return Path(settings.CATALYST_CODEX_ROOT) / slug
+
+
+def _title_from_body(index_path: Path) -> str:
+    _, body = _parse_index(index_path)
+    for line in body.splitlines():
+        if line.startswith("# "):
+            return line[2:].strip()
+    return index_path.parent.name
+
+
+# ── Phase 1 — Structural Parse ────────────────────────────────────────────────
+
+class ParseFilesView(APIView):
+    """
+    POST /api/catalyst/groups/{slug}/parse-files/
+
+    Phase 1: structural parse only — pure Python, no AI subprocess.
+    Runs in < 2s per file. Returns shape proposals aligned against client
+    vocabulary (aligned / unexpected / absent). Creates a CatalystParseJob
+    and stores uploaded file bytes on disk for Phase 2.
 
     Response:
       {
-        "codex_root": "/abs/path",
-        "bootstrapped": true,
-        "registers_written": 7,
-        "commit": "abc1234",
-        "files": ["CONTENT/registers/meals/_index.md", ...]
+        "job_id": "uuid",
+        "phase1_results": {
+          "aligned":   [...registers that match declared vocabulary...],
+          "unexpected":[...registers not in declared vocabulary...],
+          "absent":    [...declared types with no matching file...],
+          "declared_types": ["recipe", "purveyors", ...]
+        },
+        "files": [...per-file structural summary...],
+        "files_processed": 8,
+        "errors": []
       }
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, slug):
+        group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
+        if not _is_group_admin(request.user, group):
+            return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+
+        from catalyst.services.parse_service import parse_file, align_vocabulary
+        from catalyst.models import CatalystParseJob
+
+        uploaded = request.FILES.getlist("files")
+        if not uploaded:
+            return Response({"detail": "No files uploaded."}, status=status.HTTP_400_BAD_REQUEST)
+
+        general_context = (request.data.get("general_context") or "").strip()
+        entity_expectations = (request.data.get("entity_expectations") or "").strip()
+
+        client_context: str = ""
+        if general_context or entity_expectations:
+            parts = []
+            if general_context:
+                parts.append(f"ABOUT THESE FILES:\n{general_context}")
+            if entity_expectations:
+                parts.append(
+                    f"ENTITY VOCABULARY (client-defined — these definitions override general assumptions):\n{entity_expectations}"
+                )
+            client_context = "\n\n".join(parts)
+            logger.info("[catalyst] client_context set (%d chars)", len(client_context))
+
+        errors: list[dict] = []
+        parsed_files: list[dict] = []
+        all_registers: list[dict] = []
+        file_meta: list[dict] = []
+
+        # Read bytes in main thread; run parse_file() sequentially (fast)
+        for f in uploaded:
+            name = f.name
+            data = f.read()
+            try:
+                result = parse_file(name, data)
+                registers_dicts = [
+                    {
+                        "slug": r.slug,
+                        "display_name": r.display_name,
+                        "entry_count": r.entry_count,
+                        "source_file": r.source_file,
+                        "canon_synonym": r.canon_synonym,
+                        "notes": r.notes,
+                        "confidence": r.confidence,
+                        "columns": r.columns,
+                    }
+                    for r in result.registers
+                ]
+                parsed_files.append({
+                    "filename": result.filename,
+                    "file_type": result.file_type,
+                    "registers": registers_dicts,
+                    "skipped": result.skipped,
+                    "file_notes": result.file_notes,
+                })
+                all_registers.extend(registers_dicts)
+                file_meta.append({
+                    "filename": name,
+                    "size_bytes": len(data),
+                    "file_type": result.file_type,
+                    "_data": data,  # held in memory until stored to disk below
+                })
+            except Exception as exc:
+                logger.exception("[catalyst] parse_file failed for %s", name)
+                errors.append({"file": name, "error": str(exc)})
+
+        # Vocabulary alignment
+        phase1 = align_vocabulary(entity_expectations, all_registers) if entity_expectations else {
+            "aligned": all_registers,
+            "unexpected": [],
+            "absent": [],
+            "declared_types": [],
+        }
+
+        # Create the job record
+        job = CatalystParseJob.objects.create(
+            group=group,
+            status=CatalystParseJob.STATUS_PHASE1_COMPLETE,
+            uploaded_files=[
+                {"filename": m["filename"], "size_bytes": m["size_bytes"], "file_type": m["file_type"]}
+                for m in file_meta
+            ],
+            client_context=client_context,
+            phase1_results=phase1,
+            created_by=request.user,
+        )
+
+        # Store raw file bytes on disk for Phase 2 tasks
+        job_dir = job.job_dir()
+        job_dir.mkdir(parents=True, exist_ok=True)
+        for m in file_meta:
+            dest = job_dir / m["filename"]
+            dest.write_bytes(m["_data"])
+
+        logger.info(
+            "[catalyst] Phase 1 complete — job=%s group=%s files=%d aligned=%d unexpected=%d absent=%d",
+            job.id, slug, len(file_meta),
+            len(phase1["aligned"]), len(phase1["unexpected"]), len(phase1["absent"]),
+        )
+
+        return Response({
+            "job_id": str(job.id),
+            "phase1_results": phase1,
+            "files": parsed_files,
+            "files_processed": len(uploaded),
+            "errors": errors,
+        }, status=status.HTTP_200_OK)
+
+
+# ── Phase 2 — Start Async Analysis ────────────────────────────────────────────
+
+class StartAnalysisView(APIView):
+    """
+    POST /api/catalyst/groups/{slug}/parse-jobs/{job_id}/start-analysis/
+
+    Body (optional): {"enrichment_context": "...additional context..."}
+
+    Appends enrichment_context to client_context, enqueues one
+    run_file_semantic_analysis task per uploaded file, sets status → analyzing.
+
+    Response: {"job_id": "...", "status": "analyzing", "files_queued": N}
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, slug, job_id):
+        group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
+        if not _is_group_admin(request.user, group):
+            return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+
+        from catalyst.models import CatalystParseJob
+        from catalyst.tasks import run_file_semantic_analysis
+
+        try:
+            job = CatalystParseJob.objects.get(pk=job_id, group=group)
+        except CatalystParseJob.DoesNotExist:
+            return Response({"detail": "Job not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if job.status == CatalystParseJob.STATUS_ANALYZING:
+            return Response({"detail": "Analysis already in progress."}, status=status.HTTP_409_CONFLICT)
+        if job.status == CatalystParseJob.STATUS_COMPLETE:
+            return Response({"detail": "Analysis already complete."}, status=status.HTTP_409_CONFLICT)
+
+        enrichment = (request.data.get("enrichment_context") or "").strip()
+        if enrichment:
+            sep = "\n\n" if job.client_context else ""
+            job.client_context = job.client_context + sep + f"ADDITIONAL CONTEXT (added after Phase 1 review):\n{enrichment}"
+
+        job.status = CatalystParseJob.STATUS_ANALYZING
+        job.save(update_fields=["status", "client_context"])
+
+        # Enqueue one task per file
+        files_queued = 0
+        for file_entry in job.uploaded_files:
+            filename = file_entry["filename"]
+            run_file_semantic_analysis.apply_async(
+                args=[str(job.id), filename],
+                queue="push",
+            )
+            files_queued += 1
+
+        logger.info("[catalyst] Phase 2 started — job=%s files_queued=%d", job.id, files_queued)
+
+        return Response({
+            "job_id": str(job.id),
+            "status": job.status,
+            "files_queued": files_queued,
+        }, status=status.HTTP_200_OK)
+
+
+# ── Job Status ────────────────────────────────────────────────────────────────
+
+class ParseJobStatusView(APIView):
+    """
+    GET /api/catalyst/groups/{slug}/parse-jobs/{job_id}/status/
+
+    Returns current job status. When complete, includes merged_registers.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, slug, job_id):
+        group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
+        if not _is_group_admin(request.user, group):
+            return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+
+        from catalyst.models import CatalystParseJob
+
+        try:
+            job = CatalystParseJob.objects.get(pk=job_id, group=group)
+        except CatalystParseJob.DoesNotExist:
+            return Response({"detail": "Job not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        files_done = len(job.phase2_results.get("files", {}))
+        files_total = len(job.uploaded_files)
+
+        resp: dict = {
+            "job_id": str(job.id),
+            "status": job.status,
+            "files_done": files_done,
+            "files_total": files_total,
+        }
+
+        if job.status == CatalystParseJob.STATUS_COMPLETE:
+            resp["merged_registers"] = job.phase2_results.get("merged_registers", [])
+            resp["completed_at"] = job.completed_at.isoformat() if job.completed_at else None
+
+        return Response(resp, status=status.HTTP_200_OK)
+
+
+# ── Materialize Registers ─────────────────────────────────────────────────────
+
+class MaterializeRegistersView(APIView):
+    """
+    POST /api/catalyst/groups/{slug}/materialize-registers/
     """
 
     permission_classes = [IsAuthenticated]
@@ -169,10 +427,7 @@ class MaterializeRegistersView(APIView):
 
         registers = request.data.get("registers", [])
         if not registers:
-            return Response(
-                {"detail": "No registers provided."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"detail": "No registers provided."}, status=status.HTTP_400_BAD_REQUEST)
 
         codex_root = Path(settings.CATALYST_CODEX_ROOT) / slug
         try:
@@ -221,10 +476,7 @@ class MaterializeRegistersView(APIView):
             written_files.append(rel)
 
         if not written_files:
-            return Response(
-                {"detail": "No valid registers to write."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"detail": "No valid registers to write."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             _git(codex_root, "add", "CONTENT/registers/")
@@ -253,38 +505,9 @@ class MaterializeRegistersView(APIView):
         )
 
 
-# ── Shared helpers ─────────────────────────────────────────────────────────────
-
-_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?(.*)", re.DOTALL)
-
-
-def _parse_index(path: Path) -> tuple[dict, str]:
-    """Return (frontmatter_dict, body_markdown) from a _index.md file."""
-    raw = path.read_text(encoding="utf-8")
-    m = _FRONTMATTER_RE.match(raw)
-    if not m:
-        return {}, raw
-    try:
-        fm = yaml.safe_load(m.group(1)) or {}
-    except yaml.YAMLError:
-        fm = {}
-    return fm, m.group(2).strip()
-
-
-def _write_index(path: Path, fm: dict, body: str) -> None:
-    fm_str = yaml.dump(fm, default_flow_style=False, allow_unicode=True).strip()
-    path.write_text(f"---\n{fm_str}\n---\n\n{body}\n", encoding="utf-8")
-
-
-def _codex_root(slug: str) -> Path:
-    return Path(settings.CATALYST_CODEX_ROOT) / slug
-
+# ── List / Detail / Edit Registers ────────────────────────────────────────────
 
 class ListRegistersView(APIView):
-    """
-    GET /api/catalyst/groups/{slug}/registers/
-    """
-
     permission_classes = [IsAuthenticated]
 
     def get(self, request, slug):
@@ -317,20 +540,7 @@ class ListRegistersView(APIView):
         return Response(results)
 
 
-def _title_from_body(index_path: Path) -> str:
-    _, body = _parse_index(index_path)
-    for line in body.splitlines():
-        if line.startswith("# "):
-            return line[2:].strip()
-    return index_path.parent.name
-
-
 class RegisterDetailView(APIView):
-    """
-    GET  /api/catalyst/groups/{slug}/registers/{register_slug}/
-    PATCH /api/catalyst/groups/{slug}/registers/{register_slug}/
-    """
-
     permission_classes = [IsAuthenticated]
 
     def _get_index(self, slug, register_slug):
@@ -418,198 +628,3 @@ class RegisterDetailView(APIView):
             "commit": commit_hash,
             "canonized": canonize,
         })
-
-
-class ParseFilesView(APIView):
-    """
-    POST /api/catalyst/groups/{slug}/parse-files/
-
-    Multipart form upload — one or more files under the key "files".
-    Returns proposed register shapes derived from file structure (Stage 3).
-
-    Response:
-      {
-        "proposed_registers": [
-          {
-            "slug": "meals",
-            "display_name": "Meal Register",
-            "entry_count": 16,
-            "source_file": "2026_Temple_Menu.docx",
-            "canon_synonym": "Canon",
-            "notes": ""
-          },
-          ...
-        ],
-        "files_processed": 2,
-        "errors": []
-      }
-    """
-
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, slug):
-        group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
-        if not _is_group_admin(request.user, group):
-            return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
-
-        from catalyst.services.parse_service import parse_file, semantic_analyze
-
-        uploaded = request.FILES.getlist("files")
-        if not uploaded:
-            return Response({"detail": "No files uploaded."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Codex root gives Claude Code the right project context (CLAUDE.md, file structure)
-        codex_cwd = str(Path(settings.CATALYST_CODEX_ROOT) / slug) if hasattr(settings, "CATALYST_CODEX_ROOT") else None
-
-        # Client vocabulary from Step 1 pre-import questions
-        general_context = (request.data.get("general_context") or "").strip()
-        entity_expectations = (request.data.get("entity_expectations") or "").strip()
-        client_context: str | None = None
-        if general_context or entity_expectations:
-            parts = []
-            if general_context:
-                parts.append(f"ABOUT THESE FILES:\n{general_context}")
-            if entity_expectations:
-                parts.append(f"ENTITY VOCABULARY (client-defined — these definitions override general assumptions):\n{entity_expectations}")
-            client_context = "\n\n".join(parts)
-            logger.info("[catalyst] client_context set (%d chars)", len(client_context))
-
-        _conf_rank = {"high": 2, "medium": 1, "low": 0}
-
-        errors = []
-        parsed_files = []
-        merged: dict[str, dict] = {}  # slug → best accumulated register dict
-
-        # Read all file bytes in main thread before handing off
-        file_data = [(f.name, f.read()) for f in uploaded]
-
-        def _process_file(name: str, data: bytes):
-            result = parse_file(name, data)
-            ai = semantic_analyze(name, data, codex_cwd=codex_cwd, client_context=client_context)
-            return result, ai
-
-        # Run parse + semantic concurrently — limit to 2 to avoid subprocess contention
-        # (4 simultaneous claude -p calls caused the heavy Temple Menu to hit the 90s timeout)
-        file_results: dict[str, tuple] = {}
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            future_to_name = {
-                executor.submit(_process_file, name, data): name
-                for name, data in file_data
-            }
-            for future in as_completed(future_to_name):
-                name = future_to_name[future]
-                try:
-                    file_results[name] = future.result()
-                except Exception as exc:
-                    logger.exception("process failed for %s", name)
-                    errors.append({"file": name, "error": str(exc)})
-
-        for name, data in file_data:
-            if name not in file_results:
-                continue
-            try:
-                result, ai = file_results[name]
-
-                # ── Semantic AI analysis via local Claude Code ─────────────
-                if ai and ai.get("count", 0) > 0 and result.registers:
-                    # AI gives us the true semantic count for the whole file.
-                    # Apply to the primary (first) register; if only one register it's exact.
-                    # Multi-register files (xlsx sheets) keep structural counts per sheet —
-                    # the AI count is the file-level truth, surfaced as file_notes.
-                    if len(result.registers) == 1:
-                        result.registers[0].entry_count = ai["count"]
-                        result.registers[0].confidence = ai.get("confidence", "high")
-                    result.file_notes = (
-                        f"{ai['count']} {ai['entity_plural']} detected"
-                        + (f" — e.g. {', '.join(ai['examples'][:3])}" if ai.get("examples") else "")
-                    )
-                    # Store examples for UI display
-                    for reg in result.registers:
-                        if not reg.notes:
-                            reg.notes = f"e.g. {', '.join(ai['examples'][:3])}" if ai.get("examples") else ""
-
-                file_registers = [
-                    {
-                        "slug": r.slug,
-                        "display_name": r.display_name,
-                        "entry_count": r.entry_count,
-                        "source_file": r.source_file,
-                        "canon_synonym": r.canon_synonym,
-                        "notes": r.notes,
-                        "confidence": r.confidence,
-                        "columns": r.columns,
-                    }
-                    for r in result.registers
-                ]
-
-                ai_timed_out = ai is None and result.file_type in ("docx", "pdf")
-                parsed_files.append({
-                    "filename": result.filename,
-                    "file_type": result.file_type,
-                    "registers": file_registers,
-                    "skipped": result.skipped,
-                    "file_notes": "Analysis timed out — retry or reduce file size" if ai_timed_out else result.file_notes,
-                    "ai_examples": ai.get("examples", []) if ai else [],
-                    "ai_analyzed": ai is not None,
-                    "ai_timed_out": ai_timed_out,
-                })
-
-                ai_ok = ai is not None and ai.get("count", 0) > 0
-                is_structured = result.file_type in ("xlsx", "xls", "csv")
-
-                if ai_ok:
-                    # AI result is the authoritative count for this whole file.
-                    # Use it as ONE merged entry — bypasses multi-sheet xlsx noise.
-                    from catalyst.services.parse_service import slugify
-                    ai_slug = slugify(ai["entity_type"])
-                    ai_notes = f"e.g. {', '.join(ai['examples'][:3])}" if ai.get("examples") else ""
-                    if ai_slug in merged:
-                        merged[ai_slug]["entry_count"] += ai["count"]
-                        if name not in merged[ai_slug]["source_file"]:
-                            merged[ai_slug]["source_file"] += f", {name}"
-                        if ai_notes:
-                            merged[ai_slug]["notes"] += f"; {ai_notes}"
-                    else:
-                        merged[ai_slug] = {
-                            "slug": ai_slug,
-                            "display_name": ai.get("entity_plural", ai["entity_type"]).title(),
-                            "entry_count": ai["count"],
-                            "source_file": name,
-                            "canon_synonym": "Canon",
-                            "notes": ai_notes,
-                            "confidence": ai.get("confidence", "high"),
-                            "columns": [],
-                        }
-                elif is_structured:
-                    # AI didn't run — fall back to raw per-sheet counts for structured files only
-                    for r in result.registers:
-                        if r.slug in merged:
-                            merged[r.slug]["entry_count"] += r.entry_count
-                            if r.source_file not in merged[r.slug]["source_file"]:
-                                merged[r.slug]["source_file"] += f", {r.source_file}"
-                            if r.notes:
-                                merged[r.slug]["notes"] += f"; {r.notes}"
-                            if _conf_rank.get(r.confidence, 1) > _conf_rank.get(merged[r.slug]["confidence"], 1):
-                                merged[r.slug]["confidence"] = r.confidence
-                                merged[r.slug]["columns"] = r.columns
-                        else:
-                            merged[r.slug] = {
-                                "slug": r.slug,
-                                "display_name": r.display_name,
-                                "entry_count": r.entry_count,
-                                "source_file": r.source_file,
-                                "canon_synonym": r.canon_synonym,
-                                "notes": r.notes,
-                                "confidence": r.confidence,
-                                "columns": r.columns,
-                            }
-            except Exception as exc:
-                logger.exception("parse_file failed for %s", name)
-                errors.append({"file": name, "error": str(exc)})
-
-        return Response({
-            "files": parsed_files,
-            "merged_registers": list(merged.values()),
-            "files_processed": len(uploaded),
-            "errors": errors,
-        }, status=status.HTTP_200_OK)
