@@ -102,13 +102,19 @@ many distinct items. If unsure whether a line is a recipe name or a heading, cou
      never True/False, never a URL, never a role label like "Lead" or "Volunteer".
    • If this file looks like a duplicate of another file already seen, say so in notes.
 
+4. If the client provided entity expectations, report how your findings align:
+   - Which expected types were found and with what counts
+   - Which expected types were NOT found in this file (note as absent, not zero)
+   - Any unexpected types found that the client did not mention
+
 Respond with JSON only — no explanation, no markdown fences:
 {{"entity_type": "recipes", "entity_plural": "recipes", "count": 34, \
 "examples": ["Cashew dill sauce", "Grilled chicken", "Cold quinoa salad"], \
 "confidence": "high", \
 "notes": "Counted named dishes from Overview lines across all meal sections, plus named recipes \
 from the prep/sauce sections. Did not count meal-occasion headings (those are Meals, not Recipes). \
-Did not count ingredients."}}
+Did not count ingredients. Client expected: Recipes ✓ found, Ingredients not directly listed, \
+Menus (container) present as structure only."}}
 
 confidence: "high" (clear, certain), "medium" (some ambiguity), "low" (noisy file, best estimate)\
 """
@@ -196,26 +202,10 @@ def _extract_heading_priority(filename: str, data: bytes, max_chars: int = 8000)
         except Exception:
             return extract_text_preview(filename, data, max_chars)
 
-    # Parse the markdown: pull headings first, then first paragraph after each heading
-    headings, overviews, body = [], [], []
-    first_after_heading = False
-    for line in md.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if stripped.startswith("#"):
-            headings.append(stripped)
-            first_after_heading = True
-        elif first_after_heading:
-            overviews.append(stripped)
-            first_after_heading = False
-        else:
-            body.append(stripped)
-
-    heading_overview = "\n".join(headings + [""] + overviews)
-    remaining = max(max_chars - len(heading_overview) - 50, 0)
-    body_block = ("\n\n--- ADDITIONAL BODY ---\n" + "\n".join(body)[:remaining]) if remaining > 200 else ""
-    return heading_overview + body_block
+    # Return the full mammoth markdown — don't filter to headings-only.
+    # Heading-priority filtering was discarding recipe body lines, causing
+    # Claude to see only meal headings (18) instead of all recipes (~38).
+    return md[:max_chars]
 
 
 def semantic_analyze(
@@ -234,7 +224,7 @@ def semantic_analyze(
     claude_bin = shutil.which("claude") or os.getenv("CLAUDE_CODE_PATH", "claude")
     logger.info("[catalyst] semantic_analyze: binary=%s file=%s", claude_bin, filename)
 
-    text_preview = _extract_heading_priority(filename, data, max_chars=4000)
+    text_preview = _extract_heading_priority(filename, data, max_chars=6000)
     if not text_preview.strip():
         return None
 
