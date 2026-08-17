@@ -22,6 +22,7 @@ import logging
 import re
 import subprocess
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -479,13 +480,36 @@ class ParseFilesView(APIView):
         parsed_files = []
         merged: dict[str, dict] = {}  # slug → best accumulated register dict
 
-        for f in uploaded:
+        # Read all file bytes in main thread before handing off
+        file_data = [(f.name, f.read()) for f in uploaded]
+
+        def _process_file(name: str, data: bytes):
+            result = parse_file(name, data)
+            ai = semantic_analyze(name, data, codex_cwd=codex_cwd, client_context=client_context)
+            return result, ai
+
+        # Run parse + semantic concurrently — each call is a blocking subprocess
+        file_results: dict[str, tuple] = {}
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            future_to_name = {
+                executor.submit(_process_file, name, data): name
+                for name, data in file_data
+            }
+            for future in as_completed(future_to_name):
+                name = future_to_name[future]
+                try:
+                    file_results[name] = future.result()
+                except Exception as exc:
+                    logger.exception("process failed for %s", name)
+                    errors.append({"file": name, "error": str(exc)})
+
+        for name, data in file_data:
+            if name not in file_results:
+                continue
             try:
-                file_bytes = f.read()
-                result = parse_file(f.name, file_bytes)
+                result, ai = file_results[name]
 
                 # ── Semantic AI analysis via local Claude Code ─────────────
-                ai = semantic_analyze(f.name, file_bytes, codex_cwd=codex_cwd, client_context=client_context)
                 if ai and ai.get("count", 0) > 0 and result.registers:
                     # AI gives us the true semantic count for the whole file.
                     # Apply to the primary (first) register; if only one register it's exact.
@@ -517,41 +541,47 @@ class ParseFilesView(APIView):
                     for r in result.registers
                 ]
 
+                ai_timed_out = ai is None and result.file_type in ("docx", "pdf")
                 parsed_files.append({
                     "filename": result.filename,
                     "file_type": result.file_type,
                     "registers": file_registers,
                     "skipped": result.skipped,
-                    "file_notes": result.file_notes,
+                    "file_notes": "Analysis timed out — retry or reduce file size" if ai_timed_out else result.file_notes,
                     "ai_examples": ai.get("examples", []) if ai else [],
                     "ai_analyzed": ai is not None,
+                    "ai_timed_out": ai_timed_out,
                 })
 
-                for r in result.registers:
-                    if r.slug in merged:
-                        merged[r.slug]["entry_count"] += r.entry_count
-                        if r.source_file not in merged[r.slug]["source_file"]:
-                            merged[r.slug]["source_file"] += f", {r.source_file}"
-                        if r.notes:
-                            merged[r.slug]["notes"] += f"; {r.notes}"
-                        # keep highest confidence
-                        if _conf_rank.get(r.confidence, 1) > _conf_rank.get(merged[r.slug]["confidence"], 1):
-                            merged[r.slug]["confidence"] = r.confidence
-                            merged[r.slug]["columns"] = r.columns
-                    else:
-                        merged[r.slug] = {
-                            "slug": r.slug,
-                            "display_name": r.display_name,
-                            "entry_count": r.entry_count,
-                            "source_file": r.source_file,
-                            "canon_synonym": r.canon_synonym,
-                            "notes": r.notes,
-                            "confidence": r.confidence,
-                            "columns": r.columns,
-                        }
+                # Only merge into aggregate when AI succeeded, or file is structured (xlsx/csv).
+                # Raw docx paragraph counts are meaningless for entity totals.
+                ai_ok = ai is not None and ai.get("count", 0) > 0
+                is_structured = result.file_type in ("xlsx", "xls", "csv")
+                if ai_ok or is_structured:
+                    for r in result.registers:
+                        if r.slug in merged:
+                            merged[r.slug]["entry_count"] += r.entry_count
+                            if r.source_file not in merged[r.slug]["source_file"]:
+                                merged[r.slug]["source_file"] += f", {r.source_file}"
+                            if r.notes:
+                                merged[r.slug]["notes"] += f"; {r.notes}"
+                            if _conf_rank.get(r.confidence, 1) > _conf_rank.get(merged[r.slug]["confidence"], 1):
+                                merged[r.slug]["confidence"] = r.confidence
+                                merged[r.slug]["columns"] = r.columns
+                        else:
+                            merged[r.slug] = {
+                                "slug": r.slug,
+                                "display_name": r.display_name,
+                                "entry_count": r.entry_count,
+                                "source_file": r.source_file,
+                                "canon_synonym": r.canon_synonym,
+                                "notes": r.notes,
+                                "confidence": r.confidence,
+                                "columns": r.columns,
+                            }
             except Exception as exc:
-                logger.exception("parse_file failed for %s", f.name)
-                errors.append({"file": f.name, "error": str(exc)})
+                logger.exception("parse_file failed for %s", name)
+                errors.append({"file": name, "error": str(exc)})
 
         return Response({
             "files": parsed_files,
