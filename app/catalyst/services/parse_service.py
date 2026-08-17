@@ -224,7 +224,7 @@ def semantic_analyze(
     claude_bin = shutil.which("claude") or os.getenv("CLAUDE_CODE_PATH", "claude")
     logger.info("[catalyst] semantic_analyze: binary=%s file=%s", claude_bin, filename)
 
-    text_preview = _extract_heading_priority(filename, data, max_chars=6000)
+    text_preview = _extract_heading_priority(filename, data, max_chars=12000)
     if not text_preview.strip():
         return None
 
