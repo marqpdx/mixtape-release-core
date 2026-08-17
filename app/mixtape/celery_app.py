@@ -304,6 +304,13 @@ app.conf.task_routes = {
     "catalyst.tasks.provision_catalyst_for_group": {
         "queue": "push", "routing_key": "push"
     },
+    # --- Catalyst: async parse pipeline ---
+    "catalyst.tasks.run_file_semantic_analysis": {
+        "queue": "push", "routing_key": "push"
+    },
+    "catalyst.tasks.finalize_parse_job": {
+        "queue": "push", "routing_key": "push"
+    },
 }
 
 # ---- Sensible defaults ----
