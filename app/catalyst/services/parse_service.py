@@ -169,6 +169,22 @@ def extract_text_preview(filename: str, data: bytes, max_chars: int = 4000) -> s
     return "\n".join(parts)[:max_chars]
 
 
+def _strip_list_items(md: str) -> str:
+    """
+    Remove bullet-point list items from mammoth markdown.
+    Recipe/menu docs are dominated by ingredient lists; stripping them compresses
+    a 9000-char menu file to ~2000 chars of headings + overview lines, giving
+    Claude all the recipe names without timing out on ingredients.
+    """
+    lines = []
+    for line in md.splitlines():
+        s = line.strip()
+        if s.startswith("- ") or s.startswith("* ") or s.startswith("\t- "):
+            continue
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def _docx_to_markdown(data: bytes) -> str:
     """Convert docx bytes to markdown via mammoth. Falls back to empty string on failure."""
     try:
@@ -202,10 +218,17 @@ def _extract_heading_priority(filename: str, data: bytes, max_chars: int = 8000)
         except Exception:
             return extract_text_preview(filename, data, max_chars)
 
-    # Return the full mammoth markdown — don't filter to headings-only.
-    # Heading-priority filtering was discarding recipe body lines, causing
-    # Claude to see only meal headings (18) instead of all recipes (~38).
-    return md[:max_chars]
+    # Strip bullet-point ingredient lists — compresses recipe/menu files from
+    # ~9000 chars to ~2000 while preserving all headings and overview lines.
+    # This lets Claude see the full document structure without timing out.
+    stripped = _strip_list_items(md)
+
+    if len(stripped) <= max_chars:
+        return stripped
+
+    # Still over cap after stripping — very large file. Send what we can.
+    logger.warning("[catalyst] docx content still %d chars after stripping for %s — truncating to %d", len(stripped), filename, max_chars)
+    return stripped[:max_chars]
 
 
 def semantic_analyze(
@@ -224,7 +247,14 @@ def semantic_analyze(
     claude_bin = shutil.which("claude") or os.getenv("CLAUDE_CODE_PATH", "claude")
     logger.info("[catalyst] semantic_analyze: binary=%s file=%s", claude_bin, filename)
 
-    text_preview = _extract_heading_priority(filename, data, max_chars=12000)
+    # Reject files that are too large to analyze meaningfully (>500k bytes raw)
+    if len(data) > 500_000:
+        logger.warning("[catalyst] %s is %d bytes — too large for semantic analysis, skipping", filename, len(data))
+        return {"entity_type": "records", "entity_plural": "records", "count": 0,
+                "examples": [], "confidence": "low",
+                "notes": f"File too large ({len(data)//1024}KB) for automated analysis — please split into smaller files or import manually."}
+
+    text_preview = _extract_heading_priority(filename, data, max_chars=8000)
     if not text_preview.strip():
         return None
 
