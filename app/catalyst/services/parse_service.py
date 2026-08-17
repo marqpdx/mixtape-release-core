@@ -154,49 +154,59 @@ def extract_text_preview(filename: str, data: bytes, max_chars: int = 4000) -> s
     return "\n".join(parts)[:max_chars]
 
 
+def _docx_to_markdown(data: bytes) -> str:
+    """Convert docx bytes to markdown via mammoth. Falls back to empty string on failure."""
+    try:
+        import mammoth
+        buf = io.BytesIO(data)
+        result = mammoth.convert_to_markdown(buf)
+        return result.value or ""
+    except Exception:
+        return ""
+
+
 def _extract_heading_priority(filename: str, data: bytes, max_chars: int = 8000) -> str:
     """
-    For docx: headings first (never truncated) + first paragraph per section (overview lines),
-    then remaining body up to max_chars. Large docs get headings+overviews only to avoid timeouts.
+    For docx: convert to markdown via mammoth, then extract headings first + first paragraph
+    per section (overview lines), then remaining body up to max_chars.
     For other types: delegate to extract_text_preview.
     """
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext != "docx":
         return extract_text_preview(filename, data, max_chars)
 
-    try:
-        from docx import Document
-        buf = io.BytesIO(data)
-        doc = Document(buf)
-        headings, overviews, body = [], [], []
-        in_section = False
-        first_after_heading = False
-        for p in doc.paragraphs:
-            t = p.text.strip()
-            if not t:
-                continue
-            style = p.style.name if p.style else ""
-            if "Heading" in style:
-                headings.append(f"[{style}] {t}")
-                first_after_heading = True
-            elif first_after_heading:
-                # First paragraph after a heading = section overview/summary
-                overviews.append(t)
-                first_after_heading = False
-            else:
-                body.append(t)
-        for table in doc.tables:
-            for row in table.rows:
-                cells = [c.text.strip() for c in row.cells if c.text.strip()]
-                if cells:
-                    body.append("\t".join(cells))
+    md = _docx_to_markdown(data)
+    if not md.strip():
+        # mammoth failed — fall back to python-docx paragraph extraction
+        try:
+            from docx import Document
+            buf = io.BytesIO(data)
+            doc = Document(buf)
+            lines = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+            return "\n".join(lines)[:max_chars]
+        except Exception:
+            return extract_text_preview(filename, data, max_chars)
 
-        heading_overview = "\n".join(headings + [""] + overviews)
-        remaining = max(max_chars - len(heading_overview) - 50, 0)
-        body_block = ("\n\n--- ADDITIONAL BODY ---\n" + "\n".join(body)[:remaining]) if remaining > 200 else ""
-        return heading_overview + body_block
-    except Exception:
-        return extract_text_preview(filename, data, max_chars)
+    # Parse the markdown: pull headings first, then first paragraph after each heading
+    headings, overviews, body = [], [], []
+    first_after_heading = False
+    for line in md.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            headings.append(stripped)
+            first_after_heading = True
+        elif first_after_heading:
+            overviews.append(stripped)
+            first_after_heading = False
+        else:
+            body.append(stripped)
+
+    heading_overview = "\n".join(headings + [""] + overviews)
+    remaining = max(max_chars - len(heading_overview) - 50, 0)
+    body_block = ("\n\n--- ADDITIONAL BODY ---\n" + "\n".join(body)[:remaining]) if remaining > 200 else ""
+    return heading_overview + body_block
 
 
 def semantic_analyze(
