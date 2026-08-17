@@ -30,7 +30,6 @@ import os
 import re
 import shutil
 import subprocess
-import tempfile
 import unicodedata
 from dataclasses import dataclass, field
 from typing import BinaryIO
@@ -48,26 +47,61 @@ NOISE_SHEET_NAMES = frozenset({
 
 _CONF_RANK = {"high": 2, "medium": 1, "low": 0}
 
-_SEMANTIC_PROMPT = """\
-A file is being imported into a knowledge base for a team event.
-File name: "{filename}"
+_CLIENT_CONTEXT_FALLBACK = """\
+No client vocabulary provided. Use general knowledge to classify and count.\
+"""
 
-Content preview (may be truncated to first ~4000 characters):
+_SEMANTIC_PROMPT = """\
+You are analyzing a file being imported into a knowledge base.
+
+--- CLIENT VOCABULARY (use this to determine what counts as one item) ---
+{client_context}
+--- END CLIENT VOCABULARY ---
+
+FILE NAME: {filename}
+CONTENT PREVIEW (headings listed first, then body content):
 ---
 {content}
 ---
 
-Count the distinct named ITEMS in this file. Use common sense about what counts as one item:
-- Recipe or menu file → count individual dish names (e.g. "Cashew dill sauce") — NOT ingredient rows, measurements, or quantity cells
-- Staff or people file → count individual people by name — NOT their roles, shifts, or contact fields
-- Supplier or partner file → count distinct organization names — NOT products they carry or line items
-- Meeting notes file → count distinct meeting sessions — NOT individual action items or attendees
-- Task or prep list → count distinct named tasks or prep steps
+INSTRUCTIONS:
+
+1. READ the client vocabulary above first. The client has named the things that matter to them.
+   Their definitions override any general assumption about what to count.
+   If the client says "Recipe = a named dish with instructions and an outcome", then a Recipe is
+   a named dish — NOT a meal occasion, NOT an ingredient line, NOT a section heading.
+
+2. CLASSIFY this file into the entity type that best matches the client's vocabulary:
+   - If the client defines Recipes as named dishes: look for individual dish names in overview
+     lines, section descriptions, or recipe headings — NOT the date/session headings that bundle them.
+   - If the client defines Meals as time-based bundles of Recipes: Meals are containers, not atoms.
+     A "Wednesday Lunch" heading is a Meal, but the dishes inside it (quinoa salad, grilled chicken)
+     are Recipes. Count Recipes, not Meal headings, unless the client's primary interest is scheduling.
+   - If the client defines People as staff and volunteers: count distinct named individuals only —
+     skip blank rows, phone-number rows, role labels, header rows.
+   - If the client defines Purveyors as ingredient suppliers or sponsors: count confirmed/contracted
+     organizations from a "Confirmed Partners" or equivalent sheet — NOT prospect/outreach lists.
+   - If the file contains something the client did not mention (meeting notes, schedules, dietary
+     restrictions): classify it as an unexpected type and note it clearly.
+
+3. COUNT the items, following these rules:
+   • NEVER count: column headers, True/False values, phone numbers, email addresses, URLs,
+     blank cells, numeric IDs, section labels, or row numbers.
+   • For xlsx with multiple sheets: count only sheets relevant to the entity type; do not
+     double-count across sheets.
+   • Examples must be real item names (actual dish names, person names, org names) —
+     never True/False, never a URL, never a role label like "Lead" or "Volunteer".
+   • If this file looks like a duplicate of another file already seen, say so in notes.
 
 Respond with JSON only — no explanation, no markdown fences:
-{{"entity_type": "recipes", "entity_plural": "recipes", "count": 39, "examples": ["Cashew dill sauce", "Root hash", "Beet salad ~est"], "confidence": "high"}}
+{{"entity_type": "recipes", "entity_plural": "recipes", "count": 34, \
+"examples": ["Cashew dill sauce", "Grilled chicken", "Cold quinoa salad"], \
+"confidence": "high", \
+"notes": "Counted named dishes from Overview lines across all meal sections, plus named recipes \
+from the prep/sauce sections. Did not count meal-occasion headings (those are Meals, not Recipes). \
+Did not count ingredients."}}
 
-entity_type must be one of: recipes, people, suppliers, meeting_notes, tasks, documents\
+confidence: "high" (clear, certain), "medium" (some ambiguity), "low" (noisy file, best estimate)\
 """
 
 
@@ -100,6 +134,11 @@ def extract_text_preview(filename: str, data: bytes, max_chars: int = 4000) -> s
             for p in doc.paragraphs:
                 if p.text.strip():
                     parts.append(p.text.strip())
+            for table in doc.tables:
+                for row in table.rows:
+                    cells = [c.text.strip() for c in row.cells if c.text.strip()]
+                    if cells:
+                        parts.append("\t".join(cells))
         elif ext == "pdf":
             from pypdf import PdfReader
             reader = PdfReader(buf)
@@ -115,34 +154,79 @@ def extract_text_preview(filename: str, data: bytes, max_chars: int = 4000) -> s
     return "\n".join(parts)[:max_chars]
 
 
+def _extract_heading_priority(filename: str, data: bytes, max_chars: int = 8000) -> str:
+    """
+    For docx: headings first (never truncated) + first paragraph per section (overview lines),
+    then remaining body up to max_chars. Large docs get headings+overviews only to avoid timeouts.
+    For other types: delegate to extract_text_preview.
+    """
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext != "docx":
+        return extract_text_preview(filename, data, max_chars)
+
+    try:
+        from docx import Document
+        buf = io.BytesIO(data)
+        doc = Document(buf)
+        headings, overviews, body = [], [], []
+        in_section = False
+        first_after_heading = False
+        for p in doc.paragraphs:
+            t = p.text.strip()
+            if not t:
+                continue
+            style = p.style.name if p.style else ""
+            if "Heading" in style:
+                headings.append(f"[{style}] {t}")
+                first_after_heading = True
+            elif first_after_heading:
+                # First paragraph after a heading = section overview/summary
+                overviews.append(t)
+                first_after_heading = False
+            else:
+                body.append(t)
+        for table in doc.tables:
+            for row in table.rows:
+                cells = [c.text.strip() for c in row.cells if c.text.strip()]
+                if cells:
+                    body.append("\t".join(cells))
+
+        heading_overview = "\n".join(headings + [""] + overviews)
+        remaining = max(max_chars - len(heading_overview) - 50, 0)
+        body_block = ("\n\n--- ADDITIONAL BODY ---\n" + "\n".join(body)[:remaining]) if remaining > 200 else ""
+        return heading_overview + body_block
+    except Exception:
+        return extract_text_preview(filename, data, max_chars)
+
+
 def semantic_analyze(
     filename: str,
     data: bytes,
     codex_cwd: str | None = None,
-    timeout: int = 45,
+    timeout: int = 90,
+    client_context: str | None = None,
 ) -> dict | None:
     """
     Ask the local Claude Code instance to count distinct named items in a file.
-    Returns dict with entity_type, entity_plural, count, examples, confidence — or None on failure.
+    client_context: plain-language vocabulary the client declared before import.
+    Returns dict with entity_type, entity_plural, count, examples, confidence, notes — or None on failure.
     Falls back gracefully; never raises.
     """
     claude_bin = shutil.which("claude") or os.getenv("CLAUDE_CODE_PATH", "claude")
+    logger.info("[catalyst] semantic_analyze: binary=%s file=%s", claude_bin, filename)
 
-    text_preview = extract_text_preview(filename, data)
+    text_preview = _extract_heading_priority(filename, data)
     if not text_preview.strip():
         return None
 
-    prompt = _SEMANTIC_PROMPT.format(filename=filename, content=text_preview)
+    ctx = client_context.strip() if client_context and client_context.strip() else _CLIENT_CONTEXT_FALLBACK
+    prompt = _SEMANTIC_PROMPT.format(filename=filename, content=text_preview, client_context=ctx)
 
-    # Write prompt to a temp file to avoid shell quoting issues with long content
-    tmp_prompt = None
     try:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
-            f.write(prompt)
-            tmp_prompt = f.name
-
+        # Pipe prompt via stdin — avoids ARG_MAX limits on large prompts
         result = subprocess.run(
-            [claude_bin, "-p", "--dangerously-skip-permissions", prompt],
+            [claude_bin, "-p", "--dangerously-skip-permissions"],
+            input=prompt,
             cwd=codex_cwd or os.getcwd(),
             capture_output=True,
             text=True,
@@ -171,12 +255,18 @@ def semantic_analyze(
         if not isinstance(parsed.get("count"), int):
             return None
 
+        # Support both old format (entity_type) and new (document_type + entity_label)
+        doc_type = parsed.get("document_type", "")
+        entity_type = parsed.get("entity_type") or parsed.get("entity_label") or doc_type.lower() or "records"
+        entity_plural = parsed.get("entity_plural") or entity_type + "s"
+        logger.info("[catalyst] semantic result: %s → %s count=%s", filename, entity_type, parsed.get("count"))
         return {
-            "entity_type": str(parsed.get("entity_type", "documents")),
-            "entity_plural": str(parsed.get("entity_plural", "records")),
+            "entity_type": str(entity_type),
+            "entity_plural": str(entity_plural),
             "count": max(0, int(parsed["count"])),
             "examples": list(parsed.get("examples", []))[:5],
             "confidence": str(parsed.get("confidence", "medium")),
+            "notes": str(parsed.get("notes", "")),
         }
 
     except subprocess.TimeoutExpired:
@@ -185,12 +275,6 @@ def semantic_analyze(
     except Exception as exc:
         logger.warning("[catalyst] semantic_analyze failed for %s: %s", filename, exc)
         return None
-    finally:
-        if tmp_prompt:
-            try:
-                os.unlink(tmp_prompt)
-            except OSError:
-                pass
 
 
 @dataclass
