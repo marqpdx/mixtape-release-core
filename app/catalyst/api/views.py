@@ -460,6 +460,19 @@ class ParseFilesView(APIView):
         # Codex root gives Claude Code the right project context (CLAUDE.md, file structure)
         codex_cwd = str(Path(settings.CATALYST_CODEX_ROOT) / slug) if hasattr(settings, "CATALYST_CODEX_ROOT") else None
 
+        # Client vocabulary from Step 1 pre-import questions
+        general_context = (request.data.get("general_context") or "").strip()
+        entity_expectations = (request.data.get("entity_expectations") or "").strip()
+        client_context: str | None = None
+        if general_context or entity_expectations:
+            parts = []
+            if general_context:
+                parts.append(f"ABOUT THESE FILES:\n{general_context}")
+            if entity_expectations:
+                parts.append(f"ENTITY VOCABULARY (client-defined — these definitions override general assumptions):\n{entity_expectations}")
+            client_context = "\n\n".join(parts)
+            logger.info("[catalyst] client_context set (%d chars)", len(client_context))
+
         _conf_rank = {"high": 2, "medium": 1, "low": 0}
 
         errors = []
@@ -472,7 +485,7 @@ class ParseFilesView(APIView):
                 result = parse_file(f.name, file_bytes)
 
                 # ── Semantic AI analysis via local Claude Code ─────────────
-                ai = semantic_analyze(f.name, file_bytes, codex_cwd=codex_cwd)
+                ai = semantic_analyze(f.name, file_bytes, codex_cwd=codex_cwd, client_context=client_context)
                 if ai and ai.get("count", 0) > 0 and result.registers:
                     # AI gives us the true semantic count for the whole file.
                     # Apply to the primary (first) register; if only one register it's exact.
