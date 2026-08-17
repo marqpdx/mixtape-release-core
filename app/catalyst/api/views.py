@@ -488,9 +488,10 @@ class ParseFilesView(APIView):
             ai = semantic_analyze(name, data, codex_cwd=codex_cwd, client_context=client_context)
             return result, ai
 
-        # Run parse + semantic concurrently — each call is a blocking subprocess
+        # Run parse + semantic concurrently — limit to 2 to avoid subprocess contention
+        # (4 simultaneous claude -p calls caused the heavy Temple Menu to hit the 90s timeout)
         file_results: dict[str, tuple] = {}
-        with ThreadPoolExecutor(max_workers=4) as executor:
+        with ThreadPoolExecutor(max_workers=2) as executor:
             future_to_name = {
                 executor.submit(_process_file, name, data): name
                 for name, data in file_data
