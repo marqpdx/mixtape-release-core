@@ -553,11 +553,34 @@ class ParseFilesView(APIView):
                     "ai_timed_out": ai_timed_out,
                 })
 
-                # Only merge into aggregate when AI succeeded, or file is structured (xlsx/csv).
-                # Raw docx paragraph counts are meaningless for entity totals.
                 ai_ok = ai is not None and ai.get("count", 0) > 0
                 is_structured = result.file_type in ("xlsx", "xls", "csv")
-                if ai_ok or is_structured:
+
+                if ai_ok:
+                    # AI result is the authoritative count for this whole file.
+                    # Use it as ONE merged entry — bypasses multi-sheet xlsx noise.
+                    from catalyst.services.parse_service import slugify
+                    ai_slug = slugify(ai["entity_type"])
+                    ai_notes = f"e.g. {', '.join(ai['examples'][:3])}" if ai.get("examples") else ""
+                    if ai_slug in merged:
+                        merged[ai_slug]["entry_count"] += ai["count"]
+                        if name not in merged[ai_slug]["source_file"]:
+                            merged[ai_slug]["source_file"] += f", {name}"
+                        if ai_notes:
+                            merged[ai_slug]["notes"] += f"; {ai_notes}"
+                    else:
+                        merged[ai_slug] = {
+                            "slug": ai_slug,
+                            "display_name": ai.get("entity_plural", ai["entity_type"]).title(),
+                            "entry_count": ai["count"],
+                            "source_file": name,
+                            "canon_synonym": "Canon",
+                            "notes": ai_notes,
+                            "confidence": ai.get("confidence", "high"),
+                            "columns": [],
+                        }
+                elif is_structured:
+                    # AI didn't run — fall back to raw per-sheet counts for structured files only
                     for r in result.registers:
                         if r.slug in merged:
                             merged[r.slug]["entry_count"] += r.entry_count

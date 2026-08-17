@@ -84,6 +84,15 @@ INSTRUCTIONS:
    - If the file contains something the client did not mention (meeting notes, schedules, dietary
      restrictions): classify it as an unexpected type and note it clearly.
 
+KEY RULE — COUNT ATOMIC ENTITIES, NOT CONTAINERS:
+The client's vocabulary lists entity types in order of importance. Recipes are the primary
+unit of interest. A file that IS a Menu (container of Recipes) or a Menu Meeting (discussion
+of Recipes) should yield a RECIPE count — count the named dishes inside it, not the number
+of menus or meetings. A file with "Wednesday Dinner", "Thursday Lunch" as headings contains
+MEALS (containers), and RECIPES (dishes) inside each meal. Count Recipes — the named individual
+dishes listed under those headings. Never return count=1 for a document that clearly contains
+many distinct items. If unsure whether a line is a recipe name or a heading, count it as a recipe.
+
 3. COUNT the items, following these rules:
    • NEVER count: column headers, True/False values, phone numbers, email addresses, URLs,
      blank cells, numeric IDs, section labels, or row numbers.
