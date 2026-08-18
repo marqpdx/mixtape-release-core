@@ -264,6 +264,7 @@ def run_file_semantic_analysis(self, job_id: str, filename: str) -> None:
                 data,
                 codex_cwd=None,
                 client_context=job.client_context or None,
+                timeout=210,
             )
             ai_result = ai if ai is not None else {"count": 0, "notes": "timed out or skipped"}
         except Exception as exc:
@@ -307,56 +308,57 @@ def finalize_parse_job(self, job_id: str) -> None:
     from catalyst.services.parse_service import slugify
 
     try:
-        job = CatalystParseJob.objects.select_for_update().get(pk=job_id)
+        with transaction.atomic():
+            job = CatalystParseJob.objects.select_for_update().get(pk=job_id)
+
+            if job.status == CatalystParseJob.STATUS_COMPLETE:
+                logger.info("[catalyst-finalize] Job %s already complete — skipping", job_id)
+                return
+
+            # Build merged_registers from AI results
+            files_results: dict = job.phase2_results.get("files", {})
+            merged: dict[str, dict] = {}
+
+            for filename, ai in files_results.items():
+                if not ai or ai.get("count", 0) == 0:
+                    continue
+                ai_slug = slugify(ai.get("entity_type", "records"))
+                ai_notes = f"e.g. {', '.join(ai['examples'][:3])}" if ai.get("examples") else ""
+                if ai_slug in merged:
+                    merged[ai_slug]["entry_count"] += ai["count"]
+                    if filename not in merged[ai_slug]["source_file"]:
+                        merged[ai_slug]["source_file"] += f", {filename}"
+                    if ai_notes:
+                        merged[ai_slug]["notes"] += f"; {ai_notes}"
+                else:
+                    merged[ai_slug] = {
+                        "slug": ai_slug,
+                        "display_name": ai.get("entity_plural", ai.get("entity_type", "records")).title(),
+                        "entry_count": ai["count"],
+                        "source_file": filename,
+                        "canon_synonym": "Canon",
+                        "notes": ai_notes,
+                        "confidence": ai.get("confidence", "medium"),
+                        "columns": [],
+                    }
+
+            p2 = job.phase2_results
+            p2["merged_registers"] = list(merged.values())
+            job.phase2_results = p2
+            job.status = CatalystParseJob.STATUS_COMPLETE
+            job.completed_at = datetime.now(timezone.utc)
+            job.save(update_fields=["phase2_results", "status", "completed_at"])
+
     except CatalystParseJob.DoesNotExist:
         logger.error("[catalyst-finalize] Job %s not found", job_id)
         return
-
-    if job.status == CatalystParseJob.STATUS_COMPLETE:
-        logger.info("[catalyst-finalize] Job %s already complete — skipping", job_id)
-        return
-
-    # Build merged_registers from AI results
-    files_results: dict = job.phase2_results.get("files", {})
-    merged: dict[str, dict] = {}
-    conf_rank = {"high": 2, "medium": 1, "low": 0}
-
-    for filename, ai in files_results.items():
-        if not ai or ai.get("count", 0) == 0:
-            continue
-        ai_slug = slugify(ai.get("entity_type", "records"))
-        ai_notes = f"e.g. {', '.join(ai['examples'][:3])}" if ai.get("examples") else ""
-        if ai_slug in merged:
-            merged[ai_slug]["entry_count"] += ai["count"]
-            if filename not in merged[ai_slug]["source_file"]:
-                merged[ai_slug]["source_file"] += f", {filename}"
-            if ai_notes:
-                merged[ai_slug]["notes"] += f"; {ai_notes}"
-        else:
-            merged[ai_slug] = {
-                "slug": ai_slug,
-                "display_name": ai.get("entity_plural", ai.get("entity_type", "records")).title(),
-                "entry_count": ai["count"],
-                "source_file": filename,
-                "canon_synonym": "Canon",
-                "notes": ai_notes,
-                "confidence": ai.get("confidence", "medium"),
-                "columns": [],
-            }
-
-    p2 = job.phase2_results
-    p2["merged_registers"] = list(merged.values())
-    job.phase2_results = p2
-    job.status = CatalystParseJob.STATUS_COMPLETE
-    job.completed_at = datetime.now(timezone.utc)
-    job.save(update_fields=["phase2_results", "status", "completed_at"])
 
     logger.info(
         "[catalyst-finalize] Job %s complete — %d registers merged",
         job_id, len(merged),
     )
 
-    # Send email notification
+    # Send email notification (outside transaction — network call)
     _send_parse_complete_email(job)
 
 

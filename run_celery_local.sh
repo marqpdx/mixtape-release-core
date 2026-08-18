@@ -49,11 +49,18 @@ export OMP_NUM_THREADS=4
 # --- queue naming (your new shared env) ---
 export SHARED_RABBIT_CHAT_QUEUE="${SHARED_RABBIT_CHAT_QUEUE:-mixtape_shared_rabbit_chat_queue_stage}"
 
+# --- additional queues consumed by this worker ---
+# push: Celery-only tasks that must not be consumed by Uvicorn/Livewire.
+#   Includes: email dispatch, push notifications, asset upload, Catalyst async parse jobs.
+#   Without this, run_file_semantic_analysis and finalize_parse_job queue but never execute locally.
+LOCAL_EXTRA_QUEUES="${LOCAL_EXTRA_QUEUES:-push}"
+ALL_QUEUES="${SHARED_RABBIT_CHAT_QUEUE},${LOCAL_EXTRA_QUEUES}"
+
 # --- show config snapshot ---
 echo "📁 APP_ROOT:               $APP_ROOT"
 echo "⚙️  DJANGO_SETTINGS_MODULE: $DJANGO_SETTINGS_MODULE"
 echo "🧩 PYTHONPATH:             $PYTHONPATH"
-echo "📬 Queue (consume):        $SHARED_RABBIT_CHAT_QUEUE"
+echo "📬 Queues (consume):       $ALL_QUEUES"
 echo "🐰 Broker:                 ${CELERY_BROKER_URL:-<not set>}"
 
 # --- worker tuning (local overrides) ---
@@ -70,7 +77,7 @@ exec celery -A mixtape.celery_app worker \
   --concurrency="$CELERY_CONCURRENCY" \
   --prefetch-multiplier="$CELERY_PREFETCH_MULTIPLIER" \
   -P "$CELERY_POOL" \
-  -Q "$SHARED_RABBIT_CHAT_QUEUE" \
+  -Q "$ALL_QUEUES" \
   -n "$CELERY_NODE_NAME"
 
 
