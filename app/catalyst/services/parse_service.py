@@ -785,14 +785,15 @@ def _parse_text(filename: str, base: str, ext: str, data: BinaryIO) -> ParsedFil
 # ── Vocabulary alignment helpers ───────────────────────────────────────────────
 
 _CATEGORY_KEYWORDS: dict[str, list[str]] = {
-    "recipes": ["recipe", "menu", "meal", "dish", "breakfast", "lunch", "dinner",
-                "sauce", "cook", "food", "ingredient", "prep"],
-    "partners": ["purveyor", "vendor", "supplier", "partner", "fundrais", "outreach",
-                 "grant", "sponsor", "donation", "confirmed"],
-    "people":   ["people", "person", "staff", "volunteer", "crew", "team", "member",
-                 "contact", "worker", "role"],
+    "recipes":     ["recipe", "menu", "meal", "dish", "breakfast", "lunch", "dinner",
+                    "sauce", "cook", "food", "prep"],
+    "ingredients": ["ingredient", "pantry", "stock", "inventory"],
+    "partners":    ["purveyor", "vendor", "supplier", "partner", "fundrais", "outreach",
+                    "grant", "sponsor", "donation", "confirmed"],
+    "people":      ["people", "person", "staff", "volunteer", "crew", "team", "member",
+                    "contact", "worker", "role"],
     "meeting_notes": ["meeting", "minutes", "notes", "agenda", "action", "carried"],
-    "tasks":    ["task", "checklist", "todo", "shift", "schedule", "prep"],
+    "tasks":       ["task", "checklist", "todo", "shift", "schedule"],
 }
 
 
@@ -812,18 +813,96 @@ def _extract_declared_types(expectations_text: str) -> list[str]:
         line = line.strip()
         if not line:
             continue
-        name = re.split(r"[:\-–]", line)[0].strip().lower()
+        name = re.split(r"[:\-–,]", line)[0].strip().lower()
         if name and len(name) < 40:
             types.append(name)
     return types
 
 
-def _declared_to_category(decl_name: str) -> str | None:
-    """Map a declared entity name to an internal category slug."""
-    for cat, keywords in _CATEGORY_KEYWORDS.items():
-        if any(kw in decl_name or decl_name in kw for kw in keywords):
-            return cat
-    return None
+# Common synonym expansions: if a client declares word X, also match these.
+# The client's word is always the displayed label — these are search aids only.
+_VOCAB_SYNONYMS: dict[str, list[str]] = {
+    "recipe":      ["menu", "meal", "dish", "food", "cook", "prep"],
+    "meal":        ["recipe", "menu", "dish", "food", "breakfast", "lunch", "dinner"],
+    "menu":        ["recipe", "meal", "dish", "food"],
+    "ingredient":  ["pantry", "stock", "inventory", "supply"],
+    "purveyor":    ["vendor", "supplier", "partner", "fundrais", "outreach", "sponsor", "donation", "confirmed"],
+    "vendor":      ["supplier", "purveyor", "partner", "outreach"],
+    "supplier":    ["vendor", "purveyor", "partner"],
+    "partner":     ["purveyor", "vendor", "supplier", "sponsor", "donor", "confirmed"],
+    "staff":       ["crew", "team", "volunteer", "worker", "people", "person", "member", "contact", "role"],
+    "people":      ["staff", "crew", "team", "volunteer", "member", "worker", "contact", "person", "role"],
+    "person":      ["staff", "people", "crew", "team", "member", "worker"],
+    "volunteer":   ["staff", "people", "crew", "member"],
+    "task":        ["checklist", "todo", "action", "shift", "schedule", "prep"],
+    "schedule":    ["task", "shift", "roster", "timetable"],
+    "note":        ["meeting", "minutes", "memo", "agenda", "summary"],
+    "meeting":     ["note", "minutes", "agenda", "action", "carried"],
+}
+
+
+def _word_variants(word: str) -> list[str]:
+    """Return word + common inflected forms for substring matching."""
+    word = word.lower().strip()
+    variants = {word}
+    # singular from plural: recipes→recipe, ingredients→ingredient
+    if word.endswith("ies") and len(word) > 4:
+        variants.add(word[:-3] + "y")
+    if word.endswith("es") and len(word) > 4:
+        variants.add(word[:-2])
+    if word.endswith("s") and len(word) > 4 and not word.endswith("ss"):
+        variants.add(word[:-1])
+    return list(variants)
+
+
+def _declared_matches_register(declared: str, reg: dict) -> bool:
+    """Return True if this register plausibly contains the declared entity type."""
+    text = " ".join([
+        reg.get("slug", ""),
+        reg.get("display_name", ""),
+        reg.get("source_file", ""),   # file name is a strong signal ("Menu Meeting.docx" → menu)
+        " ".join(reg.get("columns", [])),
+    ]).lower()
+
+    candidates = _word_variants(declared)
+    # Direct substring match
+    for c in candidates:
+        if c in text:
+            return True
+    # Synonym match
+    for c in candidates:
+        for syn in _VOCAB_SYNONYMS.get(c, []):
+            if syn in text:
+                return True
+    return False
+
+
+def _infer_child_suggestions(aligned: list[dict], declared_set: set[str]) -> list[dict]:
+    """
+    Look at column names in aligned registers and flag columns that look like
+    potential child entity types not already in declared_set.
+    Returns a list of {parent: str, child_candidate: str, source_register: str}.
+    """
+    suggestions = []
+    seen: set[str] = set()
+    for reg in aligned:
+        for col in reg.get("columns", []):
+            col_lower = col.strip().lower()
+            # Skip trivial/filter columns
+            if len(col_lower) < 4 or col_lower in {"name", "date", "type", "id", "note", "notes", "status", "total", "count"}:
+                continue
+            # Already declared — not a suggestion
+            if any(col_lower in _word_variants(d) or d in _word_variants(col_lower) for d in declared_set):
+                continue
+            key = (reg.get("matched_declared", ""), col_lower)
+            if key not in seen:
+                seen.add(key)
+                suggestions.append({
+                    "parent": reg.get("matched_declared", reg.get("display_name", "")),
+                    "child_candidate": col,
+                    "source_register": reg.get("display_name", ""),
+                })
+    return suggestions
 
 
 def align_vocabulary(
@@ -831,43 +910,48 @@ def align_vocabulary(
     found_registers: list[dict],
 ) -> dict:
     """
-    Given client-declared vocabulary text and structural parse results,
-    return {aligned, unexpected, absent, declared_types}.
+    Match found registers against the client's declared types directly.
+    The declared types (from their intake form) ARE the target list —
+    category keywords are a fallback only when no declarations exist.
 
-    aligned   — registers whose category matches a declared type
-    unexpected — registers not matching any declared type
-    absent    — declared types with no matching register found
+    Returns {aligned, unexpected, absent, declared_types, child_suggestions}.
     """
     declared_types = _extract_declared_types(entity_expectations)
 
-    # Build declared_type → category mapping
-    declared_cat: dict[str, str] = {}  # category → declared label
-    for decl in declared_types:
-        cat = _declared_to_category(decl)
-        if cat and cat not in declared_cat:
-            declared_cat[cat] = decl
+    if not declared_types:
+        # No vocabulary declared — treat all registers as aligned, no absent
+        return {
+            "aligned": [dict(reg, matched_declared="") for reg in found_registers],
+            "unexpected": [],
+            "absent": [],
+            "declared_types": [],
+            "child_suggestions": [],
+        }
 
+    declared_set = set(declared_types)
     aligned: list[dict] = []
     unexpected: list[dict] = []
-    found_cats: set[str] = set()
+    matched_declared_keys: set[str] = set()
 
     for reg in found_registers:
-        cat = classify_register_category(
-            reg.get("slug", ""),
-            reg.get("display_name", ""),
-            reg.get("columns", []),
-        )
-        found_cats.add(cat)
-        if cat in declared_cat:
-            aligned.append({**reg, "matched_declared": declared_cat[cat]})
+        matched = None
+        for decl in declared_types:
+            if _declared_matches_register(decl, reg):
+                matched = decl
+                matched_declared_keys.add(decl.lower())
+                break
+        if matched:
+            aligned.append({**reg, "matched_declared": matched})
         else:
             unexpected.append(reg)
 
-    absent = [label for cat, label in declared_cat.items() if cat not in found_cats]
+    absent = [d for d in declared_types if d.lower() not in matched_declared_keys]
+    child_suggestions = _infer_child_suggestions(aligned, declared_set)
 
     return {
         "aligned": aligned,
         "unexpected": unexpected,
         "absent": absent,
         "declared_types": declared_types,
+        "child_suggestions": child_suggestions,
     }
