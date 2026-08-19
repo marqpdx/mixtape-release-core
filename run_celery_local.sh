@@ -51,10 +51,8 @@ export SHARED_RABBIT_CHAT_QUEUE="${SHARED_RABBIT_CHAT_QUEUE:-mixtape_shared_rabb
 
 # --- additional queues consumed by this worker ---
 # push: Celery-only tasks (email dispatch, push notifications, asset upload, short Catalyst tasks).
-# catalyst: dedicated queue for long-running claude -p subprocess jobs (3-4 min/file).
-#   Isolated so parse jobs don't starve push notifications or email tasks.
-#   Without both, async parse pipeline tasks queue but never execute locally.
-LOCAL_EXTRA_QUEUES="${LOCAL_EXTRA_QUEUES:-push,catalyst}"
+# catalyst: long-running claude -p subprocess jobs — run via run_celery_catalyst_local.sh instead.
+LOCAL_EXTRA_QUEUES="${LOCAL_EXTRA_QUEUES:-push}"
 ALL_QUEUES="${SHARED_RABBIT_CHAT_QUEUE},${LOCAL_EXTRA_QUEUES}"
 
 # --- show config snapshot ---
