@@ -74,6 +74,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 # Load environment variables
 load_dotenv(BASE_DIR / ".env")
 load_dotenv(BASE_DIR / ".env.local", override=True)
+os.environ.setdefault("OCR_SPIKE_ENABLED", "1")
 
 # Import base settings
 from .base import *

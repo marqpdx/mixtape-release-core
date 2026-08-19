@@ -60,6 +60,14 @@ INKWELL_BASE_URL = os.getenv(
 ).rstrip("/")
 INKWELL_SERVICE_JWT_SECRET = os.getenv("INKWELL_SERVICE_JWT_SECRET")
 INKWELL_SERVICE_JWT_AUD    = os.getenv("INKWELL_SERVICE_JWT_AUD", "django-inkwell")
+INKWELL_OCR_TIMEOUT_SECONDS = int(os.getenv("INKWELL_OCR_TIMEOUT_SECONDS", "240"))
+OCR_SPIKE_ENABLED = env.bool("OCR_SPIKE_ENABLED", default=False)
+OCR_SPIKE_LOCAL_ENGINES = os.getenv("OCR_SPIKE_LOCAL_ENGINES", "tesseract,paddleocr")
+OCR_SPIKE_PDF_RENDERER = os.getenv("OCR_SPIKE_PDF_RENDERER", "pdftoppm")
+OCR_SPIKE_PDFTOPPM_CMD = os.getenv("OCR_SPIKE_PDFTOPPM_CMD", "pdftoppm")
+OCR_SPIKE_PDF_DPI = int(os.getenv("OCR_SPIKE_PDF_DPI", "220"))
+OCR_SPIKE_MAX_PDF_PAGES = int(os.getenv("OCR_SPIKE_MAX_PDF_PAGES", "20"))
+OCR_SPIKE_PDF_RENDER_TIMEOUT_SECONDS = int(os.getenv("OCR_SPIKE_PDF_RENDER_TIMEOUT_SECONDS", "180"))
 
 # Application definition
 
@@ -149,6 +157,9 @@ INSTALLED_APPS = [
     "media_capture",   # MediaCapture — screencast & media ingestion pipeline (Bridge Phase D)
     "catalyst",        # Catalyst — per-tenant Codex provisioning and activation
 ]
+
+if OCR_SPIKE_ENABLED:
+    INSTALLED_APPS.append("ocr_spike")  # OCR Spike — isolated local-first recognition pilot
 
 INSTALLED_APPS += ["rest_framework_simplejwt.token_blacklist"]
 

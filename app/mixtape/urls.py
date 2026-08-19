@@ -1,5 +1,6 @@
 # app/mixtape/urls.py
 
+from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
 from rest_framework import routers
@@ -152,6 +153,9 @@ urlpatterns = [
     # DRF Router endpoints
     path("api/", include(router.urls)),
 ]
+
+if getattr(settings, "OCR_SPIKE_ENABLED", False):
+    urlpatterns.append(path("api/spikes/ocr/", include("ocr_spike.api.urls")))
 
 # ============================================================================
 # DEFERRED ENDPOINTS (Add back in later phases):

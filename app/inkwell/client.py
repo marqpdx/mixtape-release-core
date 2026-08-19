@@ -267,6 +267,49 @@ def service_generate(
     return resp.json()
 
 
+def service_recognize_ocr_page(
+    *,
+    filename: str,
+    content_type: str,
+    file_base64: str,
+    page_number: int,
+    provider: str,
+    engine: str | None = None,
+) -> dict:
+    """
+    POST /service/recognition/ocr — OCR spike recognition adapter.
+
+    The Core spike app owns state and curation; Inkwell owns recognition runtime
+    and normalized OCR-like response shape.
+    """
+    payload = {
+        "filename": filename,
+        "content_type": content_type,
+        "file_base64": file_base64,
+        "page_number": page_number,
+        "provider": provider,
+    }
+    if engine:
+        payload["engine"] = engine
+    try:
+        resp = requests.post(
+            f"{_base_url()}/service/recognition/ocr",
+            json=payload,
+            headers={"X-Service-Token": _mint_inkwell_service_token()},
+            timeout=int(getattr(settings, "INKWELL_OCR_TIMEOUT_SECONDS", 240)),
+        )
+    except requests.exceptions.ReadTimeout:
+        raise InkwellUnavailableError("Inkwell /service/recognition/ocr timed out")
+    except requests.RequestException as e:
+        raise InkwellUnavailableError(f"Inkwell unreachable: {e}")
+
+    if resp.status_code != 200:
+        logger.error("Inkwell /service/recognition/ocr error %s: %s", resp.status_code, resp.text[:500])
+        raise InkwellUnavailableError(f"Inkwell /service/recognition/ocr returned {resp.status_code}")
+
+    return resp.json()
+
+
 def synthesize(
     *,
     corpus: list,
