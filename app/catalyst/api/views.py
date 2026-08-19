@@ -354,7 +354,7 @@ class StartAnalysisView(APIView):
             filename = file_entry["filename"]
             run_file_semantic_analysis.apply_async(
                 args=[str(job.id), filename],
-                queue="push",
+                queue="catalyst",
             )
             files_queued += 1
 

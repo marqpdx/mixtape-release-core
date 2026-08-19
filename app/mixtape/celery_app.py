@@ -49,6 +49,14 @@ app.conf.task_queues = (
     # ---- Compute-heavy: audio transcription (solo pool, torch-safe) ----
     Queue("transcription", routing_key="transcription"),
 
+    # ---- Catalyst: long-running Claude subprocess jobs (isolated from push) ----
+    # run_file_semantic_analysis blocks a worker for 3-4 min per file (claude -p subprocess).
+    # A dedicated queue prevents parse jobs from starving push notifications or email tasks.
+    Queue("catalyst", routing_key="catalyst"),
+
+    # ---- OCR spike: document page rendering + local OCR engine calls ----
+    Queue("ocr", routing_key="ocr"),
+
     # ---- External integrations ----
     Queue("commons", routing_key="commons"),       # URL extraction via Inkwell
     Queue("synopsis_results", routing_key="synopsis_results"),  # FastAPI → Django synopsis
@@ -69,6 +77,7 @@ app.conf.task_queues = (
 #   polling  → beat-scheduled, low-frequency maintenance tasks
 #   push     → Celery-only; email, push notifications, anything Uvicorn must not touch
 #   transcription → solo pool, torch-safe (audio only)
+#   ocr      → OCR spike document rendering and local OCR engine calls
 #   commons  → external integrations (Inkwell URL extraction)
 #   default_q → Livewire real-time events only (activity fanout, socket notifications)
 app.conf.task_routes = {
@@ -297,19 +306,26 @@ app.conf.task_routes = {
         "queue": "push", "routing_key": "push"
     },
 
-    # --- Catalyst: activation email ---
+    # --- Catalyst: activation + provisioning (short, stay on push) ---
     "catalyst.tasks.send_catalyst_activation_email": {
         "queue": "push", "routing_key": "push"
     },
     "catalyst.tasks.provision_catalyst_for_group": {
         "queue": "push", "routing_key": "push"
     },
-    # --- Catalyst: async parse pipeline ---
+    # --- Catalyst: async parse pipeline (dedicated queue — claude -p subprocesses block 3-4 min/file) ---
     "catalyst.tasks.run_file_semantic_analysis": {
-        "queue": "push", "routing_key": "push"
+        "queue": "catalyst", "routing_key": "catalyst"
     },
     "catalyst.tasks.finalize_parse_job": {
-        "queue": "push", "routing_key": "push"
+        "queue": "catalyst", "routing_key": "catalyst"
+    },
+    # --- OCR Spike: isolated evaluation workflow ---
+    "ocr_spike.tasks.run_local_ocr_for_artifact": {
+        "queue": "ocr", "routing_key": "ocr"
+    },
+    "ocr_spike.tasks.run_cloud_ocr_for_page": {
+        "queue": "ocr", "routing_key": "ocr"
     },
 }
 

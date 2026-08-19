@@ -316,6 +316,112 @@ def semantic_analyze(
         return None
 
 
+_EXTRACT_PROMPT = """\
+You are a data extraction assistant. A file has been provided below.
+
+File: {filename}
+Entity type to extract: {entity_type} ({entity_plural})
+
+{client_context_block}
+
+Your task: extract every distinct {entity_type} you can identify from this content.
+
+Return a JSON array (not an object) where each element represents one {entity_type}.
+Each element MUST have a "name" key. Add any other fields that are naturally present
+in the content (e.g. ingredients, description, role, contact, amount, category).
+Do not invent fields that aren't in the source. Do not add commentary outside the JSON.
+
+Example shape (fields will vary by content):
+[
+  {{"name": "Example Item", "field1": "value", "field2": "value"}},
+  ...
+]
+
+File content:
+{content}
+"""
+
+_EXTRACT_CONTEXT_BLOCK = "Client context: {client_context}"
+
+
+def extract_entities(
+    filename: str,
+    data: bytes,
+    entity_type: str,
+    entity_plural: str,
+    codex_cwd: str | None = None,
+    client_context: str | None = None,
+    timeout: int = 240,
+) -> list[dict]:
+    """
+    Ask Claude to extract every named entity of entity_type from the file.
+    Returns a list of dicts, each with at least a 'name' key.
+    Returns [] on failure or timeout.
+    """
+    claude_bin = shutil.which("claude") or os.getenv("CLAUDE_CODE_PATH", "claude")
+    logger.info("[catalyst] extract_entities: %s → %s from %s", entity_type, entity_plural, filename)
+
+    if len(data) > 500_000:
+        logger.warning("[catalyst] %s too large for extraction (%dKB) — skipping", filename, len(data) // 1024)
+        return []
+
+    text_preview = _extract_heading_priority(filename, data, max_chars=10_000)
+    if not text_preview.strip():
+        return []
+
+    ctx_block = _EXTRACT_CONTEXT_BLOCK.format(client_context=client_context.strip()) if client_context else ""
+    prompt = _EXTRACT_PROMPT.format(
+        filename=filename,
+        entity_type=entity_type,
+        entity_plural=entity_plural,
+        client_context_block=ctx_block,
+        content=text_preview,
+    )
+
+    try:
+        result = subprocess.run(
+            [claude_bin, "-p", "--dangerously-skip-permissions"],
+            input=prompt,
+            cwd=codex_cwd or os.getcwd(),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+
+        if result.returncode != 0:
+            logger.warning("[catalyst] extract_entities claude -p error for %s: %s", filename, result.stderr[:200])
+            return []
+
+        raw = result.stdout.strip()
+        if not raw:
+            return []
+
+        # Try direct parse, then find first JSON array
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            m = re.search(r'\[.*\]', raw, re.DOTALL)
+            if not m:
+                logger.warning("[catalyst] no JSON array in extract response for %s: %r", filename, raw[:300])
+                return []
+            parsed = json.loads(m.group())
+
+        if not isinstance(parsed, list):
+            logger.warning("[catalyst] extract_entities: expected list, got %s for %s", type(parsed).__name__, filename)
+            return []
+
+        entities = [e for e in parsed if isinstance(e, dict) and e.get("name")]
+        logger.info("[catalyst] extract_entities: %d %s extracted from %s", len(entities), entity_plural, filename)
+        return entities
+
+    except subprocess.TimeoutExpired:
+        logger.warning("[catalyst] extract_entities timed out for %s", filename)
+        return []
+    except Exception as exc:
+        logger.warning("[catalyst] extract_entities failed for %s: %s", filename, exc)
+        return []
+
+
 @dataclass
 class ProposedRegister:
     slug: str
