@@ -289,7 +289,7 @@ def run_file_semantic_analysis(self, job_id: str, filename: str) -> None:
     )
 
     if files_done >= files_total:
-        finalize_parse_job.apply_async(args=[job_id], queue="push")
+        finalize_parse_job.apply_async(args=[job_id], queue="catalyst")
 
 
 @shared_task(

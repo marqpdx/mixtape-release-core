@@ -50,10 +50,11 @@ export OMP_NUM_THREADS=4
 export SHARED_RABBIT_CHAT_QUEUE="${SHARED_RABBIT_CHAT_QUEUE:-mixtape_shared_rabbit_chat_queue_stage}"
 
 # --- additional queues consumed by this worker ---
-# push: Celery-only tasks that must not be consumed by Uvicorn/Livewire.
-#   Includes: email dispatch, push notifications, asset upload, Catalyst async parse jobs.
-#   Without this, run_file_semantic_analysis and finalize_parse_job queue but never execute locally.
-LOCAL_EXTRA_QUEUES="${LOCAL_EXTRA_QUEUES:-push}"
+# push: Celery-only tasks (email dispatch, push notifications, asset upload, short Catalyst tasks).
+# catalyst: dedicated queue for long-running claude -p subprocess jobs (3-4 min/file).
+#   Isolated so parse jobs don't starve push notifications or email tasks.
+#   Without both, async parse pipeline tasks queue but never execute locally.
+LOCAL_EXTRA_QUEUES="${LOCAL_EXTRA_QUEUES:-push,catalyst}"
 ALL_QUEUES="${SHARED_RABBIT_CHAT_QUEUE},${LOCAL_EXTRA_QUEUES}"
 
 # --- show config snapshot ---
