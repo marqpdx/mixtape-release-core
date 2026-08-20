@@ -17,8 +17,10 @@ from ocr_spike.models import (
     OcrSpikeFeedbackNote,
     OcrSpikePage,
     OcrSpikeRecognitionAttempt,
+    OcrSpikeShapingAttempt,
 )
-from ocr_spike.tasks import run_cloud_ocr_for_page, run_local_ocr_for_artifact
+from ocr_spike.shapes import RECIPE_SHAPE_ID, RECIPE_SHAPE_VERSION, list_available_shapes
+from ocr_spike.tasks import run_cloud_ocr_for_page, run_local_ocr_for_artifact, run_recipe_shape_for_page
 from mixtape.celery_app import app as celery_app
 
 from .serializers import (
@@ -26,6 +28,7 @@ from .serializers import (
     OcrSpikeEvaluationSerializer,
     OcrSpikeEvaluationWriteSerializer,
     OcrSpikeFeedbackWriteSerializer,
+    OcrSpikeShapeRunSerializer,
     OcrSpikePageSerializer,
 )
 
@@ -104,8 +107,15 @@ class OcrSpikeArtifactPagesView(APIView):
         artifact = _get_owned_artifact(request.user, artifact_id)
         if not artifact:
             return Response({"detail": "Not found."}, status=404)
-        pages = artifact.pages.prefetch_related("attempts").select_related("evaluation").all()
+        pages = artifact.pages.prefetch_related("attempts", "shaping_attempts").select_related("evaluation").all()
         return Response({"pages": OcrSpikePageSerializer(pages, many=True, context={"request": request}).data})
+
+
+class OcrSpikeShapesView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response({"shapes": list_available_shapes()})
 
 
 class OcrSpikePageFileView(APIView):
@@ -181,6 +191,59 @@ class OcrSpikePageEvaluationView(APIView):
             artifact.save(update_fields=["status", "updated_at"])
 
         return Response(OcrSpikeEvaluationSerializer(evaluation).data)
+
+
+class OcrSpikePageRecipeShapeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, page_id):
+        page = _get_owned_page(request.user, page_id)
+        if not page:
+            return Response({"detail": "Not found."}, status=404)
+
+        serializer = OcrSpikeShapeRunSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        shape_id = data.get("shape_id") or RECIPE_SHAPE_ID
+        if shape_id != RECIPE_SHAPE_ID:
+            return Response({"detail": f"Unsupported shape_id for this spike: {shape_id}"}, status=400)
+
+        selected_attempt_id = data.get("selected_attempt_id")
+        if selected_attempt_id:
+            exists = OcrSpikeRecognitionAttempt.objects.filter(id=selected_attempt_id, page=page).exists()
+            if not exists:
+                return Response({"detail": "selected_attempt_id is not valid for this page."}, status=400)
+
+        shaping_attempt = OcrSpikeShapingAttempt.objects.create(
+            page=page,
+            selected_attempt=OcrSpikeRecognitionAttempt.objects.filter(id=selected_attempt_id, page=page).first() if selected_attempt_id else None,
+            shape_id=RECIPE_SHAPE_ID,
+            shape_version=RECIPE_SHAPE_VERSION,
+            input_text=data.get("reviewed_text", ""),
+            status=OcrSpikeShapingAttempt.Status.PROCESSING,
+        )
+        async_result = run_recipe_shape_for_page.apply_async(
+            args=[
+                str(page.id),
+                str(selected_attempt_id) if selected_attempt_id else None,
+                data.get("reviewed_text", ""),
+                str(shaping_attempt.id),
+            ],
+            queue="ocr",
+        )
+        logger.warning(
+            "[ocr_spike] queued recipe shaping page_id=%s task_id=%s broker=%s queue=ocr",
+            page.id,
+            async_result.id,
+            celery_app.conf.broker_url,
+        )
+        return Response({
+            "page_id": str(page.id),
+            "shaping_attempt_id": str(shaping_attempt.id),
+            "shape_id": shape_id,
+            "status": "processing",
+            "queued_task_id": async_result.id,
+        }, status=202)
 
 
 class OcrSpikeFeedbackView(APIView):

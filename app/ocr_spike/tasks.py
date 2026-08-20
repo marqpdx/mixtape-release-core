@@ -128,3 +128,98 @@ def run_cloud_ocr_for_page(self, page_id: str) -> dict:
 
     _save_attempt_result(attempt, result)
     return {"status": "success", "page_id": page_id, "attempt_id": str(attempt.id)}
+
+
+@shared_task(name="ocr_spike.tasks.run_recipe_shape_for_page", bind=True, max_retries=1, default_retry_delay=20)
+def run_recipe_shape_for_page(
+    self,
+    page_id: str,
+    selected_attempt_id: str | None = None,
+    reviewed_text: str = "",
+    shaping_attempt_id: str | None = None,
+) -> dict:
+    from .models import OcrSpikePage, OcrSpikeRecognitionAttempt, OcrSpikeShapingAttempt
+    from .services import shape_recipe_with_inkwell
+    from .shapes import RECIPE_SHAPE_ID, RECIPE_SHAPE_VERSION
+
+    try:
+        page = OcrSpikePage.objects.select_related("artifact").get(pk=page_id)
+    except OcrSpikePage.DoesNotExist:
+        logger.error("[ocr_spike] page %s not found for recipe shaping", page_id)
+        return {"status": "error", "error": "page_not_found"}
+
+    selected_attempt = None
+    if selected_attempt_id:
+        selected_attempt = OcrSpikeRecognitionAttempt.objects.filter(id=selected_attempt_id, page=page).first()
+
+    attempt = None
+    if shaping_attempt_id:
+        attempt = OcrSpikeShapingAttempt.objects.filter(id=shaping_attempt_id, page=page).first()
+
+    input_text = (reviewed_text or "").strip() or (attempt.input_text.strip() if attempt else "")
+    if not input_text:
+        try:
+            input_text = page.evaluation.final_text.strip()
+        except OcrSpikePage.evaluation.RelatedObjectDoesNotExist:
+            input_text = ""
+        if not input_text and selected_attempt:
+            input_text = selected_attempt.raw_text.strip()
+        if not input_text:
+            latest_attempt = page.attempts.filter(status=OcrSpikeRecognitionAttempt.Status.COMPLETE).first()
+            selected_attempt = selected_attempt or latest_attempt
+            input_text = latest_attempt.raw_text.strip() if latest_attempt else ""
+
+    if not attempt:
+        attempt = OcrSpikeShapingAttempt.objects.create(
+            page=page,
+            selected_attempt=selected_attempt,
+            shape_id=RECIPE_SHAPE_ID,
+            shape_version=RECIPE_SHAPE_VERSION,
+            input_text=input_text,
+            status=OcrSpikeShapingAttempt.Status.PROCESSING,
+        )
+    else:
+        attempt.selected_attempt = selected_attempt
+        attempt.input_text = input_text
+        attempt.status = OcrSpikeShapingAttempt.Status.PROCESSING
+        attempt.error_message = ""
+        attempt.save(update_fields=["selected_attempt", "input_text", "status", "error_message", "updated_at"])
+
+    if not input_text:
+        attempt.status = OcrSpikeShapingAttempt.Status.FAILED
+        attempt.error_message = "No reviewed text was available to shape."
+        attempt.save(update_fields=["status", "error_message", "updated_at"])
+        return {"status": "error", "error": "input_text_required", "attempt_id": str(attempt.id)}
+
+    try:
+        result = shape_recipe_with_inkwell(text=input_text, page=page, selected_attempt=selected_attempt)
+    except InkwellUnavailableError as exc:
+        attempt.status = OcrSpikeShapingAttempt.Status.FAILED
+        attempt.error_message = str(exc)
+        attempt.save(update_fields=["status", "error_message", "updated_at"])
+        return {"status": "error", "error": str(exc), "attempt_id": str(attempt.id)}
+    except Exception as exc:
+        attempt.status = OcrSpikeShapingAttempt.Status.FAILED
+        attempt.error_message = str(exc)
+        attempt.save(update_fields=["status", "error_message", "updated_at"])
+        logger.exception("[ocr_spike] recipe shaping failed for page %s", page_id)
+        raise
+
+    attempt.model_name = result["model_name"]
+    attempt.output_json = result["output_json"]
+    attempt.output_markdown = result["output_markdown"]
+    attempt.validation_errors = result["validation_errors"]
+    attempt.processing_time_ms = result["processing_time_ms"]
+    attempt.status = OcrSpikeShapingAttempt.Status.COMPLETE if not result["validation_errors"] else OcrSpikeShapingAttempt.Status.FAILED
+    attempt.error_message = "; ".join(result["validation_errors"])
+    attempt.save(update_fields=[
+        "model_name",
+        "output_json",
+        "output_markdown",
+        "validation_errors",
+        "processing_time_ms",
+        "status",
+        "error_message",
+        "updated_at",
+    ])
+    return {"status": attempt.status, "page_id": page_id, "attempt_id": str(attempt.id)}

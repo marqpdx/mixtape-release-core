@@ -112,6 +112,41 @@ class OcrSpikeRecognitionAttempt(BaseModel):
         ordering = ["-created_at"]
 
 
+class OcrSpikeShapingAttempt(BaseModel):
+    class Status(models.TextChoices):
+        PROCESSING = "processing", "Processing"
+        COMPLETE = "complete", "Complete"
+        FAILED = "failed", "Failed"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    page = models.ForeignKey(OcrSpikePage, on_delete=models.CASCADE, related_name="shaping_attempts")
+    selected_attempt = models.ForeignKey(
+        OcrSpikeRecognitionAttempt,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="shaping_attempts",
+    )
+    shape_id = models.CharField(max_length=120)
+    shape_version = models.CharField(max_length=32)
+    model_name = models.CharField(max_length=160, blank=True)
+    input_text = models.TextField(blank=True)
+    output_json = models.JSONField(default=dict, blank=True)
+    output_markdown = models.TextField(blank=True)
+    validation_errors = models.JSONField(default=list, blank=True)
+    processing_time_ms = models.PositiveIntegerField(null=True, blank=True)
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PROCESSING,
+    )
+    error_message = models.TextField(blank=True)
+
+    class Meta:
+        db_table = "ocr_spike_shaping_attempt"
+        ordering = ["-created_at"]
+
+
 class OcrSpikeEvaluation(BaseModel):
     class Outcome(models.TextChoices):
         ACCEPTED_LOCAL = "accepted_local", "Accepted local"

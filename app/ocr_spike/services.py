@@ -6,6 +6,7 @@ import mimetypes
 import shutil
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -13,7 +14,14 @@ from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 
-from inkwell.client import InkwellUnavailableError, service_recognize_ocr_page
+from inkwell.client import InkwellUnavailableError, service_generate, service_recognize_ocr_page
+from .shapes import (
+    RECIPE_SHAPE_ID,
+    generation_schema_for,
+    load_shape,
+    render_recipe_markdown,
+    validate_recipe_shape,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +69,40 @@ def recognize_page_with_inkwell(page, provider: str, engine: str | None = None) 
     except Exception as exc:
         logger.exception("[ocr_spike] unexpected Inkwell recognition error")
         raise InkwellUnavailableError(str(exc)) from exc
+
+
+def shape_recipe_with_inkwell(*, text: str, page, selected_attempt=None) -> dict:
+    shape = load_shape(RECIPE_SHAPE_ID)
+    prompt = _recipe_shape_prompt(text=text, shape=shape, page=page)
+    started = time.perf_counter()
+    result = service_generate(
+        system_prompt=(
+            "You shape reviewed OCR text into a declared knowledge shape. "
+            "Extract only what is present, preserve uncertainty, and return valid JSON only."
+        ),
+        prompt=prompt,
+        schema=generation_schema_for(shape),
+        max_tokens=2048,
+        temperature=0.0,
+        timeout_seconds=int(getattr(settings, "INKWELL_SHAPING_TIMEOUT_SECONDS", 240)),
+    )
+    shaped_json = result.get("result") or {}
+    shaped_json["shape_id"] = shape.shape_id
+    shaped_json["shape_version"] = shape.version
+    validation_errors = validate_recipe_shape(shaped_json, shape)
+    markdown = render_recipe_markdown(shaped_json)
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    return {
+        "shape": shape,
+        "model_name": "qwen2.5-7b-instruct-q4_k_m.gguf",
+        "input_text": text,
+        "output_json": shaped_json,
+        "output_markdown": markdown,
+        "validation_errors": validation_errors,
+        "processing_time_ms": elapsed_ms,
+        "raw_result_json": result,
+        "selected_attempt_id": str(selected_attempt.id) if selected_attempt else None,
+    }
 
 
 def _prepare_pdf_pages(artifact) -> list[PreparedPage]:
@@ -135,3 +177,34 @@ def _content_type_for_page(page, artifact) -> str:
     if page.image_path and Path(page.image_path).suffix.lower() == ".png":
         return "image/png"
     return artifact.content_type or mimetypes.guess_type(artifact.original_filename)[0] or "application/octet-stream"
+
+
+def _recipe_shape_prompt(*, text: str, shape, page) -> str:
+    return f"""
+Shape the reviewed OCR text as {shape.shape_id}@{shape.version}.
+
+Page context:
+- artifact: {page.artifact.original_filename}
+- page_number: {page.page_number}
+
+Shape extraction guidance:
+{shape.extraction_guidance}
+
+Return JSON matching the supplied schema. Do not include Markdown in JSON.
+Use these exact fields:
+- shape_id: {shape.shape_id}
+- shape_version: {shape.version}
+
+Rules:
+- Do not invent missing recipe content.
+- Preserve original ingredient lines in original_text when available.
+- If OCR damage makes a field questionable, include it and mark uncertain.
+- Keep recipe steps in source order.
+- If this does not look like a recipe, still return the closest sparse recipe
+  object and explain the mismatch in uncertain.
+
+Reviewed OCR text:
+```text
+{text}
+```
+""".strip()

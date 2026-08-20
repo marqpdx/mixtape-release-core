@@ -61,8 +61,13 @@ INKWELL_BASE_URL = os.getenv(
 INKWELL_SERVICE_JWT_SECRET = os.getenv("INKWELL_SERVICE_JWT_SECRET")
 INKWELL_SERVICE_JWT_AUD    = os.getenv("INKWELL_SERVICE_JWT_AUD", "django-inkwell")
 INKWELL_OCR_TIMEOUT_SECONDS = int(os.getenv("INKWELL_OCR_TIMEOUT_SECONDS", "240"))
+INKWELL_SHAPING_TIMEOUT_SECONDS = int(os.getenv("INKWELL_SHAPING_TIMEOUT_SECONDS", "240"))
 OCR_SPIKE_ENABLED = env.bool("OCR_SPIKE_ENABLED", default=False)
 OCR_SPIKE_LOCAL_ENGINES = os.getenv("OCR_SPIKE_LOCAL_ENGINES", "tesseract,paddleocr")
+OCR_SPIKE_SHAPE_LIBRARY_ROOT = os.getenv(
+    "OCR_SPIKE_SHAPE_LIBRARY_ROOT",
+    str((BASE_DIR / ".." / "puddlejump" / "zz" / "shape-library").resolve()),
+)
 OCR_SPIKE_PDF_RENDERER = os.getenv("OCR_SPIKE_PDF_RENDERER", "pdftoppm")
 OCR_SPIKE_PDFTOPPM_CMD = os.getenv("OCR_SPIKE_PDFTOPPM_CMD", "pdftoppm")
 OCR_SPIKE_PDF_DPI = int(os.getenv("OCR_SPIKE_PDF_DPI", "220"))
