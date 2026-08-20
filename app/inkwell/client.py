@@ -232,6 +232,7 @@ def service_generate(
     schema: dict | None = None,
     max_tokens: int = 512,
     temperature: float = 0.1,
+    timeout_seconds: int | None = None,
 ) -> dict:
     """
     POST /service/generate — grammar-constrained generation with optional system prompt.
@@ -253,7 +254,7 @@ def service_generate(
             f"{_base_url()}/service/generate",
             json=payload,
             headers={"X-Service-Token": _mint_inkwell_service_token()},
-            timeout=TIMEOUT_SECONDS,
+            timeout=timeout_seconds or TIMEOUT_SECONDS,
         )
     except requests.exceptions.ReadTimeout:
         raise InkwellUnavailableError("Inkwell /service/generate timed out")

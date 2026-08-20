@@ -10,6 +10,7 @@ from ocr_spike.models import (
     OcrSpikeFeedbackNote,
     OcrSpikePage,
     OcrSpikeRecognitionAttempt,
+    OcrSpikeShapingAttempt,
 )
 
 
@@ -52,11 +53,36 @@ class OcrSpikeEvaluationSerializer(serializers.ModelSerializer):
         ]
 
 
+class OcrSpikeShapingAttemptSerializer(serializers.ModelSerializer):
+    shaping_attempt_id = serializers.UUIDField(source="id", read_only=True)
+    selected_attempt_id = serializers.UUIDField(source="selected_attempt.id", read_only=True)
+
+    class Meta:
+        model = OcrSpikeShapingAttempt
+        fields = [
+            "shaping_attempt_id",
+            "selected_attempt_id",
+            "shape_id",
+            "shape_version",
+            "model_name",
+            "input_text",
+            "output_json",
+            "output_markdown",
+            "validation_errors",
+            "processing_time_ms",
+            "status",
+            "error_message",
+            "created_at",
+            "updated_at",
+        ]
+
+
 class OcrSpikePageSerializer(serializers.ModelSerializer):
     page_id = serializers.UUIDField(source="id", read_only=True)
     image_url = serializers.SerializerMethodField()
     image_content_type = serializers.SerializerMethodField()
     attempts = OcrSpikeRecognitionAttemptSerializer(many=True, read_only=True)
+    shaping_attempts = OcrSpikeShapingAttemptSerializer(many=True, read_only=True)
     evaluation = OcrSpikeEvaluationSerializer(read_only=True)
 
     class Meta:
@@ -70,6 +96,7 @@ class OcrSpikePageSerializer(serializers.ModelSerializer):
             "height",
             "preparation_status",
             "attempts",
+            "shaping_attempts",
             "evaluation",
         ]
 
@@ -124,3 +151,9 @@ class OcrSpikeFeedbackWriteSerializer(serializers.Serializer):
     page_id = serializers.UUIDField(required=False, allow_null=True)
     screen = serializers.ChoiceField(choices=OcrSpikeFeedbackNote.Screen.choices)
     note = serializers.CharField()
+
+
+class OcrSpikeShapeRunSerializer(serializers.Serializer):
+    selected_attempt_id = serializers.UUIDField(required=False, allow_null=True)
+    reviewed_text = serializers.CharField(required=False, allow_blank=True)
+    shape_id = serializers.CharField(required=False, default="food_service.recipe")

@@ -327,6 +327,9 @@ app.conf.task_routes = {
     "ocr_spike.tasks.run_cloud_ocr_for_page": {
         "queue": "ocr", "routing_key": "ocr"
     },
+    "ocr_spike.tasks.run_recipe_shape_for_page": {
+        "queue": "ocr", "routing_key": "ocr"
+    },
 }
 
 # ---- Sensible defaults ----
