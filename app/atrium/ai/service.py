@@ -5,6 +5,10 @@
 #
 # exchange_stream() yields SSE byte chunks for StreamingHttpResponse.
 # The caller is responsible for saving AtriumSessionEntry records.
+#
+# Phase 2A dispatch:
+#   ATRIUM_USE_CLAUDE_CODE=True  → ClaudeCodeAdapter (local claude -p subprocess)
+#   default                       → AtriumAnthropicAdapter (Anthropic SDK, Phase 1)
 
 import json
 import logging
@@ -81,6 +85,35 @@ class AtriumAnthropicAdapter:
         yield b"data: " + json.dumps({"type": "done"}).encode() + b"\n\n"
 
 
+class ClaudeCodeAdapter:
+    """
+    Phase 2A adapter — routes through ClaudeSubprocessService.stream()
+    (local claude -p subprocess) instead of the Anthropic SDK.
+
+    Yields the same SSE byte format as AtriumAnthropicAdapter so
+    AtriumAIService.exchange_stream() needs no changes.
+    """
+
+    def exchange_stream(
+        self,
+        system_prompt: str,
+        messages: list[dict],
+    ) -> Generator[bytes, None, None]:
+        from django.conf import settings
+        from claude import service as claude_service
+
+        cwd = getattr(settings, "ATRIUM_CLAUDE_CODE_CWD", "") or os.getcwd()
+        prompt = _build_claude_code_prompt(system_prompt, messages)
+        logger.info("[atrium] ClaudeCodeAdapter: cwd=%s", cwd)
+
+        for line in claude_service.stream(prompt, cwd=cwd):
+            if line:
+                payload = json.dumps({"type": "delta", "text": line})
+                yield f"data: {payload}\n\n".encode()
+
+        yield b"data: " + json.dumps({"type": "done"}).encode() + b"\n\n"
+
+
 class AtriumAIService:
     """
     Provider-agnostic façade for Atrium session AI exchanges.
@@ -94,7 +127,12 @@ class AtriumAIService:
     """
 
     def __init__(self):
-        self._adapter = AtriumAnthropicAdapter()
+        from django.conf import settings
+        if getattr(settings, "ATRIUM_USE_CLAUDE_CODE", False):
+            logger.info("[atrium] AtriumAIService: using ClaudeCodeAdapter (Phase 2A)")
+            self._adapter = ClaudeCodeAdapter()
+        else:
+            self._adapter = AtriumAnthropicAdapter()
 
     def exchange_stream(
         self,
@@ -183,6 +221,21 @@ def _serialize_content_block(block) -> dict:
     if block.type == "text":
         return {"type": "text", "text": block.text}
     return {"type": block.type}
+
+
+def _build_claude_code_prompt(system_prompt: str, messages: list[dict]) -> str:
+    """
+    Flatten system prompt + conversation history into a single stdin prompt
+    for the claude -p subprocess. Claude Code CLI is single-turn; we carry
+    the full history so the session feels continuous.
+    """
+    parts = [system_prompt.strip(), ""]
+    for msg in messages:
+        role_label = "User" if msg["role"] == "user" else "Assistant"
+        parts.append(f"{role_label}: {msg['content'].strip()}")
+    parts.append("")
+    parts.append("Respond directly.")
+    return "\n".join(parts)
 
 
 def _session_to_messages(session) -> list[dict]:

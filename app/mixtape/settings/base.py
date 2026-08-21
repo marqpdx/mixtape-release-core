@@ -37,6 +37,12 @@ FIELD_ENCRYPTION_KEY = os.getenv("FIELD_ENCRYPTION_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 AI_PROVIDER = os.getenv("AI_PROVIDER", "anthropic")
 
+# Atrium — Claude Code local dispatch (Phase 2A)
+# When True, Puddlejump-context Atrium sessions route through Claude Code CLI
+# (ClaudeSubprocessService.stream()) instead of the Anthropic SDK.
+ATRIUM_USE_CLAUDE_CODE = env.bool("ATRIUM_USE_CLAUDE_CODE", default=False)
+ATRIUM_CLAUDE_CODE_CWD = os.getenv("ATRIUM_CLAUDE_CODE_CWD", "")
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
