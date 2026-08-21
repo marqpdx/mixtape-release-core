@@ -28,11 +28,11 @@ import json
 import logging
 import os
 import re
-import shutil
-import subprocess
 import unicodedata
 from dataclasses import dataclass, field
 from typing import BinaryIO
+
+from claude import service as claude_service
 
 logger = logging.getLogger(__name__)
 
@@ -244,8 +244,7 @@ def semantic_analyze(
     Returns dict with entity_type, entity_plural, count, examples, confidence, notes — or None on failure.
     Falls back gracefully; never raises.
     """
-    claude_bin = shutil.which("claude") or os.getenv("CLAUDE_CODE_PATH", "claude")
-    logger.info("[catalyst] semantic_analyze: binary=%s file=%s", claude_bin, filename)
+    logger.info("[catalyst] semantic_analyze: file=%s", filename)
 
     # Reject files that are too large to analyze meaningfully (>500k bytes raw)
     if len(data) > 500_000:
@@ -261,25 +260,11 @@ def semantic_analyze(
     ctx = client_context.strip() if client_context and client_context.strip() else _CLIENT_CONTEXT_FALLBACK
     prompt = _SEMANTIC_PROMPT.format(filename=filename, content=text_preview, client_context=ctx)
 
+    raw = claude_service.run_blocking(prompt, cwd=codex_cwd or os.getcwd(), timeout=timeout)
+    if not raw:
+        return None
+
     try:
-        # Pipe prompt via stdin — avoids ARG_MAX limits on large prompts
-        result = subprocess.run(
-            [claude_bin, "-p", "--dangerously-skip-permissions"],
-            input=prompt,
-            cwd=codex_cwd or os.getcwd(),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-
-        if result.returncode != 0:
-            logger.warning("[catalyst] claude -p returned %s for %s: %s", result.returncode, filename, result.stderr[:200])
-            return None
-
-        raw = result.stdout.strip()
-        if not raw:
-            return None
-
         # Try direct parse first, then extract first JSON object
         try:
             parsed = json.loads(raw)
@@ -307,12 +292,8 @@ def semantic_analyze(
             "confidence": str(parsed.get("confidence", "medium")),
             "notes": str(parsed.get("notes", "")),
         }
-
-    except subprocess.TimeoutExpired:
-        logger.warning("[catalyst] claude -p timed out for %s", filename)
-        return None
     except Exception as exc:
-        logger.warning("[catalyst] semantic_analyze failed for %s: %s", filename, exc)
+        logger.warning("[catalyst] semantic_analyze parse failed for %s: %s", filename, exc)
         return None
 
 
@@ -358,7 +339,6 @@ def extract_entities(
     Returns a list of dicts, each with at least a 'name' key.
     Returns [] on failure or timeout.
     """
-    claude_bin = shutil.which("claude") or os.getenv("CLAUDE_CODE_PATH", "claude")
     logger.info("[catalyst] extract_entities: %s → %s from %s", entity_type, entity_plural, filename)
 
     if len(data) > 500_000:
@@ -378,24 +358,11 @@ def extract_entities(
         content=text_preview,
     )
 
+    raw = claude_service.run_blocking(prompt, cwd=codex_cwd or os.getcwd(), timeout=timeout)
+    if not raw:
+        return []
+
     try:
-        result = subprocess.run(
-            [claude_bin, "-p", "--dangerously-skip-permissions"],
-            input=prompt,
-            cwd=codex_cwd or os.getcwd(),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-
-        if result.returncode != 0:
-            logger.warning("[catalyst] extract_entities claude -p error for %s: %s", filename, result.stderr[:200])
-            return []
-
-        raw = result.stdout.strip()
-        if not raw:
-            return []
-
         # Try direct parse, then find first JSON array
         try:
             parsed = json.loads(raw)
@@ -413,12 +380,8 @@ def extract_entities(
         entities = [e for e in parsed if isinstance(e, dict) and e.get("name")]
         logger.info("[catalyst] extract_entities: %d %s extracted from %s", len(entities), entity_plural, filename)
         return entities
-
-    except subprocess.TimeoutExpired:
-        logger.warning("[catalyst] extract_entities timed out for %s", filename)
-        return []
     except Exception as exc:
-        logger.warning("[catalyst] extract_entities failed for %s: %s", filename, exc)
+        logger.warning("[catalyst] extract_entities parse failed for %s: %s", filename, exc)
         return []
 
 
