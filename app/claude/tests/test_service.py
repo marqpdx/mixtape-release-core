@@ -79,11 +79,49 @@ class TestPtyScreenReaderParsing(unittest.TestCase):
         message = "we're most interested in the state of our reference/ knowledge topologies. can you summarize?"
         self.assertTrue(claude_service._looks_like_echo(f"$  {message}", message))
         self.assertTrue(claude_service._looks_like_echo(message, message))
+        self.assertTrue(claude_service._looks_like_echo(f"you: {message}", message))
         self.assertFalse(claude_service._looks_like_echo("Here is a summary.", message))
 
     def test_tool_prefix_variants_are_activity(self):
         self.assertEqual(claude_service._classify_line("⎿ Read foo.md"), [("activity", "Read foo.md")])
         self.assertEqual(claude_service._classify_line("⯎ Read foo.md"), [("activity", "Read foo.md")])
+
+    def test_claude_prefix_lines_can_be_activity_or_answer(self):
+        self.assertEqual(
+            claude_service._extract_claude_text("$claude: Let me scan the reference directory structure."),
+            "Let me scan the reference directory structure.",
+        )
+        self.assertEqual(
+            claude_service._clean_answer_line("claude: Here's where the docs stand:"),
+            "Here's where the docs stand:",
+        )
+
+    def test_answer_separator_and_screen_reader_prefix_cleanup(self):
+        self.assertTrue(claude_service._is_answer_separator("$---"))
+        self.assertTrue(claude_service._is_answer_separator("---"))
+        self.assertEqual(
+            claude_service._clean_answer_line("$ System Topology (system-topology.md) — Canon, v2.0."),
+            "System Topology (system-topology.md) — Canon, v2.0.",
+        )
+        self.assertEqual(claude_service._clean_answer_line("$.0. The master document."), ".0. The master document.")
+
+    def test_repaint_duplicate_detection(self):
+        emitted = [
+            "System Topology (system-topology.md) — Canon, v2.0. The master document.",
+        ]
+        self.assertTrue(
+            claude_service._is_repaint_duplicate(
+                "System Topology (system-topology.md) — Canon, v2.0. The master document.",
+                emitted,
+            )
+        )
+        self.assertTrue(
+            claude_service._is_repaint_duplicate(
+                "System Topology (system-topology.md) — Canon, v2.0.",
+                emitted,
+            )
+        )
+        self.assertFalse(claude_service._is_repaint_duplicate("Knowledge-Basing Topology — Pre-canon.", emitted))
 
 
 class TestStream(unittest.TestCase):

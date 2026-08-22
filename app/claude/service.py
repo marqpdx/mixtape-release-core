@@ -57,6 +57,8 @@ _PROMPT_RE = re.compile(r"^[>❯$]\s*$")
 _SCREEN_READER_INPUT_RE = re.compile(r"^\$\s{2,}(?P<text>.+)$")
 _SCREEN_READER_READY_RE = re.compile(r"\$?ctrl\+g[^\r\n]*", re.IGNORECASE)
 _SCREEN_READER_START_RE = re.compile(r"Claude Code v\d", re.IGNORECASE)
+_CLAUDE_PREFIX_RE = re.compile(r"^claude:\s*(?P<text>.*)$", re.IGNORECASE)
+_USER_PREFIX_RE = re.compile(r"^you:\s*(?P<text>.*)$", re.IGNORECASE)
 _CONTEXT_RE = re.compile(r"([\d,]+)\s*/\s*([\d,]+)\s*tokens?\s*used\s*\(([\d.]+)%\)")
 _COMPACT_DONE_RE = re.compile(r"compacted|summarized|compressed", re.IGNORECASE)
 
@@ -202,6 +204,14 @@ def _strip_screen_reader_input_prefix(line: str) -> str:
     return match.group("text").strip() if match else line
 
 
+def _strip_screen_reader_output_prefix(line: str) -> str:
+    """Remove Claude Code screen-reader prompt prefix from output lines."""
+    normalized = line.replace("\xa0", " ")
+    if normalized.startswith("$"):
+        return normalized[1:].lstrip()
+    return normalized
+
+
 def _is_prompt_line(line: str) -> bool:
     return bool(_PROMPT_RE.match(line))
 
@@ -233,9 +243,49 @@ def _is_chrome_line(line: str) -> bool:
 
 
 def _looks_like_echo(line: str, message: str) -> bool:
-    clean_line = _strip_screen_reader_input_prefix(line).lower()
+    clean_line = _strip_screen_reader_input_prefix(_strip_screen_reader_output_prefix(line)).lower()
+    user_match = _USER_PREFIX_RE.match(clean_line)
+    if user_match:
+        clean_line = user_match.group("text").strip()
     msg_start = message[:80].strip().lower()
     return bool(msg_start and clean_line.startswith(msg_start[:20]))
+
+
+def _extract_claude_text(line: str) -> str | None:
+    payload = _strip_screen_reader_output_prefix(line).strip()
+    match = _CLAUDE_PREFIX_RE.match(payload)
+    if not match:
+        return None
+    return match.group("text").strip()
+
+
+def _is_answer_separator(line: str) -> bool:
+    return _strip_screen_reader_output_prefix(line).strip() == "---"
+
+
+def _clean_answer_line(line: str) -> str:
+    payload = _strip_screen_reader_output_prefix(line)
+    claude_text = _extract_claude_text(payload)
+    if claude_text is not None:
+        return claude_text
+    return payload.strip()
+
+
+def _is_repaint_duplicate(line: str, emitted_lines: list[str]) -> bool:
+    normalized = line.strip()
+    if not normalized:
+        return True
+    for previous in emitted_lines[-8:]:
+        prev = previous.strip()
+        if not prev:
+            continue
+        if normalized == prev:
+            return True
+        if len(prev) >= 24 and normalized.startswith(prev):
+            return True
+        if len(normalized) >= 24 and prev.startswith(normalized):
+            return True
+    return False
 
 
 def _classify_line(line: str) -> list[tuple[str, str]]:
@@ -523,6 +573,9 @@ def _send_to_pty_locked(
     response_started = False   # True once we yield a non-chrome delta line
     echo_suppressed_count = 0  # Claude screen-reader mode can echo repeated input-area repaints.
     status_bar_count = 0       # ⏵⏵ appearances; second after response_started = done
+    answer_started = False
+    saw_claude_leadin = False
+    emitted_answer_lines: list[str] = []
 
     while True:
         # Long patience before Claude starts; short once content is flowing.
@@ -589,6 +642,31 @@ def _send_to_pty_locked(
         if _looks_like_echo(chunk, message):
             echo_suppressed_count += 1
             logger.info("[claude] send_to_pty: echo suppressed count=%s", echo_suppressed_count)
+            continue
+
+        claude_text = _extract_claude_text(chunk)
+        if claude_text is not None and not answer_started:
+            saw_claude_leadin = True
+            logger.info("[claude] send_to_pty: activity=%r", claude_text[:80])
+            yield ("activity", claude_text)
+            continue
+
+        if _is_answer_separator(chunk):
+            if saw_claude_leadin:
+                answer_started = True
+                response_started = True
+                logger.info("[claude] send_to_pty: answer mode started")
+            continue
+
+        if answer_started:
+            answer_line = _clean_answer_line(chunk)
+            if _is_repaint_duplicate(answer_line, emitted_answer_lines):
+                logger.info("[claude] send_to_pty: answer repaint suppressed text_prefix=%r", answer_line[:80])
+                continue
+            emitted_answer_lines.append(answer_line)
+            logger.info("[claude] send_to_pty: answer delta text_prefix=%r", answer_line[:80])
+            yield ("delta", answer_line + "\n")
+            response_started = True
             continue
 
         pairs = list(_classify_line(chunk))
