@@ -9,6 +9,8 @@ from .views import (
     AtriumSessionContextView,
     AtriumSessionUpdateView,
     AtriumSessionExchangeView,
+    AtriumSessionWarmView,
+    AtriumSessionCompactView,
 )
 
 urlpatterns = [
@@ -18,4 +20,6 @@ urlpatterns = [
     path("sessions/<uuid:session_id>/entries/", AtriumSessionEntryListView.as_view(), name="atrium-session-entries"),
     path("sessions/<uuid:session_id>/context/", AtriumSessionContextView.as_view(), name="atrium-session-context"),
     path("sessions/<uuid:session_id>/exchange", AtriumSessionExchangeView.as_view(), name="atrium-session-exchange"),
+    path("sessions/<uuid:session_id>/warm", AtriumSessionWarmView.as_view(), name="atrium-session-warm"),
+    path("sessions/<uuid:session_id>/compact", AtriumSessionCompactView.as_view(), name="atrium-session-compact"),
 ]

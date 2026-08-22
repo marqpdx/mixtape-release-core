@@ -264,3 +264,95 @@ class AtriumSessionExchangeView(APIView):
                 "X-Accel-Buffering": "no",
             },
         )
+
+
+class AtriumSessionWarmView(APIView):
+    """
+    POST /api/atrium/sessions/<session_id>/warm
+
+    Pre-warms the PTY subprocess for a ClaudeCode session so the first
+    exchange is fast. Returns a text/event-stream with a single `type: ready`
+    event. Non-error for Anthropic-SDK sessions — just returns ready immediately.
+
+    Called by the frontend when the user opens or selects a session.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, session_id):
+        profile = ensure_user_profile(request.user)
+
+        try:
+            session = AtriumSession.objects.select_related("sponsor_content_type").get(
+                id=session_id,
+                member=profile,
+                deleted_at__isnull=True,
+            )
+        except AtriumSession.DoesNotExist:
+            return Response({"detail": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if session.sponsor_object_id:
+            sponsor_slug = getattr(session.sponsor, "slug", None)
+            if sponsor_slug in PUDDLEJUMP_GROUPS and not request.user.is_staff:
+                return Response(
+                    {"detail": "Staff access required for this group's Atrium."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+        try:
+            from atrium.ai.service import AtriumAIService
+            ai = AtriumAIService(session=session)
+        except Exception as exc:
+            logger.error("atrium_warm_init_failed session=%s error=%s", session_id, exc)
+            return Response({"detail": "AI service unavailable."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        logger.info("atrium_warm session=%s user=%s", session_id, request.user.username)
+
+        return StreamingHttpResponse(
+            ai.warm(),
+            content_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+
+class AtriumSessionCompactView(APIView):
+    """
+    POST /api/atrium/sessions/<session_id>/compact
+
+    Sends /compact to the session's PTY subprocess. Stores the resulting
+    summary in ApertureLog.compact_summary. Returns:
+      { "summary": "..." }  on success
+      { "detail": "..." }   on error/no PTY
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, session_id):
+        profile = ensure_user_profile(request.user)
+
+        try:
+            session = AtriumSession.objects.select_related("sponsor_content_type").get(
+                id=session_id,
+                member=profile,
+                deleted_at__isnull=True,
+            )
+        except AtriumSession.DoesNotExist:
+            return Response({"detail": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if session.sponsor_object_id:
+            sponsor_slug = getattr(session.sponsor, "slug", None)
+            if sponsor_slug in PUDDLEJUMP_GROUPS and not request.user.is_staff:
+                return Response(
+                    {"detail": "Staff access required for this group's Atrium."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+        try:
+            from atrium.ai.service import AtriumAIService
+            ai = AtriumAIService(session=session)
+            summary = ai.compact(session)
+        except Exception as exc:
+            logger.error("atrium_compact_failed session=%s error=%s", session_id, exc)
+            return Response({"detail": "Compact failed."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({"summary": summary}, status=status.HTTP_200_OK)
