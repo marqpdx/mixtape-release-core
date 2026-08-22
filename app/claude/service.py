@@ -71,7 +71,7 @@ _UI_CHROME_RE = re.compile(
 # Model name pattern used in the conversation header: "[cwd] | Sonnet 4.6..."
 # The header is cursor-positioned so letters may have ANSI codes between them,
 # but after stripping, "| Sonnet N" or "| Claude N" is a reliable signal.
-_HEADER_RE = re.compile(r"\|\s*(?:Sonnet|Claude|Opus|Haiku)\s+\d", re.IGNORECASE)
+_HEADER_RE = re.compile(r"\|\s*(?:Sonnet|Claude|Opus|Haiku)\s*\d", re.IGNORECASE)
 
 # Patterns that indicate Claude Code is showing an interactive setup dialog,
 # not a conversation prompt. We must respond to these during spawn.
