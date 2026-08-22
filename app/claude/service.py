@@ -63,6 +63,7 @@ _UI_CHROME_RE = re.compile(
     r"|▐|▛|▝"         # block graphics from Claude Code logo
     r"|◐|◑|◒|◓"       # effort / spinner indicators (◐ medium · /effort)
     r"|▎"              # sidebar / indented-content marker
+    r"|/rc\b"          # remote connection status (/rc connecting… /rc connected)
     r")",
     re.UNICODE,
 )
