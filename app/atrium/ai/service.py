@@ -91,12 +91,37 @@ class AtriumAnthropicAdapter:
 
 class ClaudeCodeAdapter:
     """
-    Phase 2A adapter — routes through ClaudeSubprocessService.stream()
-    (local claude -p subprocess) instead of the Anthropic SDK.
+    Phase 2C adapter — routes through a persistent PTY-based interactive
+    claude session. Replaces the Phase 2A -p subprocess approach.
 
-    Yields the same SSE byte format as AtriumAnthropicAdapter so
-    AtriumAIService.exchange_stream() needs no changes.
+    Yields SSE byte chunks in the same format as AtriumAnthropicAdapter:
+      data: {"type": "delta",          "text": "..."}
+      data: {"type": "activity",       "text": "Reading foo.md"}
+      data: {"type": "context_status", "used": N, "total": N, "pct": N}
+      data: {"type": "done"}
     """
+
+    def __init__(self, session=None):
+        self._session = session
+
+    def warm(self) -> Generator[bytes, None, None]:
+        """
+        Ensure the PTY is spawned. Yields a `type: ready` event when warm.
+        """
+        from django.conf import settings
+        from claude import service as claude_service
+
+        if not self._session:
+            return
+        cwd = getattr(settings, "ATRIUM_CLAUDE_CODE_CWD", "") or os.getcwd()
+        session_id = str(self._session.id)
+        opening_context = _get_compact_summary(self._session)
+        claude_service.get_or_spawn(session_id, cwd, opening_context)
+        pid = _pty_pid(session_id)
+        if pid and self._session.pty_pid != pid:
+            self._session.pty_pid = pid
+            self._session.save(update_fields=["pty_pid", "updated_at"])
+        yield b"data: " + json.dumps({"type": "ready"}).encode() + b"\n\n"
 
     def exchange_stream(
         self,
@@ -107,15 +132,45 @@ class ClaudeCodeAdapter:
         from claude import service as claude_service
 
         cwd = getattr(settings, "ATRIUM_CLAUDE_CODE_CWD", "") or os.getcwd()
-        prompt = _build_claude_code_prompt(system_prompt, messages)
-        logger.info("[atrium] ClaudeCodeAdapter: cwd=%s", cwd)
+        session_id = str(self._session.id) if self._session else "global"
+        opening_context = _get_compact_summary(self._session)
+        logger.info("[atrium] ClaudeCodeAdapter PTY: session=%s cwd=%s", session_id, cwd)
 
-        for line in claude_service.stream(prompt, cwd=cwd):
-            if line:
-                payload = json.dumps({"type": "delta", "text": line})
-                yield f"data: {payload}\n\n".encode()
+        # Extract the latest user message — the PTY tracks history itself.
+        user_message = ""
+        for msg in reversed(messages):
+            if msg["role"] == "user":
+                user_message = msg["content"]
+                break
+
+        if not user_message:
+            yield b"data: " + json.dumps({"type": "done"}).encode() + b"\n\n"
+            return
+
+        for event_type, text in claude_service.send_to_pty(session_id, user_message, cwd):
+            if event_type == "context_status":
+                payload = json.dumps({"type": "context_status", **json.loads(text)})
+            elif event_type == "activity":
+                payload = json.dumps({"type": "activity", "text": text})
+            else:  # delta
+                payload = json.dumps({"type": "delta", "text": text})
+            yield f"data: {payload}\n\n".encode()
+
+        # Store PID after first successful exchange.
+        pid = _pty_pid(session_id)
+        if pid and self._session and self._session.pty_pid != pid:
+            self._session.pty_pid = pid
+            self._session.save(update_fields=["pty_pid", "updated_at"])
 
         yield b"data: " + json.dumps({"type": "done"}).encode() + b"\n\n"
+
+    def compact(self, cwd: str) -> str | None:
+        """Run /compact in the PTY. Returns compact summary text."""
+        from claude import service as claude_service
+        if not self._session:
+            return None
+        session_id = str(self._session.id)
+        return claude_service.compact_pty(session_id, cwd)
 
 
 class AtriumAIService:
@@ -148,10 +203,34 @@ class AtriumAIService:
 
         if use_claude_code:
             sponsor_slug = getattr(getattr(session, "sponsor", None), "slug", "global") if session else "global"
-            logger.info("[atrium] AtriumAIService: ClaudeCodeAdapter (sponsor=%s)", sponsor_slug)
-            self._adapter = ClaudeCodeAdapter()
+            logger.info("[atrium] AtriumAIService: ClaudeCodeAdapter PTY (sponsor=%s)", sponsor_slug)
+            self._adapter = ClaudeCodeAdapter(session=session)
         else:
             self._adapter = AtriumAnthropicAdapter()
+
+    def warm(self) -> Generator[bytes, None, None]:
+        """
+        Pre-warm the PTY for this session. Yields a `type: ready` SSE event.
+        Only meaningful for ClaudeCodeAdapter sessions.
+        """
+        if hasattr(self._adapter, "warm"):
+            yield from self._adapter.warm()
+        else:
+            yield b"data: " + json.dumps({"type": "ready"}).encode() + b"\n\n"
+
+    def compact(self, session) -> str | None:
+        """
+        Run /compact in the PTY and store the summary in ApertureLog.
+        Returns the summary text.
+        """
+        if not hasattr(self._adapter, "compact"):
+            return None
+        from django.conf import settings
+        cwd = getattr(settings, "ATRIUM_CLAUDE_CODE_CWD", "") or os.getcwd()
+        summary = self._adapter.compact(cwd)
+        if summary and session.initiative_id:
+            _store_compact_summary(session, summary)
+        return summary
 
     def exchange_stream(
         self,
@@ -301,3 +380,56 @@ def _session_to_messages(session) -> list[dict]:
         else:
             collapsed.append(dict(msg))
     return collapsed
+
+
+# ---------------------------------------------------------------------------
+# PTY helpers
+# ---------------------------------------------------------------------------
+
+def _pty_pid(session_id: str) -> int | None:
+    from claude import service as claude_service
+    proc = claude_service._pty_registry.get(session_id)
+    if proc is None:
+        return None
+    try:
+        return proc.pid
+    except Exception:
+        return None
+
+
+def _get_compact_summary(session) -> str | None:
+    """Return the ApertureLog compact summary for a session's initiative, if any."""
+    if session is None:
+        return None
+    try:
+        initiative_id = getattr(session, "initiative_id", None)
+        if initiative_id is None:
+            return None
+        from initiatives.models import ApertureLog
+        log = ApertureLog.objects.filter(initiative_id=initiative_id).first()
+        if log and log.compact_summary:
+            ts = log.compact_at.strftime("%Y-%m-%d") if log.compact_at else "prior"
+            return (
+                f"[Prior session summary — compacted {ts}]\n"
+                f"{log.compact_summary}\n"
+                f"[End prior context]"
+            )
+    except Exception:
+        pass
+    return None
+
+
+def _store_compact_summary(session, summary: str) -> None:
+    """Store compact summary in the session's ApertureLog."""
+    try:
+        from django.utils import timezone
+        from initiatives.models import ApertureLog
+        initiative_id = getattr(session, "initiative_id", None)
+        if initiative_id is None:
+            return
+        ApertureLog.objects.filter(initiative_id=initiative_id).update(
+            compact_summary=summary,
+            compact_at=timezone.now(),
+        )
+    except Exception as exc:
+        logger.warning("[atrium] _store_compact_summary failed: %s", exc)

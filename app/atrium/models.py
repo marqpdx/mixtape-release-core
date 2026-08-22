@@ -84,6 +84,12 @@ class AtriumSession(BaseModel):
         help_text="The Dial anchor for this session — governs AI posture.",
     )
 
+    pty_pid = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="PID of the live PTY process for this session. Null when no PTY is running.",
+    )
+
     last_activity_at = models.DateTimeField(
         null=True,
         blank=True,

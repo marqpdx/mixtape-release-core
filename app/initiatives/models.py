@@ -754,6 +754,23 @@ class ApertureLog(BaseModel):
         help_text="AI-generated handover draft written by handover_task. Cleared after a handoff entry is approved.",
     )
 
+    # Phase 2C — Atrium PTY session compaction
+    compact_summary = models.TextField(
+        null=True,
+        blank=True,
+        help_text="Compact summary produced by /compact in the Atrium PTY session. Injected as opening context on reconnect.",
+    )
+    compact_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the last compact was performed.",
+    )
+    last_session_end = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the last Atrium PTY session was terminated for this initiative.",
+    )
+
     class Meta(BaseModel.Meta):
         pass
 
