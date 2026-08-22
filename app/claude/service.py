@@ -313,9 +313,10 @@ def _resolve_startup_dialogs(proc: object, max_rounds: int = 15) -> bool:
             logger.info("[claude] PTY startup: conversation ready (ctrl+g detected)")
             return True
         elif idx == 2:
-            # Welcome screen or other overlay with ❯ cursor — press Enter to dismiss.
-            logger.info("[claude] PTY startup: startup overlay (❯) — pressing Enter to dismiss")
-            proc.send("\r")
+            # Welcome screen suggestion pre-fills the input area with '❯ Try "..."'.
+            # Press Enter here would EXECUTE the suggestion. Send ESC to clear it.
+            logger.info("[claude] PTY startup: startup suggestion (❯) — pressing ESC to clear without executing")
+            proc.send("\x1b")
         elif idx == 3:
             logger.info("[claude] PTY startup: API key dialog — declining (CC account)")
             proc.send("\r")
