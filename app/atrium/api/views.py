@@ -152,6 +152,13 @@ class AtriumSessionUpdateView(APIView):
         if "session_context" in request.data:
             session.session_context = request.data["session_context"]
             update_fields.append("session_context")
+        if "dial_mode" in request.data:
+            from atrium.models import AtriumDialMode
+            val = request.data["dial_mode"]
+            valid_values = {m.value for m in AtriumDialMode}
+            if val in valid_values:
+                session.dial_mode = val
+                update_fields.append("dial_mode")
 
         if update_fields:
             session.save(update_fields=update_fields)

@@ -11,6 +11,12 @@ class AtriumSessionStatus(models.TextChoices):
     ARCHIVED = "archived", "Archived"
 
 
+class AtriumDialMode(models.TextChoices):
+    EXPRESSIVE = "expressive", "Expressive"
+    VERY_FOCUSED = "very_focused", "Very Focused"
+    VAGUE = "vague", "Vague"
+
+
 class AtriumSessionRole(models.TextChoices):
     USER = "user", "User"
     ASSISTANT = "assistant", "Assistant"
@@ -55,6 +61,13 @@ class AtriumSession(BaseModel):
             "role, project state, working principles. The CLAUDE.md equivalent. "
             "Member-authored and editable between sessions."
         ),
+    )
+
+    dial_mode = models.CharField(
+        max_length=16,
+        choices=AtriumDialMode.choices,
+        default=AtriumDialMode.EXPRESSIVE,
+        help_text="The Dial anchor for this session — governs AI posture.",
     )
 
     last_activity_at = models.DateTimeField(
