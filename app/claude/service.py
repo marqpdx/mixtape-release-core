@@ -180,6 +180,13 @@ def get_or_spawn(session_id: str, cwd: str, opening_context: str | None = None) 
     bin_path = _claude_bin()
     logger.info("[claude] spawning PTY: session=%s cwd=%s", session_id, cwd)
 
+    # Strip API key from env so Claude Code uses its subscription account, not the
+    # API key that Django has set. Without this, Claude Code shows an interactive
+    # "Do you want to use this API key?" dialog that blocks the PTY spawn.
+    env = os.environ.copy()
+    env.pop("ANTHROPIC_API_KEY", None)
+    env.pop("ANTHROPIC_API_KEY_HELPER", None)
+
     proc = pexpect.spawn(
         bin_path,
         args=["--dangerously-skip-permissions"],
@@ -187,11 +194,13 @@ def get_or_spawn(session_id: str, cwd: str, opening_context: str | None = None) 
         encoding="utf-8",
         timeout=120,
         codec_errors="replace",
+        env=env,
     )
 
-    # Drive through any interactive setup dialogs Claude Code may show on startup
-    # (API key confirmation, first-run prompts, etc.) before handing off.
+    # Drive through any remaining setup dialogs (first-run, TOS, etc.).
     _resolve_startup_dialogs(proc)
+    # Always drain to the conversation prompt before returning.
+    _wait_for_prompt(proc, timeout=30)
 
     if opening_context:
         proc.sendline(opening_context)
@@ -224,8 +233,15 @@ def _wait_for_prompt(proc: object, timeout: int = 30) -> bool:
 def _resolve_startup_dialogs(proc: object, max_rounds: int = 5) -> None:
     """
     After spawn, consume any interactive dialogs Claude Code shows before the
-    main conversation prompt (API key confirmation, first-run setup, etc.).
-    Selects "Yes" for API key reuse; dismisses other dialogs with Enter.
+    main conversation prompt (first-run setup, TOS, etc.).
+
+    We do NOT look for ❯ as a "prompt found" signal here — the API key selection
+    menu and other menus also contain ❯ and would cause false exits. Instead we
+    loop until timeout (no more dialog text detected), then let _wait_for_prompt
+    drain to the actual conversation prompt.
+
+    The API key dialog is avoided entirely by stripping ANTHROPIC_API_KEY from
+    the PTY env before spawn — this function handles any remaining dialogs.
     """
     import pexpect
 
@@ -235,31 +251,22 @@ def _resolve_startup_dialogs(proc: object, max_rounds: int = 5) -> None:
                 [
                     re.compile(r"Do you want to use this API key", re.IGNORECASE),
                     re.compile(r"Enter to confirm", re.IGNORECASE),
-                    re.compile(r"\r?\n[>❯]\s"),    # conversation prompt — done
-                    re.compile(r"\A[>❯]\s"),
                     pexpect.TIMEOUT,
                 ],
-                timeout=15,
+                timeout=8,
             )
         except Exception:
             break
 
         if idx == 0:
-            # API key dialog: default cursor is on "2. No (recommended)".
-            # We want to use the Claude Code account, not the API key — press Enter to confirm No.
             logger.info("[claude] PTY startup: API key dialog detected — declining (using CC account)")
             proc.send("\r")
         elif idx == 1:
-            # Generic "Enter to confirm" dialog — just confirm.
             logger.info("[claude] PTY startup: confirm dialog detected — pressing Enter")
             proc.send("\r")
-        elif idx in (2, 3):
-            # Reached the conversation prompt — startup complete.
-            logger.info("[claude] PTY startup: prompt found, ready")
-            break
         else:
-            # Timeout — assume no more dialogs, proceed.
-            logger.info("[claude] PTY startup: no dialog detected within timeout, continuing")
+            # Timeout — no more dialogs.
+            logger.info("[claude] PTY startup: no dialog within timeout, proceeding to prompt wait")
             break
 
 
