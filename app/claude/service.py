@@ -216,6 +216,22 @@ def _is_prompt_line(line: str) -> bool:
     return bool(_PROMPT_RE.match(line))
 
 
+_STATUS_WORDS_RE = re.compile(
+    r"^\$?\s*(?:"
+    r"Ionizing|Spelunking|Indexing|Analyzing|Scanning|Processing|"
+    r"Loading|Fetching|Searching|Checking|Propagating|Swooping|"
+    r"Thinking|Crunching|Compiling|Parsing|Resolving|Streaming"
+    r")…?$",
+    re.IGNORECASE,
+)
+
+_TIMING_LINE_RE = re.compile(r"^(?:Cooked|Thinking|Working|Finished) for \d+[ms]?s?\.?$", re.IGNORECASE)
+
+# Relative file path appearing alone on a line (tool-call read confirmation).
+# Matches "reference/foo/bar.md", "decisions/adr.md", etc.
+_TOOL_PATH_LINE_RE = re.compile(r"^[a-zA-Z0-9_.-]+(?:/[^\s]+)+$")
+
+
 def _is_chrome_line(line: str) -> bool:
     normalized = line.replace("\xa0", " ")
     if _UI_CHROME_RE.match(line):
@@ -229,8 +245,6 @@ def _is_chrome_line(line: str) -> bool:
         return True
     if re.match(r"^(?:Sonnet|Claude|Opus|Haiku)\b.*\beffort\b", line, re.IGNORECASE):
         return True
-    if re.match(r"^\$?\s*(?:Propagating|Swooping)…$", normalized):
-        return True
     if re.match(r"^\$?\s*\|?\s*ctx:\s*\d+%", normalized, re.IGNORECASE):
         return True
     if re.match(r"^\$?\s*tool:\s*", normalized, re.IGNORECASE):
@@ -238,6 +252,28 @@ def _is_chrome_line(line: str) -> bool:
     if "ctrl+o to expand" in normalized:
         return True
     if re.match(r"^\$?(?:Searched|Read)\b", normalized):
+        return True
+    # Tool-runner status words (Spelunking…, Ionizing…, etc.)
+    if _STATUS_WORDS_RE.match(normalized):
+        return True
+    # Timing summary: "Cooked for 37s"
+    if _TIMING_LINE_RE.match(normalized):
+        return True
+    # BEL character — used as end-of-response signal in screen-reader mode
+    if set(normalized) <= {"\x07", " ", ""}:
+        return True
+    # Screen-reader $-prefixed tool output: file paths, bash commands.
+    # Anything starting with $ that isn't "$ claude:" / "$ you:" / "$  msg" is chrome.
+    if normalized.startswith("$"):
+        stripped = normalized[1:].lstrip(" ")
+        if (
+            not _CLAUDE_PREFIX_RE.match(stripped)
+            and not _USER_PREFIX_RE.match(stripped)
+            and not stripped.startswith(" ")   # "$  msg" = user echo (2-space indent)
+        ):
+            return True
+    # Bare relative file path lines (companion to the $-prefixed version above)
+    if _TOOL_PATH_LINE_RE.match(normalized):
         return True
     return False
 
