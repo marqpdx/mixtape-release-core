@@ -52,8 +52,11 @@ _ANSI_RE = re.compile(
     r"|[()]."                             # Character set designations (ESC ( B …)
     r")"
 )
-_TOOL_PREFIX = "⯎ "  # ⎿
-_PROMPT_RE = re.compile(r"^[>❯]\s*$")
+_TOOL_PREFIXES = ("⯎ ", "⎿ ")
+_PROMPT_RE = re.compile(r"^[>❯$]\s*$")
+_SCREEN_READER_INPUT_RE = re.compile(r"^\$\s{2,}(?P<text>.+)$")
+_SCREEN_READER_READY_RE = re.compile(r"\$?ctrl\+g[^\r\n]*", re.IGNORECASE)
+_SCREEN_READER_START_RE = re.compile(r"Claude Code v\d", re.IGNORECASE)
 _CONTEXT_RE = re.compile(r"([\d,]+)\s*/\s*([\d,]+)\s*tokens?\s*used\s*\(([\d.]+)%\)")
 _COMPACT_DONE_RE = re.compile(r"compacted|summarized|compressed", re.IGNORECASE)
 
@@ -69,8 +72,13 @@ _UI_CHROME_RE = re.compile(
     r"|◐|◑|◒|◓"       # effort / spinner indicators (◐ medium · /effort)
     r"|▎"              # sidebar / indented-content marker
     r"|/rc\b"          # remote connection status (/rc connecting… /rc connected)
+    r"|\$/rc\b"        # screen-reader remote connection status
+    r"|\$?ctrl\+g\b"   # screen-reader input-area header
+    r"|Claude Code v"  # screen-reader startup/version line
+    r"|bypass permissions"
+    r"|effort:"
     r")",
-    re.UNICODE,
+    re.UNICODE | re.IGNORECASE,
 )
 
 # Model name pattern used in the conversation header: "[cwd] | Sonnet 4.6..."
@@ -91,14 +99,20 @@ _SETUP_DIALOG_RE = re.compile(r"Enter to confirm|Esc to cancel", re.IGNORECASE)
 # Session UUID → pexpect.spawn handle.
 _pty_registry: dict[str, object] = {}
 # Per-session lock — prevents two concurrent requests from interleaving in the same PTY.
-_pty_locks: dict[str, threading.Lock] = {}
+_pty_locks: dict[str, threading.RLock] = {}
 _pty_locks_mu = threading.Lock()  # guards _pty_locks dict itself
 
 
-def _session_lock(session_id: str) -> threading.Lock:
+def _submit_to_pty(proc: object, text: str) -> None:
+    """Type text into Claude Code's TUI and press terminal Enter."""
+    proc.send(text)
+    proc.send("\r")
+
+
+def _session_lock(session_id: str) -> threading.RLock:
     with _pty_locks_mu:
         if session_id not in _pty_locks:
-            _pty_locks[session_id] = threading.Lock()
+            _pty_locks[session_id] = threading.RLock()
         return _pty_locks[session_id]
 
 
@@ -182,6 +196,48 @@ def _strip_ansi(text: str) -> str:
     return _ANSI_RE.sub("", text)
 
 
+def _strip_screen_reader_input_prefix(line: str) -> str:
+    """Return prompt-entered text from a screen-reader `$  ...` line."""
+    match = _SCREEN_READER_INPUT_RE.match(line)
+    return match.group("text").strip() if match else line
+
+
+def _is_prompt_line(line: str) -> bool:
+    return bool(_PROMPT_RE.match(line))
+
+
+def _is_chrome_line(line: str) -> bool:
+    normalized = line.replace("\xa0", " ")
+    if _UI_CHROME_RE.match(line):
+        return True
+    if _UI_CHROME_RE.match(normalized):
+        return True
+    if _HEADER_RE.search(line):
+        return True
+    # Screen-reader mode emits cwd/model header lines as plain text.
+    if re.match(r"^(?:~|/).*/(?:mixtape|puddlejump|release)(?:\s*)$", line):
+        return True
+    if re.match(r"^(?:Sonnet|Claude|Opus|Haiku)\b.*\beffort\b", line, re.IGNORECASE):
+        return True
+    if re.match(r"^\$?\s*(?:Propagating|Swooping)…$", normalized):
+        return True
+    if re.match(r"^\$?\s*\|?\s*ctx:\s*\d+%", normalized, re.IGNORECASE):
+        return True
+    if re.match(r"^\$?\s*tool:\s*", normalized, re.IGNORECASE):
+        return True
+    if "ctrl+o to expand" in normalized:
+        return True
+    if re.match(r"^\$?(?:Searched|Read)\b", normalized):
+        return True
+    return False
+
+
+def _looks_like_echo(line: str, message: str) -> bool:
+    clean_line = _strip_screen_reader_input_prefix(line).lower()
+    msg_start = message[:80].strip().lower()
+    return bool(msg_start and clean_line.startswith(msg_start[:20]))
+
+
 def _classify_line(line: str) -> list[tuple[str, str]]:
     """Return list of (event_type, text) pairs from one cleaned output line."""
     import json
@@ -196,8 +252,9 @@ def _classify_line(line: str) -> list[tuple[str, str]]:
         pct = float(m.group(3))
         return [("context_status", json.dumps({"used": used, "total": total, "pct": pct}))]
 
-    if line.startswith(_TOOL_PREFIX):
-        return [("activity", line[len(_TOOL_PREFIX):].strip())]
+    for prefix in _TOOL_PREFIXES:
+        if line.startswith(prefix):
+            return [("activity", line[len(prefix):].strip())]
 
     return [("delta", line + "\n")]
 
@@ -212,51 +269,52 @@ def get_or_spawn(session_id: str, cwd: str, opening_context: str | None = None) 
     """
     import pexpect
 
-    existing = _pty_registry.get(session_id)
-    if existing is not None:
-        try:
-            if existing.isalive():
-                return existing
-        except Exception:
-            pass
-        del _pty_registry[session_id]
+    with _session_lock(session_id):
+        existing = _pty_registry.get(session_id)
+        if existing is not None:
+            try:
+                if existing.isalive():
+                    return existing
+            except Exception:
+                pass
+            del _pty_registry[session_id]
 
-    bin_path = _claude_bin()
-    logger.info("[claude] spawning PTY: session=%s cwd=%s", session_id, cwd)
+        bin_path = _claude_bin()
+        logger.info("[claude] spawning PTY: session=%s cwd=%s", session_id, cwd)
 
-    # Strip API key from env so Claude Code uses its subscription account, not the
-    # API key that Django has set. Without this, Claude Code shows an interactive
-    # "Do you want to use this API key?" dialog that blocks the PTY spawn.
-    env = os.environ.copy()
-    env.pop("ANTHROPIC_API_KEY", None)
-    env.pop("ANTHROPIC_API_KEY_HELPER", None)
+        # Strip API key from env so Claude Code uses its subscription account, not the
+        # API key that Django has set. Without this, Claude Code shows an interactive
+        # "Do you want to use this API key?" dialog that blocks the PTY spawn.
+        env = os.environ.copy()
+        env.pop("ANTHROPIC_API_KEY", None)
+        env.pop("ANTHROPIC_API_KEY_HELPER", None)
 
-    proc = pexpect.spawn(
-        bin_path,
-        # --ax-screen-reader produces flatter, less decorative output: fewer
-        # box-drawing characters, no logo graphics, simpler status bars.
-        # --dangerously-skip-permissions remains for headless tool execution.
-        args=["--dangerously-skip-permissions", "--ax-screen-reader"],
-        cwd=cwd,
-        encoding="utf-8",
-        timeout=120,
-        codec_errors="replace",
-        env=env,
-        # Wide terminal: reduces line-wrapping artifacts in the raw PTY stream
-        # that appear as spurious short chunks after ANSI stripping.
-        dimensions=(60, 240),
-    )
+        proc = pexpect.spawn(
+            bin_path,
+            # --ax-screen-reader produces flatter, less decorative output: fewer
+            # box-drawing characters, no logo graphics, simpler status bars.
+            # --dangerously-skip-permissions remains for headless tool execution.
+            args=["--dangerously-skip-permissions", "--ax-screen-reader"],
+            cwd=cwd,
+            encoding="utf-8",
+            timeout=120,
+            codec_errors="replace",
+            env=env,
+            # Wide terminal: reduces line-wrapping artifacts in the raw PTY stream
+            # that appear as spurious short chunks after ANSI stripping.
+            dimensions=(60, 240),
+        )
 
-    # Drive through all startup overlays (Bypass Permissions, welcome screen, etc.)
-    # and wait until the conversation-ready signal (ctrl+g) is detected.
-    _resolve_startup_dialogs(proc)
+        # Drive through all startup overlays (Bypass Permissions, welcome screen, etc.)
+        # and wait until the conversation-ready signal (ctrl+g) is detected.
+        _resolve_startup_dialogs(proc)
 
-    if opening_context:
-        proc.sendline(opening_context)
-        _wait_for_silence(proc, silence_window=2, total_timeout=30)
+        if opening_context:
+            _submit_to_pty(proc, opening_context)
+            _wait_for_silence(proc, silence_window=2, total_timeout=30)
 
-    _pty_registry[session_id] = proc
-    return proc
+        _pty_registry[session_id] = proc
+        return proc
 
 
 def _wait_for_prompt(proc: object, timeout: int = 30) -> bool:
@@ -333,6 +391,7 @@ def _resolve_startup_dialogs(proc: object, max_rounds: int = 15) -> bool:
     """
     import pexpect
 
+    screen_reader_started = False
     for _ in range(max_rounds):
         try:
             idx = proc.expect(
@@ -341,7 +400,9 @@ def _resolve_startup_dialogs(proc: object, max_rounds: int = 15) -> bool:
                     re.compile(r"❯"),                                                # 1: startup suggestion
                     re.compile(r"Do you want to use this API key", re.IGNORECASE),  # 2: API key fallback
                     re.compile(r"Enter to confirm", re.IGNORECASE),                 # 3: generic confirm
-                    pexpect.TIMEOUT,                                                 # 4
+                    _SCREEN_READER_READY_RE,                                        # 4: screen-reader ready header
+                    _SCREEN_READER_START_RE,                                        # 5: screen-reader startup banner
+                    pexpect.TIMEOUT,                                                 # 6
                 ],
                 timeout=20,
             )
@@ -370,7 +431,28 @@ def _resolve_startup_dialogs(proc: object, max_rounds: int = 15) -> bool:
         elif idx == 3:
             logger.info("[claude] PTY startup: confirm dialog — pressing Enter")
             proc.send("\r")
+        elif idx == 4:
+            logger.info("[claude] PTY startup: screen-reader ready header detected")
+            return True
+        elif idx == 5:
+            logger.info("[claude] PTY startup: screen-reader startup banner detected")
+            if _wait_for_silence(proc, silence_window=1, total_timeout=5):
+                logger.info("[claude] PTY startup: screen-reader banner settled")
+                return True
+            screen_reader_started = True
+            continue
         else:
+            stripped = _strip_ansi(proc.before or "")
+            if _SCREEN_READER_READY_RE.search(stripped):
+                logger.info("[claude] PTY startup: screen-reader ready header found in timeout buffer")
+                return True
+            if _SCREEN_READER_START_RE.search(stripped):
+                logger.info("[claude] PTY startup: screen-reader startup banner found in timeout buffer")
+                screen_reader_started = True
+                continue
+            if screen_reader_started:
+                logger.info("[claude] PTY startup: screen-reader banner seen; accepting settled PTY")
+                return True
             logger.info("[claude] PTY startup: timeout without ready signal")
             break
 
@@ -436,10 +518,10 @@ def _send_to_pty_locked(
     import pexpect
 
     proc = get_or_spawn(session_id, cwd)
-    proc.sendline(message)
+    _submit_to_pty(proc, message)
 
     response_started = False   # True once we yield a non-chrome delta line
-    echo_suppressed = False    # True after we've skipped the first message echo line
+    echo_suppressed_count = 0  # Claude screen-reader mode can echo repeated input-area repaints.
     status_bar_count = 0       # ⏵⏵ appearances; second after response_started = done
 
     while True:
@@ -448,8 +530,10 @@ def _send_to_pty_locked(
         try:
             idx = proc.expect([re.compile(r"\r?\n"), pexpect.TIMEOUT, pexpect.EOF], timeout=timeout)
         except pexpect.EOF:
+            logger.info("[claude] send_to_pty: EOF")
             break
-        except Exception:
+        except Exception as exc:
+            logger.info("[claude] send_to_pty: expect error: %s", exc)
             break
 
         chunk_raw = proc.before or ""
@@ -459,13 +543,18 @@ def _send_to_pty_locked(
             logger.debug("[claude] PTY raw=%r stripped=%r", chunk_raw[:120], chunk[:80])
 
         if idx == 2:  # EOF
+            logger.info("[claude] send_to_pty: EOF event")
             break
 
         if idx == 1:  # silence timeout
             if chunk:
                 for pair in _classify_line(chunk):
                     yield pair
-            logger.debug("[claude] send_to_pty: timeout fallback (response_started=%s)", response_started)
+            logger.info(
+                "[claude] send_to_pty: timeout fallback response_started=%s chunk=%r",
+                response_started,
+                chunk[:160],
+            )
             yield ("fallback", "")
             break
 
@@ -473,37 +562,38 @@ def _send_to_pty_locked(
         if not chunk:
             continue
 
-        # Prompt line — response complete.
-        if _PROMPT_RE.match(chunk):
-            break
+        # Prompt line. In screen-reader mode the `$` input prompt can repaint
+        # while Claude is still mid-answer, so suppress it and let silence close
+        # the stream instead of treating it as a hard completion signal.
+        if _is_prompt_line(chunk):
+            logger.info(
+                "[claude] send_to_pty: prompt repaint suppressed response_started=%s",
+                response_started,
+            )
+            continue
 
         # ⏵⏵ status bar — count occurrences; second one after real content = done.
         if "⏵⏵" in chunk:
             status_bar_count += 1
             if response_started and status_bar_count >= 2:
-                logger.debug("[claude] send_to_pty: second ⏵⏵ detected — response complete")
+                logger.info("[claude] send_to_pty: second ⏵⏵ detected — response complete")
                 break
             continue  # suppress status bar from delta stream
 
-        # Other TUI chrome — suppress.
-        if _UI_CHROME_RE.match(chunk):
+        # TUI or screen-reader chrome — suppress.
+        if _is_chrome_line(chunk):
             continue
 
-        # Conversation header line: "[cwd] | Sonnet 4.6 ... ctrl+g to edit in Vim"
-        # This line appears before AND after Claude's response as TUI scaffolding.
-        if _HEADER_RE.search(chunk):
+        # Suppress message echo. Screen-reader mode can emit both "$  msg" and
+        # a bare "msg" line, so allow more than one echo before real content.
+        if _looks_like_echo(chunk, message):
+            echo_suppressed_count += 1
+            logger.info("[claude] send_to_pty: echo suppressed count=%s", echo_suppressed_count)
             continue
-
-        # Suppress the message echo (first non-chrome line mirrors what we sent).
-        if not echo_suppressed:
-            echo_suppressed = True
-            # Check if this line looks like the echo of our message.
-            msg_start = message[:40].strip().lower()
-            if msg_start and chunk.lower().startswith(msg_start[:20]):
-                continue  # skip message echo
 
         pairs = list(_classify_line(chunk))
         for pair in pairs:
+            logger.info("[claude] send_to_pty: event=%s text_prefix=%r", pair[0], pair[1][:80])
             yield pair
         # Only promote to "response started" on actual prose content, not tool
         # calls or token-count lines.  Activity events mean Claude is still
@@ -521,7 +611,7 @@ def compact_pty(session_id: str, cwd: str) -> str | None:
     import pexpect
 
     proc = get_or_spawn(session_id, cwd)
-    proc.sendline("/compact")
+    _submit_to_pty(proc, "/compact")
 
     summary_lines: list[str] = []
     while True:
