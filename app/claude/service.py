@@ -292,12 +292,11 @@ def _resolve_startup_dialogs(proc: object, max_rounds: int = 15) -> bool:
         try:
             idx = proc.expect(
                 [
-                    _BYPASS_WARN_RE,                                                 # 0: URL in dialog
-                    re.compile(r"ctrl\+g", re.IGNORECASE),                          # 1: conversation ready
-                    re.compile(r"❯"),                                                # 2: startup overlay ❯
-                    re.compile(r"Do you want to use this API key", re.IGNORECASE),  # 3: API key fallback
-                    re.compile(r"Enter to confirm", re.IGNORECASE),                 # 4: generic confirm
-                    pexpect.TIMEOUT,                                                 # 5
+                    _BYPASS_WARN_RE,                                                 # 0: Bypass Permissions URL
+                    re.compile(r"❯"),                                                # 1: startup suggestion
+                    re.compile(r"Do you want to use this API key", re.IGNORECASE),  # 2: API key fallback
+                    re.compile(r"Enter to confirm", re.IGNORECASE),                 # 3: generic confirm
+                    pexpect.TIMEOUT,                                                 # 4
                 ],
                 timeout=20,
             )
@@ -309,18 +308,21 @@ def _resolve_startup_dialogs(proc: object, max_rounds: int = 15) -> bool:
             logger.info("[claude] PTY startup: Bypass Permissions dialog — accepting (DOWN+ENTER)")
             proc.send("\x1b[B\r")
         elif idx == 1:
-            # Conversation input area is visible — Claude Code is ready.
-            logger.info("[claude] PTY startup: conversation ready (ctrl+g detected)")
+            # Welcome screen suggestion pre-fills the input area with '❯ Try "..."'.
+            # Enter would EXECUTE the suggestion; ESC clears it without executing.
+            # ctrl+g (idx 1) is rendered with per-character ANSI codes in the raw
+            # buffer so it's not a contiguous literal pexpect can match — instead
+            # we use ESC + silence as the ready signal.
+            logger.info("[claude] PTY startup: startup suggestion (❯) — pressing ESC to clear")
+            proc.send("\x1b")
+            # Wait for TUI to re-render and settle; silence = input area is ready.
+            _wait_for_silence(proc, silence_window=2, total_timeout=15)
+            logger.info("[claude] PTY startup: TUI settled after ESC — ready")
             return True
         elif idx == 2:
-            # Welcome screen suggestion pre-fills the input area with '❯ Try "..."'.
-            # Press Enter here would EXECUTE the suggestion. Send ESC to clear it.
-            logger.info("[claude] PTY startup: startup suggestion (❯) — pressing ESC to clear without executing")
-            proc.send("\x1b")
-        elif idx == 3:
             logger.info("[claude] PTY startup: API key dialog — declining (CC account)")
             proc.send("\r")
-        elif idx == 4:
+        elif idx == 3:
             logger.info("[claude] PTY startup: confirm dialog — pressing Enter")
             proc.send("\r")
         else:
