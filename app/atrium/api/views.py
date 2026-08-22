@@ -12,6 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from atrium.models import AtriumSession, AtriumSessionStatus
+from atrium.ai.service import PUDDLEJUMP_GROUPS
 from profiles.services.profiles import ensure_user_profile
 from .serializers import AtriumSessionListSerializer, AtriumSessionEntrySerializer
 
@@ -54,10 +55,18 @@ class AtriumSessionCreateView(generics.CreateAPIView):
 
     def create(self, request, *args, **kwargs):
         profile = ensure_user_profile(request.user)
+
+        group = None
+        group_slug = request.data.get("group_slug", "")
+        if group_slug:
+            from groups.models.group import Group
+            group = Group.objects.filter(slug=group_slug, deleted_at__isnull=True).first()
+
         session = AtriumSession.objects.create(
             member=profile,
             title=request.data.get("title", ""),
             session_context=request.data.get("session_context", ""),
+            group=group,
         )
         return Response(
             AtriumSessionListSerializer(session).data,
@@ -189,13 +198,21 @@ class AtriumSessionExchangeView(APIView):
         profile = ensure_user_profile(request.user)
 
         try:
-            session = AtriumSession.objects.get(
+            session = AtriumSession.objects.select_related("group").get(
                 id=session_id,
                 member=profile,
                 deleted_at__isnull=True,
             )
         except AtriumSession.DoesNotExist:
             return Response({"detail": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Puddlejump-gated groups require staff access.
+        if session.group_id and session.group.slug in PUDDLEJUMP_GROUPS:
+            if not request.user.is_staff:
+                return Response(
+                    {"detail": "Staff access required for this group's Atrium."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
         if session.status == AtriumSessionStatus.ARCHIVED:
             return Response(
@@ -209,7 +226,7 @@ class AtriumSessionExchangeView(APIView):
 
         try:
             from atrium.ai.service import AtriumAIService
-            ai = AtriumAIService()
+            ai = AtriumAIService(session=session)
         except Exception as exc:
             logger.error("atrium_ai_service_init_failed session=%s error=%s", session_id, exc)
             return Response(

@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 
 MAX_TOOL_ITERATIONS = 6
 
+# Groups that route through ClaudeCodeAdapter (Puddlejump cwd).
+# Hard-coded for local use — VPS deployment is a separate ADR item.
+PUDDLEJUMP_GROUPS: frozenset[str] = frozenset({"mindful-brilliance"})
+
 
 class AtriumAnthropicAdapter:
     MODEL = "claude-sonnet-4-6"
@@ -126,10 +130,23 @@ class AtriumAIService:
             # full_text is accumulated inside; no post-processing needed by caller
     """
 
-    def __init__(self):
+    def __init__(self, session=None):
         from django.conf import settings
-        if getattr(settings, "ATRIUM_USE_CLAUDE_CODE", False):
-            logger.info("[atrium] AtriumAIService: using ClaudeCodeAdapter (Phase 2A)")
+        use_claude_code = False
+
+        # Per-session dispatch: group membership in PUDDLEJUMP_GROUPS wins.
+        if session and session.group_id:
+            try:
+                use_claude_code = session.group.slug in PUDDLEJUMP_GROUPS
+            except Exception:
+                pass
+
+        # Fall back to global toggle (useful for testing without a group).
+        if not use_claude_code:
+            use_claude_code = getattr(settings, "ATRIUM_USE_CLAUDE_CODE", False)
+
+        if use_claude_code:
+            logger.info("[atrium] AtriumAIService: ClaudeCodeAdapter (group=%s)", getattr(session and session.group, "slug", "global"))
             self._adapter = ClaudeCodeAdapter()
         else:
             self._adapter = AtriumAnthropicAdapter()
@@ -200,6 +217,19 @@ def _build_system_prompt(session) -> str:
         "You help the member think clearly, plan effectively, and make good decisions. "
         "Be direct and specific. Match the depth of the question.",
     ]
+
+    if session.group_id:
+        group = session.group
+        group_line = f"Group: {group.title} (slug: {group.slug})"
+        if hasattr(group, "summary") and group.summary:
+            group_line += f" — {group.summary.strip()}"
+        parts.append(f"\n\nGroup context:\n{group_line}")
+        if group.slug in PUDDLEJUMP_GROUPS:
+            parts.append(
+                "This session operates in the Puddlejump planning context for this group. "
+                "You have access to the group's canon documents, ADRs, and decision records."
+            )
+
     if session.session_context and session.session_context.strip():
         parts.append(f"\n\nSession context:\n{session.session_context.strip()}")
 

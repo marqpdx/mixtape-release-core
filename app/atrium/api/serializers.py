@@ -13,6 +13,10 @@ class AtriumSessionEntrySerializer(serializers.ModelSerializer):
 
 class AtriumSessionListSerializer(serializers.ModelSerializer):
     entry_count = serializers.IntegerField(read_only=True)
+    group_slug = serializers.SerializerMethodField()
+
+    def get_group_slug(self, obj):
+        return obj.group.slug if obj.group_id else None
 
     class Meta:
         model = AtriumSession
@@ -21,6 +25,7 @@ class AtriumSessionListSerializer(serializers.ModelSerializer):
             "title",
             "session_context",
             "dial_mode",
+            "group_slug",
             "status",
             "last_activity_at",
             "entry_count",
