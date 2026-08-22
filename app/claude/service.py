@@ -202,19 +202,13 @@ def get_or_spawn(session_id: str, cwd: str, opening_context: str | None = None) 
         env=env,
     )
 
-    # Drive through any remaining setup dialogs (first-run, TOS, etc.).
+    # Drive through all startup overlays (Bypass Permissions, welcome screen, etc.)
+    # and wait until the conversation-ready signal (ctrl+g) is detected.
     _resolve_startup_dialogs(proc)
-    # Drain to the conversation prompt. If it times out, try one blind DOWN+ENTER
-    # to clear any dialog whose cursor is selected on a "No / exit" option
-    # (e.g. the Bypass Permissions warning), then wait once more.
-    if not _wait_for_prompt(proc, timeout=30):
-        logger.info("[claude] PTY startup: prompt not found — sending blind DOWN+ENTER to accept any remaining dialog")
-        proc.send("\x1b[B\r")
-        _wait_for_prompt(proc, timeout=30)
 
     if opening_context:
         proc.sendline(opening_context)
-        _wait_for_prompt(proc, timeout=30)
+        _wait_for_silence(proc, silence_window=2, total_timeout=30)
 
     _pty_registry[session_id] = proc
     return proc
@@ -222,19 +216,18 @@ def get_or_spawn(session_id: str, cwd: str, opening_context: str | None = None) 
 
 def _wait_for_prompt(proc: object, timeout: int = 30) -> bool:
     """
-    Wait until the Claude Code input prompt appears.
+    Wait until the Claude Code input prompt appears after a response.
     Returns True if the prompt was found, False on timeout.
 
-    The negative lookahead (?! \\d) excludes interactive menu cursors such as
-    '❯ 1. No, exit' — menu options are always '❯ <digit>.' while the
-    conversation prompt is just '> ' or '❯ ' with no following digit.
+    Used after sending opening_context — not for startup detection (that
+    uses ctrl+g inside _resolve_startup_dialogs instead).
     """
     import pexpect
     try:
         idx = proc.expect(
             [
-                re.compile(r"\r?\n[>❯](?! \d) "),   # prompt line — not a menu item
-                re.compile(r"\A[>❯](?! \d) "),       # prompt at buffer start
+                re.compile(r"\r?\n[>❯](?! \d) "),   # prompt — not a menu item
+                re.compile(r"\A[>❯](?! \d) "),
                 pexpect.TIMEOUT,
             ],
             timeout=timeout,
@@ -244,18 +237,54 @@ def _wait_for_prompt(proc: object, timeout: int = 30) -> bool:
         return False
 
 
-def _resolve_startup_dialogs(proc: object, max_rounds: int = 5) -> None:
+def _wait_for_silence(proc: object, silence_window: float = 2.0, total_timeout: int = 30) -> bool:
     """
-    After spawn, consume any interactive dialogs Claude Code shows before the
-    main conversation prompt (first-run setup, TOS, etc.).
+    Wait until the PTY has been silent for silence_window seconds.
+    Used after sending opening_context to know Claude has finished processing.
+    Returns True if silence was detected within total_timeout, False otherwise.
+    """
+    import pexpect, time
+    deadline = time.time() + total_timeout
+    while time.time() < deadline:
+        remaining = deadline - time.time()
+        try:
+            idx = proc.expect(
+                [re.compile(r"[\s\S]", re.DOTALL), pexpect.TIMEOUT],
+                timeout=min(silence_window, remaining),
+            )
+        except Exception:
+            return False
+        if idx == 1:
+            return True  # silence_window seconds of no output
+    return False
 
-    We do NOT look for ❯ as a "prompt found" signal here — the API key selection
-    menu and other menus also contain ❯ and would cause false exits. Instead we
-    loop until timeout (no more dialog text detected), then let _wait_for_prompt
-    drain to the actual conversation prompt.
 
-    The API key dialog is avoided entirely by stripping ANTHROPIC_API_KEY from
-    the PTY env before spawn — this function handles any remaining dialogs.
+def _resolve_startup_dialogs(proc: object, max_rounds: int = 15) -> bool:
+    """
+    Drive through all startup overlays Claude Code shows before the conversation
+    interface is ready.
+
+    Claude Code is a full TUI app — dialog text uses terminal cursor-positioning
+    codes between words, so plain text patterns fail. We detect dialogs via:
+
+      • _BYPASS_WARN_RE  — matches the literal URL in the OSC hyperlink that the
+                           Bypass Permissions dialog embeds; URL text is never
+                           cursor-positioned, so it appears as a contiguous literal
+                           string in pexpect's raw buffer.
+      • "❯"              — after the Bypass Permissions dialog is dismissed, the
+                           welcome screen shows a suggestion (`❯ Try "fix type…"`).
+                           Any ❯ that appears before ctrl+g is a startup overlay
+                           menu cursor; pressing Enter dismisses it.
+      • "ctrl+g"         — appears in the conversation input-area header once Claude
+                           Code is truly ready for a conversation turn. This is the
+                           authoritative ready signal.
+
+    Pattern ordering matters: pexpect matches the leftmost hit in the buffer. By
+    listing the Bypass Permissions URL before ❯, we handle that dialog first even
+    though ❯ also appears inside it. ctrl+g is listed before ❯ so that once the
+    conversation interface loads, we detect readiness before any input-area ❯.
+
+    Returns True if ctrl+g was detected (conversation ready), False if we timed out.
     """
     import pexpect
 
@@ -263,10 +292,12 @@ def _resolve_startup_dialogs(proc: object, max_rounds: int = 5) -> None:
         try:
             idx = proc.expect(
                 [
-                    re.compile(r"Do you want to use this API key", re.IGNORECASE),  # 0
-                    _BYPASS_WARN_RE,                                                  # 1
-                    re.compile(r"Enter to confirm", re.IGNORECASE),                  # 2
-                    pexpect.TIMEOUT,                                                  # 3
+                    _BYPASS_WARN_RE,                                                 # 0: URL in dialog
+                    re.compile(r"ctrl\+g", re.IGNORECASE),                          # 1: conversation ready
+                    re.compile(r"❯"),                                                # 2: startup overlay ❯
+                    re.compile(r"Do you want to use this API key", re.IGNORECASE),  # 3: API key fallback
+                    re.compile(r"Enter to confirm", re.IGNORECASE),                 # 4: generic confirm
+                    pexpect.TIMEOUT,                                                 # 5
                 ],
                 timeout=20,
             )
@@ -274,19 +305,28 @@ def _resolve_startup_dialogs(proc: object, max_rounds: int = 5) -> None:
             break
 
         if idx == 0:
+            # Bypass Permissions: cursor on '❯ 1. No, exit' — DOWN+ENTER to reach Yes.
+            logger.info("[claude] PTY startup: Bypass Permissions dialog — accepting (DOWN+ENTER)")
+            proc.send("\x1b[B\r")
+        elif idx == 1:
+            # Conversation input area is visible — Claude Code is ready.
+            logger.info("[claude] PTY startup: conversation ready (ctrl+g detected)")
+            return True
+        elif idx == 2:
+            # Welcome screen or other overlay with ❯ cursor — press Enter to dismiss.
+            logger.info("[claude] PTY startup: startup overlay (❯) — pressing Enter to dismiss")
+            proc.send("\r")
+        elif idx == 3:
             logger.info("[claude] PTY startup: API key dialog — declining (CC account)")
             proc.send("\r")
-        elif idx == 1:
-            # Bypass Permissions dialog: cursor defaults to '❯ 1. No, exit'.
-            # Press DOWN then ENTER to navigate to '2. Yes, I accept'.
-            logger.info("[claude] PTY startup: Bypass Permissions dialog — navigating to accept")
-            proc.send("\x1b[B\r")
-        elif idx == 2:
+        elif idx == 4:
             logger.info("[claude] PTY startup: confirm dialog — pressing Enter")
             proc.send("\r")
         else:
-            logger.info("[claude] PTY startup: no dialog within timeout, proceeding to prompt wait")
+            logger.info("[claude] PTY startup: timeout without ready signal")
             break
+
+    return False
 
 
 def is_pty_alive(session_id: str) -> bool:
