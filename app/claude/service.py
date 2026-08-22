@@ -52,6 +52,7 @@ _COMPACT_DONE_RE = re.compile(r"compacted|summarized|compressed", re.IGNORECASE)
 # Patterns that indicate Claude Code is showing an interactive setup dialog,
 # not a conversation prompt. We must respond to these during spawn.
 _API_KEY_PROMPT_RE = re.compile(r"Do you want to use this API key", re.IGNORECASE)
+_BYPASS_WARN_RE = re.compile(r"Bypass Permissions mode", re.IGNORECASE)
 _SETUP_DIALOG_RE = re.compile(r"Enter to confirm|Esc to cancel", re.IGNORECASE)
 
 # Session UUID → pexpect.spawn handle.
@@ -214,13 +215,17 @@ def _wait_for_prompt(proc: object, timeout: int = 30) -> bool:
     """
     Wait until the Claude Code input prompt appears.
     Returns True if the prompt was found, False on timeout.
+
+    The negative lookahead (?! \\d) excludes interactive menu cursors such as
+    '❯ 1. No, exit' — menu options are always '❯ <digit>.' while the
+    conversation prompt is just '> ' or '❯ ' with no following digit.
     """
     import pexpect
     try:
         idx = proc.expect(
             [
-                re.compile(r"\r?\n[>❯]\s"),   # prompt on its own line
-                re.compile(r"\A[>❯]\s"),       # prompt at buffer start
+                re.compile(r"\r?\n[>❯](?! \d) "),   # prompt line — not a menu item
+                re.compile(r"\A[>❯](?! \d) "),       # prompt at buffer start
                 pexpect.TIMEOUT,
             ],
             timeout=timeout,
@@ -249,23 +254,28 @@ def _resolve_startup_dialogs(proc: object, max_rounds: int = 5) -> None:
         try:
             idx = proc.expect(
                 [
-                    re.compile(r"Do you want to use this API key", re.IGNORECASE),
-                    re.compile(r"Enter to confirm", re.IGNORECASE),
-                    pexpect.TIMEOUT,
+                    re.compile(r"Do you want to use this API key", re.IGNORECASE),  # 0
+                    _BYPASS_WARN_RE,                                                  # 1
+                    re.compile(r"Enter to confirm", re.IGNORECASE),                  # 2
+                    pexpect.TIMEOUT,                                                  # 3
                 ],
-                timeout=8,
+                timeout=20,
             )
         except Exception:
             break
 
         if idx == 0:
-            logger.info("[claude] PTY startup: API key dialog detected — declining (using CC account)")
+            logger.info("[claude] PTY startup: API key dialog — declining (CC account)")
             proc.send("\r")
         elif idx == 1:
-            logger.info("[claude] PTY startup: confirm dialog detected — pressing Enter")
+            # Bypass Permissions dialog: cursor defaults to '❯ 1. No, exit'.
+            # Press DOWN then ENTER to navigate to '2. Yes, I accept'.
+            logger.info("[claude] PTY startup: Bypass Permissions dialog — navigating to accept")
+            proc.send("\x1b[B\r")
+        elif idx == 2:
+            logger.info("[claude] PTY startup: confirm dialog — pressing Enter")
             proc.send("\r")
         else:
-            # Timeout — no more dialogs.
             logger.info("[claude] PTY startup: no dialog within timeout, proceeding to prompt wait")
             break
 
