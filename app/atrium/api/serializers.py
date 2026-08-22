@@ -20,6 +20,7 @@ class AtriumSessionListSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "session_context",
+            "dial_mode",
             "status",
             "last_activity_at",
             "entry_count",
