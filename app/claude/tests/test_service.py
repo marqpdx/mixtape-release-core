@@ -52,6 +52,40 @@ class TestRunBlocking(unittest.TestCase):
         self.assertIsNone(result)
 
 
+class TestPtyScreenReaderParsing(unittest.TestCase):
+    def test_screen_reader_prompt_and_chrome_lines_are_suppressed(self):
+        chrome_lines = [
+            "Claude Code v2.1.240",
+            "Sonnet 4.6 with medium effort · Claude Pro",
+            "~/Sites/ml/active/mixtape/release/puddlejump",
+            "bypass permissions on (shift+tab to cycle)",
+            "effort: medium · /effort",
+            "$/rc",
+            "$ctrl+g to edit in Vim",
+        ]
+        for line in chrome_lines:
+            with self.subTest(line=line):
+                self.assertTrue(claude_service._is_chrome_line(line))
+
+    def test_screen_reader_prompt_marker_is_prompt_line(self):
+        self.assertTrue(claude_service._is_prompt_line("$"))
+        self.assertFalse(claude_service._is_prompt_line("$  hello"))
+
+    def test_screen_reader_startup_banner_is_detected(self):
+        self.assertTrue(claude_service._SCREEN_READER_START_RE.search("78Claude Code v2.1.240"))
+        self.assertTrue(claude_service._SCREEN_READER_READY_RE.search("$ctrl+g to edit in Vim"))
+
+    def test_screen_reader_echo_is_detected_with_or_without_prompt_prefix(self):
+        message = "we're most interested in the state of our reference/ knowledge topologies. can you summarize?"
+        self.assertTrue(claude_service._looks_like_echo(f"$  {message}", message))
+        self.assertTrue(claude_service._looks_like_echo(message, message))
+        self.assertFalse(claude_service._looks_like_echo("Here is a summary.", message))
+
+    def test_tool_prefix_variants_are_activity(self):
+        self.assertEqual(claude_service._classify_line("⎿ Read foo.md"), [("activity", "Read foo.md")])
+        self.assertEqual(claude_service._classify_line("⯎ Read foo.md"), [("activity", "Read foo.md")])
+
+
 class TestStream(unittest.TestCase):
     """
     Integration smoke test — skip unless `claude` binary is on PATH.
