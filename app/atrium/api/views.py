@@ -56,17 +56,23 @@ class AtriumSessionCreateView(generics.CreateAPIView):
     def create(self, request, *args, **kwargs):
         profile = ensure_user_profile(request.user)
 
-        group = None
+        sponsor_ct = None
+        sponsor_id = None
         group_slug = request.data.get("group_slug", "")
         if group_slug:
+            from django.contrib.contenttypes.models import ContentType
             from groups.models.group import Group
             group = Group.objects.filter(slug=group_slug, deleted_at__isnull=True).first()
+            if group:
+                sponsor_ct = ContentType.objects.get_for_model(Group)
+                sponsor_id = group.pk
 
         session = AtriumSession.objects.create(
             member=profile,
             title=request.data.get("title", ""),
             session_context=request.data.get("session_context", ""),
-            group=group,
+            sponsor_content_type=sponsor_ct,
+            sponsor_object_id=sponsor_id,
         )
         return Response(
             AtriumSessionListSerializer(session).data,
@@ -198,7 +204,7 @@ class AtriumSessionExchangeView(APIView):
         profile = ensure_user_profile(request.user)
 
         try:
-            session = AtriumSession.objects.select_related("group").get(
+            session = AtriumSession.objects.select_related("sponsor_content_type").get(
                 id=session_id,
                 member=profile,
                 deleted_at__isnull=True,
@@ -207,8 +213,10 @@ class AtriumSessionExchangeView(APIView):
             return Response({"detail": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
 
         # Puddlejump-gated groups require staff access.
-        if session.group_id and session.group.slug in PUDDLEJUMP_GROUPS:
-            if not request.user.is_staff:
+        if session.sponsor_object_id:
+            sponsor = session.sponsor
+            sponsor_slug = getattr(sponsor, "slug", None)
+            if sponsor_slug in PUDDLEJUMP_GROUPS and not request.user.is_staff:
                 return Response(
                     {"detail": "Staff access required for this group's Atrium."},
                     status=status.HTTP_403_FORBIDDEN,

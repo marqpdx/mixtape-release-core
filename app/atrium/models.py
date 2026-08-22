@@ -1,5 +1,7 @@
 import uuid
 
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 from django.db import models
 
 from fundamentals.bases import BaseModel
@@ -39,14 +41,17 @@ class AtriumSession(BaseModel):
         related_name="atrium_sessions",
     )
 
-    group = models.ForeignKey(
-        "groups.Group",
+    # Polymorphic sponsor — the Group or UserProfile that owns this Atrium surface.
+    # Null = personal session (member is the implicit context).
+    sponsor_content_type = models.ForeignKey(
+        ContentType,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="atrium_sessions",
-        help_text="If set, this session is scoped to the group's Atrium surface.",
+        related_name="+",
     )
+    sponsor_object_id = models.UUIDField(null=True, blank=True)
+    sponsor = GenericForeignKey("sponsor_content_type", "sponsor_object_id")
 
     title = models.CharField(
         max_length=255,
