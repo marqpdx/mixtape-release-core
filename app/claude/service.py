@@ -34,11 +34,25 @@ logger = logging.getLogger(__name__)
 # PTY constants
 # ---------------------------------------------------------------------------
 
-_ANSI_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-9;]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
+# Comprehensive ANSI stripper: handles standard CSI, private-param CSI (><=?),
+# OSC, character-set designations, and bare Fe sequences.
+_ANSI_RE = re.compile(
+    r"\x1b(?:"
+    r"[@-Z\\-_]"                         # Fe sequences (ESC + single char)
+    r"|\[[0-9;:<=>?]*[ -/]*[@-~]"        # CSI — standard + private params (>, ?, etc.)
+    r"|\][^\x07\x1b]*(?:\x07|\x1b\\)"   # OSC sequences
+    r"|[()]."                             # Character set designations (ESC ( B …)
+    r")"
+)
 _TOOL_PREFIX = "⯎ "  # ⎿
 _PROMPT_RE = re.compile(r"^[>❯]\s*$")
 _CONTEXT_RE = re.compile(r"([\d,]+)\s*/\s*([\d,]+)\s*tokens?\s*used\s*\(([\d.]+)%\)")
 _COMPACT_DONE_RE = re.compile(r"compacted|summarized|compressed", re.IGNORECASE)
+
+# Patterns that indicate Claude Code is showing an interactive setup dialog,
+# not a conversation prompt. We must respond to these during spawn.
+_API_KEY_PROMPT_RE = re.compile(r"Do you want to use this API key", re.IGNORECASE)
+_SETUP_DIALOG_RE = re.compile(r"Enter to confirm|Esc to cancel", re.IGNORECASE)
 
 # Session UUID → pexpect.spawn handle.
 _pty_registry: dict[str, object] = {}
@@ -174,21 +188,79 @@ def get_or_spawn(session_id: str, cwd: str, opening_context: str | None = None) 
         timeout=120,
         codec_errors="replace",
     )
-    # Wait for initial ready state (prompt or timeout after 30 s).
-    try:
-        proc.expect([re.compile(r"[>❯]"), pexpect.TIMEOUT], timeout=30)
-    except Exception:
-        pass
+
+    # Drive through any interactive setup dialogs Claude Code may show on startup
+    # (API key confirmation, first-run prompts, etc.) before handing off.
+    _resolve_startup_dialogs(proc)
 
     if opening_context:
         proc.sendline(opening_context)
-        try:
-            proc.expect([re.compile(r"[>❯]"), pexpect.TIMEOUT], timeout=30)
-        except Exception:
-            pass
+        _wait_for_prompt(proc, timeout=30)
 
     _pty_registry[session_id] = proc
     return proc
+
+
+def _wait_for_prompt(proc: object, timeout: int = 30) -> bool:
+    """
+    Wait until the Claude Code input prompt appears.
+    Returns True if the prompt was found, False on timeout.
+    """
+    import pexpect
+    try:
+        idx = proc.expect(
+            [
+                re.compile(r"\r?\n[>❯]\s"),   # prompt on its own line
+                re.compile(r"\A[>❯]\s"),       # prompt at buffer start
+                pexpect.TIMEOUT,
+            ],
+            timeout=timeout,
+        )
+        return idx in (0, 1)
+    except Exception:
+        return False
+
+
+def _resolve_startup_dialogs(proc: object, max_rounds: int = 5) -> None:
+    """
+    After spawn, consume any interactive dialogs Claude Code shows before the
+    main conversation prompt (API key confirmation, first-run setup, etc.).
+    Selects "Yes" for API key reuse; dismisses other dialogs with Enter.
+    """
+    import pexpect
+
+    for _ in range(max_rounds):
+        try:
+            idx = proc.expect(
+                [
+                    re.compile(r"Do you want to use this API key", re.IGNORECASE),
+                    re.compile(r"Enter to confirm", re.IGNORECASE),
+                    re.compile(r"\r?\n[>❯]\s"),    # conversation prompt — done
+                    re.compile(r"\A[>❯]\s"),
+                    pexpect.TIMEOUT,
+                ],
+                timeout=15,
+            )
+        except Exception:
+            break
+
+        if idx == 0:
+            # API key dialog: default cursor is on "2. No (recommended)".
+            # We want to use the Claude Code account, not the API key — press Enter to confirm No.
+            logger.info("[claude] PTY startup: API key dialog detected — declining (using CC account)")
+            proc.send("\r")
+        elif idx == 1:
+            # Generic "Enter to confirm" dialog — just confirm.
+            logger.info("[claude] PTY startup: confirm dialog detected — pressing Enter")
+            proc.send("\r")
+        elif idx in (2, 3):
+            # Reached the conversation prompt — startup complete.
+            logger.info("[claude] PTY startup: prompt found, ready")
+            break
+        else:
+            # Timeout — assume no more dialogs, proceed.
+            logger.info("[claude] PTY startup: no dialog detected within timeout, continuing")
+            break
 
 
 def is_pty_alive(session_id: str) -> bool:
@@ -234,11 +306,12 @@ def send_to_pty(
         if idx == 2:  # EOF
             break
 
-        if idx == 1:  # timeout — silence means Claude finished responding
+        if idx == 1:  # timeout — prompt not detected; treating silence as end of response
             if chunk:
-                # Flush anything left in the buffer
                 for pair in _classify_line(chunk):
                     yield pair
+            logger.debug("[claude] send_to_pty: timeout fallback used (prompt not detected)")
+            yield ("fallback", "")  # signals the frontend that timeout-based completion fired
             break
 
         # idx == 0: got a newline
