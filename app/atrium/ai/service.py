@@ -134,19 +134,21 @@ class AtriumAIService:
         from django.conf import settings
         use_claude_code = False
 
-        # Per-session dispatch: group membership in PUDDLEJUMP_GROUPS wins.
-        if session and session.group_id:
+        # Per-session dispatch: sponsor slug in PUDDLEJUMP_GROUPS wins.
+        if session and session.sponsor_object_id:
             try:
-                use_claude_code = session.group.slug in PUDDLEJUMP_GROUPS
+                sponsor_slug = getattr(session.sponsor, "slug", None)
+                use_claude_code = sponsor_slug in PUDDLEJUMP_GROUPS
             except Exception:
                 pass
 
-        # Fall back to global toggle (useful for testing without a group).
+        # Fall back to global toggle (useful for testing without a sponsor).
         if not use_claude_code:
             use_claude_code = getattr(settings, "ATRIUM_USE_CLAUDE_CODE", False)
 
         if use_claude_code:
-            logger.info("[atrium] AtriumAIService: ClaudeCodeAdapter (group=%s)", getattr(session and session.group, "slug", "global"))
+            sponsor_slug = getattr(getattr(session, "sponsor", None), "slug", "global") if session else "global"
+            logger.info("[atrium] AtriumAIService: ClaudeCodeAdapter (sponsor=%s)", sponsor_slug)
             self._adapter = ClaudeCodeAdapter()
         else:
             self._adapter = AtriumAnthropicAdapter()
@@ -218,17 +220,24 @@ def _build_system_prompt(session) -> str:
         "Be direct and specific. Match the depth of the question.",
     ]
 
-    if session.group_id:
-        group = session.group
-        group_line = f"Group: {group.title} (slug: {group.slug})"
-        if hasattr(group, "summary") and group.summary:
-            group_line += f" — {group.summary.strip()}"
-        parts.append(f"\n\nGroup context:\n{group_line}")
-        if group.slug in PUDDLEJUMP_GROUPS:
-            parts.append(
-                "This session operates in the Puddlejump planning context for this group. "
-                "You have access to the group's canon documents, ADRs, and decision records."
-            )
+    if session.sponsor_object_id:
+        sponsor = session.sponsor
+        if sponsor is not None:
+            sponsor_slug = getattr(sponsor, "slug", None)
+            sponsor_title = getattr(sponsor, "title", None) or getattr(sponsor, "username", str(sponsor))
+            sponsor_summary = getattr(sponsor, "summary", "") or ""
+            sponsor_type = session.sponsor_content_type.model if session.sponsor_content_type_id else "unknown"
+            sponsor_line = f"{sponsor_type.capitalize()}: {sponsor_title}"
+            if sponsor_slug:
+                sponsor_line += f" (slug: {sponsor_slug})"
+            if sponsor_summary:
+                sponsor_line += f" — {sponsor_summary.strip()}"
+            parts.append(f"\n\nSponsor context:\n{sponsor_line}")
+            if sponsor_slug in PUDDLEJUMP_GROUPS:
+                parts.append(
+                    "This session operates in the Puddlejump planning context for this group. "
+                    "You have access to the group's canon documents, ADRs, and decision records."
+                )
 
     if session.session_context and session.session_context.strip():
         parts.append(f"\n\nSession context:\n{session.session_context.strip()}")

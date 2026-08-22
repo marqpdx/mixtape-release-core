@@ -13,10 +13,18 @@ class AtriumSessionEntrySerializer(serializers.ModelSerializer):
 
 class AtriumSessionListSerializer(serializers.ModelSerializer):
     entry_count = serializers.IntegerField(read_only=True)
-    group_slug = serializers.SerializerMethodField()
+    sponsor_type = serializers.SerializerMethodField()
+    sponsor_slug = serializers.SerializerMethodField()
 
-    def get_group_slug(self, obj):
-        return obj.group.slug if obj.group_id else None
+    def get_sponsor_type(self, obj):
+        if obj.sponsor_content_type_id:
+            return obj.sponsor_content_type.model
+        return None
+
+    def get_sponsor_slug(self, obj):
+        if obj.sponsor_object_id and obj.sponsor:
+            return getattr(obj.sponsor, "slug", None)
+        return None
 
     class Meta:
         model = AtriumSession
@@ -25,7 +33,8 @@ class AtriumSessionListSerializer(serializers.ModelSerializer):
             "title",
             "session_context",
             "dial_mode",
-            "group_slug",
+            "sponsor_type",
+            "sponsor_slug",
             "status",
             "last_activity_at",
             "entry_count",
