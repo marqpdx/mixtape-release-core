@@ -52,7 +52,11 @@ _COMPACT_DONE_RE = re.compile(r"compacted|summarized|compressed", re.IGNORECASE)
 # Patterns that indicate Claude Code is showing an interactive setup dialog,
 # not a conversation prompt. We must respond to these during spawn.
 _API_KEY_PROMPT_RE = re.compile(r"Do you want to use this API key", re.IGNORECASE)
-_BYPASS_WARN_RE = re.compile(r"Bypass Permissions mode", re.IGNORECASE)
+# The Bypass Permissions warning dialog uses terminal cursor-positioning codes
+# between words, so "Bypass Permissions mode" is not a contiguous literal string
+# in pexpect's raw buffer. The dialog does include an OSC hyperlink whose URL
+# appears as literal bytes — match that instead.
+_BYPASS_WARN_RE = re.compile(r"code\.claude\.com", re.IGNORECASE)
 _SETUP_DIALOG_RE = re.compile(r"Enter to confirm|Esc to cancel", re.IGNORECASE)
 
 # Session UUID → pexpect.spawn handle.
@@ -200,8 +204,13 @@ def get_or_spawn(session_id: str, cwd: str, opening_context: str | None = None) 
 
     # Drive through any remaining setup dialogs (first-run, TOS, etc.).
     _resolve_startup_dialogs(proc)
-    # Always drain to the conversation prompt before returning.
-    _wait_for_prompt(proc, timeout=30)
+    # Drain to the conversation prompt. If it times out, try one blind DOWN+ENTER
+    # to clear any dialog whose cursor is selected on a "No / exit" option
+    # (e.g. the Bypass Permissions warning), then wait once more.
+    if not _wait_for_prompt(proc, timeout=30):
+        logger.info("[claude] PTY startup: prompt not found — sending blind DOWN+ENTER to accept any remaining dialog")
+        proc.send("\x1b[B\r")
+        _wait_for_prompt(proc, timeout=30)
 
     if opening_context:
         proc.sendline(opening_context)
