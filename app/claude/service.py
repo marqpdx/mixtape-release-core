@@ -455,9 +455,15 @@ def send_to_pty(
             if msg_start and chunk.lower().startswith(msg_start[:20]):
                 continue  # skip message echo
 
-        response_started = True
-        for pair in _classify_line(chunk):
+        pairs = list(_classify_line(chunk))
+        for pair in pairs:
             yield pair
+        # Only promote to "response started" on actual prose content, not tool
+        # calls or token-count lines.  Activity events mean Claude is still
+        # working (reading files, running tools); switching to the short timeout
+        # there causes premature fallback on anything taking > 10s per call.
+        if any(event_type == "delta" for event_type, _ in pairs):
+            response_started = True
 
 
 def compact_pty(session_id: str, cwd: str) -> str | None:
