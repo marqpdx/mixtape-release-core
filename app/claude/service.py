@@ -49,6 +49,19 @@ _PROMPT_RE = re.compile(r"^[>❯]\s*$")
 _CONTEXT_RE = re.compile(r"([\d,]+)\s*/\s*([\d,]+)\s*tokens?\s*used\s*\(([\d.]+)%\)")
 _COMPACT_DONE_RE = re.compile(r"compacted|summarized|compressed", re.IGNORECASE)
 
+# TUI chrome lines to suppress from the delta stream.
+# Claude Code renders separator lines and status bars around each exchange;
+# these are visual scaffolding, not Claude's response text.
+_UI_CHROME_RE = re.compile(
+    r"^(?:"
+    r"─{5,}"          # horizontal separator (──────...)
+    r"|[╭╰│╮╯]"       # box-drawing corners / sides (welcome screen)
+    r"|⏵⏵"            # status bar marker (bypass permissions indicator)
+    r"|▐|▛|▝"         # block graphics from Claude Code logo
+    r")",
+    re.UNICODE,
+)
+
 # Patterns that indicate Claude Code is showing an interactive setup dialog,
 # not a conversation prompt. We must respond to these during spawn.
 _API_KEY_PROMPT_RE = re.compile(r"Do you want to use this API key", re.IGNORECASE)
@@ -351,19 +364,34 @@ def send_to_pty(
     Write message to the session's PTY and yield (event_type, text) pairs
     until Claude Code returns to its prompt.
 
-    event_type values:
-      "delta"          — response text (one line, includes trailing \\n)
-      "activity"       — tool-call activity (e.g. "Reading foo.md")
-      "context_status" — JSON string with {used, total, pct}
+    Timeout strategy:
+      - Before Claude starts responding (thinking/file-reading phase): 60s patience.
+      - Once response content is flowing: 10s inter-line silence ends the stream.
+
+    Chrome suppression:
+      _UI_CHROME_RE strips TUI scaffolding (separators, status bars, logo graphics)
+      that Claude Code renders around the conversation but is not part of the response.
+      The message echo (first non-empty line right after sendline) is also suppressed.
+
+    End-of-response detection:
+      After real content has been seen, a second appearance of the ⏵⏵ status bar
+      marker signals that Claude has finished and the TUI has re-rendered. We break
+      immediately rather than waiting for the full inter-line silence.
     """
     import pexpect
 
     proc = get_or_spawn(session_id, cwd)
     proc.sendline(message)
 
+    response_started = False   # True once we yield a non-chrome delta line
+    echo_suppressed = False    # True after we've skipped the first message echo line
+    status_bar_count = 0       # ⏵⏵ appearances; second after response_started = done
+
     while True:
+        # Long patience before Claude starts; short once content is flowing.
+        timeout = 10 if response_started else 60
         try:
-            idx = proc.expect([re.compile(r"\r?\n"), pexpect.TIMEOUT, pexpect.EOF], timeout=3)
+            idx = proc.expect([re.compile(r"\r?\n"), pexpect.TIMEOUT, pexpect.EOF], timeout=timeout)
         except pexpect.EOF:
             break
         except Exception:
@@ -375,12 +403,12 @@ def send_to_pty(
         if idx == 2:  # EOF
             break
 
-        if idx == 1:  # timeout — prompt not detected; treating silence as end of response
+        if idx == 1:  # silence timeout
             if chunk:
                 for pair in _classify_line(chunk):
                     yield pair
-            logger.debug("[claude] send_to_pty: timeout fallback used (prompt not detected)")
-            yield ("fallback", "")  # signals the frontend that timeout-based completion fired
+            logger.debug("[claude] send_to_pty: timeout fallback (response_started=%s)", response_started)
+            yield ("fallback", "")
             break
 
         # idx == 0: got a newline
@@ -391,6 +419,27 @@ def send_to_pty(
         if _PROMPT_RE.match(chunk):
             break
 
+        # ⏵⏵ status bar — count occurrences; second one after real content = done.
+        if "⏵⏵" in chunk:
+            status_bar_count += 1
+            if response_started and status_bar_count >= 2:
+                logger.debug("[claude] send_to_pty: second ⏵⏵ detected — response complete")
+                break
+            continue  # suppress status bar from delta stream
+
+        # Other TUI chrome — suppress.
+        if _UI_CHROME_RE.match(chunk):
+            continue
+
+        # Suppress the message echo (first non-chrome line mirrors what we sent).
+        if not echo_suppressed:
+            echo_suppressed = True
+            # Check if this line looks like the echo of our message.
+            msg_start = message[:40].strip().lower()
+            if msg_start and chunk.lower().startswith(msg_start[:20]):
+                continue  # skip message echo
+
+        response_started = True
         for pair in _classify_line(chunk):
             yield pair
 
