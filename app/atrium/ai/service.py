@@ -152,6 +152,8 @@ class ClaudeCodeAdapter:
                 payload = json.dumps({"type": "context_status", **json.loads(text)})
             elif event_type == "activity":
                 payload = json.dumps({"type": "activity", "text": text})
+            elif event_type == "fallback":
+                payload = json.dumps({"type": "fallback"})
             else:  # delta
                 payload = json.dumps({"type": "delta", "text": text})
             yield f"data: {payload}\n\n".encode()
