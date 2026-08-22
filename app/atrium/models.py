@@ -39,6 +39,15 @@ class AtriumSession(BaseModel):
         related_name="atrium_sessions",
     )
 
+    group = models.ForeignKey(
+        "groups.Group",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="atrium_sessions",
+        help_text="If set, this session is scoped to the group's Atrium surface.",
+    )
+
     title = models.CharField(
         max_length=255,
         blank=True,
