@@ -38,9 +38,12 @@ logger = logging.getLogger(__name__)
 # OSC, character-set designations, and bare Fe sequences.
 _ANSI_RE = re.compile(
     r"\x1b(?:"
-    r"[@-Z\\-_]"                         # Fe sequences (ESC + single char)
+    # OSC must come BEFORE Fe: ']' (U+005D, code 93) falls inside the Fe range
+    # [@-Z\\-_] (codes 64–95), so 'Fe first' would strip only \x1b] and leave
+    # the OSC payload (e.g. "8;id=...;URL8;;") as plain text in the buffer.
+    r"\][^\x07\x1b]*(?:\x07|\x1b\\)"    # OSC sequences (hyperlinks, titles, etc.)
+    r"|[@-Z\\-_]"                         # Fe sequences (ESC + single byte)
     r"|\[[0-9;:<=>?]*[ -/]*[@-~]"        # CSI — standard + private params (>, ?, etc.)
-    r"|\][^\x07\x1b]*(?:\x07|\x1b\\)"   # OSC sequences
     r"|[()]."                             # Character set designations (ESC ( B …)
     r")"
 )
@@ -58,9 +61,16 @@ _UI_CHROME_RE = re.compile(
     r"|[╭╰│╮╯]"       # box-drawing corners / sides (welcome screen)
     r"|⏵⏵"            # status bar marker (bypass permissions indicator)
     r"|▐|▛|▝"         # block graphics from Claude Code logo
+    r"|◐|◑|◒|◓"       # effort / spinner indicators (◐ medium · /effort)
+    r"|▎"              # sidebar / indented-content marker
     r")",
     re.UNICODE,
 )
+
+# Model name pattern used in the conversation header: "[cwd] | Sonnet 4.6..."
+# The header is cursor-positioned so letters may have ANSI codes between them,
+# but after stripping, "| Sonnet N" or "| Claude N" is a reliable signal.
+_HEADER_RE = re.compile(r"\|\s*(?:Sonnet|Claude|Opus|Haiku)\s+\d", re.IGNORECASE)
 
 # Patterns that indicate Claude Code is showing an interactive setup dialog,
 # not a conversation prompt. We must respond to these during spawn.
@@ -429,6 +439,11 @@ def send_to_pty(
 
         # Other TUI chrome — suppress.
         if _UI_CHROME_RE.match(chunk):
+            continue
+
+        # Conversation header line: "[cwd] | Sonnet 4.6 ... ctrl+g to edit in Vim"
+        # This line appears before AND after Claude's response as TUI scaffolding.
+        if _HEADER_RE.search(chunk):
             continue
 
         # Suppress the message echo (first non-chrome line mirrors what we sent).
