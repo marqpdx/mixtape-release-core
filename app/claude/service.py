@@ -26,9 +26,14 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 from collections.abc import Generator
 
 logger = logging.getLogger(__name__)
+
+# Set CLAUDE_PTY_DEBUG=1 to log every raw PTY line to DEBUG.  Useful when
+# the chrome-suppression logic is misbehaving and you need real samples.
+_PTY_DEBUG = os.getenv("CLAUDE_PTY_DEBUG") == "1"
 
 # ---------------------------------------------------------------------------
 # PTY constants
@@ -85,6 +90,16 @@ _SETUP_DIALOG_RE = re.compile(r"Enter to confirm|Esc to cancel", re.IGNORECASE)
 
 # Session UUID → pexpect.spawn handle.
 _pty_registry: dict[str, object] = {}
+# Per-session lock — prevents two concurrent requests from interleaving in the same PTY.
+_pty_locks: dict[str, threading.Lock] = {}
+_pty_locks_mu = threading.Lock()  # guards _pty_locks dict itself
+
+
+def _session_lock(session_id: str) -> threading.Lock:
+    with _pty_locks_mu:
+        if session_id not in _pty_locks:
+            _pty_locks[session_id] = threading.Lock()
+        return _pty_locks[session_id]
 
 
 def _claude_bin() -> str:
@@ -218,12 +233,18 @@ def get_or_spawn(session_id: str, cwd: str, opening_context: str | None = None) 
 
     proc = pexpect.spawn(
         bin_path,
-        args=["--dangerously-skip-permissions"],
+        # --ax-screen-reader produces flatter, less decorative output: fewer
+        # box-drawing characters, no logo graphics, simpler status bars.
+        # --dangerously-skip-permissions remains for headless tool execution.
+        args=["--dangerously-skip-permissions", "--ax-screen-reader"],
         cwd=cwd,
         encoding="utf-8",
         timeout=120,
         codec_errors="replace",
         env=env,
+        # Wide terminal: reduces line-wrapping artifacts in the raw PTY stream
+        # that appear as spurious short chunks after ANSI stripping.
+        dimensions=(60, 240),
     )
 
     # Drive through all startup overlays (Bypass Permissions, welcome screen, etc.)
@@ -388,7 +409,30 @@ def send_to_pty(
       After real content has been seen, a second appearance of the ⏵⏵ status bar
       marker signals that Claude has finished and the TUI has re-rendered. We break
       immediately rather than waiting for the full inter-line silence.
+
+    Concurrency:
+      A per-session lock prevents two concurrent requests from interleaving reads
+      in the same PTY.  Callers block until the previous exchange finishes.
     """
+    import pexpect
+
+    lock = _session_lock(session_id)
+    if not lock.acquire(timeout=90):
+        logger.warning("[claude] send_to_pty: lock timeout for session=%s", session_id)
+        yield ("error", "Session busy — another exchange is still running.")
+        return
+
+    try:
+        yield from _send_to_pty_locked(session_id, message, cwd)
+    finally:
+        lock.release()
+
+
+def _send_to_pty_locked(
+    session_id: str,
+    message: str,
+    cwd: str,
+) -> Generator[tuple[str, str], None, None]:
     import pexpect
 
     proc = get_or_spawn(session_id, cwd)
@@ -410,6 +454,9 @@ def send_to_pty(
 
         chunk_raw = proc.before or ""
         chunk = _strip_ansi(chunk_raw).strip()
+
+        if _PTY_DEBUG:
+            logger.debug("[claude] PTY raw=%r stripped=%r", chunk_raw[:120], chunk[:80])
 
         if idx == 2:  # EOF
             break
