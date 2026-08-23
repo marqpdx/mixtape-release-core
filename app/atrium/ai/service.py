@@ -91,8 +91,8 @@ class AtriumAnthropicAdapter:
 
 class ClaudeCodeAdapter:
     """
-    Phase 2C adapter — routes through a persistent PTY-based interactive
-    claude session. Replaces the Phase 2A -p subprocess approach.
+    Phase 2C adapter — routes through a persistent stream-json subprocess.
+    Replaces the Phase 2A one-shot -p approach and the PTY/pexpect prototype.
 
     Yields SSE byte chunks in the same format as AtriumAnthropicAdapter:
       data: {"type": "delta",          "text": "..."}
@@ -134,7 +134,7 @@ class ClaudeCodeAdapter:
         cwd = getattr(settings, "ATRIUM_CLAUDE_CODE_CWD", "") or os.getcwd()
         session_id = str(self._session.id) if self._session else "global"
         opening_context = _get_compact_summary(self._session)
-        logger.info("[atrium] ClaudeCodeAdapter PTY: session=%s cwd=%s", session_id, cwd)
+        logger.info("[atrium] ClaudeCodeAdapter stream-json: session=%s cwd=%s", session_id, cwd)
 
         # Extract the latest user message — the PTY tracks history itself.
         user_message = ""
@@ -390,7 +390,7 @@ def _session_to_messages(session) -> list[dict]:
 
 def _pty_pid(session_id: str) -> int | None:
     from claude import service as claude_service
-    proc = claude_service._pty_registry.get(session_id)
+    proc = claude_service._session_registry.get(session_id)
     if proc is None:
         return None
     try:
