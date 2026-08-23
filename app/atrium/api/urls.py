@@ -13,9 +13,11 @@ from .views import (
     AtriumSessionCompactView,
     AtriumSessionDistillView,
     AtriumSessionResetView,
+    AtriumSponsorContextView,
 )
 
 urlpatterns = [
+    path("sponsor-context/", AtriumSponsorContextView.as_view(), name="atrium-sponsor-context"),
     path("sessions/", AtriumSessionListView.as_view(), name="atrium-session-list"),
     path("sessions/new", AtriumSessionCreateView.as_view(), name="atrium-session-create"),
     path("sessions/<uuid:session_id>/", AtriumSessionUpdateView.as_view(), name="atrium-session-update"),

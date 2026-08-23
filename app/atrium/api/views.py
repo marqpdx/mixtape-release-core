@@ -33,12 +33,26 @@ class AtriumSessionListView(generics.ListAPIView):
 
     def get_queryset(self):
         profile = ensure_user_profile(self.request.user)
+        qs = AtriumSession.objects.filter(
+            member=profile,
+            deleted_at__isnull=True,
+        )
+
+        group_slug = self.request.query_params.get("group_slug", "")
+        if group_slug:
+            from django.contrib.contenttypes.models import ContentType
+            from groups.models.group import Group
+            group = Group.objects.filter(slug=group_slug, deleted_at__isnull=True).first()
+            if group:
+                ct = ContentType.objects.get_for_model(Group)
+                qs = qs.filter(sponsor_content_type=ct, sponsor_object_id=group.pk)
+            else:
+                qs = qs.none()
+        elif self.request.query_params.get("personal") == "true":
+            qs = qs.filter(sponsor_object_id__isnull=True)
+
         return (
-            AtriumSession.objects.filter(
-                member=profile,
-                deleted_at__isnull=True,
-            )
-            .annotate(entry_count=Count("entries"))
+            qs.annotate(entry_count=Count("entries"))
             .order_by("status", "-last_activity_at", "-created_at")[:50]
         )
 
@@ -550,3 +564,112 @@ class AtriumSessionResetView(APIView):
 
         logger.info("atrium_reset session=%s user=%s", session_id, request.user.username)
         return Response({"status": "ready"}, status=status.HTTP_200_OK)
+
+
+class AtriumSponsorContextView(APIView):
+    """
+    GET /api/atrium/sponsor-context/
+
+    Returns sponsor identity + lightweight initiative list + recent Atrium
+    MillDrafts for the current Atrium surface (personal or group-scoped).
+
+    Query params:
+      group_slug — if provided, returns context for that group's Atrium.
+                   Requires the requesting user to be an active group member.
+                   If absent, returns the personal (user-sponsored) context.
+
+    Response:
+      {
+        sponsor_type: "user" | "group",
+        sponsor_slug: str,
+        sponsor_name: str,
+        sponsor_id: str,
+        initiatives: [{id, title, status}],
+        recent_drafts: [{id, title, created_at}],
+      }
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from django.contrib.auth import get_user_model
+        from django.contrib.contenttypes.models import ContentType
+
+        group_slug = request.query_params.get("group_slug", "")
+
+        if group_slug:
+            from groups.models.group import Group
+            from groups.models.membership import GroupMembership
+
+            group = Group.objects.filter(slug=group_slug, deleted_at__isnull=True).first()
+            if not group:
+                return Response({"detail": "Group not found."}, status=status.HTTP_404_NOT_FOUND)
+
+            User = get_user_model()
+            user_ct = ContentType.objects.get_for_model(User)
+            is_member = GroupMembership.objects.filter(
+                group_id=group.pk,
+                member_content_type=user_ct,
+                member_object_id=request.user.id,
+                deleted_at__isnull=True,
+            ).exists()
+            if not is_member and not request.user.is_staff:
+                return Response({"detail": "Not a member of this group."}, status=status.HTTP_403_FORBIDDEN)
+
+            sponsor_ct = ContentType.objects.get_for_model(Group)
+            sponsor_id = group.pk
+
+            from initiatives.models import Initiative
+            initiatives_qs = Initiative.objects.filter(
+                sponsor_content_type=sponsor_ct,
+                sponsor_object_id=sponsor_id,
+                parent__isnull=True,
+                deleted_at__isnull=True,
+            ).exclude(status__in=["resolved", "archived"]).order_by("-updated_at").values("id", "title", "status")[:10]
+
+            sponsor_data = {
+                "sponsor_type": "group",
+                "sponsor_slug": group.slug,
+                "sponsor_name": group.name,
+                "sponsor_id": str(sponsor_id),
+            }
+
+        else:
+            User = get_user_model()
+            user = request.user
+            user_ct = ContentType.objects.get_for_model(User)
+            sponsor_ct = user_ct
+            sponsor_id = user.pk
+
+            from initiatives.models import Initiative
+            initiatives_qs = Initiative.objects.filter(
+                sponsor_content_type=sponsor_ct,
+                sponsor_object_id=sponsor_id,
+                deleted_at__isnull=True,
+            ).exclude(status__in=["resolved", "archived"]).order_by("-updated_at").values("id", "title", "status")[:10]
+
+            sponsor_data = {
+                "sponsor_type": "user",
+                "sponsor_slug": user.username,
+                "sponsor_name": user.get_full_name() or user.username,
+                "sponsor_id": str(sponsor_id),
+            }
+
+        from fundamentals.models_milldraft import MillDraft
+        recent_drafts = list(
+            MillDraft.objects.filter(
+                sponsor_content_type=sponsor_ct,
+                sponsor_object_id=sponsor_id,
+                source_type="atrium",
+                deleted_at__isnull=True,
+            ).order_by("-created_at").values("id", "title", "created_at")[:5]
+        )
+
+        return Response({
+            **sponsor_data,
+            "initiatives": list(initiatives_qs),
+            "recent_drafts": [
+                {"id": str(d["id"]), "title": d["title"], "created_at": d["created_at"].isoformat()}
+                for d in recent_drafts
+            ],
+        })
