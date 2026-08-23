@@ -1363,3 +1363,119 @@ def group_search_proxy(request):
         "found": found,
         "sources": sources,
     })
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def agent_track_proxy(request):
+    """
+    agent.track — fetch or append items on a sponsor-scoped "Tracked" List.
+
+    Body:
+      action      "fetch" | "append"  (default "fetch")
+      text        str  (required when action="append")
+      group_slug  str  (optional; omit for personal context)
+    """
+    from django.contrib.contenttypes.models import ContentType
+    from groups.models.group import Group
+    from groups.models.membership import GroupMembership
+    from lists.models import List as UserList
+
+    action = request.data.get("action", "fetch")
+    group_slug = (request.data.get("group_slug") or "").strip()
+    text = (request.data.get("text") or "").strip()
+    user = request.user
+
+    if action == "append" and not text:
+        return JsonResponse({"detail": "text is required for action=append"}, status=400)
+    if action not in ("fetch", "append"):
+        return JsonResponse({"detail": "action must be 'fetch' or 'append'"}, status=400)
+
+    user_ct = ContentType.objects.get_for_model(user.__class__)
+
+    if group_slug:
+        group = Group.objects.filter(slug=group_slug, deleted_at__isnull=True).first()
+        if not group:
+            return JsonResponse({"detail": "Group not found"}, status=404)
+        if not user.is_staff:
+            group_ct = ContentType.objects.get_for_model(Group)
+            if not GroupMembership.objects.filter(
+                group_id=group.pk,
+                member_content_type=user_ct,
+                member_object_id=user.pk,
+                deleted_at__isnull=True,
+            ).exists():
+                return JsonResponse({"detail": "Not a member of this group"}, status=403)
+        sponsor_ct = ContentType.objects.get_for_model(Group)
+        sponsor_id = str(group.pk)
+    else:
+        sponsor_ct = user_ct
+        sponsor_id = str(user.pk)
+
+    LIST_TITLE = "Tracked"
+
+    action_run = ActionRun.objects.create(
+        tool_name="agent.track",
+        status=ActionRunStatus.RUNNING,
+        execution_mode=ActionRunExecutionMode.LOCAL,
+        tenant_id=_DEFAULT_TENANT_ID,
+        tenant_namespace=_DEFAULT_TENANT_NAMESPACE,
+        initiator_type=ActionRunInitiatorType.HUMAN,
+        initiator_id=str(user.pk),
+        request_payload={"action": action, "group_slug": group_slug, "text": text},
+        started_at=timezone.now(),
+    )
+
+    try:
+        lst = UserList.objects.filter(
+            sponsor_content_type=sponsor_ct,
+            sponsor_object_id=sponsor_id,
+            title=LIST_TITLE,
+            deleted_at__isnull=True,
+        ).first()
+
+        if action == "fetch":
+            items: list[str] = []
+            if lst:
+                items = [
+                    line.lstrip("- ").strip()
+                    for line in lst.body_text.split("\n")
+                    if line.strip()
+                ]
+            result_payload = {
+                "action": "fetch",
+                "items": items,
+                "list_id": str(lst.id) if lst else None,
+                "list_title": LIST_TITLE,
+            }
+        else:
+            if lst is None:
+                lst = UserList.objects.create(
+                    title=LIST_TITLE,
+                    body_text="",
+                    submitted_by=user,
+                    author=user,
+                    sponsor_content_type=sponsor_ct,
+                    sponsor_object_id=sponsor_id,
+                )
+            lst.body_text = (lst.body_text.rstrip("\n") + f"\n- {text}").lstrip("\n")
+            lst.save(update_fields=["body_text", "updated_at"])
+            result_payload = {
+                "action": "append",
+                "items_added": 1,
+                "list_id": str(lst.id),
+                "list_title": LIST_TITLE,
+            }
+
+        action_run.status = ActionRunStatus.SUCCEEDED
+        action_run.result_payload = result_payload
+        action_run.completed_at = timezone.now()
+        action_run.save(update_fields=["status", "result_payload", "completed_at", "updated_at"])
+        return JsonResponse({**result_payload, "action_run_id": str(action_run.id)}, status=200)
+
+    except Exception as exc:
+        action_run.status = ActionRunStatus.FAILED
+        action_run.error_payload = {"error": str(exc)}
+        action_run.completed_at = timezone.now()
+        action_run.save(update_fields=["status", "error_payload", "completed_at", "updated_at"])
+        raise
