@@ -197,6 +197,20 @@ class ClaudeCodeAdapter:
         session_id = str(self._session.id)
         return claude_service.compact_pty(session_id, cwd)
 
+    def reset(self, cwd: str) -> None:
+        """
+        Terminate the live subprocess and respawn with orientation-only context
+        (compact summary + session_context; no turn history). The DB entry archive
+        is preserved — only the subprocess state is cleared.
+        """
+        from claude import service as claude_service
+        if not self._session:
+            return
+        session_id = str(self._session.id)
+        claude_service.terminate_session(session_id)
+        orientation = _build_orientation_context(self._session)
+        claude_service.get_or_spawn(session_id, cwd, orientation)
+
 
 class AtriumAIService:
     """
@@ -256,6 +270,17 @@ class AtriumAIService:
         if summary and session.initiative_id:
             _store_compact_summary(session, summary)
         return summary
+
+    def reset(self, session) -> None:
+        """
+        Terminate subprocess and respawn with orientation-only context.
+        No-op for non-ClaudeCode adapters.
+        """
+        if not hasattr(self._adapter, "reset"):
+            return
+        from django.conf import settings
+        cwd = getattr(settings, "ATRIUM_CLAUDE_CODE_CWD", "") or os.getcwd()
+        self._adapter.reset(cwd)
 
     def exchange_stream(
         self,
@@ -475,6 +500,41 @@ def _resolve_aperture_log(session):
     except Exception as exc:
         logger.warning("[atrium] _resolve_aperture_log failed: %s", exc)
         return None, "steady"
+
+
+def _build_orientation_context(session) -> str | None:
+    """
+    Build the orientation context string for a session reset.
+    Injects compact summary and session_context only — no turn history.
+    """
+    if session is None:
+        return None
+    try:
+        parts = []
+        log, _ = _resolve_aperture_log(session)
+        if log and log.compact_summary:
+            ts = log.compact_at.strftime("%Y-%m-%d") if log.compact_at else "prior"
+            parts.append(
+                f"[Compact summary — distilled {ts}]\n"
+                f"{log.compact_summary.strip()}\n"
+                f"[End compact summary]"
+            )
+        if session.session_context and session.session_context.strip():
+            parts.append(
+                f"[Session context]\n"
+                f"{session.session_context.strip()}\n"
+                f"[End session context]"
+            )
+        if not parts:
+            return None
+        return (
+            "[Session reset — starting fresh. The following is orientation context "
+            "for this new thread. No prior conversation history is available.]\n\n"
+            + "\n\n".join(parts)
+        )
+    except Exception as exc:
+        logger.warning("[atrium] _build_orientation_context failed: %s", exc)
+        return None
 
 
 def _build_cold_spawn_context(session) -> tuple[str | None, str | None]:
