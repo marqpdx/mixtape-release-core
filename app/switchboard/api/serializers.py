@@ -85,6 +85,7 @@ class AgentFindCommandSerializer(serializers.Serializer):
     limit = serializers.IntegerField(default=8, min_value=1, max_value=20)
     score_threshold = serializers.FloatField(default=0.0)
     surface = serializers.ChoiceField(choices=["mobile", "desktop", "atrium"], default="desktop")
+    group_slug = serializers.CharField(required=False, allow_blank=True, default="")
 
 
 class AgentResearchCommandSerializer(serializers.Serializer):

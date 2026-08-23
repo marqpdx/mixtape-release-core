@@ -559,19 +559,74 @@ def agent_find_proxy(request):
     library_id = data.get("library_id")
     limit = data["limit"]
     score_threshold = data["score_threshold"]
+    surface = data.get("surface", "desktop")
+    group_slug = (data.get("group_slug") or "").strip()
 
     from django.contrib.contenttypes.models import ContentType
     from initiatives.services.agent_stackroom import AgentStackroomError, retrieve_from_stackroom
     from puddlejump.models import Library
 
     user = request.user
+    user_ct = ContentType.objects.get_for_model(user.__class__)
+
+    # When surface=atrium, prepend keyword-matched List items before Codex results.
+    list_hits: list[dict] = []
+    if surface == "atrium":
+        from lists.models import List as UserList
+        from groups.models.group import Group
+
+        if group_slug:
+            group = Group.objects.filter(slug=group_slug, deleted_at__isnull=True).first()
+            if group:
+                sponsor_ct = ContentType.objects.get_for_model(Group)
+                sponsor_id = str(group.pk)
+            else:
+                sponsor_ct, sponsor_id = user_ct, str(user.pk)
+        else:
+            sponsor_ct, sponsor_id = user_ct, str(user.pk)
+
+        matching_lists = UserList.objects.filter(
+            sponsor_content_type=sponsor_ct,
+            sponsor_object_id=sponsor_id,
+            body_text__icontains=query,
+            deleted_at__isnull=True,
+        )[:5]
+
+        q_lower = query.lower()
+        for lst in matching_lists:
+            for line in lst.body_text.split("\n"):
+                stripped = line.lstrip("- ").strip()
+                if stripped and q_lower in stripped.lower():
+                    list_hits.append({
+                        "text": stripped,
+                        "score": 1.0,
+                        "artifact_type": "list",
+                        "artifact_id": str(lst.id),
+                        "source_file_id": "",
+                        "list_title": lst.title,
+                    })
+                    if len(list_hits) >= 5:
+                        break
+            if len(list_hits) >= 5:
+                break
 
     if library_id is None:
-        user_ct = ContentType.objects.get_for_model(user.__class__)
         try:
             lib = Library.objects.get(owner_content_type=user_ct, owner_object_id=user.id)
             library_id = lib.id
         except Library.DoesNotExist:
+            if list_hits:
+                # Return list-only results when no library exists yet
+                return JsonResponse(
+                    {
+                        "results": list_hits,
+                        "query": query,
+                        "library_id": None,
+                        "result_count": len(list_hits),
+                        "action_run_id": "",
+                    },
+                    status=200,
+                )
             return JsonResponse(
                 {"detail": "No library found for this user. Upload files first."},
                 status=404,
@@ -594,11 +649,12 @@ def agent_find_proxy(request):
             library_id=library_id,
             limit=limit,
         )
-        filtered = [r for r in raw_results if r["score"] >= score_threshold]
+        codex_results = [r for r in raw_results if r["score"] >= score_threshold]
+        combined = list_hits + codex_results
 
         action_run.status = ActionRunStatus.SUCCEEDED
         action_run.result_payload = {
-            "result_count": len(filtered),
+            "result_count": len(combined),
             "library_id": str(library_id),
             "query": query,
         }
@@ -607,10 +663,10 @@ def agent_find_proxy(request):
 
         return JsonResponse(
             {
-                "results": filtered,
+                "results": combined,
                 "query": query,
                 "library_id": str(library_id),
-                "result_count": len(filtered),
+                "result_count": len(combined),
                 "action_run_id": str(action_run.id),
             },
             status=200,
