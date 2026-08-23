@@ -251,6 +251,16 @@ def _read_turn(
                     obj.get("num_turns"),
                     obj.get("duration_api_ms"),
                 )
+                usage = obj.get("usage") or {}
+                input_tokens = usage.get("input_tokens") or 0
+                if input_tokens:
+                    _CONTEXT_LIMIT = 200_000
+                    pct = round(input_tokens / _CONTEXT_LIMIT * 100, 1)
+                    yield ("context_status", _json.dumps({
+                        "used": input_tokens,
+                        "total": _CONTEXT_LIMIT,
+                        "pct": pct,
+                    }))
             return
 
         # ── stream events ────────────────────────────────────────────────────
@@ -316,10 +326,15 @@ def send_to_session(
     session_id: str,
     message: str,
     cwd: str,
+    opening_context: str | None = None,
 ) -> Generator[tuple[str, str], None, None]:
     """
     Send message to the session's stream-json subprocess and yield SSE event pairs.
     Acquires a per-session lock so concurrent Django requests serialize cleanly.
+
+    opening_context: injected only on cold spawn (process was dead or missing).
+    Passed through to get_or_spawn so the subprocess gets history context before
+    the first real user message.
     """
     lock = _session_lock(session_id)
     if not lock.acquire(timeout=90):
@@ -328,7 +343,7 @@ def send_to_session(
         return
 
     try:
-        proc = get_or_spawn(session_id, cwd)
+        proc = get_or_spawn(session_id, cwd, opening_context)
         _send_message(proc, message)
         yield from _read_turn(proc, session_id)
     except BrokenPipeError:
@@ -368,9 +383,14 @@ def get_or_spawn_pty(session_id: str, cwd: str, opening_context: str | None = No
     return get_or_spawn(session_id, cwd, opening_context)
 
 
-def send_to_pty(session_id: str, message: str, cwd: str) -> Generator[tuple[str, str], None, None]:
+def send_to_pty(
+    session_id: str,
+    message: str,
+    cwd: str,
+    opening_context: str | None = None,
+) -> Generator[tuple[str, str], None, None]:
     """Deprecated name — delegates to send_to_session."""
-    yield from send_to_session(session_id, message, cwd)
+    yield from send_to_session(session_id, message, cwd, opening_context)
 
 
 def is_pty_alive(session_id: str) -> bool:

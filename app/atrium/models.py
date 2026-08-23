@@ -7,6 +7,15 @@ from django.db import models
 from fundamentals.bases import BaseModel
 
 
+class DistillateDocumentType(models.TextChoices):
+    FIELD_NOTE = "field-note", "Field Note"
+    FINDING = "finding", "Finding"
+    POSITION_PAPER = "position-paper", "Position Paper"
+    DRAFT_ADR = "draft-adr", "Draft ADR"
+    SUMMARY = "summary", "Summary"
+    OTHER = "other", "Other"
+
+
 class AtriumSessionStatus(models.TextChoices):
     ACTIVE = "active", "Active"
     CLOSED = "closed", "Closed"
@@ -138,3 +147,49 @@ class AtriumSessionEntry(BaseModel):
 
     def __str__(self):
         return f"AtriumSessionEntry({self.role}) in {self.session_id}"
+
+
+class Distillate(models.Model):
+    """
+    A named knowledge artifact produced by the Distill action on an Atrium session.
+
+    Linked to the Initiative that owns the body of work (via ApertureLog / sponsor).
+    The session field records which Atrium session generated it.
+
+    Note: `initiative` maps to the future Pulse model once that concept is fully
+    designed. Migration path: Distillate.initiative → Distillate.pulse.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    initiative = models.ForeignKey(
+        "initiatives.Initiative",
+        related_name="distillates",
+        on_delete=models.CASCADE,
+    )
+
+    session = models.ForeignKey(
+        AtriumSession,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="distillates",
+    )
+
+    title = models.CharField(max_length=255)
+    body = models.TextField()
+    document_type = models.CharField(
+        max_length=32,
+        choices=DistillateDocumentType.choices,
+        default=DistillateDocumentType.OTHER,
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Distillate"
+        verbose_name_plural = "Distillates"
+
+    def __str__(self):
+        return f"Distillate({self.document_type}): {self.title[:60]}"

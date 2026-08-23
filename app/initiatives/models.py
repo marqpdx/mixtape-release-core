@@ -754,11 +754,11 @@ class ApertureLog(BaseModel):
         help_text="AI-generated handover draft written by handover_task. Cleared after a handoff entry is approved.",
     )
 
-    # Phase 2C — Atrium PTY session compaction
+    # Phase 2C — Atrium session compaction
     compact_summary = models.TextField(
         null=True,
         blank=True,
-        help_text="Compact summary produced by /compact in the Atrium PTY session. Injected as opening context on reconnect.",
+        help_text="Compact summary produced by the Continuous Keeper. Injected as opening context on cold spawn.",
     )
     compact_at = models.DateTimeField(
         null=True,
@@ -768,7 +768,20 @@ class ApertureLog(BaseModel):
     last_session_end = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="When the last Atrium PTY session was terminated for this initiative.",
+        help_text="When the last Atrium session was terminated for this initiative.",
+    )
+
+    # Phase 2D — Continuous Keeper cadence
+    class CompactCadence(models.TextChoices):
+        LIGHT = "light", "Light — compact at session close only"
+        STEADY = "steady", "Steady — every 8 turns or 30 min idle"
+        ACTIVE = "active", "Active — every 4 turns or 10 min idle"
+
+    compact_cadence = models.CharField(
+        max_length=8,
+        choices=CompactCadence.choices,
+        default=CompactCadence.STEADY,
+        help_text="How frequently the Continuous Keeper runs background compaction for this initiative.",
     )
 
     class Meta(BaseModel.Meta):

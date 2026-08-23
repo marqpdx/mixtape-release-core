@@ -106,7 +106,9 @@ class ClaudeCodeAdapter:
 
     def warm(self) -> Generator[bytes, None, None]:
         """
-        Ensure the PTY is spawned. Yields a `type: ready` event when warm.
+        Ensure the stream-json subprocess is spawned. Yields SSE events:
+          type: ready        — subprocess was already live (same context)
+          type: reconstructed — cold spawn; history injected from DB + ApertureLog
         """
         from django.conf import settings
         from claude import service as claude_service
@@ -115,13 +117,28 @@ class ClaudeCodeAdapter:
             return
         cwd = getattr(settings, "ATRIUM_CLAUDE_CODE_CWD", "") or os.getcwd()
         session_id = str(self._session.id)
-        opening_context = _get_compact_summary(self._session)
-        claude_service.get_or_spawn(session_id, cwd, opening_context)
+
+        was_alive = claude_service.is_session_alive(session_id)
+
+        # On cold spawn: fire idle-threshold keeper check before building context.
+        if not was_alive:
+            _trigger_idle_keeper_if_due(self._session)
+
+        opening_context, provenance_note = _build_cold_spawn_context(self._session)
+        claude_service.get_or_spawn(session_id, cwd, opening_context if not was_alive else None)
+
         pid = _pty_pid(session_id)
         if pid and self._session.pty_pid != pid:
             self._session.pty_pid = pid
             self._session.save(update_fields=["pty_pid", "updated_at"])
-        yield b"data: " + json.dumps({"type": "ready"}).encode() + b"\n\n"
+
+        if not was_alive and opening_context:
+            yield b"data: " + json.dumps({
+                "type": "reconstructed",
+                "provenance": provenance_note,
+            }).encode() + b"\n\n"
+        else:
+            yield b"data: " + json.dumps({"type": "ready"}).encode() + b"\n\n"
 
     def exchange_stream(
         self,
@@ -133,10 +150,9 @@ class ClaudeCodeAdapter:
 
         cwd = getattr(settings, "ATRIUM_CLAUDE_CODE_CWD", "") or os.getcwd()
         session_id = str(self._session.id) if self._session else "global"
-        opening_context = _get_compact_summary(self._session)
         logger.info("[atrium] ClaudeCodeAdapter stream-json: session=%s cwd=%s", session_id, cwd)
 
-        # Extract the latest user message — the PTY tracks history itself.
+        # Extract the latest user message — subprocess tracks history itself.
         user_message = ""
         for msg in reversed(messages):
             if msg["role"] == "user":
@@ -147,7 +163,14 @@ class ClaudeCodeAdapter:
             yield b"data: " + json.dumps({"type": "done"}).encode() + b"\n\n"
             return
 
-        for event_type, text in claude_service.send_to_pty(session_id, user_message, cwd):
+        # Pass opening_context so a cold spawn triggered by exchange (not warm)
+        # still gets history injected before the first real message.
+        was_alive = claude_service.is_session_alive(session_id)
+        opening_context, _ = _build_cold_spawn_context(self._session) if not was_alive else (None, None)
+
+        for event_type, text in claude_service.send_to_session(
+            session_id, user_message, cwd, opening_context
+        ):
             if event_type == "context_status":
                 payload = json.dumps({"type": "context_status", **json.loads(text)})
             elif event_type == "activity":
@@ -385,8 +408,19 @@ def _session_to_messages(session) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# PTY helpers
+# Session / Initiative resolution helpers
 # ---------------------------------------------------------------------------
+
+# How many recent turns to inject on cold spawn (token-bounded below).
+_HISTORY_INJECT_TURNS = 10
+# Approximate token budget for injected history (tokens ≈ chars / 4).
+_HISTORY_INJECT_MAX_CHARS = 16_000  # ~4 000 tokens
+
+# Idle-threshold in minutes per cadence setting.
+_IDLE_THRESHOLDS = {"light": None, "steady": 30, "active": 10}
+# Turn-count thresholds per cadence setting (count of *assistant* entries).
+_TURN_THRESHOLDS = {"light": None, "steady": 8, "active": 4}
+
 
 def _pty_pid(session_id: str) -> int | None:
     from claude import service as claude_service
@@ -399,39 +433,187 @@ def _pty_pid(session_id: str) -> int | None:
         return None
 
 
-def _get_compact_summary(session) -> str | None:
-    """Return the ApertureLog compact summary for a session's initiative, if any."""
+def _resolve_aperture_log(session):
+    """
+    Navigate from AtriumSession → Initiative → ApertureLog.
+
+    AtriumSession has a polymorphic sponsor GFK (Group or UserProfile).
+    The matching Initiative is the one whose sponsor GFK points to the same object.
+    Falls back to the member's personal Initiative when no sponsor is set.
+    Returns (ApertureLog, cadence) or (None, "steady").
+    """
     if session is None:
-        return None
+        return None, "steady"
     try:
-        initiative_id = getattr(session, "initiative_id", None)
-        if initiative_id is None:
-            return None
-        from initiatives.models import ApertureLog
-        log = ApertureLog.objects.filter(initiative_id=initiative_id).first()
+        from initiatives.models import ApertureLog, Initiative
+
+        if session.sponsor_content_type_id and session.sponsor_object_id:
+            initiative = Initiative.objects.filter(
+                sponsor_content_type_id=session.sponsor_content_type_id,
+                sponsor_object_id=session.sponsor_object_id,
+                deleted_at__isnull=True,
+            ).first()
+        else:
+            # Personal session — find the member's personal Initiative.
+            from django.contrib.contenttypes.models import ContentType
+            member = session.member
+            ct = ContentType.objects.get_for_model(member)
+            initiative = Initiative.objects.filter(
+                sponsor_content_type=ct,
+                sponsor_object_id=member.pk,
+                is_personal=True,
+                deleted_at__isnull=True,
+            ).first()
+
+        if initiative is None:
+            return None, "steady"
+
+        log = ApertureLog.objects.filter(initiative=initiative).first()
+        cadence = getattr(log, "compact_cadence", "steady") if log else "steady"
+        return log, cadence
+
+    except Exception as exc:
+        logger.warning("[atrium] _resolve_aperture_log failed: %s", exc)
+        return None, "steady"
+
+
+def _build_cold_spawn_context(session) -> tuple[str | None, str | None]:
+    """
+    Build the opening context string to inject when a cold spawn occurs.
+
+    Returns (context_str, provenance_note):
+      context_str    — formatted string to send as the first subprocess message
+      provenance_note — human-readable summary of what was injected (for UI badge)
+    """
+    if session is None:
+        return None, None
+
+    try:
+        from atrium.models import AtriumSessionEntry, AtriumSessionRole
+
+        log, _ = _resolve_aperture_log(session)
+
+        parts = []
+        provenance_parts = []
+
+        # --- compact summary block ---
         if log and log.compact_summary:
             ts = log.compact_at.strftime("%Y-%m-%d") if log.compact_at else "prior"
-            return (
-                f"[Prior session summary — compacted {ts}]\n"
-                f"{log.compact_summary}\n"
-                f"[End prior context]"
+            parts.append(
+                f"[Compact summary — distilled {ts}]\n"
+                f"{log.compact_summary.strip()}\n"
+                f"[End compact summary]"
             )
-    except Exception:
-        pass
-    return None
+            provenance_parts.append(f"compact summary ({ts})")
+
+        # --- recent turn history ---
+        entries = list(
+            AtriumSessionEntry.objects.filter(session=session)
+            .order_by("-created_at")[: _HISTORY_INJECT_TURNS * 2]
+        )
+        entries.reverse()  # oldest first
+
+        if entries:
+            turn_lines = []
+            char_budget = _HISTORY_INJECT_MAX_CHARS
+            for entry in entries:
+                role_label = "User" if entry.role == AtriumSessionRole.USER else "Assistant"
+                line = f"{role_label}: {entry.content.strip()}"
+                if len(line) > char_budget:
+                    break
+                turn_lines.append(line)
+                char_budget -= len(line)
+
+            if turn_lines:
+                n = len([l for l in turn_lines if l.startswith("User:")])
+                parts.append(
+                    f"[Recent conversation — last {n} exchange(s)]\n"
+                    + "\n".join(turn_lines)
+                    + "\n[End recent conversation — continue from here]"
+                )
+                provenance_parts.append(f"last {n} turn(s)")
+
+        if not parts:
+            return None, None
+
+        context_str = "\n\n".join(parts)
+        provenance_note = "Resumed from " + " + ".join(provenance_parts) + "."
+        return context_str, provenance_note
+
+    except Exception as exc:
+        logger.warning("[atrium] _build_cold_spawn_context failed: %s", exc)
+        return None, None
+
+
+def _get_compact_summary(session) -> str | None:
+    """Return the ApertureLog compact summary for injection (legacy single-field path)."""
+    context, _ = _build_cold_spawn_context(session)
+    return context
 
 
 def _store_compact_summary(session, summary: str) -> None:
     """Store compact summary in the session's ApertureLog."""
     try:
         from django.utils import timezone
-        from initiatives.models import ApertureLog
-        initiative_id = getattr(session, "initiative_id", None)
-        if initiative_id is None:
+        log, _ = _resolve_aperture_log(session)
+        if log is None:
             return
-        ApertureLog.objects.filter(initiative_id=initiative_id).update(
-            compact_summary=summary,
-            compact_at=timezone.now(),
-        )
+        log.compact_summary = summary
+        log.compact_at = timezone.now()
+        log.save(update_fields=["compact_summary", "compact_at"])
     except Exception as exc:
         logger.warning("[atrium] _store_compact_summary failed: %s", exc)
+
+
+def _trigger_keeper_if_due(session) -> None:
+    """
+    Fire the Continuous Keeper task if the turn threshold for this session's
+    cadence has been reached. Called from the AtriumSessionEntry post_save signal.
+    """
+    try:
+        log, cadence = _resolve_aperture_log(session)
+        threshold = _TURN_THRESHOLDS.get(cadence)
+        if threshold is None:
+            return  # "light" cadence — no turn-count trigger
+
+        from atrium.models import AtriumSessionEntry, AtriumSessionRole
+        since = getattr(log, "compact_at", None)
+        qs = AtriumSessionEntry.objects.filter(
+            session=session,
+            role=AtriumSessionRole.ASSISTANT,
+        )
+        if since:
+            qs = qs.filter(created_at__gt=since)
+        count = qs.count()
+        if count >= threshold:
+            from atrium.tasks import keeper_compact_task
+            keeper_compact_task.delay(str(session.id))
+    except Exception as exc:
+        logger.warning("[atrium] _trigger_keeper_if_due failed: %s", exc)
+
+
+def _trigger_idle_keeper_if_due(session) -> None:
+    """
+    Fire the Continuous Keeper task if the session has been idle past the
+    cadence threshold. Called at the start of warm() on cold spawn.
+    """
+    try:
+        from django.utils import timezone
+        log, cadence = _resolve_aperture_log(session)
+        idle_minutes = _IDLE_THRESHOLDS.get(cadence)
+        if idle_minutes is None:
+            return  # "light" cadence — no idle trigger
+
+        last_end = getattr(log, "last_session_end", None)
+        last_compact = getattr(log, "compact_at", None)
+        if last_end is None:
+            return
+
+        idle_delta = (timezone.now() - last_end).total_seconds() / 60
+        if idle_delta >= idle_minutes:
+            # Only re-compact if compact is stale (older than last_end).
+            if last_compact is None or last_compact < last_end:
+                from atrium.tasks import keeper_compact_task
+                keeper_compact_task.delay(str(session.id))
+    except Exception as exc:
+        logger.warning("[atrium] _trigger_idle_keeper_if_due failed: %s", exc)
