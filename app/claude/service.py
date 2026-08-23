@@ -128,14 +128,14 @@ def stream(prompt: str, cwd: str) -> Generator[str, None, None]:
 # Session UUID → subprocess.Popen handle.
 _session_registry: dict[str, subprocess.Popen] = {}
 # Per-session lock — prevents two concurrent requests interleaving on the same process.
-_session_locks: dict[str, threading.Lock] = {}
+_session_locks: dict[str, threading.RLock] = {}
 _session_locks_mu = threading.Lock()
 
 
-def _session_lock(session_id: str) -> threading.Lock:
+def _session_lock(session_id: str) -> threading.RLock:
     with _session_locks_mu:
         if session_id not in _session_locks:
-            _session_locks[session_id] = threading.Lock()
+            _session_locks[session_id] = threading.RLock()
         return _session_locks[session_id]
 
 
