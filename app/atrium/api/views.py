@@ -11,7 +11,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from atrium.models import AtriumSession, AtriumSessionStatus
+from atrium.models import AtriumSession, AtriumSessionStatus, AtriumSessionRole, Distillate, DistillateDocumentType
 from atrium.ai.service import PUDDLEJUMP_GROUPS
 from profiles.services.profiles import ensure_user_profile
 from .serializers import AtriumSessionListSerializer, AtriumSessionEntrySerializer
@@ -356,3 +356,149 @@ class AtriumSessionCompactView(APIView):
             return Response({"detail": "Compact failed."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response({"summary": summary}, status=status.HTTP_200_OK)
+
+
+class AtriumSessionDistillView(APIView):
+    """
+    POST /api/atrium/sessions/<session_id>/distill
+
+    Generate a Distillate artifact from the session's conversation history.
+    Uses a one-shot `claude -p` call (same pattern as the Continuous Keeper)
+    with a prompt that asks Claude to produce a named document of the given type.
+
+    Body: { "title": str, "document_type": str }
+    Returns: { "id", "title", "body", "document_type", "created_at" }
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    _DISTILL_PROMPT_TEMPLATE = """\
+You are a knowledge distiller. The following is a transcript of an AI-assisted \
+work session titled "{title}". Produce a {document_type_label} document with \
+the title "{title}".
+
+Guidelines for a {document_type_label}:
+{document_type_guidance}
+
+Session transcript:
+{transcript}
+
+Write only the document body — no title heading, no preamble. Use markdown.
+"""
+
+    _DOCUMENT_TYPE_GUIDANCE = {
+        DistillateDocumentType.FIELD_NOTE: (
+            "A field note is a short (1-3 paragraphs), direct record of what was observed, "
+            "decided, or learned. First-person voice. What happened, what was noticed, what's next."
+        ),
+        DistillateDocumentType.FINDING: (
+            "A finding states a conclusion derived from evidence. Structured: Background, "
+            "Evidence, Finding, Implication. Precise and factual — no hedging."
+        ),
+        DistillateDocumentType.POSITION_PAPER: (
+            "A position paper argues for a specific approach or decision. Structured: "
+            "Context, Position, Rationale, Trade-offs, Recommendation."
+        ),
+        DistillateDocumentType.DRAFT_ADR: (
+            "An ADR (Architecture Decision Record) documents a decision and its context. "
+            "Sections: Status (Draft), Context, Decision, Consequences."
+        ),
+        DistillateDocumentType.SUMMARY: (
+            "A summary captures the key points, decisions, and open questions from the session "
+            "in 2-4 paragraphs. Concise and scannable — bullet lists welcome."
+        ),
+        DistillateDocumentType.OTHER: (
+            "Produce a clear, well-structured document that captures the key substance of the session."
+        ),
+    }
+
+    _MAX_TRANSCRIPT_CHARS = 40_000
+
+    def post(self, request, session_id):
+        profile = ensure_user_profile(request.user)
+
+        try:
+            session = AtriumSession.objects.select_related("sponsor_content_type").get(
+                id=session_id,
+                member=profile,
+                deleted_at__isnull=True,
+            )
+        except AtriumSession.DoesNotExist:
+            return Response({"detail": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        title = (request.data.get("title") or "").strip()
+        document_type = (request.data.get("document_type") or DistillateDocumentType.SUMMARY)
+
+        if not title:
+            return Response({"detail": "title is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if document_type not in DistillateDocumentType.values:
+            return Response(
+                {"detail": f"document_type must be one of: {', '.join(DistillateDocumentType.values)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Resolve initiative via sponsor GFK (same pattern as _resolve_aperture_log)
+        from atrium.ai.service import _resolve_aperture_log
+        log, _ = _resolve_aperture_log(session)
+        if log is None:
+            return Response(
+                {"detail": "No initiative found for this session — Distillate requires an initiative context."},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        # Build transcript from session entries
+        entries = list(session.entries.order_by("created_at"))
+        lines = []
+        for entry in entries:
+            role_label = "User" if entry.role == AtriumSessionRole.USER else "Assistant"
+            lines.append(f"{role_label}: {entry.content.strip()}")
+        transcript = "\n".join(lines)
+        if len(transcript) > self._MAX_TRANSCRIPT_CHARS:
+            transcript = transcript[-self._MAX_TRANSCRIPT_CHARS:]
+
+        if not transcript:
+            return Response(
+                {"detail": "Session has no entries to distill."},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        document_type_label = dict(DistillateDocumentType.choices).get(document_type, document_type)
+        guidance = self._DOCUMENT_TYPE_GUIDANCE.get(document_type, self._DOCUMENT_TYPE_GUIDANCE[DistillateDocumentType.OTHER])
+
+        prompt = self._DISTILL_PROMPT_TEMPLATE.format(
+            title=title,
+            document_type_label=document_type_label,
+            document_type_guidance=guidance,
+            transcript=transcript,
+        )
+
+        from atrium.tasks import _run_claude_p
+        body = _run_claude_p(prompt)
+        if not body:
+            logger.error("atrium_distill_failed session=%s — claude -p returned empty", session_id)
+            return Response({"detail": "Distillate generation failed."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        distillate = Distillate.objects.create(
+            initiative=log.initiative,
+            session=session,
+            title=title,
+            body=body,
+            document_type=document_type,
+        )
+
+        logger.info(
+            "atrium_distill session=%s distillate=%s type=%s",
+            session_id, distillate.id, document_type,
+        )
+
+        return Response(
+            {
+                "id": str(distillate.id),
+                "title": distillate.title,
+                "body": distillate.body,
+                "document_type": distillate.document_type,
+                "created_at": distillate.created_at.isoformat(),
+            },
+            status=status.HTTP_201_CREATED,
+        )
