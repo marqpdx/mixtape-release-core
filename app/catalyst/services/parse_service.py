@@ -149,6 +149,121 @@ Menus (container) present as structure only."}}
 confidence: "high" (clear, certain), "medium" (some ambiguity), "low" (noisy file, best estimate)\
 """
 
+_CHUNK_SEMANTIC_PROMPT = """\
+You are analyzing CHUNK {chunk_num} of {chunk_total} from a file being imported into a knowledge base.
+Count only what you see in THIS CHUNK — do not estimate for the whole file.
+
+--- CLIENT VOCABULARY ---
+{client_context}
+--- END CLIENT VOCABULARY ---
+
+FILE: {filename}  (chunk {chunk_num}/{chunk_total})
+CHUNK CONTENT:
+---
+{content}
+---
+
+INSTRUCTIONS:
+Count distinct named items visible IN THIS CHUNK ONLY. Same rules apply:
+- Recipes/dishes: look for dish names ("Cashew Dill Sauce", "Root Hash", "Dahl Soup") —
+  NOT meal-occasion headings ("Wednesday Dinner"), NOT ingredient lines, NOT action items.
+  Lines ending in "-" often mark recipe names in chef notebooks — treat them as dish names.
+- People: distinct named individuals only; skip roles, email addresses, phone numbers.
+- Suppliers: confirmed organization names only; skip prospects and outreach lists.
+If this chunk contains only logistics, quantities, preamble, or action items with no
+named entities of the client's types, return count: 0.
+
+Respond with JSON only:
+{{"entity_type": "...", "entity_plural": "...", "count": N, \
+"examples": ["name1", "name2"], "confidence": "high|medium|low", "notes": "..."}}
+"""
+
+_CHUNK_FULL_TEXT_MAX = 30_000   # chars to extract before chunking (covers most real-world files)
+_CHUNK_SIZE = 5_000             # chars per chunk
+_CHUNK_OVERLAP = 300            # char overlap between consecutive chunks
+
+
+def _chunk_text(text: str) -> list[str]:
+    """Split text into overlapping chunks of _CHUNK_SIZE chars."""
+    if len(text) <= _CHUNK_SIZE:
+        return [text]
+    chunks = []
+    start = 0
+    while start < len(text):
+        chunks.append(text[start:start + _CHUNK_SIZE])
+        start += _CHUNK_SIZE - _CHUNK_OVERLAP
+    return chunks
+
+
+def _parse_semantic_json(raw: str, filename: str) -> dict | None:
+    """Parse a Claude semantic-analysis JSON response into a result dict."""
+    try:
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            m = re.search(r'\{.*\}', raw, re.DOTALL)
+            if not m:
+                logger.warning("[catalyst] no JSON in semantic response for %s: %r", filename, raw[:200])
+                return None
+            parsed = json.loads(m.group())
+        if not isinstance(parsed.get("count"), int):
+            return None
+        doc_type = parsed.get("document_type", "")
+        entity_type = parsed.get("entity_type") or parsed.get("entity_label") or doc_type.lower() or "records"
+        entity_plural = parsed.get("entity_plural") or entity_type + "s"
+        return {
+            "entity_type": str(entity_type),
+            "entity_plural": str(entity_plural),
+            "count": max(0, int(parsed["count"])),
+            "examples": list(parsed.get("examples", []))[:5],
+            "confidence": str(parsed.get("confidence", "medium")),
+            "notes": str(parsed.get("notes", "")),
+        }
+    except Exception as exc:
+        logger.warning("[catalyst] semantic JSON parse failed for %s: %s", filename, exc)
+        return None
+
+
+def _aggregate_chunk_results(results: list[dict], filename: str) -> dict | None:
+    """Merge per-chunk semantic results into a single result."""
+    results = [r for r in results if r]
+    if not results:
+        return None
+    if len(results) == 1:
+        return results[0]
+
+    from collections import Counter
+    entity_type = Counter(r["entity_type"] for r in results).most_common(1)[0][0]
+    entity_plural = next(
+        (r["entity_plural"] for r in results if r["entity_type"] == entity_type),
+        entity_type + "s",
+    )
+    total_count = sum(r["count"] for r in results)
+
+    seen: set[str] = set()
+    examples: list[str] = []
+    for r in results:
+        for ex in r.get("examples", []):
+            key = ex.lower().strip()
+            if key not in seen and len(examples) < 8:
+                seen.add(key)
+                examples.append(ex)
+
+    conf_rank = {"high": 2, "medium": 1, "low": 0}
+    confidence = min(results, key=lambda r: conf_rank.get(r["confidence"], 1))["confidence"]
+    notes = results[0].get("notes", "")
+    notes += f" [chunked: {len(results)} passes, counts summed]"
+
+    logger.info("[catalyst] aggregate %s: %s count=%d from %d chunks", filename, entity_type, total_count, len(results))
+    return {
+        "entity_type": entity_type,
+        "entity_plural": entity_plural,
+        "count": total_count,
+        "examples": examples[:5],
+        "confidence": confidence,
+        "notes": notes,
+    }
+
 
 def extract_text_preview(filename: str, data: bytes, max_chars: int = 4000) -> str:
     """Extract a plain-text preview from any supported file type."""
@@ -281,62 +396,61 @@ def semantic_analyze(
     client_context: str | None = None,
 ) -> dict | None:
     """
-    Ask the local Claude Code instance to count distinct named items in a file.
-    client_context: plain-language vocabulary the client declared before import.
-    Returns dict with entity_type, entity_plural, count, examples, confidence, notes — or None on failure.
+    Count distinct named items in a file using the local Claude Code instance.
+
+    Short files (≤ _CHUNK_SIZE chars): single-pass analysis.
+    Long flat files (> _CHUNK_SIZE): split into overlapping chunks, analyze each,
+    aggregate counts and examples. This avoids the 8000-char truncation that
+    previously hid recipe cards deep in meeting-notes documents.
+
+    Returns dict with entity_type, entity_plural, count, examples, confidence, notes.
     Falls back gracefully; never raises.
     """
     logger.info("[catalyst] semantic_analyze: file=%s", filename)
 
-    # Reject files that are too large to analyze meaningfully (>500k bytes raw)
     if len(data) > 500_000:
         logger.warning("[catalyst] %s is %d bytes — too large for semantic analysis, skipping", filename, len(data))
         return {"entity_type": "records", "entity_plural": "records", "count": 0,
                 "examples": [], "confidence": "low",
-                "notes": f"File too large ({len(data)//1024}KB) for automated analysis — please split into smaller files or import manually."}
+                "notes": f"File too large ({len(data)//1024}KB) — split into smaller files or import manually."}
 
-    text_preview = _extract_heading_priority(filename, data, max_chars=8000)
-    if not text_preview.strip():
+    # Extract up to _CHUNK_FULL_TEXT_MAX chars so chunking can see the whole document.
+    full_text = _extract_heading_priority(filename, data, max_chars=_CHUNK_FULL_TEXT_MAX)
+    if not full_text.strip():
         return None
 
     ctx = client_context.strip() if client_context and client_context.strip() else _CLIENT_CONTEXT_FALLBACK
-    prompt = _SEMANTIC_PROMPT.format(filename=filename, content=text_preview, client_context=ctx)
+    chunks = _chunk_text(full_text)
 
-    raw = claude_service.run_blocking(prompt, cwd=codex_cwd or os.getcwd(), timeout=timeout)
-    if not raw:
-        return None
-
-    try:
-        # Try direct parse first, then extract first JSON object
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            m = re.search(r'\{.*\}', raw, re.DOTALL)
-            if not m:
-                logger.warning("[catalyst] no JSON in claude response for %s: %r", filename, raw[:300])
-                return None
-            parsed = json.loads(m.group())
-
-        # Validate required fields
-        if not isinstance(parsed.get("count"), int):
+    if len(chunks) == 1:
+        # Single-pass — original behaviour
+        prompt = _SEMANTIC_PROMPT.format(filename=filename, content=full_text, client_context=ctx)
+        raw = claude_service.run_blocking(prompt, cwd=codex_cwd or os.getcwd(), timeout=timeout)
+        if not raw:
             return None
+        result = _parse_semantic_json(raw, filename)
+        if result:
+            logger.info("[catalyst] semantic result: %s → %s count=%d", filename, result["entity_type"], result["count"])
+        return result
 
-        # Support both old format (entity_type) and new (document_type + entity_label)
-        doc_type = parsed.get("document_type", "")
-        entity_type = parsed.get("entity_type") or parsed.get("entity_label") or doc_type.lower() or "records"
-        entity_plural = parsed.get("entity_plural") or entity_type + "s"
-        logger.info("[catalyst] semantic result: %s → %s count=%s", filename, entity_type, parsed.get("count"))
-        return {
-            "entity_type": str(entity_type),
-            "entity_plural": str(entity_plural),
-            "count": max(0, int(parsed["count"])),
-            "examples": list(parsed.get("examples", []))[:5],
-            "confidence": str(parsed.get("confidence", "medium")),
-            "notes": str(parsed.get("notes", "")),
-        }
-    except Exception as exc:
-        logger.warning("[catalyst] semantic_analyze parse failed for %s: %s", filename, exc)
-        return None
+    # Multi-pass chunked analysis
+    logger.info("[catalyst] semantic_analyze chunking %s: %d chunks (%d chars total)", filename, len(chunks), len(full_text))
+    chunk_results: list[dict] = []
+    for i, chunk in enumerate(chunks, 1):
+        prompt = _CHUNK_SEMANTIC_PROMPT.format(
+            chunk_num=i, chunk_total=len(chunks),
+            filename=filename, content=chunk, client_context=ctx,
+        )
+        raw = claude_service.run_blocking(prompt, cwd=codex_cwd or os.getcwd(), timeout=timeout)
+        if not raw:
+            logger.warning("[catalyst] chunk %d/%d got no response for %s", i, len(chunks), filename)
+            continue
+        result = _parse_semantic_json(raw, filename)
+        if result:
+            logger.info("[catalyst] chunk %d/%d: %s count=%d", i, len(chunks), result["entity_type"], result["count"])
+            chunk_results.append(result)
+
+    return _aggregate_chunk_results(chunk_results, filename)
 
 
 _EXTRACT_PROMPT = """\
