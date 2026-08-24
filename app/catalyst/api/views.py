@@ -226,10 +226,25 @@ class ParseFilesView(APIView):
         all_registers: list[dict] = []
         file_meta: list[dict] = []
 
-        # Read bytes in main thread; run parse_file() sequentially (fast)
+        # Deduplicate uploaded files by content hash — identical files (e.g. backup copies
+        # like "Menu Meeting 6_19-2.docx") would otherwise inflate all entity counts.
+        import hashlib
+        seen_hashes: set[str] = set()
+        deduped_uploads: list[tuple[str, bytes]] = []
+        skipped_duplicates: list[str] = []
         for f in uploaded:
             name = f.name
             data = f.read()
+            file_hash = hashlib.sha256(data).hexdigest()
+            if file_hash in seen_hashes:
+                skipped_duplicates.append(name)
+                logger.info("[catalyst] skipping duplicate file: %s (same content as earlier upload)", name)
+            else:
+                seen_hashes.add(file_hash)
+                deduped_uploads.append((name, data))
+
+        # Read bytes in main thread; run parse_file() sequentially (fast)
+        for name, data in deduped_uploads:
             try:
                 result = parse_file(name, data)
                 registers_dicts = [
@@ -303,7 +318,8 @@ class ParseFilesView(APIView):
             "job_id": str(job.id),
             "phase1_results": phase1,
             "files": parsed_files,
-            "files_processed": len(uploaded),
+            "files_processed": len(deduped_uploads),
+            "skipped_duplicates": skipped_duplicates,
             "errors": errors,
         }, status=status.HTTP_200_OK)
 

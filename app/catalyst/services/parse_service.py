@@ -619,6 +619,46 @@ def _parse_csv(filename: str, base: str, data: BinaryIO) -> ParsedFile:
 
 # ── docx ──────────────────────────────────────────────────────────────────────
 
+def _heading_level_from_style_name(style_name: str) -> int | None:
+    """Return 1–6 from a python-docx style name like 'Heading 3', or None."""
+    m = re.match(r"^heading\s+(\d+)$", style_name.strip(), re.I)
+    return int(m.group(1)) if m else None
+
+
+def _docx_sections_at_level(doc, base: str, split_level: int) -> list[tuple[str, int]]:
+    """
+    Split doc into sections using headings at split_level as boundaries.
+    Other heading levels (containers or sub-headings) are skipped so they
+    don't inflate section entry counts.  Uses the python-docx paragraph API
+    which resolves style names reliably without XML namespace juggling.
+    """
+    sections: list[tuple[str, int]] = []
+    current_heading: str | None = None
+    current_count = 0
+
+    def flush():
+        nonlocal current_heading, current_count
+        if current_heading is not None:
+            sections.append((current_heading, current_count))
+        current_heading = None
+        current_count = 0
+
+    for para in doc.paragraphs:
+        style_name = para.style.name if para.style else ""
+        text = para.text.strip()
+        lvl = _heading_level_from_style_name(style_name)
+        if lvl == split_level:
+            flush()
+            current_heading = text or base
+        elif lvl is not None:
+            pass  # other heading level — structural container or sub-heading
+        elif text:
+            current_count += 1
+
+    flush()
+    return sections
+
+
 def _parse_docx(filename: str, base: str, data: BinaryIO) -> ParsedFile:
     from docx import Document
     try:
@@ -636,48 +676,28 @@ def _parse_docx(filename: str, base: str, data: BinaryIO) -> ParsedFile:
             file_notes=f"Error opening document: {exc}",
         )
 
+    # Try heading levels H1 → H2 → H3, stopping at the first that yields ≥ 3 sections.
+    # This handles docs where H1 is just a document title and real content lives under H2/H3.
     sections: list[tuple[str, int]] = []
-    current_heading: str | None = None
-    current_count = 0
-
-    def flush():
-        nonlocal current_heading, current_count
-        if current_heading is not None:
-            sections.append((current_heading, current_count))
-        current_heading = None
-        current_count = 0
-
-    for block in doc.element.body:
-        tag = block.tag.split("}")[-1] if "}" in block.tag else block.tag
-        if tag == "p":
-            from docx.oxml.ns import qn
-            style_el = block.find(qn("w:pStyle"), block.nsmap if hasattr(block, "nsmap") else {})
-            style_val = style_el.get(
-                "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val", ""
-            ) if style_el is not None else ""
-            text = "".join(n.text or "" for n in block.iter()
-                           if n.tag.endswith("}t")).strip()
-            if style_val in ("Heading1", "1", "Heading 1") or re.match(r"^heading.?1$", style_val, re.I):
-                flush()
-                current_heading = text or base
-            elif text:
-                current_count += 1
-        elif tag == "tbl":
-            rows = block.findall(
-                ".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}tr"
-            )
-            current_count += max(0, len(rows) - 1)
-
-    flush()
+    heading_level_used: int | None = None
+    for level in (1, 2, 3):
+        candidate = _docx_sections_at_level(doc, base, level)
+        if len(candidate) >= 3:
+            sections = candidate
+            heading_level_used = level
+            break
 
     if not sections:
+        # No heading level produced ≥ 3 sections — use whole file as single register.
         total_rows = sum(max(0, len(t.rows) - 1) for t in doc.tables)
         para_count = len([p for p in doc.paragraphs if p.text.strip()])
         sections = [(base, total_rows or para_count)]
-        file_notes = "No Heading 1 sections — treated as single register"
+        file_notes = "No heading sections — treated as single register"
     else:
-        file_notes = f"{len(sections)} Heading 1 section{'s' if len(sections) != 1 else ''}"
+        label = f"Heading {heading_level_used}"
+        file_notes = f"{len(sections)} {label} section{'s' if len(sections) != 1 else ''}"
 
+    section_label = f"H{heading_level_used}" if heading_level_used else "section"
     registers = [
         ProposedRegister(
             slug=slugify(name),
@@ -685,7 +705,7 @@ def _parse_docx(filename: str, base: str, data: BinaryIO) -> ParsedFile:
             entry_count=count,
             source_file=filename,
             confidence=_confidence_doc(count),
-            notes=f"Heading 1 section · {count} content rows" if count else "Heading 1 section · no rows detected",
+            notes=f"{section_label} · {count} content rows" if count else f"{section_label} · no rows detected",
         )
         for name, count in sections
         if name.strip()
