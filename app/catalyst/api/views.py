@@ -646,3 +646,69 @@ class RegisterDetailView(APIView):
             "commit": commit_hash,
             "canonized": canonize,
         })
+
+
+class RegisterMaterializeView(APIView):
+    """
+    POST /api/catalyst/groups/{slug}/registers/{register_slug}/materialize/
+
+    Body: {"job_id": "<uuid>"}
+
+    Queues a Celery task that runs extract_entities_chunked() against the
+    register's source files and writes the results into the register _index.md.
+    Returns immediately — the task runs asynchronously.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, slug, register_slug):
+        from catalyst.models import CatalystParseJob
+        from catalyst.tasks import materialize_register_entities
+
+        group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
+        if not _is_group_admin(request.user, group):
+            return Response(
+                {"detail": "Admin access required."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        job_id = request.data.get("job_id")
+        if not job_id:
+            # Fall back: find the latest completed job for this group
+            job = (
+                CatalystParseJob.objects
+                .filter(group=group, status=CatalystParseJob.STATUS_COMPLETE)
+                .order_by("-completed_at")
+                .first()
+            )
+            if not job:
+                return Response(
+                    {"detail": "No completed parse job found for this group. Run Phase 2 first."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            job_id = str(job.pk)
+        else:
+            try:
+                CatalystParseJob.objects.get(pk=job_id, group=group)
+            except CatalystParseJob.DoesNotExist:
+                return Response(
+                    {"detail": "Parse job not found."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+        index_path = _codex_root(slug) / "CONTENT" / "registers" / register_slug / "_index.md"
+        if not index_path.exists():
+            return Response(
+                {"detail": f"Register '{register_slug}' not found. Confirm registers first."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        materialize_register_entities.apply_async(
+            args=[slug, register_slug, str(job_id)],
+            queue="catalyst",
+        )
+        logger.info(
+            "[catalyst] materialize queued: group=%s register=%s job=%s by %s",
+            slug, register_slug, job_id, request.user.username,
+        )
+        return Response({"status": "queued", "register": register_slug, "job_id": str(job_id)})

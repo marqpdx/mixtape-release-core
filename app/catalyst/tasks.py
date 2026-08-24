@@ -5,8 +5,11 @@ Route: push queue (Celery-only; must not be consumed by Uvicorn).
 """
 
 import logging
+import subprocess
 import urllib.parse
+import yaml
 from datetime import datetime, timezone
+from pathlib import Path
 
 from celery import shared_task
 from django.conf import settings
@@ -405,3 +408,132 @@ def _send_parse_complete_email(job) -> None:
         logger.info("[catalyst-email] Sent parse-complete email for job %s to %s", job.id, user.email)
     except MailjetSendError as exc:
         logger.exception("[catalyst-email] Mailjet failed for job %s: %s", job.id, exc)
+
+
+# ── Phase 3 — Entity materialization ──────────────────────────────────────────
+
+def _git_codex(codex_root: Path, *args) -> str:
+    result = subprocess.run(
+        ["git", *args],
+        cwd=codex_root,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"git {' '.join(str(a) for a in args)} failed: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def _rewrite_register_body(index_path: Path, new_body: str) -> None:
+    """Replace the body section of a register _index.md without touching frontmatter."""
+    raw = index_path.read_text(encoding="utf-8")
+    parts = raw.split("---", 2)
+    if len(parts) >= 3:
+        fm_str = parts[1]
+        index_path.write_text(f"---{fm_str}---\n\n{new_body}\n", encoding="utf-8")
+    else:
+        index_path.write_text(raw + f"\n\n{new_body}\n", encoding="utf-8")
+
+
+def _fm_from_index(index_path: Path) -> dict:
+    raw = index_path.read_text(encoding="utf-8")
+    parts = raw.split("---", 2)
+    if len(parts) >= 3:
+        try:
+            return yaml.safe_load(parts[1]) or {}
+        except yaml.YAMLError:
+            return {}
+    return {}
+
+
+@shared_task(
+    name="catalyst.tasks.materialize_register_entities",
+    bind=True,
+    max_retries=1,
+    default_retry_delay=30,
+    soft_time_limit=600,
+    time_limit=660,
+)
+def materialize_register_entities(self, group_slug: str, register_slug: str, job_id: str) -> None:
+    """
+    Phase 3 — extract every named entity from the source files for one register,
+    format as markdown, and write into the register's _index.md body.
+
+    Triggered via POST /registers/{slug}/materialize/ after the user has confirmed
+    and is in browse mode. Uses extract_entities_chunked() to handle long flat files.
+    """
+    from catalyst.models import CatalystParseJob
+    from catalyst.services.parse_service import extract_entities_chunked, format_entities_as_markdown
+
+    logger.info("[catalyst-materialize] start: group=%s register=%s job=%s", group_slug, register_slug, job_id)
+
+    try:
+        job = CatalystParseJob.objects.get(pk=job_id)
+    except CatalystParseJob.DoesNotExist:
+        logger.error("[catalyst-materialize] job %s not found", job_id)
+        return
+
+    codex_root = Path(settings.CATALYST_CODEX_ROOT) / group_slug
+    index_path = codex_root / "CONTENT" / "registers" / register_slug / "_index.md"
+    if not index_path.exists():
+        logger.error("[catalyst-materialize] _index.md not found at %s", index_path)
+        return
+
+    fm = _fm_from_index(index_path)
+    source_file_str = str(fm.get("source_file", ""))
+    display_name = register_slug.replace("-", " ").title()
+
+    # Derive entity type from slug: "recipes" → "recipe", "partners-suppliers" → "partner"
+    entity_plural = register_slug.replace("-", " ")
+    entity_type = entity_plural.rstrip("s") if entity_plural.endswith("s") else entity_plural
+
+    source_files = [s.strip() for s in source_file_str.split(",") if s.strip()]
+    if not source_files:
+        # Fall back: try all uploaded files
+        source_files = [f["filename"] for f in (job.uploaded_files or [])]
+
+    all_entities: list[dict] = []
+    seen_names: set[str] = set()
+
+    for fname in source_files:
+        file_path = job.job_dir() / fname
+        if not file_path.exists():
+            logger.warning("[catalyst-materialize] source file not found: %s", file_path)
+            continue
+        data = file_path.read_bytes()
+        entities = extract_entities_chunked(
+            fname,
+            data,
+            entity_type=entity_type,
+            entity_plural=entity_plural,
+            client_context=job.client_context or None,
+            timeout_per_chunk=180,
+        )
+        for e in entities:
+            key = e.get("name", "").lower().strip()
+            if key and key not in seen_names:
+                seen_names.add(key)
+                all_entities.append(e)
+
+    logger.info("[catalyst-materialize] %d %s extracted across %d files", len(all_entities), entity_plural, len(source_files))
+
+    entries_md = format_entities_as_markdown(entity_plural, all_entities)
+    body = (
+        f"# {display_name}\n\n"
+        f"**Source:** {source_file_str}\n\n"
+        f"**Entries extracted:** {len(all_entities)}\n\n"
+        f"## Entries\n\n"
+        f"{entries_md}"
+    )
+
+    _rewrite_register_body(index_path, body)
+
+    try:
+        _git_codex(codex_root, "add", f"CONTENT/registers/{register_slug}/_index.md")
+        _git_codex(
+            codex_root, "commit", "-m",
+            f"materialize: {len(all_entities)} {entity_plural} in {register_slug}",
+        )
+        logger.info("[catalyst-materialize] committed %s", register_slug)
+    except RuntimeError as exc:
+        logger.warning("[catalyst-materialize] git commit failed (non-fatal): %s", exc)
