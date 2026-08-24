@@ -7,6 +7,7 @@ from .views import (
     ParseFilesView,
     ParseJobStatusView,
     RegisterDetailView,
+    RegisterMaterializeView,
     StartAnalysisView,
 )
 
@@ -40,5 +41,10 @@ urlpatterns = [
         "groups/<slug:slug>/registers/<slug:register_slug>/",
         RegisterDetailView.as_view(),
         name="catalyst-register-detail",
+    ),
+    path(
+        "groups/<slug:slug>/registers/<slug:register_slug>/materialize/",
+        RegisterMaterializeView.as_view(),
+        name="catalyst-register-materialize",
     ),
 ]

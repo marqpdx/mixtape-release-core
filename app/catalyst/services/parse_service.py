@@ -466,7 +466,10 @@ Your task: extract every distinct {entity_type} you can identify from this conte
 Return a JSON array (not an object) where each element represents one {entity_type}.
 Each element MUST have a "name" key. Add any other fields that are naturally present
 in the content (e.g. ingredients, description, role, contact, amount, category).
-Do not invent fields that aren't in the source. Do not add commentary outside the JSON.
+
+If the client context says a {entity_type} should include child entities (e.g. a recipe
+includes an ingredients list), extract those child fields too — use the field name from
+the client context. Do not invent fields not in the source. Do not add commentary outside the JSON.
 
 Example shape (fields will vary by content):
 [
@@ -478,7 +481,77 @@ File content:
 {content}
 """
 
+_EXTRACT_CHUNK_PROMPT = """\
+You are a data extraction assistant. You are analyzing CHUNK {chunk_num} of {chunk_total} from a file.
+Extract ONLY the {entity_type} ({entity_plural}) visible in THIS CHUNK — do not estimate for the whole file.
+
+File: {filename}  (chunk {chunk_num}/{chunk_total})
+
+{client_context_block}
+
+Return a JSON array where each element has at minimum a "name" key. Include child fields
+(e.g. ingredients for a recipe) if visible in this chunk. Do not add commentary outside the JSON.
+Return an empty array [] if this chunk contains no {entity_type} instances.
+
+Chunk content:
+{content}
+"""
+
 _EXTRACT_CONTEXT_BLOCK = "Client context: {client_context}"
+
+
+def _parse_entity_json(raw: str, filename: str) -> list[dict]:
+    """Parse a Claude entity-extraction JSON array response."""
+    try:
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            m = re.search(r'\[.*\]', raw, re.DOTALL)
+            if not m:
+                logger.warning("[catalyst] no JSON array in extract response for %s: %r", filename, raw[:300])
+                return []
+            parsed = json.loads(m.group())
+        if not isinstance(parsed, list):
+            return []
+        return [e for e in parsed if isinstance(e, dict) and e.get("name")]
+    except Exception as exc:
+        logger.warning("[catalyst] entity JSON parse failed for %s: %s", filename, exc)
+        return []
+
+
+def _run_extract_on_text(
+    text: str,
+    filename: str,
+    entity_type: str,
+    entity_plural: str,
+    codex_cwd: str | None,
+    client_context: str | None,
+    timeout: int,
+    chunk_info: str | None = None,
+) -> list[dict]:
+    """Run the extract prompt on pre-extracted text. Used by both single-pass and chunked paths."""
+    ctx_block = _EXTRACT_CONTEXT_BLOCK.format(client_context=client_context.strip()) if client_context else ""
+    if chunk_info:
+        chunk_num, chunk_total = (int(x) for x in chunk_info.split("/"))
+        prompt = _EXTRACT_CHUNK_PROMPT.format(
+            filename=filename,
+            entity_type=entity_type,
+            entity_plural=entity_plural,
+            client_context_block=ctx_block,
+            content=text,
+            chunk_num=chunk_num,
+            chunk_total=chunk_total,
+        )
+    else:
+        prompt = _EXTRACT_PROMPT.format(
+            filename=filename,
+            entity_type=entity_type,
+            entity_plural=entity_plural,
+            client_context_block=ctx_block,
+            content=text,
+        )
+    raw = claude_service.run_blocking(prompt, cwd=codex_cwd or os.getcwd(), timeout=timeout)
+    return _parse_entity_json(raw, filename) if raw else []
 
 
 def extract_entities(
@@ -493,7 +566,7 @@ def extract_entities(
     """
     Ask Claude to extract every named entity of entity_type from the file.
     Returns a list of dicts, each with at least a 'name' key.
-    Returns [] on failure or timeout.
+    Returns [] on failure or timeout. For long files, use extract_entities_chunked.
     """
     logger.info("[catalyst] extract_entities: %s → %s from %s", entity_type, entity_plural, filename)
 
@@ -501,44 +574,90 @@ def extract_entities(
         logger.warning("[catalyst] %s too large for extraction (%dKB) — skipping", filename, len(data) // 1024)
         return []
 
-    text_preview = _extract_heading_priority(filename, data, max_chars=10_000)
-    if not text_preview.strip():
+    text = _extract_heading_priority(filename, data, max_chars=10_000)
+    if not text.strip():
         return []
 
-    ctx_block = _EXTRACT_CONTEXT_BLOCK.format(client_context=client_context.strip()) if client_context else ""
-    prompt = _EXTRACT_PROMPT.format(
-        filename=filename,
-        entity_type=entity_type,
-        entity_plural=entity_plural,
-        client_context_block=ctx_block,
-        content=text_preview,
-    )
+    entities = _run_extract_on_text(text, filename, entity_type, entity_plural, codex_cwd, client_context, timeout)
+    logger.info("[catalyst] extract_entities: %d %s from %s", len(entities), entity_plural, filename)
+    return entities
 
-    raw = claude_service.run_blocking(prompt, cwd=codex_cwd or os.getcwd(), timeout=timeout)
-    if not raw:
+
+def extract_entities_chunked(
+    filename: str,
+    data: bytes,
+    entity_type: str,
+    entity_plural: str,
+    codex_cwd: str | None = None,
+    client_context: str | None = None,
+    timeout_per_chunk: int = 180,
+) -> list[dict]:
+    """
+    Like extract_entities but handles long flat files by chunking.
+    Extracts up to _CHUNK_FULL_TEXT_MAX chars, splits into _CHUNK_SIZE-char overlapping
+    chunks, runs a separate Claude pass per chunk, deduplicates results by name.
+    """
+    logger.info("[catalyst] extract_entities_chunked: %s → %s from %s", entity_type, entity_plural, filename)
+
+    if len(data) > 500_000:
+        logger.warning("[catalyst] %s too large for chunked extraction — skipping", filename)
         return []
 
-    try:
-        # Try direct parse, then find first JSON array
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            m = re.search(r'\[.*\]', raw, re.DOTALL)
-            if not m:
-                logger.warning("[catalyst] no JSON array in extract response for %s: %r", filename, raw[:300])
-                return []
-            parsed = json.loads(m.group())
+    full_text = _extract_heading_priority(filename, data, max_chars=_CHUNK_FULL_TEXT_MAX)
+    if not full_text.strip():
+        return []
 
-        if not isinstance(parsed, list):
-            logger.warning("[catalyst] extract_entities: expected list, got %s for %s", type(parsed).__name__, filename)
-            return []
-
-        entities = [e for e in parsed if isinstance(e, dict) and e.get("name")]
-        logger.info("[catalyst] extract_entities: %d %s extracted from %s", len(entities), entity_plural, filename)
+    chunks = _chunk_text(full_text)
+    if len(chunks) == 1:
+        entities = _run_extract_on_text(full_text, filename, entity_type, entity_plural, codex_cwd, client_context, timeout_per_chunk)
+        logger.info("[catalyst] extract_entities_chunked (single pass): %d %s from %s", len(entities), entity_plural, filename)
         return entities
-    except Exception as exc:
-        logger.warning("[catalyst] extract_entities parse failed for %s: %s", filename, exc)
-        return []
+
+    all_entities: list[dict] = []
+    seen: set[str] = set()
+    for i, chunk in enumerate(chunks, 1):
+        chunk_entities = _run_extract_on_text(
+            chunk, filename, entity_type, entity_plural, codex_cwd, client_context,
+            timeout_per_chunk, chunk_info=f"{i}/{len(chunks)}",
+        )
+        for e in chunk_entities:
+            key = e.get("name", "").lower().strip()
+            if key and key not in seen:
+                seen.add(key)
+                all_entities.append(e)
+        logger.info("[catalyst] chunk %d/%d: %d new %s (total %d)", i, len(chunks), len(chunk_entities), entity_plural, len(all_entities))
+
+    logger.info("[catalyst] extract_entities_chunked: %d %s total from %s (%d chunks)", len(all_entities), entity_plural, filename, len(chunks))
+    return all_entities
+
+
+def format_entities_as_markdown(entity_plural: str, entities: list[dict]) -> str:
+    """
+    Format a list of extracted entity dicts as a markdown Entries section body.
+    Each entity gets a ### heading for its name, then bullet lines for other fields.
+    List fields (e.g. ingredients) are rendered as comma-separated values.
+    """
+    if not entities:
+        return f"*No {entity_plural} extracted.*\n"
+
+    lines: list[str] = []
+    for e in entities:
+        name = str(e.get("name", "")).strip()
+        if not name:
+            continue
+        lines.append(f"### {name}")
+        for k, v in e.items():
+            if k == "name" or not v:
+                continue
+            label = k.replace("_", " ").title()
+            if isinstance(v, list):
+                rendered = ", ".join(str(x) for x in v if x)
+                if rendered:
+                    lines.append(f"- **{label}:** {rendered}")
+            else:
+                lines.append(f"- **{label}:** {v}")
+        lines.append("")
+    return "\n".join(lines)
 
 
 @dataclass
