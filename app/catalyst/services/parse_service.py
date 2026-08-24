@@ -970,19 +970,23 @@ def align_vocabulary(
         for child in children
     }
     aligned_declared_lowered = {r.get("matched_declared", "").lower() for r in aligned}
+    # Expand to singular/plural variants so "recipes" matches parent key "recipe", etc.
+    aligned_declared_variants: set[str] = set()
+    for ad in aligned_declared_lowered:
+        aligned_declared_variants.update(_word_variants(ad))
 
     absent: list[str] = []
     nested_in_parent: list[dict] = []
     for d in raw_absent:
         parent = child_to_parent.get(d.lower())
-        if parent and parent in aligned_declared_lowered:
+        if parent and parent in aligned_declared_variants:
             nested_in_parent.append({"type": d, "nested_in": parent})
         else:
             # Check word variants of d against the child map
             matched_as_child = False
             for variant in _word_variants(d):
                 parent = child_to_parent.get(variant)
-                if parent and parent in aligned_declared_lowered:
+                if parent and parent in aligned_declared_variants:
                     nested_in_parent.append({"type": d, "nested_in": parent})
                     matched_as_child = True
                     break
