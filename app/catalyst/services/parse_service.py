@@ -47,6 +47,36 @@ NOISE_SHEET_NAMES = frozenset({
 
 _CONF_RANK = {"high": 2, "medium": 1, "low": 0}
 
+# Shape-derived parent→child relationships per vertical.
+# When a declared type is absent but is a known child of an aligned declared type,
+# it is nested inside those files (not truly absent) and will be found in Phase 2 extraction.
+VERTICAL_SHAPE_CHILDREN: dict[str, dict[str, list[str]]] = {
+    "food-service": {
+        "recipe":    ["ingredient", "instruction step", "storage guidance", "costing note"],
+        "menu":      ["recipe"],
+    },
+    "retail": {
+        "product":   ["product variant", "variant"],
+        "category":  ["product"],
+        "collection": ["product"],
+    },
+    "education": {
+        "course":    ["learning objective", "competency", "assessment"],
+        "rubric":    ["competency"],
+        "syllabus":  ["learning objective"],
+    },
+}
+
+
+def _detect_vertical(general_context: str) -> str | None:
+    """Read 'VERTICAL: food-service' from the first line of general_context."""
+    for line in general_context.splitlines():
+        m = re.match(r"^VERTICAL:\s*(\S+)", line.strip())
+        if m:
+            return m.group(1).lower()
+    return None
+
+
 _CLIENT_CONTEXT_FALLBACK = """\
 No client vocabulary provided. Use general knowledge to classify and count.\
 """
@@ -169,19 +199,32 @@ def extract_text_preview(filename: str, data: bytes, max_chars: int = 4000) -> s
     return "\n".join(parts)[:max_chars]
 
 
-def _strip_list_items(md: str) -> str:
+def _sample_list_items(md: str, max_per_block: int = 4) -> str:
     """
-    Remove bullet-point list items from mammoth markdown.
-    Recipe/menu docs are dominated by ingredient lists; stripping them compresses
-    a 9000-char menu file to ~2000 chars of headings + overview lines, giving
-    Claude all the recipe names without timing out on ingredients.
+    Keep up to max_per_block bullet items per contiguous list block, then drop
+    the rest. Recipe/menu docs are dominated by ingredient lists; sampling instead
+    of stripping gives Claude a few ingredient examples per recipe (for ingredient
+    detection and counting) while still compressing a 9000-char file to ~2500 chars.
     """
     lines = []
+    block_count = 0
+    in_block = False
     for line in md.splitlines():
         s = line.strip()
-        if s.startswith("- ") or s.startswith("* ") or s.startswith("\t- "):
-            continue
-        lines.append(line)
+        is_bullet = s.startswith("- ") or s.startswith("* ") or s.startswith("\t- ")
+        if is_bullet:
+            if not in_block:
+                in_block = True
+                block_count = 0
+            block_count += 1
+            if block_count <= max_per_block:
+                lines.append(line)
+            elif block_count == max_per_block + 1:
+                lines.append("  (… more)")
+        else:
+            in_block = False
+            block_count = 0
+            lines.append(line)
     return "\n".join(lines)
 
 
@@ -218,10 +261,9 @@ def _extract_heading_priority(filename: str, data: bytes, max_chars: int = 8000)
         except Exception:
             return extract_text_preview(filename, data, max_chars)
 
-    # Strip bullet-point ingredient lists — compresses recipe/menu files from
-    # ~9000 chars to ~2000 while preserving all headings and overview lines.
-    # This lets Claude see the full document structure without timing out.
-    stripped = _strip_list_items(md)
+    # Sample bullet-point lists — keep first 4 items per block so Claude sees
+    # ingredient examples per recipe while still compressing the file.
+    stripped = _sample_list_items(md)
 
     if len(stripped) <= max_chars:
         return stripped
@@ -871,13 +913,18 @@ def _infer_child_suggestions(aligned: list[dict], declared_set: set[str]) -> lis
 def align_vocabulary(
     entity_expectations: str,
     found_registers: list[dict],
+    general_context: str = "",
 ) -> dict:
     """
     Match found registers against the client's declared types directly.
     The declared types (from their intake form) ARE the target list —
     category keywords are a fallback only when no declarations exist.
 
-    Returns {aligned, unexpected, absent, declared_types, child_suggestions}.
+    Returns {aligned, unexpected, absent, nested_in_parent, declared_types, child_suggestions}.
+
+    nested_in_parent: declared types that are known shape-children of an aligned type —
+    they are embedded inside those files and will surface in Phase 2 extraction,
+    not absent from the dataset.
     """
     declared_types = _extract_declared_types(entity_expectations)
 
@@ -887,6 +934,7 @@ def align_vocabulary(
             "aligned": [dict(reg, matched_declared="") for reg in found_registers],
             "unexpected": [],
             "absent": [],
+            "nested_in_parent": [],
             "declared_types": [],
             "child_suggestions": [],
         }
@@ -908,13 +956,44 @@ def align_vocabulary(
         else:
             unexpected.append(reg)
 
-    absent = [d for d in declared_types if d.lower() not in matched_declared_keys]
+    raw_absent = [d for d in declared_types if d.lower() not in matched_declared_keys]
     child_suggestions = _infer_child_suggestions(aligned, declared_set)
+
+    # Reclassify absent types that are shape-children of aligned types.
+    # These aren't absent — they're nested inside the aligned files and will
+    # surface as extracted entities in Phase 2, not as top-level registers.
+    vertical = _detect_vertical(general_context) if general_context else None
+    shape_children = VERTICAL_SHAPE_CHILDREN.get(vertical, {}) if vertical else {}
+    child_to_parent: dict[str, str] = {
+        child.lower(): parent.lower()
+        for parent, children in shape_children.items()
+        for child in children
+    }
+    aligned_declared_lowered = {r.get("matched_declared", "").lower() for r in aligned}
+
+    absent: list[str] = []
+    nested_in_parent: list[dict] = []
+    for d in raw_absent:
+        parent = child_to_parent.get(d.lower())
+        if parent and parent in aligned_declared_lowered:
+            nested_in_parent.append({"type": d, "nested_in": parent})
+        else:
+            # Check word variants of d against the child map
+            matched_as_child = False
+            for variant in _word_variants(d):
+                parent = child_to_parent.get(variant)
+                if parent and parent in aligned_declared_lowered:
+                    nested_in_parent.append({"type": d, "nested_in": parent})
+                    matched_as_child = True
+                    break
+            if not matched_as_child:
+                absent.append(d)
 
     return {
         "aligned": aligned,
         "unexpected": unexpected,
         "absent": absent,
+        "nested_in_parent": nested_in_parent,
         "declared_types": declared_types,
         "child_suggestions": child_suggestions,
     }

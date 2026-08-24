@@ -263,11 +263,13 @@ class ParseFilesView(APIView):
                 logger.exception("[catalyst] parse_file failed for %s", name)
                 errors.append({"file": name, "error": str(exc)})
 
-        # Vocabulary alignment
-        phase1 = align_vocabulary(entity_expectations, all_registers) if entity_expectations else {
+        # Vocabulary alignment — pass general_context so vertical shape children
+        # can be detected and nested types are not incorrectly marked absent
+        phase1 = align_vocabulary(entity_expectations, all_registers, general_context=general_context) if entity_expectations else {
             "aligned": all_registers,
             "unexpected": [],
             "absent": [],
+            "nested_in_parent": [],
             "declared_types": [],
         }
 
