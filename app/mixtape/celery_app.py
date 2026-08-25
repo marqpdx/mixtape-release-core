@@ -203,13 +203,13 @@ app.conf.task_routes = {
     "writing.tasks.transcribe_seed_task": {
         "queue": "transcription", "routing_key": "transcription"
     },
+    "console.tasks.transcribe_hub_capture_task": {
+        "queue": "transcription", "routing_key": "transcription"
+    },
+    "initiatives.tasks.transcribe_initiatives_job": {
+        "queue": "transcription", "routing_key": "transcription"
+    },
     "threadworks.tasks.apply_memory_value_decay_task": {
-        "queue": "polling", "routing_key": "polling"
-    },
-    "writing.tasks.cleanup_empty_drafts": {
-        "queue": "polling", "routing_key": "polling"
-    },
-    "writing.tasks.cleanup_old_working_copies": {
         "queue": "polling", "routing_key": "polling"
     },
     "ops.tasks.collect_postgres_snapshot": {
@@ -280,6 +280,12 @@ app.conf.task_routes = {
     "chat.tasks.emit_transcript_ready_task": {
         "queue": default_q, "routing_key": default_q
     },
+    "chat.tasks.enforce_retention_policies": {
+        "queue": "polling", "routing_key": "polling"
+    },
+    "utils.chat.notify_socket_server": {
+        "queue": default_q, "routing_key": default_q
+    },
 
     # --- Livewire real-time events (default_q intentional — Uvicorn also consumes) ---
     "activity.tasks.fanout_action_task": {
@@ -318,6 +324,12 @@ app.conf.task_routes = {
         "queue": "catalyst", "routing_key": "catalyst"
     },
     "catalyst.tasks.finalize_parse_job": {
+        "queue": "catalyst", "routing_key": "catalyst"
+    },
+    "catalyst.tasks.materialize_register_entities": {
+        "queue": "catalyst", "routing_key": "catalyst"
+    },
+    "atrium.tasks.keeper_compact_task": {
         "queue": "catalyst", "routing_key": "catalyst"
     },
     # --- OCR Spike: isolated evaluation workflow ---
@@ -393,13 +405,3 @@ app.autodiscover_tasks()
 
 # Import worker init hooks to register worker_process_init signal
 import mixtape.worker_init  # noqa: F401 - Registers signal handlers
-
-# (Optional) your import hook — leave it, but make it safe
-@app.on_after_finalize.connect
-def import_custom_tasks(sender, **kwargs):
-    print("[celery] 🔁 Running import_custom_tasks hook")
-    try:
-        import utils.tasks.send_transactional_email_task as st  # noqa: F401
-        print("[celery] ✅ All custom tasks imported")
-    except Exception as e:
-        print(f"[celery] ⚠ custom task import skipped: {e}")

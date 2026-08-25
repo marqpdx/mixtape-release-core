@@ -10,7 +10,7 @@ from storages.backends.s3boto3 import S3Boto3Storage
 from assets.models import Asset, GroupAsset
 
 
-@shared_task
+@shared_task(name="assets.tasks.upload_group_asset_task")
 def upload_group_asset_task(asset_id, file_content, s3_key):
     try:
         asset = Asset.objects.get(id=asset_id)

@@ -9,7 +9,12 @@ from celery.exceptions import MaxRetriesExceededError
 logger = logging.getLogger(__name__)
 
 
-@shared_task(bind=True, max_retries=3, default_retry_delay=10)
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=10,
+    name="assets.tasks.delete_image_async",
+)
 def delete_image_async(self, s3_key):
     """
     Async task to delete an image from storage.
