@@ -703,15 +703,20 @@ class RegisterMaterializeView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        materialize_register_entities.apply_async(
+        task = materialize_register_entities.apply_async(
             args=[slug, register_slug, str(job_id)],
             queue="catalyst",
         )
         logger.info(
-            "[catalyst] materialize queued: group=%s register=%s job=%s by %s",
-            slug, register_slug, job_id, request.user.username,
+            "[catalyst] materialize queued: group=%s register=%s job=%s task=%s by %s",
+            slug, register_slug, job_id, task.id, request.user.username,
         )
-        return Response({"status": "queued", "register": register_slug, "job_id": str(job_id)})
+        return Response({
+            "status": "queued",
+            "register": register_slug,
+            "job_id": str(job_id),
+            "task_id": task.id,
+        })
 
 
 class RegisterEntryListView(APIView):

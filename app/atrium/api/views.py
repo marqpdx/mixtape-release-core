@@ -284,7 +284,7 @@ class AtriumSessionWarmView(APIView):
     """
     POST /api/atrium/sessions/<session_id>/warm
 
-    Pre-warms the PTY subprocess for a ClaudeCode session so the first
+    Pre-warms the stream-json subprocess for a ClaudeCode session so the first
     exchange is fast. Returns a text/event-stream with a single `type: ready`
     event. Non-error for Anthropic-SDK sessions — just returns ready immediately.
 
@@ -333,10 +333,10 @@ class AtriumSessionCompactView(APIView):
     """
     POST /api/atrium/sessions/<session_id>/compact
 
-    Sends /compact to the session's PTY subprocess. Stores the resulting
+    Sends /compact to the session's stream-json subprocess. Stores the resulting
     summary in ApertureLog.compact_summary. Returns:
       { "summary": "..." }  on success
-      { "detail": "..." }   on error/no PTY
+      { "detail": "..." }   on error/no live subprocess
     """
 
     permission_classes = [IsAuthenticated]

@@ -530,8 +530,8 @@ def _materialization_source_files(job, source_file_str: str, register_slug: str)
     bind=True,
     max_retries=1,
     default_retry_delay=30,
-    soft_time_limit=600,
-    time_limit=660,
+    soft_time_limit=1800,
+    time_limit=1860,
 )
 def materialize_register_entities(self, group_slug: str, register_slug: str, job_id: str) -> None:
     """
@@ -590,8 +590,139 @@ def materialize_register_entities(self, group_slug: str, register_slug: str, job
 
     all_entities: list[dict] = []
     seen_names: set[str] = set()
+    reg_dir = codex_root / "CONTENT" / "registers" / register_slug
+    progress_path = reg_dir / "_materialization_progress.json"
+    progress: dict = {}
+    completed_files: set[str] = set()
+
+    if progress_path.exists():
+        try:
+            progress = json.loads(progress_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            progress = {}
+        if progress.get("source_job_id") == str(job.pk):
+            completed_files = set(progress.get("completed_files") or [])
+        else:
+            progress = {}
+
+    if progress:
+        for sidecar_path in sorted(reg_dir.glob("*.entity.json")):
+            try:
+                payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                continue
+            if payload.get("source_job_id") != str(job.pk):
+                continue
+            entity = payload.get("entity")
+            if not isinstance(entity, dict):
+                continue
+            key = entity.get("name", "").lower().strip()
+            if key and key not in seen_names:
+                seen_names.add(key)
+                all_entities.append(entity)
+        logger.info(
+            "[catalyst-materialize] resuming job=%s register=%s completed_files=%d existing_entities=%d",
+            job.pk,
+            register_slug,
+            len(completed_files),
+            len(all_entities),
+        )
+
+    def write_progress(current_file: str | None = None, status: str = "running") -> None:
+        progress_path.write_text(
+            json.dumps(
+                {
+                    "source_job_id": str(job.pk),
+                    "register": register_slug,
+                    "status": status,
+                    "current_file": current_file,
+                    "source_files": source_files,
+                    "completed_files": sorted(completed_files),
+                    "entry_count": len(all_entities),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ) + "\n",
+            encoding="utf-8",
+        )
+
+    def write_materialized_entries(current_file: str | None = None) -> list[str]:
+        """Flush current cumulative materialization results to Codex files."""
+        entry_slugs: list[str] = []
+        seen_slugs: set[str] = set()
+        for entity in all_entities:
+            raw_slug = slugify(entity.get("name", "unknown"))
+            unique_slug = raw_slug
+            counter = 2
+            while unique_slug in seen_slugs:
+                unique_slug = f"{raw_slug}-{counter}"
+                counter += 1
+            seen_slugs.add(unique_slug)
+            entry_slugs.append(unique_slug)
+
+            entry_path = reg_dir / f"{unique_slug}.md"
+            entity_sidecar_name = f"{unique_slug}.entity.json"
+            source_locator = entity.get("source_locator") if isinstance(entity.get("source_locator"), dict) else None
+            source_file = source_locator.get("source_file") if source_locator else source_file_str
+            entry_fm_data = {
+                "id": str(uuid.uuid4()),
+                "register": register_slug,
+                "slug": unique_slug,
+                "title": str(entity.get("name", "")),
+                "status": "draft",
+                "source_job_id": str(job.pk),
+                "source_file": source_file,
+                "source_locator": source_locator,
+                "extracted_entity": entity_sidecar_name,
+            }
+            if entity.get("shape_id"):
+                entry_fm_data["shape_id"] = entity.get("shape_id")
+            if entity.get("shape_version"):
+                entry_fm_data["shape_version"] = entity.get("shape_version")
+            entry_fm = "---\n" + yaml.safe_dump(
+                entry_fm_data,
+                sort_keys=False,
+                allow_unicode=True,
+            ) + "---\n\n"
+            entry_body = format_entity_as_entry_markdown(entity)
+            entry_path.write_text(entry_fm + entry_body, encoding="utf-8")
+
+            entity_sidecar_path = reg_dir / entity_sidecar_name
+            entity_sidecar_path.write_text(
+                json.dumps(
+                    {
+                        "source_job_id": str(job.pk),
+                        "register": register_slug,
+                        "slug": unique_slug,
+                        "entity": entity,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ) + "\n",
+                encoding="utf-8",
+            )
+
+        index_body = (
+            f"# {display_name}\n\n"
+            f"**Source:** {source_file_str}  \n"
+            f"**Entries:** {len(all_entities)}\n\n"
+            f"## Entries\n\n"
+            f"{format_entities_as_index_markdown(entity_plural, all_entities, entry_slugs)}"
+        )
+        _rewrite_register_body(index_path, index_body)
+        logger.info(
+            "[catalyst-materialize] flushed %d %s entries to %s",
+            len(all_entities),
+            entity_plural,
+            reg_dir,
+        )
+        write_progress(current_file=current_file)
+        return entry_slugs
 
     for fname in source_files:
+        if fname in completed_files:
+            logger.info("[catalyst-materialize] skipping completed source file: %s", fname)
+            continue
         file_path = job.job_dir() / fname
         if not file_path.exists():
             logger.warning("[catalyst-materialize] source file not found: %s", file_path)
@@ -635,75 +766,11 @@ def materialize_register_entities(self, group_slug: str, register_slug: str, job
             if key and key not in seen_names:
                 seen_names.add(key)
                 all_entities.append(e)
+        completed_files.add(fname)
+        write_materialized_entries(current_file=fname)
 
     logger.info("[catalyst-materialize] %d %s extracted across %d files", len(all_entities), entity_plural, len(source_files))
-
-    # Write one .md file per entity in the register directory
-    reg_dir = codex_root / "CONTENT" / "registers" / register_slug
-    entry_slugs: list[str] = []
-    seen_slugs: set[str] = set()
-    for entity in all_entities:
-        raw_slug = slugify(entity.get("name", "unknown"))
-        # Ensure unique slugs within this register
-        unique_slug = raw_slug
-        counter = 2
-        while unique_slug in seen_slugs:
-            unique_slug = f"{raw_slug}-{counter}"
-            counter += 1
-        seen_slugs.add(unique_slug)
-        entry_slugs.append(unique_slug)
-
-        entry_path = reg_dir / f"{unique_slug}.md"
-        entity_sidecar_name = f"{unique_slug}.entity.json"
-        source_locator = entity.get("source_locator") if isinstance(entity.get("source_locator"), dict) else None
-        source_file = source_locator.get("source_file") if source_locator else source_file_str
-        entry_fm_data = {
-            "id": str(uuid.uuid4()),
-            "register": register_slug,
-            "slug": unique_slug,
-            "title": str(entity.get("name", "")),
-            "status": "draft",
-            "source_job_id": str(job.pk),
-            "source_file": source_file,
-            "source_locator": source_locator,
-            "extracted_entity": entity_sidecar_name,
-        }
-        if entity.get("shape_id"):
-            entry_fm_data["shape_id"] = entity.get("shape_id")
-        if entity.get("shape_version"):
-            entry_fm_data["shape_version"] = entity.get("shape_version")
-        entry_fm = "---\n" + yaml.safe_dump(
-            entry_fm_data,
-            sort_keys=False,
-            allow_unicode=True,
-        ) + "---\n\n"
-        entry_body = format_entity_as_entry_markdown(entity)
-        entry_path.write_text(entry_fm + entry_body, encoding="utf-8")
-
-        entity_sidecar_path = reg_dir / entity_sidecar_name
-        entity_sidecar_path.write_text(
-            json.dumps(
-                {
-                    "source_job_id": str(job.pk),
-                    "register": register_slug,
-                    "slug": unique_slug,
-                    "entity": entity,
-                },
-                ensure_ascii=False,
-                indent=2,
-            ) + "\n",
-            encoding="utf-8",
-        )
-
-    # Rewrite _index.md with a clean name list pointing to entry files
-    index_body = (
-        f"# {display_name}\n\n"
-        f"**Source:** {source_file_str}  \n"
-        f"**Entries:** {len(all_entities)}\n\n"
-        f"## Entries\n\n"
-        f"{format_entities_as_index_markdown(entity_plural, all_entities, entry_slugs)}"
-    )
-    _rewrite_register_body(index_path, index_body)
+    write_progress(current_file=None, status="complete")
 
     try:
         _git_codex(codex_root, "add", f"CONTENT/registers/{register_slug}/")
