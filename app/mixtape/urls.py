@@ -139,6 +139,7 @@ urlpatterns = [
 
     # Catalyst — Codex ingest and materialization
     path("api/catalyst/", include("catalyst.api.urls")),
+    path("api/tenant-runtime/", include("tenant_runtime.api.urls")),
 
     # === END PHASE 4 ENDPOINTS ===
 
