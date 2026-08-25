@@ -631,33 +631,69 @@ def extract_entities_chunked(
     return all_entities
 
 
-def format_entities_as_markdown(entity_plural: str, entities: list[dict]) -> str:
+def _render_scalar(v) -> str:
+    """Render a scalar or ingredient dict as a plain string."""
+    if isinstance(v, dict):
+        name = str(v.get("name", "")).strip()
+        qty = str(v.get("quantity") or "").strip()
+        unit = str(v.get("unit") or "").strip()
+        parts = [p for p in [qty, unit] if p]
+        return f"{' '.join(parts)} {name}".strip() if parts else name
+    return str(v).strip()
+
+
+def format_entity_as_entry_markdown(entity: dict) -> str:
     """
-    Format a list of extracted entity dicts as a markdown Entries section body.
-    Each entity gets a ### heading for its name, then bullet lines for other fields.
-    List fields (e.g. ingredients) are rendered as comma-separated values.
+    Format a single extracted entity dict as the body of a standalone entry .md file.
+    Name becomes an H1. Ingredient lists become a proper ## Ingredients bullet list.
+    Other list fields become ## sections. Scalar fields become bold key: value lines.
+    """
+    name = str(entity.get("name", "")).strip()
+    lines: list[str] = [f"# {name}", ""]
+
+    # Scalar fields first (not name, not list fields)
+    scalar_skip = {"name"}
+    list_fields: list[tuple[str, list]] = []
+    for k, v in entity.items():
+        if k in scalar_skip:
+            continue
+        if isinstance(v, list) and v:
+            list_fields.append((k, v))
+        elif v and not isinstance(v, list):
+            label = k.replace("_", " ").title()
+            lines.append(f"**{label}:** {v}")
+
+    if any(k not in scalar_skip and not isinstance(v, list) and v for k, v in entity.items()):
+        lines.append("")
+
+    # List fields as ## sections
+    for k, v in list_fields:
+        label = k.replace("_", " ").title()
+        lines.append(f"## {label}")
+        lines.append("")
+        for item in v:
+            rendered = _render_scalar(item)
+            if rendered:
+                lines.append(f"- {rendered}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def format_entities_as_index_markdown(entity_plural: str, entities: list[dict], entry_slugs: list[str]) -> str:
+    """
+    Format the register _index.md body as a clean name list.
+    Used after per-file materialization so the index shows what's in the register
+    without duplicating the full entry content.
     """
     if not entities:
         return f"*No {entity_plural} extracted.*\n"
-
     lines: list[str] = []
-    for e in entities:
+    for e, slug in zip(entities, entry_slugs):
         name = str(e.get("name", "")).strip()
-        if not name:
-            continue
-        lines.append(f"### {name}")
-        for k, v in e.items():
-            if k == "name" or not v:
-                continue
-            label = k.replace("_", " ").title()
-            if isinstance(v, list):
-                rendered = ", ".join(str(x) for x in v if x)
-                if rendered:
-                    lines.append(f"- **{label}:** {rendered}")
-            else:
-                lines.append(f"- **{label}:** {v}")
-        lines.append("")
-    return "\n".join(lines)
+        if name:
+            lines.append(f"- [{name}]({slug}.md)")
+    return "\n".join(lines) + "\n"
 
 
 @dataclass

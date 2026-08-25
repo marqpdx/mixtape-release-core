@@ -712,3 +712,100 @@ class RegisterMaterializeView(APIView):
             slug, register_slug, job_id, request.user.username,
         )
         return Response({"status": "queued", "register": register_slug, "job_id": str(job_id)})
+
+
+class RegisterEntryListView(APIView):
+    """
+    GET /api/catalyst/groups/{slug}/registers/{register_slug}/entries/
+
+    Returns all materialized entry files for a register as a list of
+    {slug, title, status} objects. Entry files are any .md files in the
+    register directory that are NOT _index.md.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, slug, register_slug):
+        group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
+        if not _is_group_admin(request.user, group):
+            return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+
+        reg_dir = _codex_root(slug) / "CONTENT" / "registers" / register_slug
+        if not reg_dir.exists():
+            return Response({"entries": []})
+
+        entries = []
+        for md_file in sorted(reg_dir.glob("*.md")):
+            if md_file.name == "_index.md":
+                continue
+            entry_slug = md_file.stem
+            fm, _ = _parse_index(md_file)
+            entries.append({
+                "slug": entry_slug,
+                "title": fm.get("title") or entry_slug.replace("-", " ").title(),
+                "status": fm.get("status", "draft"),
+            })
+
+        return Response({"register": register_slug, "entries": entries})
+
+
+class RegisterEntryDetailView(APIView):
+    """
+    GET  /api/catalyst/groups/{slug}/registers/{register_slug}/entries/{entry_slug}/
+    PATCH /api/catalyst/groups/{slug}/registers/{register_slug}/entries/{entry_slug}/
+
+    GET returns frontmatter + body_markdown for a single entry file.
+    PATCH accepts body_markdown and/or status.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def _entry_path(self, slug, register_slug, entry_slug):
+        return _codex_root(slug) / "CONTENT" / "registers" / register_slug / f"{entry_slug}.md"
+
+    def get(self, request, slug, register_slug, entry_slug):
+        group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
+        if not _is_group_admin(request.user, group):
+            return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+
+        path = self._entry_path(slug, register_slug, entry_slug)
+        if not path.exists():
+            return Response({"detail": "Entry not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        fm, body = _parse_index(path)
+        return Response({
+            "slug": entry_slug,
+            "title": fm.get("title") or entry_slug.replace("-", " ").title(),
+            "status": fm.get("status", "draft"),
+            "frontmatter": fm,
+            "body_markdown": body,
+        })
+
+    def patch(self, request, slug, register_slug, entry_slug):
+        group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
+        if not _is_group_admin(request.user, group):
+            return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+
+        path = self._entry_path(slug, register_slug, entry_slug)
+        if not path.exists():
+            return Response({"detail": "Entry not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        fm, body = _parse_index(path)
+        new_body = request.data.get("body_markdown", body)
+        new_status = request.data.get("status")
+        if new_status in ("draft", "canon", "pre-canon"):
+            fm["status"] = new_status
+
+        codex_root = _codex_root(slug)
+        _write_index(path, fm, new_body)
+
+        try:
+            rel = str(path.relative_to(codex_root))
+            _git(codex_root, "add", rel)
+            _git(codex_root, "commit", "-m",
+                 f"edit: {register_slug}/{entry_slug} — by {request.user.username} at {NOW_ISO()}")
+        except Exception as exc:
+            return Response({"detail": f"Saved but git commit failed: {exc}"},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({"slug": entry_slug, "status": fm.get("status", "draft")})
