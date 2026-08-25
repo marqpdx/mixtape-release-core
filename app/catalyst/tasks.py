@@ -463,7 +463,12 @@ def materialize_register_entities(self, group_slug: str, register_slug: str, job
     and is in browse mode. Uses extract_entities_chunked() to handle long flat files.
     """
     from catalyst.models import CatalystParseJob
-    from catalyst.services.parse_service import extract_entities_chunked, format_entities_as_markdown
+    from catalyst.services.parse_service import (
+        extract_entities_chunked,
+        format_entity_as_entry_markdown,
+        format_entities_as_index_markdown,
+        slugify,
+    )
 
     logger.info("[catalyst-materialize] start: group=%s register=%s job=%s", group_slug, register_slug, job_id)
 
@@ -517,23 +522,51 @@ def materialize_register_entities(self, group_slug: str, register_slug: str, job
 
     logger.info("[catalyst-materialize] %d %s extracted across %d files", len(all_entities), entity_plural, len(source_files))
 
-    entries_md = format_entities_as_markdown(entity_plural, all_entities)
-    body = (
-        f"# {display_name}\n\n"
-        f"**Source:** {source_file_str}\n\n"
-        f"**Entries extracted:** {len(all_entities)}\n\n"
-        f"## Entries\n\n"
-        f"{entries_md}"
-    )
+    # Write one .md file per entity in the register directory
+    reg_dir = codex_root / "CONTENT" / "registers" / register_slug
+    entry_slugs: list[str] = []
+    seen_slugs: set[str] = set()
+    for entity in all_entities:
+        raw_slug = slugify(entity.get("name", "unknown"))
+        # Ensure unique slugs within this register
+        unique_slug = raw_slug
+        counter = 2
+        while unique_slug in seen_slugs:
+            unique_slug = f"{raw_slug}-{counter}"
+            counter += 1
+        seen_slugs.add(unique_slug)
+        entry_slugs.append(unique_slug)
 
-    _rewrite_register_body(index_path, body)
+        entry_path = reg_dir / f"{unique_slug}.md"
+        entry_fm = (
+            f"---\n"
+            f"id: \"{__import__('uuid').uuid4()}\"\n"
+            f"register: {register_slug}\n"
+            f"slug: {unique_slug}\n"
+            f"title: \"{entity.get('name', '')}\"\n"
+            f"status: draft\n"
+            f"source_file: \"{source_file_str}\"\n"
+            f"---\n\n"
+        )
+        entry_body = format_entity_as_entry_markdown(entity)
+        entry_path.write_text(entry_fm + entry_body, encoding="utf-8")
+
+    # Rewrite _index.md with a clean name list pointing to entry files
+    index_body = (
+        f"# {display_name}\n\n"
+        f"**Source:** {source_file_str}  \n"
+        f"**Entries:** {len(all_entities)}\n\n"
+        f"## Entries\n\n"
+        f"{format_entities_as_index_markdown(entity_plural, all_entities, entry_slugs)}"
+    )
+    _rewrite_register_body(index_path, index_body)
 
     try:
-        _git_codex(codex_root, "add", f"CONTENT/registers/{register_slug}/_index.md")
+        _git_codex(codex_root, "add", f"CONTENT/registers/{register_slug}/")
         _git_codex(
             codex_root, "commit", "-m",
             f"materialize: {len(all_entities)} {entity_plural} in {register_slug}",
         )
-        logger.info("[catalyst-materialize] committed %s", register_slug)
+        logger.info("[catalyst-materialize] committed %d entry files for %s", len(all_entities), register_slug)
     except RuntimeError as exc:
         logger.warning("[catalyst-materialize] git commit failed (non-fatal): %s", exc)
