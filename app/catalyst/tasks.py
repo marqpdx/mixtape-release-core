@@ -4,9 +4,11 @@ Celery tasks for the catalyst app.
 Route: push queue (Celery-only; must not be consumed by Uvicorn).
 """
 
+import json
 import logging
 import subprocess
 import urllib.parse
+import uuid
 import yaml
 from datetime import datetime, timezone
 from pathlib import Path
@@ -228,6 +230,49 @@ def send_catalyst_activation_email(self, prospect_id: int) -> None:
         raise self.retry(exc=exc)
 
 
+# ── Tenant runtime pre-flight ─────────────────────────────────────────────────
+
+def _runtime_preflight(group, codex_cwd: str) -> tuple[str | None, str | None]:
+    """
+    Verify the tenant's Claude runtime is ready before any extraction job.
+
+    Returns (linux_user, None) on success, (None, error_msg) when the runtime is
+    absent, not ready, or fails pre-flight — in which case the caller must not
+    write Codex files and should record the error against the job.
+
+    Side effect: if pre-flight detects auth_failure, transitions the runtime to
+    login_required so the admin knows they need to re-authenticate.
+    """
+    from django.contrib.contenttypes.models import ContentType
+    from claude.service import run_blocking
+    from tenant_runtime.models import TenantClaudeRuntime
+
+    ct = ContentType.objects.get_for_model(group)
+    runtime = TenantClaudeRuntime.objects.filter(
+        tenant_content_type=ct,
+        tenant_object_id=group.id,
+    ).first()
+
+    if not runtime:
+        # No runtime configured — run under the server process (legacy/dev path)
+        return None, None
+
+    if runtime.status != TenantClaudeRuntime.STATUS_READY:
+        return None, f"auth_failure: runtime status={runtime.status} for group={group.slug}"
+
+    result = run_blocking("say ok", cwd=codex_cwd, run_as_user=runtime.linux_user, timeout=30)
+    if result.failure == "auth_failure":
+        runtime.status = TenantClaudeRuntime.STATUS_LOGIN_REQUIRED
+        runtime.last_verification_error = "Pre-flight failed before extraction job."
+        runtime.save(update_fields=["status", "last_verification_error", "updated_at"])
+        return None, f"auth_failure: pre-flight verification failed for group={group.slug}"
+
+    if result.failure:
+        return None, f"preflight_error: {result.failure} for group={group.slug}"
+
+    return runtime.linux_user, None
+
+
 # ── Phase 2 — per-file semantic analysis ──────────────────────────────────────
 
 @shared_task(
@@ -254,20 +299,25 @@ def run_file_semantic_analysis(self, job_id: str, filename: str) -> None:
         logger.error("[catalyst-parse] Job %s not found — aborting task for %s", job_id, filename)
         return
 
-    file_path = job.job_dir() / filename
-    if not file_path.exists():
+    codex_cwd = str(Path(settings.CATALYST_CODEX_ROOT) / job.group.slug)
+    run_as_user, preflight_error = _runtime_preflight(job.group, codex_cwd)
+    if preflight_error:
+        logger.warning("[catalyst-parse] Pre-flight failed for job=%s file=%s: %s", job_id, filename, preflight_error)
+        ai_result: dict = {"error": preflight_error, "count": 0}
+    elif not (job.job_dir() / filename).exists():
         logger.error("[catalyst-parse] File %s not found on disk for job %s", filename, job_id)
-        ai_result: dict = {"error": "file not found on disk", "count": 0}
+        ai_result = {"error": "file not found on disk", "count": 0}
     else:
-        data = file_path.read_bytes()
+        data = (job.job_dir() / filename).read_bytes()
         logger.info("[catalyst-parse] Analyzing %s (job=%s)", filename, job_id)
         try:
             ai = semantic_analyze(
                 filename,
                 data,
-                codex_cwd=None,
+                codex_cwd=codex_cwd,
                 client_context=job.client_context or None,
                 timeout=210,
+                run_as_user=run_as_user,
             )
             ai_result = ai if ai is not None else {"count": 0, "notes": "timed out or skipped"}
         except Exception as exc:
@@ -446,6 +496,35 @@ def _fm_from_index(index_path: Path) -> dict:
     return {}
 
 
+def _materialization_source_files(job, source_file_str: str, register_slug: str) -> list[str]:
+    """
+    Pick source files for Phase 3 materialization.
+
+    Register frontmatter records the files that contributed to Phase 2's merged
+    register proposal, but component recipes can hide inside broader meeting/menu
+    documents. For recipe materialization, scan every uploaded document-like file
+    so component recipes such as sauces and dressings are not lost.
+    """
+    selected: list[str] = [s.strip() for s in source_file_str.split(",") if s.strip()]
+    if "recipe" in register_slug.lower():
+        selected = []
+        for uploaded in job.uploaded_files or []:
+            filename = str(uploaded.get("filename") or "")
+            ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+            if ext in {"docx", "md", "txt", "pdf"}:
+                selected.append(filename)
+    if not selected:
+        selected = [str(f.get("filename") or "") for f in (job.uploaded_files or [])]
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for filename in selected:
+        if filename and filename not in seen:
+            seen.add(filename)
+            deduped.append(filename)
+    return deduped
+
+
 @shared_task(
     name="catalyst.tasks.materialize_register_entities",
     bind=True,
@@ -492,10 +571,22 @@ def materialize_register_entities(self, group_slug: str, register_slug: str, job
     entity_plural = register_slug.replace("-", " ")
     entity_type = entity_plural.rstrip("s") if entity_plural.endswith("s") else entity_plural
 
-    source_files = [s.strip() for s in source_file_str.split(",") if s.strip()]
-    if not source_files:
-        # Fall back: try all uploaded files
-        source_files = [f["filename"] for f in (job.uploaded_files or [])]
+    source_files = _materialization_source_files(job, source_file_str, register_slug)
+    claude_session_id = f"catalyst-materialize:{job.pk}:{register_slug}"
+    logger.info(
+        "[catalyst-materialize] source files for %s/%s: %s",
+        group_slug,
+        register_slug,
+        ", ".join(source_files) if source_files else "(none)",
+    )
+
+    run_as_user, preflight_error = _runtime_preflight(job.group, str(codex_root))
+    if preflight_error:
+        logger.warning(
+            "[catalyst-materialize] Pre-flight failed for group=%s register=%s job=%s: %s",
+            group_slug, register_slug, job_id, preflight_error,
+        )
+        return
 
     all_entities: list[dict] = []
     seen_names: set[str] = set()
@@ -506,13 +597,38 @@ def materialize_register_entities(self, group_slug: str, register_slug: str, job
             logger.warning("[catalyst-materialize] source file not found: %s", file_path)
             continue
         data = file_path.read_bytes()
-        entities = extract_entities_chunked(
+        logger.info(
+            "[catalyst-materialize] extracting %s from %s (%d bytes)",
+            entity_plural,
             fname,
-            data,
-            entity_type=entity_type,
-            entity_plural=entity_plural,
-            client_context=job.client_context or None,
-            timeout_per_chunk=180,
+            len(data),
+        )
+        try:
+            entities = extract_entities_chunked(
+                fname,
+                data,
+                entity_type=entity_type,
+                entity_plural=entity_plural,
+                codex_cwd=str(codex_root),
+                client_context=job.client_context or None,
+                timeout_per_chunk=180,
+                claude_session_id=claude_session_id,
+                run_as_user=run_as_user,
+            )
+        except Exception:
+            logger.exception(
+                "[catalyst-materialize] extraction failed for group=%s register=%s job=%s file=%s",
+                group_slug,
+                register_slug,
+                job_id,
+                fname,
+            )
+            continue
+        logger.info(
+            "[catalyst-materialize] %d %s extracted from %s",
+            len(entities),
+            entity_plural,
+            fname,
         )
         for e in entities:
             key = e.get("name", "").lower().strip()
@@ -538,18 +654,46 @@ def materialize_register_entities(self, group_slug: str, register_slug: str, job
         entry_slugs.append(unique_slug)
 
         entry_path = reg_dir / f"{unique_slug}.md"
-        entry_fm = (
-            f"---\n"
-            f"id: \"{__import__('uuid').uuid4()}\"\n"
-            f"register: {register_slug}\n"
-            f"slug: {unique_slug}\n"
-            f"title: \"{entity.get('name', '')}\"\n"
-            f"status: draft\n"
-            f"source_file: \"{source_file_str}\"\n"
-            f"---\n\n"
-        )
+        entity_sidecar_name = f"{unique_slug}.entity.json"
+        source_locator = entity.get("source_locator") if isinstance(entity.get("source_locator"), dict) else None
+        source_file = source_locator.get("source_file") if source_locator else source_file_str
+        entry_fm_data = {
+            "id": str(uuid.uuid4()),
+            "register": register_slug,
+            "slug": unique_slug,
+            "title": str(entity.get("name", "")),
+            "status": "draft",
+            "source_job_id": str(job.pk),
+            "source_file": source_file,
+            "source_locator": source_locator,
+            "extracted_entity": entity_sidecar_name,
+        }
+        if entity.get("shape_id"):
+            entry_fm_data["shape_id"] = entity.get("shape_id")
+        if entity.get("shape_version"):
+            entry_fm_data["shape_version"] = entity.get("shape_version")
+        entry_fm = "---\n" + yaml.safe_dump(
+            entry_fm_data,
+            sort_keys=False,
+            allow_unicode=True,
+        ) + "---\n\n"
         entry_body = format_entity_as_entry_markdown(entity)
         entry_path.write_text(entry_fm + entry_body, encoding="utf-8")
+
+        entity_sidecar_path = reg_dir / entity_sidecar_name
+        entity_sidecar_path.write_text(
+            json.dumps(
+                {
+                    "source_job_id": str(job.pk),
+                    "register": register_slug,
+                    "slug": unique_slug,
+                    "entity": entity,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ) + "\n",
+            encoding="utf-8",
+        )
 
     # Rewrite _index.md with a clean name list pointing to entry files
     index_body = (

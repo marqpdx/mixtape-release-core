@@ -400,6 +400,7 @@ def semantic_analyze(
     codex_cwd: str | None = None,
     timeout: int = 90,
     client_context: str | None = None,
+    run_as_user: str | None = None,
 ) -> dict | None:
     """
     Count distinct named items in a file using the local Claude Code instance.
@@ -431,7 +432,7 @@ def semantic_analyze(
     if len(chunks) == 1:
         # Single-pass — original behaviour
         prompt = _SEMANTIC_PROMPT.format(filename=filename, content=full_text, client_context=ctx)
-        raw = claude_service.run_blocking(prompt, cwd=codex_cwd or os.getcwd(), timeout=timeout)
+        raw = claude_service.run_blocking(prompt, cwd=codex_cwd or os.getcwd(), timeout=timeout, run_as_user=run_as_user)
         if not raw.output:
             return None
         result = _parse_semantic_json(raw.output, filename)
@@ -447,7 +448,7 @@ def semantic_analyze(
             chunk_num=i, chunk_total=len(chunks),
             filename=filename, content=chunk, client_context=ctx,
         )
-        raw = claude_service.run_blocking(prompt, cwd=codex_cwd or os.getcwd(), timeout=timeout)
+        raw = claude_service.run_blocking(prompt, cwd=codex_cwd or os.getcwd(), timeout=timeout, run_as_user=run_as_user)
         if not raw.output:
             logger.warning("[catalyst] chunk %d/%d got no response for %s", i, len(chunks), filename)
             continue
@@ -883,6 +884,7 @@ def _run_extract_on_text(
     timeout: int,
     chunk_info: str | None = None,
     claude_session_id: str | None = None,
+    run_as_user: str | None = None,
 ) -> list[dict]:
     """Run the extract prompt on pre-extracted text. Used by both single-pass and chunked paths."""
     ctx_block = _EXTRACT_CONTEXT_BLOCK.format(client_context=client_context.strip()) if client_context else ""
@@ -918,9 +920,10 @@ def _run_extract_on_text(
                 "You are helping materialize a Catalyst Codex register. "
                 "Each request is an extraction pass. Return only the JSON requested by the prompt."
             ),
+            run_as_user=run_as_user,
         )
     else:
-        raw = claude_service.run_blocking(prompt, cwd=cwd, timeout=timeout)
+        raw = claude_service.run_blocking(prompt, cwd=cwd, timeout=timeout, run_as_user=run_as_user)
         raw = raw.output
     return _parse_entity_json(raw, filename) if raw else []
 
@@ -934,6 +937,7 @@ def extract_entities(
     client_context: str | None = None,
     timeout: int = 240,
     claude_session_id: str | None = None,
+    run_as_user: str | None = None,
 ) -> list[dict]:
     """
     Ask Claude to extract every named entity of entity_type from the file.
@@ -955,6 +959,7 @@ def extract_entities(
         client_context,
         timeout,
         claude_session_id=claude_session_id,
+        run_as_user=run_as_user,
     )
     logger.info("[catalyst] extract_entities: %d %s from %s", len(entities), entity_plural, filename)
     return entities
@@ -969,6 +974,7 @@ def extract_entities_chunked(
     client_context: str | None = None,
     timeout_per_chunk: int = 180,
     claude_session_id: str | None = None,
+    run_as_user: str | None = None,
 ) -> list[dict]:
     """
     Like extract_entities but handles long flat files by chunking.
@@ -992,6 +998,7 @@ def extract_entities_chunked(
             client_context,
             timeout_per_chunk,
             claude_session_id=claude_session_id,
+            run_as_user=run_as_user,
         )
         _attach_source_locators(
             entities,
@@ -1014,6 +1021,7 @@ def extract_entities_chunked(
             chunk, filename, entity_type, entity_plural, codex_cwd, client_context,
             timeout_per_chunk, chunk_info=f"{i}/{len(chunk_spans)}",
             claude_session_id=claude_session_id,
+            run_as_user=run_as_user,
         )
         _attach_source_locators(
             chunk_entities,
