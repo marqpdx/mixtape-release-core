@@ -178,19 +178,25 @@ Respond with JSON only:
 "examples": ["name1", "name2"], "confidence": "high|medium|low", "notes": "..."}}
 """
 
-_CHUNK_FULL_TEXT_MAX = 30_000   # chars to extract before chunking (covers most real-world files)
+_CHUNK_FULL_TEXT_MAX = 120_000  # chars to extract before chunking (covers large docx menus)
 _CHUNK_SIZE = 5_000             # chars per chunk
 _CHUNK_OVERLAP = 300            # char overlap between consecutive chunks
 
 
 def _chunk_text(text: str) -> list[str]:
     """Split text into overlapping chunks of _CHUNK_SIZE chars."""
+    return [chunk for chunk, _, _ in _chunk_text_with_spans(text)]
+
+
+def _chunk_text_with_spans(text: str) -> list[tuple[str, int, int]]:
+    """Split text into overlapping chunks and retain source character spans."""
     if len(text) <= _CHUNK_SIZE:
-        return [text]
+        return [(text, 0, len(text))]
     chunks = []
     start = 0
     while start < len(text):
-        chunks.append(text[start:start + _CHUNK_SIZE])
+        end = min(start + _CHUNK_SIZE, len(text))
+        chunks.append((text[start:end], start, end))
         start += _CHUNK_SIZE - _CHUNK_OVERLAP
     return chunks
 
@@ -426,9 +432,9 @@ def semantic_analyze(
         # Single-pass — original behaviour
         prompt = _SEMANTIC_PROMPT.format(filename=filename, content=full_text, client_context=ctx)
         raw = claude_service.run_blocking(prompt, cwd=codex_cwd or os.getcwd(), timeout=timeout)
-        if not raw:
+        if not raw.output:
             return None
-        result = _parse_semantic_json(raw, filename)
+        result = _parse_semantic_json(raw.output, filename)
         if result:
             logger.info("[catalyst] semantic result: %s → %s count=%d", filename, result["entity_type"], result["count"])
         return result
@@ -442,10 +448,10 @@ def semantic_analyze(
             filename=filename, content=chunk, client_context=ctx,
         )
         raw = claude_service.run_blocking(prompt, cwd=codex_cwd or os.getcwd(), timeout=timeout)
-        if not raw:
+        if not raw.output:
             logger.warning("[catalyst] chunk %d/%d got no response for %s", i, len(chunks), filename)
             continue
-        result = _parse_semantic_json(raw, filename)
+        result = _parse_semantic_json(raw.output, filename)
         if result:
             logger.info("[catalyst] chunk %d/%d: %s count=%d", i, len(chunks), result["entity_type"], result["count"])
             chunk_results.append(result)
@@ -460,12 +466,14 @@ File: {filename}
 Entity type to extract: {entity_type} ({entity_plural})
 
 {client_context_block}
+{shape_contract_block}
 
 Your task: extract every distinct {entity_type} you can identify from this content.
 
 Return a JSON array (not an object) where each element represents one {entity_type}.
-Each element MUST have a "name" key. Add any other fields that are naturally present
-in the content (e.g. ingredients, description, role, contact, amount, category).
+Each element MUST have a "name" key unless the shape contract says "title" is also accepted.
+Add any other fields that are naturally present in the content
+(e.g. ingredients, instructions, description, role, contact, amount, category).
 
 If the client context says a {entity_type} should include child entities (e.g. a recipe
 includes an ingredients list), extract those child fields too — use the field name from
@@ -488,9 +496,11 @@ Extract ONLY the {entity_type} ({entity_plural}) visible in THIS CHUNK — do no
 File: {filename}  (chunk {chunk_num}/{chunk_total})
 
 {client_context_block}
+{shape_contract_block}
 
-Return a JSON array where each element has at minimum a "name" key. Include child fields
-(e.g. ingredients for a recipe) if visible in this chunk. Do not add commentary outside the JSON.
+Return a JSON array where each element has at minimum a "name" key unless the shape
+contract says "title" is also accepted. Include child fields (e.g. ingredients for
+a recipe) if visible in this chunk. Do not add commentary outside the JSON.
 Return an empty array [] if this chunk contains no {entity_type} instances.
 
 Chunk content:
@@ -498,6 +508,50 @@ Chunk content:
 """
 
 _EXTRACT_CONTEXT_BLOCK = "Client context: {client_context}"
+
+_RECIPE_SHAPE_CONTRACT = """\
+
+Shape contract: food_service.recipe v0.1.0
+- Extract and organize only the recipe content present in the source.
+- Use these fields: name, title, yield, timing, ingredients,
+  instructions, storage, notes, source_fragments, uncertain.
+- Include shape_id: "food_service.recipe" and shape_version: "0.1.0".
+- Every recipe should have "name"; if the source title is clearer as "title",
+  include both name and title with the same value.
+- Every recipe should include "yield". If yield is not visible in the source,
+  set it to an empty string rather than guessing. If any ingredient has a
+  quantity and yield is not visible after checking nearby recipe, parent section,
+  and document-level context, add an uncertain item for missing yield.
+- Extract component recipes as their own recipe entries when they have their own
+  heading or ingredient block, even if they are also part of a larger meal.
+  Sauces, dressings, marinades, batters, porridges, soups, hashes, aioli, raita,
+  gremolata, toppings, and batch-cooked bases can be standalone recipe entries.
+- Ingredients are required composition when visible. Return ingredients as an
+  array of objects with: quantity, unit, item, preparation, notes,
+  original_text, uncertain. Preserve original_text when parsing is ambiguous.
+  If the source has a quantity, put it in quantity. Do not hide quantities in
+  item, notes, preparation, or original_text only. Preserve the written
+  quantity in quantity_display and include quantity_value only when safe.
+- Ingredient objects should include quantity, unit, item, and original_text keys
+  even when quantity or unit are blank.
+- Instructions should be an array of objects with: step_number, text, uncertain.
+  Keep source order. Merge wrapped lines when the continuation is clear.
+- Do not improve, modernize, complete, or invent the recipe.
+- If a quantity, unit, item, title, or instruction is unclear, preserve the best
+  source text and record the issue in uncertain.
+"""
+
+
+def _is_recipe_entity(entity_type: str, entity_plural: str) -> bool:
+    text = f"{entity_type} {entity_plural}".lower()
+    return "recipe" in text or "dish" in text or "menu item" in text
+
+
+def _shape_contract_for(entity_type: str, entity_plural: str) -> str:
+    """Return a shape-specific extraction contract when one is available."""
+    if _is_recipe_entity(entity_type, entity_plural):
+        return _RECIPE_SHAPE_CONTRACT
+    return ""
 
 
 def _parse_entity_json(raw: str, filename: str) -> list[dict]:
@@ -513,10 +567,310 @@ def _parse_entity_json(raw: str, filename: str) -> list[dict]:
             parsed = json.loads(m.group())
         if not isinstance(parsed, list):
             return []
-        return [e for e in parsed if isinstance(e, dict) and e.get("name")]
+        entities = []
+        for e in parsed:
+            if not isinstance(e, dict):
+                continue
+            name = str(e.get("name") or e.get("title") or "").strip()
+            if not name:
+                continue
+            if not e.get("name"):
+                e["name"] = name
+            if not e.get("title") and e.get("shape_id") == "food_service.recipe":
+                e["title"] = name
+            if e.get("shape_id") == "food_service.recipe" or "ingredients" in e:
+                _normalize_recipe_entity(e)
+            entities.append(e)
+        return entities
     except Exception as exc:
         logger.warning("[catalyst] entity JSON parse failed for %s: %s", filename, exc)
         return []
+
+
+_INGREDIENT_UNITS = {
+    "c", "cup", "cups",
+    "t", "tsp", "teaspoon", "teaspoons",
+    "tbsp", "tablespoon", "tablespoons",
+    "oz", "ounce", "ounces",
+    "lb", "lbs", "pound", "pounds",
+    "g", "gram", "grams",
+    "kg", "kilogram", "kilograms",
+    "ml", "milliliter", "milliliters",
+    "l", "liter", "liters",
+    "qt", "quart", "quarts",
+    "pt", "pint", "pints",
+    "gal", "gallon", "gallons",
+    "pinch", "pinches",
+    "clove", "cloves",
+}
+
+_UNICODE_FRACTION_VALUES = {
+    "¼": 0.25,
+    "½": 0.5,
+    "¾": 0.75,
+    "⅓": 1 / 3,
+    "⅔": 2 / 3,
+    "⅛": 0.125,
+    "⅜": 0.375,
+    "⅝": 0.625,
+    "⅞": 0.875,
+}
+
+
+def _quantity_value(quantity: str) -> float | None:
+    """Normalize simple numeric/fraction quantities for sidecar JSON."""
+    value = quantity.strip()
+    if not value:
+        return None
+    value = re.sub(r"(\d)([¼½¾⅓⅔⅛⅜⅝⅞])", r"\1 \2", value)
+    try:
+        return float(value)
+    except ValueError:
+        pass
+
+    if value in _UNICODE_FRACTION_VALUES:
+        return _UNICODE_FRACTION_VALUES[value]
+
+    mixed_unicode = re.fullmatch(r"(\d+)\s+([¼½¾⅓⅔⅛⅜⅝⅞])", value)
+    if mixed_unicode:
+        return float(mixed_unicode.group(1)) + _UNICODE_FRACTION_VALUES[mixed_unicode.group(2)]
+
+    fraction = re.fullmatch(r"(\d+)/(\d+)", value)
+    if fraction and int(fraction.group(2)) != 0:
+        return int(fraction.group(1)) / int(fraction.group(2))
+
+    mixed_fraction = re.fullmatch(r"(\d+)\s+(\d+)/(\d+)", value)
+    if mixed_fraction and int(mixed_fraction.group(3)) != 0:
+        return int(mixed_fraction.group(1)) + int(mixed_fraction.group(2)) / int(mixed_fraction.group(3))
+
+    return None
+
+
+def _split_ingredient_quantity(text: str) -> tuple[str, str, str]:
+    """
+    Split a leading recipe quantity from an ingredient line.
+
+    This is intentionally conservative: it only handles common numeric/fraction
+    prefixes and common units. Ambiguous remainder text stays in the item field.
+    """
+    source = text.strip()
+    if not source:
+        return "", "", ""
+    source = re.sub(r"(\d)([¼½¾⅓⅔⅛⅜⅝⅞])", r"\1 \2", source)
+
+    quantity_pattern = (
+        r"(?:\d+\s+[¼½¾⅓⅔⅛⅜⅝⅞]|\d+\s+\d+/\d+|\d+(?:\.\d+)?|\d+/\d+|[¼½¾⅓⅔⅛⅜⅝⅞])"
+        r"(?:\s*(?:-|to)\s*(?:\d+\s+[¼½¾⅓⅔⅛⅜⅝⅞]|\d+\s+\d+/\d+|\d+(?:\.\d+)?|\d+/\d+|[¼½¾⅓⅔⅛⅜⅝⅞]))?"
+    )
+    match = re.match(rf"^\s*({quantity_pattern})\s+(.+)$", source, flags=re.IGNORECASE)
+    if not match:
+        return "", "", source
+
+    quantity = match.group(1).strip()
+    rest = match.group(2).strip()
+    words = rest.split()
+    if len(words) > 1 and words[0].lower().rstrip(".") in _INGREDIENT_UNITS:
+        return quantity, words[0], " ".join(words[1:]).strip()
+    return quantity, "", rest
+
+
+def _word_index_at(text: str, char_offset: int) -> int:
+    """Approximate a word offset for stable source navigation."""
+    if char_offset <= 0:
+        return 0
+    return len(re.findall(r"\S+", text[:char_offset]))
+
+
+def _source_excerpt(text: str, local_start: int, local_end: int, radius: int = 240) -> str:
+    start = max(0, local_start - radius)
+    end = min(len(text), local_end + radius)
+    return re.sub(r"\s+", " ", text[start:end]).strip()
+
+
+def _find_entity_span(text: str, entity: dict) -> tuple[int, int]:
+    """Find the best local source span for an extracted entity within a text chunk."""
+    candidates: list[str] = []
+    for key in ("title", "name"):
+        value = str(entity.get(key) or "").strip()
+        if value:
+            candidates.append(value)
+    for fragment in entity.get("source_fragments") or []:
+        value = str(fragment or "").strip()
+        if value:
+            candidates.append(value[:160])
+
+    lowered = text.lower()
+    for candidate in candidates:
+        idx = lowered.find(candidate.lower())
+        if idx >= 0:
+            return idx, min(len(text), idx + len(candidate))
+    return 0, min(len(text), 500)
+
+
+def _attach_source_locators(
+    entities: list[dict],
+    *,
+    filename: str,
+    text: str,
+    source_start_char: int,
+    source_end_char: int,
+    source_start_word: int,
+    chunk_num: int,
+    chunk_total: int,
+) -> None:
+    """Attach immutable source locators to entities and visible ingredient lines."""
+    for entity in entities:
+        local_start, local_end = _find_entity_span(text, entity)
+        absolute_start = source_start_char + local_start
+        absolute_end = source_start_char + local_end
+        entity["source_locator"] = {
+            "kind": "text_span",
+            "source_file": filename,
+            "chunk_num": chunk_num,
+            "chunk_total": chunk_total,
+            "start_char": absolute_start,
+            "end_char": absolute_end,
+            "start_word": source_start_word + _word_index_at(text, local_start),
+            "end_word": source_start_word + _word_index_at(text, local_end),
+            "chunk_start_char": source_start_char,
+            "chunk_end_char": source_end_char,
+            "source_excerpt": _source_excerpt(text, local_start, local_end),
+        }
+
+        ingredients = entity.get("ingredients")
+        if not isinstance(ingredients, list):
+            continue
+        lowered = text.lower()
+        for ingredient in ingredients:
+            if not isinstance(ingredient, dict):
+                continue
+            search_terms = [
+                str(ingredient.get("original_text") or "").strip(),
+                " ".join(
+                    p for p in [
+                        str(ingredient.get("quantity") or "").strip(),
+                        str(ingredient.get("unit") or "").strip(),
+                        str(ingredient.get("item") or "").strip(),
+                    ] if p
+                ).strip(),
+                str(ingredient.get("item") or "").strip(),
+            ]
+            term = next((t for t in search_terms if t), "")
+            if not term:
+                continue
+            idx = lowered.find(term.lower())
+            if idx < 0:
+                continue
+            ingredient["source_locator"] = {
+                "kind": "text_span",
+                "source_file": filename,
+                "chunk_num": chunk_num,
+                "chunk_total": chunk_total,
+                "start_char": source_start_char + idx,
+                "end_char": source_start_char + idx + len(term),
+                "start_word": source_start_word + _word_index_at(text, idx),
+                "end_word": source_start_word + _word_index_at(text, idx + len(term)),
+                "source_excerpt": _source_excerpt(text, idx, idx + len(term), radius=80),
+            }
+
+
+def _normalize_recipe_entity(entity: dict) -> None:
+    """Normalize common model key variants into the recipe shape contract."""
+    if not entity.get("shape_id"):
+        entity["shape_id"] = "food_service.recipe"
+    if not entity.get("shape_version"):
+        entity["shape_version"] = "0.1.0"
+    if "yield" not in entity:
+        entity["yield"] = ""
+    if not entity.get("title") and entity.get("name"):
+        entity["title"] = entity["name"]
+
+    ingredients = entity.get("ingredients")
+    if not isinstance(ingredients, list):
+        return
+
+    normalized: list[dict] = []
+    for item in ingredients:
+        if isinstance(item, str):
+            original_text = item.strip()
+            quantity, unit, item_name = _split_ingredient_quantity(original_text)
+            normalized.append({
+                "quantity": quantity,
+                "quantity_display": quantity,
+                "quantity_value": _quantity_value(quantity),
+                "unit": unit,
+                "item": item_name,
+                "preparation": "",
+                "notes": "",
+                "original_text": original_text,
+                "uncertain": False,
+            })
+            continue
+        if not isinstance(item, dict):
+            continue
+
+        quantity = str(
+            item.get("quantity")
+            or item.get("amount")
+            or item.get("qty")
+            or ""
+        ).strip()
+        quantity_display = str(item.get("quantity_display") or quantity).strip()
+        unit = str(item.get("unit") or item.get("measure") or "").strip()
+        item_name = str(
+            item.get("item")
+            or item.get("ingredient")
+            or item.get("name")
+            or ""
+        ).strip()
+        original_text = str(item.get("original_text") or item.get("source_text") or "").strip()
+
+        if not item_name and original_text:
+            item_name = original_text
+        if not quantity and item_name:
+            parsed_quantity, parsed_unit, parsed_item = _split_ingredient_quantity(item_name)
+            if parsed_quantity:
+                quantity = parsed_quantity
+                quantity_display = quantity_display or parsed_quantity
+                unit = unit or parsed_unit
+                item_name = parsed_item
+        if not quantity and original_text:
+            parsed_quantity, parsed_unit, parsed_item = _split_ingredient_quantity(original_text)
+            if parsed_quantity:
+                quantity = parsed_quantity
+                quantity_display = quantity_display or parsed_quantity
+                unit = unit or parsed_unit
+                item_name = item_name if item_name != original_text else parsed_item
+
+        normalized.append({
+            **item,
+            "quantity": quantity,
+            "quantity_display": quantity_display or quantity,
+            "quantity_value": item.get("quantity_value") if item.get("quantity_value") is not None else _quantity_value(quantity),
+            "unit": unit,
+            "item": item_name,
+            "preparation": str(item.get("preparation") or "").strip(),
+            "notes": str(item.get("notes") or "").strip(),
+            "original_text": original_text or " ".join(p for p in [quantity, unit, item_name] if p),
+            "uncertain": bool(item.get("uncertain", False)),
+        })
+
+    entity["ingredients"] = normalized
+    has_quantified_ingredient = any(
+        isinstance(item, dict) and str(item.get("quantity") or "").strip()
+        for item in normalized
+    )
+    if has_quantified_ingredient and not str(entity.get("yield") or "").strip():
+        uncertain = entity.get("uncertain")
+        if not isinstance(uncertain, list):
+            uncertain = []
+        if not any(isinstance(item, dict) and item.get("field") == "yield" for item in uncertain):
+            uncertain.append({
+                "field": "yield",
+                "reason": "Missing yield for recipe with quantified ingredients.",
+                "source_text": "",
+            })
+        entity["uncertain"] = uncertain
 
 
 def _run_extract_on_text(
@@ -528,9 +882,11 @@ def _run_extract_on_text(
     client_context: str | None,
     timeout: int,
     chunk_info: str | None = None,
+    claude_session_id: str | None = None,
 ) -> list[dict]:
     """Run the extract prompt on pre-extracted text. Used by both single-pass and chunked paths."""
     ctx_block = _EXTRACT_CONTEXT_BLOCK.format(client_context=client_context.strip()) if client_context else ""
+    shape_contract_block = _shape_contract_for(entity_type, entity_plural)
     if chunk_info:
         chunk_num, chunk_total = (int(x) for x in chunk_info.split("/"))
         prompt = _EXTRACT_CHUNK_PROMPT.format(
@@ -538,6 +894,7 @@ def _run_extract_on_text(
             entity_type=entity_type,
             entity_plural=entity_plural,
             client_context_block=ctx_block,
+            shape_contract_block=shape_contract_block,
             content=text,
             chunk_num=chunk_num,
             chunk_total=chunk_total,
@@ -548,9 +905,23 @@ def _run_extract_on_text(
             entity_type=entity_type,
             entity_plural=entity_plural,
             client_context_block=ctx_block,
+            shape_contract_block=shape_contract_block,
             content=text,
         )
-    raw = claude_service.run_blocking(prompt, cwd=codex_cwd or os.getcwd(), timeout=timeout)
+    cwd = codex_cwd or os.getcwd()
+    if claude_session_id:
+        raw = claude_service.run_session_blocking(
+            claude_session_id,
+            prompt,
+            cwd=cwd,
+            opening_context=(
+                "You are helping materialize a Catalyst Codex register. "
+                "Each request is an extraction pass. Return only the JSON requested by the prompt."
+            ),
+        )
+    else:
+        raw = claude_service.run_blocking(prompt, cwd=cwd, timeout=timeout)
+        raw = raw.output
     return _parse_entity_json(raw, filename) if raw else []
 
 
@@ -562,6 +933,7 @@ def extract_entities(
     codex_cwd: str | None = None,
     client_context: str | None = None,
     timeout: int = 240,
+    claude_session_id: str | None = None,
 ) -> list[dict]:
     """
     Ask Claude to extract every named entity of entity_type from the file.
@@ -570,15 +942,20 @@ def extract_entities(
     """
     logger.info("[catalyst] extract_entities: %s → %s from %s", entity_type, entity_plural, filename)
 
-    if len(data) > 500_000:
-        logger.warning("[catalyst] %s too large for extraction (%dKB) — skipping", filename, len(data) // 1024)
-        return []
-
     text = _extract_heading_priority(filename, data, max_chars=10_000)
     if not text.strip():
         return []
 
-    entities = _run_extract_on_text(text, filename, entity_type, entity_plural, codex_cwd, client_context, timeout)
+    entities = _run_extract_on_text(
+        text,
+        filename,
+        entity_type,
+        entity_plural,
+        codex_cwd,
+        client_context,
+        timeout,
+        claude_session_id=claude_session_id,
+    )
     logger.info("[catalyst] extract_entities: %d %s from %s", len(entities), entity_plural, filename)
     return entities
 
@@ -591,6 +968,7 @@ def extract_entities_chunked(
     codex_cwd: str | None = None,
     client_context: str | None = None,
     timeout_per_chunk: int = 180,
+    claude_session_id: str | None = None,
 ) -> list[dict]:
     """
     Like extract_entities but handles long flat files by chunking.
@@ -599,26 +977,53 @@ def extract_entities_chunked(
     """
     logger.info("[catalyst] extract_entities_chunked: %s → %s from %s", entity_type, entity_plural, filename)
 
-    if len(data) > 500_000:
-        logger.warning("[catalyst] %s too large for chunked extraction — skipping", filename)
-        return []
-
     full_text = _extract_heading_priority(filename, data, max_chars=_CHUNK_FULL_TEXT_MAX)
     if not full_text.strip():
         return []
 
     chunks = _chunk_text(full_text)
     if len(chunks) == 1:
-        entities = _run_extract_on_text(full_text, filename, entity_type, entity_plural, codex_cwd, client_context, timeout_per_chunk)
+        entities = _run_extract_on_text(
+            full_text,
+            filename,
+            entity_type,
+            entity_plural,
+            codex_cwd,
+            client_context,
+            timeout_per_chunk,
+            claude_session_id=claude_session_id,
+        )
+        _attach_source_locators(
+            entities,
+            filename=filename,
+            text=full_text,
+            source_start_char=0,
+            source_end_char=len(full_text),
+            source_start_word=0,
+            chunk_num=1,
+            chunk_total=1,
+        )
         logger.info("[catalyst] extract_entities_chunked (single pass): %d %s from %s", len(entities), entity_plural, filename)
         return entities
 
     all_entities: list[dict] = []
     seen: set[str] = set()
-    for i, chunk in enumerate(chunks, 1):
+    chunk_spans = _chunk_text_with_spans(full_text)
+    for i, (chunk, start_char, end_char) in enumerate(chunk_spans, 1):
         chunk_entities = _run_extract_on_text(
             chunk, filename, entity_type, entity_plural, codex_cwd, client_context,
-            timeout_per_chunk, chunk_info=f"{i}/{len(chunks)}",
+            timeout_per_chunk, chunk_info=f"{i}/{len(chunk_spans)}",
+            claude_session_id=claude_session_id,
+        )
+        _attach_source_locators(
+            chunk_entities,
+            filename=filename,
+            text=chunk,
+            source_start_char=start_char,
+            source_end_char=end_char,
+            source_start_word=_word_index_at(full_text, start_char),
+            chunk_num=i,
+            chunk_total=len(chunk_spans),
         )
         for e in chunk_entities:
             key = e.get("name", "").lower().strip()
@@ -634,12 +1039,113 @@ def extract_entities_chunked(
 def _render_scalar(v) -> str:
     """Render a scalar or ingredient dict as a plain string."""
     if isinstance(v, dict):
-        name = str(v.get("name", "")).strip()
+        name = str(v.get("name") or v.get("item") or v.get("text") or "").strip()
         qty = str(v.get("quantity") or "").strip()
         unit = str(v.get("unit") or "").strip()
         parts = [p for p in [qty, unit] if p]
-        return f"{' '.join(parts)} {name}".strip() if parts else name
+        rendered = f"{' '.join(parts)} {name}".strip() if parts else name
+        preparation = str(v.get("preparation") or "").strip()
+        notes = str(v.get("notes") or "").strip()
+        original_text = str(v.get("original_text") or "").strip()
+        if preparation:
+            rendered = f"{rendered}, {preparation}" if rendered else preparation
+        if notes:
+            rendered = f"{rendered} ({notes})" if rendered else notes
+        if not rendered and original_text:
+            rendered = original_text
+        if v.get("uncertain") and rendered:
+            rendered = f"{rendered} [?]"
+        return rendered
     return str(v).strip()
+
+
+def _render_recipe_entry_markdown(entity: dict) -> str:
+    """Render a food_service.recipe-shaped entity as editable recipe markdown."""
+    name = str(entity.get("title") or entity.get("name") or "").strip()
+    lines: list[str] = [f"# {name}", ""]
+
+    yield_value = entity.get("yield")
+    if yield_value:
+        lines.extend([f"Yield: {yield_value}", ""])
+    else:
+        lines.extend(["Yield: ", ""])
+
+    timing = entity.get("timing")
+    if isinstance(timing, dict):
+        timing_parts = [
+            f"{k}: {v}" for k, v in timing.items()
+            if v and k in {"prep", "cook", "total"}
+        ]
+        if timing_parts:
+            lines.extend([f"Timing: {', '.join(timing_parts)}", ""])
+
+    ingredients = entity.get("ingredients")
+    if isinstance(ingredients, list) and ingredients:
+        lines.extend(["## Ingredients", ""])
+        for item in ingredients:
+            rendered = _render_scalar(item)
+            if rendered:
+                lines.append(f"- {rendered}")
+        lines.append("")
+
+    instructions = entity.get("instructions")
+    if isinstance(instructions, list) and instructions:
+        lines.extend(["## Instructions", ""])
+        for idx, item in enumerate(instructions, 1):
+            if isinstance(item, dict):
+                text = str(item.get("text") or item.get("instruction") or "").strip()
+                step_number = item.get("step_number") or idx
+                if item.get("uncertain") and text:
+                    text = f"{text} [?]"
+            else:
+                text = str(item).strip()
+                step_number = idx
+            if text:
+                lines.append(f"{step_number}. {text}")
+        lines.append("")
+
+    storage = entity.get("storage")
+    if storage:
+        lines.extend(["## Storage", "", str(storage).strip(), ""])
+
+    notes = entity.get("notes")
+    if isinstance(notes, list) and notes:
+        lines.extend(["## Notes", ""])
+        for note in notes:
+            rendered = _render_scalar(note)
+            if rendered:
+                lines.append(f"- {rendered}")
+        lines.append("")
+    elif notes:
+        lines.extend(["## Notes", "", str(notes).strip(), ""])
+
+    uncertain = entity.get("uncertain")
+    if isinstance(uncertain, list) and uncertain:
+        lines.extend(["## Uncertain", ""])
+        for item in uncertain:
+            if isinstance(item, dict):
+                field = str(item.get("field") or "unknown").strip()
+                reason = str(item.get("reason") or "").strip()
+                source_text = str(item.get("source_text") or "").strip()
+                rendered = ": ".join(p for p in [field, reason] if p)
+                if source_text:
+                    rendered = f"{rendered} — {source_text}" if rendered else source_text
+            else:
+                rendered = str(item).strip()
+            if rendered:
+                lines.append(f"- {rendered}")
+        lines.append("")
+
+    source_fragments = entity.get("source_fragments")
+    if isinstance(source_fragments, list) and source_fragments:
+        lines.extend(["## Source Fragments", ""])
+        for fragment in source_fragments:
+            rendered = str(fragment).strip()
+            if rendered:
+                lines.append(f"- {rendered}")
+        lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def format_entity_as_entry_markdown(entity: dict) -> str:
@@ -648,11 +1154,16 @@ def format_entity_as_entry_markdown(entity: dict) -> str:
     Name becomes an H1. Ingredient lists become a proper ## Ingredients bullet list.
     Other list fields become ## sections. Scalar fields become bold key: value lines.
     """
-    name = str(entity.get("name", "")).strip()
+    if entity.get("shape_id") == "food_service.recipe" or (
+        "ingredients" in entity and ("instructions" in entity or "yield" in entity or entity.get("title"))
+    ):
+        return _render_recipe_entry_markdown(entity)
+
+    name = str(entity.get("name") or entity.get("title") or "").strip()
     lines: list[str] = [f"# {name}", ""]
 
     # Scalar fields first (not name, not list fields)
-    scalar_skip = {"name"}
+    scalar_skip = {"name", "title"}
     list_fields: list[tuple[str, list]] = []
     for k, v in entity.items():
         if k in scalar_skip:

@@ -31,8 +31,16 @@ import shutil
 import subprocess
 import threading
 from collections.abc import Generator
+from dataclasses import dataclass
+from typing import Literal
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ClaudeResult:
+    output: str | None
+    failure: Literal["auth_failure", "timeout", "error", "empty"] | None = None
 
 
 def _claude_bin() -> str:
@@ -51,37 +59,67 @@ def _strip_api_key(env: dict) -> dict:
 # run_blocking / stream — one-shot -p variants (unchanged)
 # ---------------------------------------------------------------------------
 
-def run_blocking(prompt: str, cwd: str, timeout: int = 90) -> str | None:
+def run_blocking(
+    prompt: str,
+    cwd: str,
+    timeout: int = 90,
+    run_as_user: str | None = None,
+) -> ClaudeResult:
     """
-    Run claude -p with a prompt via stdin. Returns stdout stripped, or None on failure.
-    Raises nothing — logs warnings and returns None on any error.
+    Run claude -p with a prompt via stdin. Returns a ClaudeResult.
+    When run_as_user is set, the subprocess runs via runuser as that Linux user
+    with HOME set explicitly so ~/.claude/ credentials resolve correctly.
+    Raises nothing — logs warnings on any error.
     """
     bin_path = _claude_bin()
-    logger.info("[claude] run_blocking: cwd=%s timeout=%ds", cwd, timeout)
+    logger.info("[claude] run_blocking: cwd=%s timeout=%ds run_as_user=%s", cwd, timeout, run_as_user)
+
+    env = _strip_api_key(os.environ.copy())
+    if run_as_user:
+        cmd = ["runuser", "-u", run_as_user, "--", bin_path, "-p", "--dangerously-skip-permissions"]
+        env["HOME"] = f"/home/{run_as_user}"
+    else:
+        cmd = [bin_path, "-p", "--dangerously-skip-permissions"]
+
     try:
         result = subprocess.run(
-            [bin_path, "-p", "--dangerously-skip-permissions"],
+            cmd,
             input=prompt,
             cwd=cwd,
             capture_output=True,
             text=True,
             timeout=timeout,
-            env=_strip_api_key(os.environ.copy()),
+            env=env,
         )
         if result.returncode != 0:
-            logger.warning("[claude] run_blocking non-zero exit %s: %s", result.returncode, result.stderr[:200])
-            return None
+            stderr = (result.stderr or "").strip()
+            stdout = (result.stdout or "").strip()
+            if "Not logged in" in stdout or "Please run /login" in stdout:
+                logger.warning(
+                    "[claude] run_blocking auth failure exit=%s stdout=%r stderr=%r",
+                    result.returncode,
+                    stdout[:500],
+                    stderr[:500],
+                )
+                return ClaudeResult(output=None, failure="auth_failure")
+            logger.warning(
+                "[claude] run_blocking non-zero exit %s: stdout=%r stderr=%r",
+                result.returncode,
+                stdout[:500],
+                stderr[:500],
+            )
+            return ClaudeResult(output=None, failure="error")
         output = result.stdout.strip()
         if not output:
             logger.warning("[claude] run_blocking: empty stdout")
-            return None
-        return output
+            return ClaudeResult(output=None, failure="empty")
+        return ClaudeResult(output=output, failure=None)
     except subprocess.TimeoutExpired:
         logger.warning("[claude] run_blocking: timed out after %ds", timeout)
-        return None
+        return ClaudeResult(output=None, failure="timeout")
     except Exception as exc:
         logger.warning("[claude] run_blocking: %s", exc)
-        return None
+        return ClaudeResult(output=None, failure="error")
 
 
 def stream(prompt: str, cwd: str) -> Generator[str, None, None]:
@@ -143,15 +181,18 @@ def _is_alive(proc: subprocess.Popen) -> bool:
     return proc.poll() is None
 
 
-def get_or_spawn(session_id: str, cwd: str, opening_context: str | None = None) -> subprocess.Popen:
+def get_or_spawn(
+    session_id: str,
+    cwd: str,
+    opening_context: str | None = None,
+    run_as_user: str | None = None,
+) -> subprocess.Popen:
     """
     Return the live stream-json subprocess for session_id, spawning a new one
     if the registry entry is missing or the process has exited.
 
     opening_context: if provided, sent as the first user message before returning.
-    The caller should not send another message until this completes — but for the
-    warm-up path, opening_context is typically None and the caller sends messages
-    via send_to_session().
+    run_as_user: when set, spawns the subprocess via runuser as that Linux user.
     """
     with _session_lock(session_id):
         existing = _session_registry.get(session_id)
@@ -161,24 +202,34 @@ def get_or_spawn(session_id: str, cwd: str, opening_context: str | None = None) 
             _session_registry.pop(session_id, None)
 
         bin_path = _claude_bin()
-        logger.info("[claude] spawning stream-json session: session=%s cwd=%s", session_id, cwd)
+        logger.info(
+            "[claude] spawning stream-json session: session=%s cwd=%s run_as_user=%s",
+            session_id, cwd, run_as_user,
+        )
+
+        env = _strip_api_key(os.environ.copy())
+        session_args = [
+            "-p",
+            "--dangerously-skip-permissions",
+            "--verbose",
+            "--input-format", "stream-json",
+            "--output-format", "stream-json",
+            "--include-partial-messages",
+        ]
+        if run_as_user:
+            cmd = ["runuser", "-u", run_as_user, "--", bin_path, *session_args]
+            env["HOME"] = f"/home/{run_as_user}"
+        else:
+            cmd = [bin_path, *session_args]
 
         proc = subprocess.Popen(
-            [
-                bin_path,
-                "-p",
-                "--dangerously-skip-permissions",
-                "--verbose",
-                "--input-format", "stream-json",
-                "--output-format", "stream-json",
-                "--include-partial-messages",
-            ],
+            cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=cwd,
             text=True,
-            env=_strip_api_key(os.environ.copy()),
+            env=env,
         )
 
         _session_registry[session_id] = proc
@@ -327,14 +378,14 @@ def send_to_session(
     message: str,
     cwd: str,
     opening_context: str | None = None,
+    run_as_user: str | None = None,
 ) -> Generator[tuple[str, str], None, None]:
     """
     Send message to the session's stream-json subprocess and yield SSE event pairs.
     Acquires a per-session lock so concurrent Django requests serialize cleanly.
 
     opening_context: injected only on cold spawn (process was dead or missing).
-    Passed through to get_or_spawn so the subprocess gets history context before
-    the first real user message.
+    run_as_user: passed to get_or_spawn on cold spawn; ignored if session already live.
     """
     lock = _session_lock(session_id)
     if not lock.acquire(timeout=90):
@@ -343,7 +394,7 @@ def send_to_session(
         return
 
     try:
-        proc = get_or_spawn(session_id, cwd, opening_context)
+        proc = get_or_spawn(session_id, cwd, opening_context, run_as_user=run_as_user)
         _send_message(proc, message)
         yield from _read_turn(proc, session_id)
     except BrokenPipeError:
@@ -355,6 +406,42 @@ def send_to_session(
         yield ("error", str(exc))
     finally:
         lock.release()
+
+
+def run_session_blocking(
+    session_id: str,
+    prompt: str,
+    cwd: str,
+    opening_context: str | None = None,
+    run_as_user: str | None = None,
+) -> str | None:
+    """
+    Run one prompt through the persistent stream-json subprocess and collect text.
+
+    This is for batch workers that need the speed/context benefits of the Atrium
+    wrapper but want a simple blocking string result instead of SSE events.
+    When run_as_user is set, the subprocess spawns via runuser as that Linux user.
+    """
+    chunks: list[str] = []
+    errors: list[str] = []
+    for event_type, text in send_to_session(session_id, prompt, cwd, opening_context, run_as_user=run_as_user):
+        if event_type == "delta":
+            chunks.append(text)
+        elif event_type == "error":
+            errors.append(text)
+
+    output = "".join(chunks).strip()
+    if output:
+        return output
+    if errors:
+        logger.warning(
+            "[claude] run_session_blocking: no output session=%s error=%s",
+            session_id,
+            errors[-1][:300],
+        )
+    else:
+        logger.warning("[claude] run_session_blocking: no output session=%s", session_id)
+    return None
 
 
 def terminate_session(session_id: str) -> None:

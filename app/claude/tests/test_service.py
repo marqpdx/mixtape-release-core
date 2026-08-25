@@ -23,33 +23,61 @@ class TestRunBlocking(unittest.TestCase):
         mock_result.stderr = ""
         with patch("claude.service.subprocess.run", return_value=mock_result) as mock_run:
             result = claude_service.run_blocking("say hello", cwd="/tmp", timeout=30)
-        self.assertEqual(result, "hello world")
+        self.assertEqual(result.output, "hello world")
+        self.assertIsNone(result.failure)
         args, kwargs = mock_run.call_args
         self.assertIn("-p", args[0])
         self.assertIn("--dangerously-skip-permissions", args[0])
         self.assertEqual(kwargs["input"], "say hello")
         self.assertEqual(kwargs["timeout"], 30)
 
-    def test_returns_none_on_nonzero_exit(self):
+    def test_returns_error_on_nonzero_exit(self):
         mock_result = MagicMock()
         mock_result.returncode = 1
+        mock_result.stdout = ""
         mock_result.stderr = "error"
         with patch("claude.service.subprocess.run", return_value=mock_result):
             result = claude_service.run_blocking("say hello", cwd="/tmp")
-        self.assertIsNone(result)
+        self.assertIsNone(result.output)
+        self.assertEqual(result.failure, "error")
 
-    def test_returns_none_on_timeout(self):
+    def test_returns_auth_failure_on_not_logged_in(self):
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stdout = "Not logged in. Please run /login"
+        mock_result.stderr = ""
+        with patch("claude.service.subprocess.run", return_value=mock_result):
+            result = claude_service.run_blocking("say hello", cwd="/tmp")
+        self.assertIsNone(result.output)
+        self.assertEqual(result.failure, "auth_failure")
+
+    def test_returns_timeout_on_timeout(self):
         with patch("claude.service.subprocess.run", side_effect=subprocess.TimeoutExpired("claude", 90)):
             result = claude_service.run_blocking("say hello", cwd="/tmp")
-        self.assertIsNone(result)
+        self.assertIsNone(result.output)
+        self.assertEqual(result.failure, "timeout")
 
-    def test_returns_none_on_empty_stdout(self):
+    def test_returns_empty_on_empty_stdout(self):
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_result.stdout = "   "
         with patch("claude.service.subprocess.run", return_value=mock_result):
             result = claude_service.run_blocking("say hello", cwd="/tmp")
-        self.assertIsNone(result)
+        self.assertIsNone(result.output)
+        self.assertEqual(result.failure, "empty")
+
+    def test_run_as_user_prepends_runuser(self):
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "ok"
+        mock_result.stderr = ""
+        with patch("claude.service.subprocess.run", return_value=mock_result) as mock_run:
+            result = claude_service.run_blocking("say ok", cwd="/tmp", run_as_user="tob-catalyst")
+        self.assertEqual(result.output, "ok")
+        args, _ = mock_run.call_args
+        self.assertEqual(args[0][0], "runuser")
+        self.assertIn("-u", args[0])
+        self.assertIn("tob-catalyst", args[0])
 
 
 class TestPtyScreenReaderParsing(unittest.TestCase):
