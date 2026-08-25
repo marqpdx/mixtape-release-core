@@ -38,6 +38,7 @@ fi
 cd "$APP_ROOT"
 
 # --- Django + Python path ---
+export DJANGO_ENV="${DJANGO_ENV:-dev}"
 export DJANGO_SETTINGS_MODULE="${DJANGO_SETTINGS_MODULE:-mixtape.settings.dev}"
 export PYTHONPATH="${APP_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
@@ -46,20 +47,19 @@ export PYTORCH_ENABLE_MPS_FALLBACK=0
 export CUDA_VISIBLE_DEVICES=""
 export OMP_NUM_THREADS=4
 
-# --- queue naming (your new shared env) ---
+# --- queue naming ---
+# SHARED_RABBIT_CHAT_QUEUE is the application default / Livewire queue.
+# CELERY_QUEUES controls what this worker consumes.
 export SHARED_RABBIT_CHAT_QUEUE="${SHARED_RABBIT_CHAT_QUEUE:-mixtape_shared_rabbit_chat_queue_stage}"
-
-# --- additional queues consumed by this worker ---
-# push: Celery-only tasks (email dispatch, push notifications, asset upload, short Catalyst tasks).
-# catalyst: long-running claude -p subprocess jobs — run via run_celery_catalyst_local.sh instead.
-LOCAL_EXTRA_QUEUES="${LOCAL_EXTRA_QUEUES:-push}"
-ALL_QUEUES="${SHARED_RABBIT_CHAT_QUEUE},${LOCAL_EXTRA_QUEUES}"
+CELERY_QUEUES="${CELERY_QUEUES:-${SHARED_RABBIT_CHAT_QUEUE}}"
 
 # --- show config snapshot ---
 echo "📁 APP_ROOT:               $APP_ROOT"
+echo "🌱 DJANGO_ENV:             $DJANGO_ENV"
 echo "⚙️  DJANGO_SETTINGS_MODULE: $DJANGO_SETTINGS_MODULE"
 echo "🧩 PYTHONPATH:             $PYTHONPATH"
-echo "📬 Queues (consume):       $ALL_QUEUES"
+echo "📬 Default queue:          $SHARED_RABBIT_CHAT_QUEUE"
+echo "📬 Queues (consume):       $CELERY_QUEUES"
 echo "🐰 Broker:                 ${CELERY_BROKER_URL:-<not set>}"
 
 # --- worker tuning (local overrides) ---
@@ -76,7 +76,7 @@ exec celery -A mixtape.celery_app worker \
   --concurrency="$CELERY_CONCURRENCY" \
   --prefetch-multiplier="$CELERY_PREFETCH_MULTIPLIER" \
   -P "$CELERY_POOL" \
-  -Q "$ALL_QUEUES" \
+  -Q "$CELERY_QUEUES" \
   -n "$CELERY_NODE_NAME"
 
 

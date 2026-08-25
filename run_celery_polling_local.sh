@@ -10,6 +10,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CELERY_POOL=prefork \
 CELERY_CONCURRENCY=2 \
 CELERY_PREFETCH_MULTIPLIER=1 \
-SHARED_RABBIT_CHAT_QUEUE=polling \
+CELERY_QUEUES=polling \
 CELERY_NODE_NAME=polling-worker@%h \
 "$SCRIPT_DIR/run_celery_local.sh"

@@ -7,6 +7,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 CELERY_POOL=solo \
 CELERY_CONCURRENCY=1 \
-SHARED_RABBIT_CHAT_QUEUE=transcription \
+CELERY_QUEUES=transcription \
 CELERY_NODE_NAME=transcription-worker@%h \
 "$SCRIPT_DIR/run_celery_local.sh"
