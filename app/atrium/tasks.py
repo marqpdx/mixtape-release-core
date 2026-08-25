@@ -28,7 +28,7 @@ Write only the summary, no preamble.
 _MAX_TRANSCRIPT_CHARS = 40_000  # trim if very long
 
 
-@shared_task(bind=True, max_retries=2, queue="default")
+@shared_task(bind=True, max_retries=2, queue="catalyst")
 def keeper_compact_task(self, session_id: str) -> None:
     """
     Continuous Keeper: summarize recent AtriumSessionEntry records for a session
