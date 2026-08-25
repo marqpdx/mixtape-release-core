@@ -92,7 +92,7 @@ class AtriumAnthropicAdapter:
 class ClaudeCodeAdapter:
     """
     Phase 2C adapter — routes through a persistent stream-json subprocess.
-    Replaces the Phase 2A one-shot -p approach and the PTY/pexpect prototype.
+    Replaces the Phase 2A one-shot -p approach and the retired PTY/pexpect prototype.
 
     Yields SSE byte chunks in the same format as AtriumAnthropicAdapter:
       data: {"type": "delta",          "text": "..."}
@@ -190,7 +190,7 @@ class ClaudeCodeAdapter:
         yield b"data: " + json.dumps({"type": "done"}).encode() + b"\n\n"
 
     def compact(self, cwd: str) -> str | None:
-        """Run /compact in the PTY. Returns compact summary text."""
+        """Run /compact in the stream-json subprocess. Returns compact summary text."""
         from claude import service as claude_service
         if not self._session:
             return None
@@ -242,14 +242,14 @@ class AtriumAIService:
 
         if use_claude_code:
             sponsor_slug = getattr(getattr(session, "sponsor", None), "slug", "global") if session else "global"
-            logger.info("[atrium] AtriumAIService: ClaudeCodeAdapter PTY (sponsor=%s)", sponsor_slug)
+            logger.info("[atrium] AtriumAIService: ClaudeCodeAdapter stream-json (sponsor=%s)", sponsor_slug)
             self._adapter = ClaudeCodeAdapter(session=session)
         else:
             self._adapter = AtriumAnthropicAdapter()
 
     def warm(self) -> Generator[bytes, None, None]:
         """
-        Pre-warm the PTY for this session. Yields a `type: ready` SSE event.
+        Pre-warm the stream-json subprocess for this session. Yields a `type: ready` SSE event.
         Only meaningful for ClaudeCodeAdapter sessions.
         """
         if hasattr(self._adapter, "warm"):
@@ -259,7 +259,7 @@ class AtriumAIService:
 
     def compact(self, session) -> str | None:
         """
-        Run /compact in the PTY and store the summary in ApertureLog.
+        Run /compact in the stream-json subprocess and store the summary in ApertureLog.
         Returns the summary text.
         """
         if not hasattr(self._adapter, "compact"):
@@ -448,6 +448,7 @@ _TURN_THRESHOLDS = {"light": None, "steady": 8, "active": 4}
 
 
 def _pty_pid(session_id: str) -> int | None:
+    """Return the live Claude subprocess PID; function name is historical."""
     from claude import service as claude_service
     proc = claude_service._session_registry.get(session_id)
     if proc is None:
