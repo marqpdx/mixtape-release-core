@@ -167,6 +167,7 @@ INSTALLED_APPS = [
     "tapestry",        # Tapestry — Place stub (CM-0, commons-adr.md D17); full GIS deferred
     "media_capture",   # MediaCapture — screencast & media ingestion pipeline (Bridge Phase D)
     "catalyst",        # Catalyst — per-tenant Codex provisioning and activation
+    "tenant_runtime",  # TenantRuntime — shared per-tenant AI subprocess service layer
 ]
 
 if OCR_SPIKE_ENABLED:
@@ -676,7 +677,8 @@ LOGGING = {
         # Colors for status-coded server lines + (optionally) other console output
         "colored_server": {
             "()": "colorlog.ColoredFormatter",
-            "format": "%(log_color)s%(message)s",
+            "format": "{log_color}{message}{reset}",
+            "style": "{",
             "log_colors": {
                 # After your filter runs, it rewrites the effective "level" by status code
                 "DEBUG": "cyan",
@@ -689,7 +691,7 @@ LOGGING = {
         # Colored but still “structured” for your app logs
         "colored_verbose": {
             "()": "colorlog.ColoredFormatter",
-            "format": "%(log_color)s{levelname} {asctime} {name} {module} {message}",
+            "format": "{log_color}{levelname} {asctime} {name} {module} {message}{reset}",
             "style": "{",
             "log_colors": {
                 "DEBUG": "cyan",
