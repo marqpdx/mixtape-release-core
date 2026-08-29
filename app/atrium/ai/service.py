@@ -473,7 +473,11 @@ def _resolve_aperture_log(session):
     try:
         from initiatives.models import ApertureLog, Initiative
 
-        if session.sponsor_content_type_id and session.sponsor_object_id:
+        if session.initiative_id:
+            initiative = Initiative.objects.filter(
+                id=session.initiative_id, deleted_at__isnull=True
+            ).first()
+        elif session.sponsor_content_type_id and session.sponsor_object_id:
             initiative = Initiative.objects.filter(
                 sponsor_content_type_id=session.sponsor_content_type_id,
                 sponsor_object_id=session.sponsor_object_id,
@@ -566,6 +570,38 @@ def _build_cold_spawn_context(session) -> tuple[str | None, str | None]:
                 f"[End compact summary]"
             )
             provenance_parts.append(f"compact summary ({ts})")
+        elif log and log.import_source:
+            # No compact summary yet — inject a window of the imported ApertureLog entries
+            # so Claude has source context for this session.
+            from initiatives.models import ApertureLogEntry, ApertureLogEntryKind
+            prose_entries = list(
+                ApertureLogEntry.objects.filter(
+                    aperture_log=log,
+                    kind=ApertureLogEntryKind.PROSE,
+                ).order_by("source_turn_index", "created_at")[:60]
+            )
+            if prose_entries:
+                turn_lines = []
+                char_budget = 12000
+                for e in prose_entries:
+                    role_label = "User" if e.authored_by not in ("claude", "system") else "Assistant"
+                    line = f"{role_label}: {e.body.strip()}"
+                    if len(line) > char_budget:
+                        break
+                    turn_lines.append(line)
+                    char_budget -= len(line)
+                if turn_lines:
+                    source_title = log.import_source.get("title", "imported conversation")
+                    n_shown = len([l for l in turn_lines if l.startswith("User:")])
+                    n_total = ApertureLogEntry.objects.filter(
+                        aperture_log=log, kind=ApertureLogEntryKind.PROSE
+                    ).count()
+                    parts.append(
+                        f"[Imported conversation: {source_title} — showing {n_shown} of {n_total // 2} exchanges]\n"
+                        + "\n".join(turn_lines)
+                        + "\n[End imported conversation — this is the source material for curation]"
+                    )
+                    provenance_parts.append(f"imported log ({n_shown}/{n_total // 2} exchanges shown)")
 
         # --- recent turn history ---
         entries = list(

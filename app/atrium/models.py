@@ -99,6 +99,15 @@ class AtriumSession(BaseModel):
         help_text="PID of the live PTY process for this session. Null when no PTY is running.",
     )
 
+    initiative = models.ForeignKey(
+        "initiatives.Initiative",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="atrium_sessions",
+        help_text="When set, this session is scoped to a specific Initiative's ApertureLog.",
+    )
+
     last_activity_at = models.DateTimeField(
         null=True,
         blank=True,
