@@ -81,12 +81,21 @@ class AtriumSessionCreateView(generics.CreateAPIView):
                 sponsor_ct = ContentType.objects.get_for_model(Group)
                 sponsor_id = group.pk
 
+        initiative = None
+        initiative_id = request.data.get("initiative_id", "")
+        if initiative_id:
+            from initiatives.models import Initiative
+            initiative = Initiative.objects.filter(
+                id=initiative_id, deleted_at__isnull=True
+            ).first()
+
         session = AtriumSession.objects.create(
             member=profile,
             title=request.data.get("title", ""),
             session_context=request.data.get("session_context", ""),
             sponsor_content_type=sponsor_ct,
             sponsor_object_id=sponsor_id,
+            initiative=initiative,
         )
         return Response(
             AtriumSessionListSerializer(session).data,
@@ -117,6 +126,41 @@ class AtriumSessionEntryListView(generics.ListAPIView):
             session__member=profile,
             session__deleted_at__isnull=True,
         ).order_by("created_at")
+
+
+class AtriumSessionInitiativeLogView(APIView):
+    """
+    GET /api/atrium/sessions/<session_id>/initiative-log/
+
+    Returns ApertureLogEntry records (prose + ledger) for the session's pinned
+    initiative. Used by the initiative log panel to show imported conversation turns.
+    Returns [] when the session has no initiative_id.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, session_id):
+        from initiatives.models import ApertureLogEntry, ApertureLogEntryKind
+
+        profile = ensure_user_profile(request.user)
+        try:
+            session = AtriumSession.objects.get(
+                id=session_id, member=profile, deleted_at__isnull=True
+            )
+        except AtriumSession.DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if not session.initiative_id:
+            return Response({"results": []})
+
+        entries = ApertureLogEntry.objects.filter(
+            aperture_log__initiative_id=session.initiative_id,
+        ).order_by("created_at").values(
+            "id", "kind", "body", "authored_by",
+            "source_turn_index", "source_timestamp", "created_at",
+            "ledger_event_type", "ledger_data",
+        )
+        return Response({"results": list(entries)})
 
 
 class AtriumSessionContextView(APIView):
@@ -630,7 +674,7 @@ class AtriumSponsorContextView(APIView):
             sponsor_data = {
                 "sponsor_type": "group",
                 "sponsor_slug": group.slug,
-                "sponsor_name": group.name,
+                "sponsor_name": group.title,
                 "sponsor_id": str(sponsor_id),
             }
 

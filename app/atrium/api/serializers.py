@@ -15,6 +15,7 @@ class AtriumSessionListSerializer(serializers.ModelSerializer):
     entry_count = serializers.IntegerField(read_only=True)
     sponsor_type = serializers.SerializerMethodField()
     sponsor_slug = serializers.SerializerMethodField()
+    initiative_title = serializers.SerializerMethodField()
 
     def get_sponsor_type(self, obj):
         if obj.sponsor_content_type_id:
@@ -26,6 +27,11 @@ class AtriumSessionListSerializer(serializers.ModelSerializer):
             return getattr(obj.sponsor, "slug", None)
         return None
 
+    def get_initiative_title(self, obj):
+        if obj.initiative_id:
+            return getattr(obj.initiative, "title", None)
+        return None
+
     class Meta:
         model = AtriumSession
         fields = [
@@ -35,6 +41,8 @@ class AtriumSessionListSerializer(serializers.ModelSerializer):
             "dial_mode",
             "sponsor_type",
             "sponsor_slug",
+            "initiative_id",
+            "initiative_title",
             "status",
             "last_activity_at",
             "entry_count",
