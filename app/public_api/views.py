@@ -29,6 +29,7 @@ from django.db.models import Count, Q
 
 from groups.models.group import Group
 from groups.models.public_page import PublicPage
+from groups.models.group_public_config import GroupPublicConfig
 from groups.services.join_service import get_admission_status
 
 from .serializers import (
@@ -633,3 +634,155 @@ class CatalystIntakeView(APIView):
         )
 
         return Response({"detail": "Request received."}, status=drf_status.HTTP_201_CREATED)
+
+
+class PublicGroupLandingConfigView(APIView):
+    """
+    GET /api/public/groups/<slug>/public-config
+
+    Returns the Group's public landing configuration and resolved public
+    featured content. AllowAny — 404 if no active config exists.
+
+    Server-side enforcement (Decision 9): only published, public-visibility
+    WritingPiece artifacts are returned. The frontend receives only public-safe
+    content and never decides visibility.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, slug):
+        group = get_object_or_404(
+            Group.objects.filter(visibility="public", is_active=True),
+            slug=slug,
+        )
+
+        try:
+            config = group.public_config
+        except GroupPublicConfig.DoesNotExist:
+            return Response(
+                {"detail": "No public landing page configured for this group."},
+                status=drf_status.HTTP_404_NOT_FOUND,
+            )
+
+        if not config.is_active:
+            return Response(
+                {"detail": "This group's public landing page is not yet active."},
+                status=drf_status.HTTP_404_NOT_FOUND,
+            )
+
+        featured_pieces = self._resolve_featured_content(config)
+        subscription_list_slug = (
+            config.subscription_list.listmonk_name
+            if config.subscription_list
+            else None
+        )
+
+        return Response({
+            "group": {
+                "id": str(group.id),
+                "slug": group.slug,
+                "title": group.title,
+                "profile_image_url": group.profile_image_url,
+                "background_image_url": group.background_image_url,
+            },
+            "hero": {
+                "eyebrow": config.hero_eyebrow,
+                "headline": config.hero_headline,
+                "body": config.hero_body,
+                "primary_cta": {
+                    "label": config.hero_primary_cta_label,
+                    "action": config.hero_primary_cta_action,
+                },
+                "secondary_cta": {
+                    "label": config.hero_secondary_cta_label,
+                    "action": config.hero_secondary_cta_action,
+                },
+            },
+            "featured_content": {
+                "type": config.featured_content_type,
+                "layout": config.featured_layout,
+                "collection_id": str(config.featured_collection_id) if config.featured_collection_id else None,
+                "pieces": featured_pieces,
+            },
+            "about": {
+                "text": config.about_text,
+                "descriptors": config.about_descriptors,
+            },
+            "engagement": {
+                "text": config.engagement_text,
+                "capability_pills": config.engagement_capability_pills,
+                "cta": {
+                    "label": config.engagement_cta_label,
+                    "action": config.engagement_cta_action,
+                },
+            },
+            "subscription": {
+                "list_slug": subscription_list_slug,
+                "has_list": subscription_list_slug is not None,
+            },
+        })
+
+    def _resolve_featured_content(self, config: GroupPublicConfig) -> list:
+        """
+        Resolve featured WritingPieces. Collection-backed path is preferred
+        (Decision 4); falls back to explicit ordered IDs if no collection is set.
+
+        Only returns pieces where status=published. No private content leaks
+        through this path regardless of what the config references.
+        """
+        ct_piece = ContentType.objects.get_for_model(WritingPiece)
+        piece_ids: list = []
+
+        if config.featured_collection_id:
+            from curation.models import CollectionItem
+            items = (
+                CollectionItem.objects
+                .filter(
+                    collection_id=config.featured_collection_id,
+                    content_type=ct_piece,
+                    is_hidden=False,
+                    is_folder=False,
+                )
+                .order_by("order_index")
+                .values_list("content_object_id", flat=True)
+            )
+            piece_ids = list(items)
+        elif config.featured_item_ids:
+            piece_ids = config.featured_item_ids
+
+        if not piece_ids:
+            return []
+
+        pieces_by_id = {
+            str(p.id): p
+            for p in WritingPiece.objects.filter(
+                id__in=piece_ids,
+                status="published",
+            ).select_related("author")
+        }
+
+        result = []
+        for pid in piece_ids:
+            piece = pieces_by_id.get(str(pid))
+            if not piece:
+                continue
+            author = piece.author
+            author_profile = getattr(author, "profile", None) if author else None
+            result.append({
+                "id": str(piece.id),
+                "slug": piece.slug,
+                "title": piece.title,
+                "excerpt": piece.excerpt or "",
+                "writing_kind": piece.writing_kind,
+                "published_at": piece.published_at,
+                "reading_time": piece.reading_time,
+                "author": {
+                    "username": author.username if author else "",
+                    "display_name": (
+                        author_profile.display_name
+                        if author_profile
+                        else (author.username if author else "")
+                    ),
+                },
+            })
+
+        return result

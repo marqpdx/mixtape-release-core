@@ -2,7 +2,7 @@
 
 from django.urls import path
 from . import views, views_commons
-from .views import PublicWritingRunView, CatalystIntakeView
+from .views import PublicWritingRunView, CatalystIntakeView, PublicGroupLandingConfigView
 
 urlpatterns = [
     path(
@@ -59,6 +59,12 @@ urlpatterns = [
         "writing/runs/<slug:slug>",
         PublicWritingRunView.as_view(),
         name="public-writing-run",
+    ),
+    # Group Public Landing config (Group Public Landing ADR — GP-2)
+    path(
+        "groups/<slug:slug>/public-config",
+        PublicGroupLandingConfigView.as_view(),
+        name="public-group-landing-config",
     ),
     # Crossroads Page — public read (DB-0002)
     path(
