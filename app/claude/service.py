@@ -10,7 +10,7 @@ Constraints (from planning/catalyst/claude-code-ingest-architecture.md):
   - Do NOT pass --model — silently hangs in non-interactive mode.
   - Prompts via stdin only — never as CLI arguments (ARG_MAX risk on large prompts).
   - --dangerously-skip-permissions is correct for server-side automation.
-  - No hard timeout on the streaming variant — caller manages lifecycle.
+  - stream-json turns must have hard timeouts; stalled subprocesses are dropped.
 
 Interactive session notes (stream-json mode):
   - One persistent subprocess per AtriumSession UUID, keyed in _session_registry.
@@ -27,20 +27,26 @@ from __future__ import annotations
 import json
 import logging
 import os
+import select
 import shutil
 import subprocess
 import threading
+import time
 from collections.abc import Generator
 from dataclasses import dataclass
 from typing import Literal
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_SESSION_TURN_TIMEOUT = int(os.getenv("CLAUDE_SESSION_TURN_TIMEOUT", "300"))
+
 
 @dataclass
 class ClaudeResult:
     output: str | None
     failure: Literal["auth_failure", "timeout", "error", "empty"] | None = None
+    usage: dict | None = None
+    elapsed_ms: int | None = None
 
 
 def _claude_bin() -> str:
@@ -64,6 +70,7 @@ def run_blocking(
     cwd: str,
     timeout: int = 90,
     run_as_user: str | None = None,
+    log_context: dict | None = None,
 ) -> ClaudeResult:
     """
     Run claude -p with a prompt via stdin. Returns a ClaudeResult.
@@ -76,10 +83,13 @@ def run_blocking(
 
     env = _strip_api_key(os.environ.copy())
     if run_as_user:
-        cmd = ["runuser", "-u", run_as_user, "--", bin_path, "-p", "--dangerously-skip-permissions"]
+        cmd = [
+            "runuser", "-u", run_as_user, "--", bin_path,
+            "-p", "--dangerously-skip-permissions", "--output-format", "json",
+        ]
         env["HOME"] = f"/home/{run_as_user}"
     else:
-        cmd = [bin_path, "-p", "--dangerously-skip-permissions"]
+        cmd = [bin_path, "-p", "--dangerously-skip-permissions", "--output-format", "json"]
 
     try:
         result = subprocess.run(
@@ -113,7 +123,31 @@ def run_blocking(
         if not output:
             logger.warning("[claude] run_blocking: empty stdout")
             return ClaudeResult(output=None, failure="empty")
-        return ClaudeResult(output=output, failure=None)
+        usage = None
+        elapsed_ms = None
+        try:
+            payload = json.loads(output)
+        except json.JSONDecodeError:
+            parsed_output = output
+        else:
+            if isinstance(payload, dict):
+                parsed_output = str(payload.get("result") or "").strip()
+                usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else None
+                elapsed_ms = payload.get("duration_ms") or payload.get("duration_api_ms")
+            else:
+                parsed_output = output
+        if usage or elapsed_ms:
+            logger.info(
+                "[claude] run_blocking usage context=%s input_tokens=%s output_tokens=%s elapsed_ms=%s",
+                log_context or {},
+                (usage or {}).get("input_tokens"),
+                (usage or {}).get("output_tokens"),
+                elapsed_ms,
+            )
+        if not parsed_output:
+            logger.warning("[claude] run_blocking: empty parsed result context=%s", log_context or {})
+            return ClaudeResult(output=None, failure="empty", usage=usage, elapsed_ms=elapsed_ms)
+        return ClaudeResult(output=parsed_output, failure=None, usage=usage, elapsed_ms=elapsed_ms)
     except subprocess.TimeoutExpired:
         logger.warning("[claude] run_blocking: timed out after %ds", timeout)
         return ClaudeResult(output=None, failure="timeout")
@@ -238,7 +272,7 @@ def get_or_spawn(
             # Drain the opening context response before returning — caller expects
             # the session to be ready for their first real message.
             _send_message(proc, opening_context)
-            for _ in _read_turn(proc, session_id):
+            for _ in _read_turn(proc, session_id, timeout=DEFAULT_SESSION_TURN_TIMEOUT):
                 pass  # discard opening context response
 
         return proc
@@ -260,6 +294,7 @@ def _send_message(proc: subprocess.Popen, text: str) -> None:
 def _read_turn(
     proc: subprocess.Popen,
     session_id: str,
+    timeout: int | None = None,
 ) -> Generator[tuple[str, str], None, None]:
     """
     Read JSON events from stdout until a "result" event signals turn complete.
@@ -275,8 +310,40 @@ def _read_turn(
     import json as _json
 
     active_tool_name: str | None = None
+    started_at = time.monotonic()
+    turn_timeout = timeout or DEFAULT_SESSION_TURN_TIMEOUT
 
-    for raw in proc.stdout:
+    while True:
+        remaining = turn_timeout - (time.monotonic() - started_at)
+        if remaining <= 0:
+            logger.warning(
+                "[claude] stream-json turn timeout: session=%s timeout=%ss",
+                session_id,
+                turn_timeout,
+            )
+            _session_registry.pop(session_id, None)
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            yield ("error", f"Claude Code timed out after {turn_timeout}s.")
+            return
+
+        ready, _, _ = select.select([proc.stdout], [], [], min(remaining, 1.0))
+        if not ready:
+            continue
+
+        raw = proc.stdout.readline()
+        if raw == "":
+            logger.warning(
+                "[claude] stream-json ended before result: session=%s returncode=%s",
+                session_id,
+                proc.poll(),
+            )
+            _session_registry.pop(session_id, None)
+            yield ("error", "Claude Code exited before completing the turn.")
+            return
+
         raw = raw.strip()
         if not raw:
             continue
@@ -379,6 +446,7 @@ def send_to_session(
     cwd: str,
     opening_context: str | None = None,
     run_as_user: str | None = None,
+    timeout: int | None = None,
 ) -> Generator[tuple[str, str], None, None]:
     """
     Send message to the session's stream-json subprocess and yield SSE event pairs.
@@ -386,6 +454,7 @@ def send_to_session(
 
     opening_context: injected only on cold spawn (process was dead or missing).
     run_as_user: passed to get_or_spawn on cold spawn; ignored if session already live.
+    timeout: max seconds to wait for this turn's stream-json result event.
     """
     lock = _session_lock(session_id)
     if not lock.acquire(timeout=90):
@@ -396,7 +465,7 @@ def send_to_session(
     try:
         proc = get_or_spawn(session_id, cwd, opening_context, run_as_user=run_as_user)
         _send_message(proc, message)
-        yield from _read_turn(proc, session_id)
+        yield from _read_turn(proc, session_id, timeout=timeout)
     except BrokenPipeError:
         logger.warning("[claude] send_to_session: broken pipe — process died session=%s", session_id)
         _session_registry.pop(session_id, None)
@@ -414,6 +483,7 @@ def run_session_blocking(
     cwd: str,
     opening_context: str | None = None,
     run_as_user: str | None = None,
+    timeout: int | None = None,
 ) -> str | None:
     """
     Run one prompt through the persistent stream-json subprocess and collect text.
@@ -424,7 +494,14 @@ def run_session_blocking(
     """
     chunks: list[str] = []
     errors: list[str] = []
-    for event_type, text in send_to_session(session_id, prompt, cwd, opening_context, run_as_user=run_as_user):
+    for event_type, text in send_to_session(
+        session_id,
+        prompt,
+        cwd,
+        opening_context,
+        run_as_user=run_as_user,
+        timeout=timeout,
+    ):
         if event_type == "delta":
             chunks.append(text)
         elif event_type == "error":

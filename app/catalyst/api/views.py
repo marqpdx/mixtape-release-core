@@ -28,6 +28,7 @@ PATCH /api/catalyst/groups/{slug}/registers/{register_slug}/
 """
 
 import logging
+import json
 import re
 import subprocess
 import uuid
@@ -199,7 +200,13 @@ class ParseFilesView(APIView):
         if not _is_group_admin(request.user, group):
             return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
 
-        from catalyst.services.parse_service import parse_file, align_vocabulary
+        from catalyst.services.parse_service import (
+            align_vocabulary,
+            build_source_section_map,
+            build_source_inventory_item,
+            build_strategy_map,
+            parse_file,
+        )
         from catalyst.models import CatalystParseJob
 
         uploaded = request.FILES.getlist("files")
@@ -229,24 +236,76 @@ class ParseFilesView(APIView):
         # Deduplicate uploaded files by content hash — identical files (e.g. backup copies
         # like "Menu Meeting 6_19-2.docx") would otherwise inflate all entity counts.
         import hashlib
-        seen_hashes: set[str] = set()
-        deduped_uploads: list[tuple[str, bytes]] = []
+        seen_hashes: dict[str, str] = {}
+        deduped_uploads: list[tuple[str, bytes, str]] = []
         skipped_duplicates: list[str] = []
+        duplicate_groups: dict[str, list[str]] = {}
+        text_duplicate_groups: dict[str, list[str]] = {}
+        source_inventory: list[dict] = []
+        section_maps: dict[str, dict] = {}
+        seen_text_hashes: dict[str, str] = {}
         for f in uploaded:
             name = f.name
             data = f.read()
             file_hash = hashlib.sha256(data).hexdigest()
+            duplicate_groups.setdefault(file_hash, []).append(name)
             if file_hash in seen_hashes:
                 skipped_duplicates.append(name)
-                logger.info("[catalyst] skipping duplicate file: %s (same content as earlier upload)", name)
+                source_inventory.append(
+                    build_source_inventory_item(
+                        name,
+                        data,
+                        parsed_file=None,
+                        file_hash=file_hash,
+                        duplicate_of=seen_hashes[file_hash],
+                        general_context=general_context,
+                        entity_expectations=entity_expectations,
+                    )
+                )
+                logger.info(
+                    "[catalyst] skipping duplicate file: %s (same content as %s)",
+                    name,
+                    seen_hashes[file_hash],
+                )
             else:
-                seen_hashes.add(file_hash)
-                deduped_uploads.append((name, data))
+                seen_hashes[file_hash] = name
+                deduped_uploads.append((name, data, file_hash))
 
         # Read bytes in main thread; run parse_file() sequentially (fast)
-        for name, data in deduped_uploads:
+        for name, data, file_hash in deduped_uploads:
             try:
                 result = parse_file(name, data)
+                inventory_item = build_source_inventory_item(
+                    name,
+                    data,
+                    parsed_file=result,
+                    file_hash=file_hash,
+                    general_context=general_context,
+                    entity_expectations=entity_expectations,
+                )
+                text_hash = inventory_item.get("text_sha256")
+                if text_hash and text_hash in seen_text_hashes:
+                    duplicate_of = seen_text_hashes[text_hash]
+                    inventory_item["duplicate_of"] = duplicate_of
+                    inventory_item["process_decision"] = "skipped_duplicate_text"
+                    skipped_duplicates.append(name)
+                    text_duplicate_groups.setdefault(text_hash, [duplicate_of]).append(name)
+                    source_inventory.append(inventory_item)
+                    logger.info(
+                        "[catalyst] skipping text duplicate file: %s (normalized text matches %s)",
+                        name,
+                        duplicate_of,
+                    )
+                    continue
+                if text_hash:
+                    seen_text_hashes[text_hash] = name
+                    text_duplicate_groups.setdefault(text_hash, [name])
+                source_inventory.append(inventory_item)
+                section_maps[name] = build_source_section_map(
+                    name,
+                    data,
+                    domain=inventory_item.get("domain"),
+                )
                 registers_dicts = [
                     {
                         "slug": r.slug,
@@ -276,6 +335,16 @@ class ParseFilesView(APIView):
                 })
             except Exception as exc:
                 logger.exception("[catalyst] parse_file failed for %s", name)
+                source_inventory.append(
+                    build_source_inventory_item(
+                        name,
+                        data,
+                        parsed_file=None,
+                        file_hash=file_hash,
+                        general_context=general_context,
+                        entity_expectations=entity_expectations,
+                    )
+                )
                 errors.append({"file": name, "error": str(exc)})
 
         # Vocabulary alignment — pass general_context so vertical shape children
@@ -286,6 +355,31 @@ class ParseFilesView(APIView):
             "absent": [],
             "nested_in_parent": [],
             "declared_types": [],
+        }
+        duplicate_group_list = [
+            {"sha256": file_hash, "filenames": filenames}
+            for file_hash, filenames in duplicate_groups.items()
+            if len(filenames) > 1
+        ]
+        phase1["source_inventory"] = {
+            "version": "0.1",
+            "files": source_inventory,
+            "duplicate_groups": duplicate_group_list,
+            "text_duplicate_groups": [
+                {"text_sha256": text_hash, "filenames": filenames}
+                for text_hash, filenames in text_duplicate_groups.items()
+                if len(filenames) > 1
+            ],
+        }
+        phase1["strategy_map"] = build_strategy_map(
+            source_inventory,
+            general_context=general_context,
+            entity_expectations=entity_expectations,
+        )
+        phase1["section_map"] = {
+            "version": "0.1",
+            "status": "proposed",
+            "files": section_maps,
         }
 
         # Create the job record
@@ -317,6 +411,9 @@ class ParseFilesView(APIView):
         return Response({
             "job_id": str(job.id),
             "phase1_results": phase1,
+            "source_inventory": phase1["source_inventory"],
+            "strategy_map": phase1["strategy_map"],
+            "section_map": phase1["section_map"],
             "files": parsed_files,
             "files_processed": len(deduped_uploads),
             "skipped_duplicates": skipped_duplicates,
@@ -363,25 +460,102 @@ class StartAnalysisView(APIView):
             sep = "\n\n" if job.client_context else ""
             job.client_context = job.client_context + sep + f"ADDITIONAL CONTEXT (added after Phase 1 review):\n{enrichment}"
 
+        submitted_strategy_map = request.data.get("strategy_map")
+        if isinstance(submitted_strategy_map, dict):
+            phase1_results = dict(job.phase1_results or {})
+            strategy_map = dict(submitted_strategy_map)
+            strategy_map["status"] = "reviewed"
+            phase1_results["strategy_map"] = strategy_map
+            job.phase1_results = phase1_results
+
+        def has_operator_section_review() -> bool:
+            section_map = (job.phase1_results or {}).get("section_map") or {}
+            for file_map in (section_map.get("files") or {}).values():
+                for section in file_map.get("sections") or []:
+                    if (
+                        section.get("operator_label")
+                        or section.get("operator_notes")
+                        or section.get("operator_decision")
+                        or section.get("operator_confidence")
+                    ):
+                        return True
+            return False
+
+        requested_mode = (request.data.get("analysis_mode") or "").strip().lower()
+        if requested_mode in {"curated", "deep"}:
+            analysis_mode = requested_mode
+        else:
+            analysis_mode = "curated" if has_operator_section_review() else "deep"
+
+        phase2_results = dict(job.phase2_results or {})
+        phase2_results.setdefault("files", {})
+        phase2_results["analysis_mode"] = analysis_mode
+        phase2_results["analysis_queue"] = {
+            "status": "queued",
+            "queued_at": datetime.now(timezone.utc).isoformat(),
+            "files": [],
+        }
+
         job.status = CatalystParseJob.STATUS_ANALYZING
-        job.save(update_fields=["status", "client_context"])
+        job.phase2_results = phase2_results
+        job.save(update_fields=["status", "client_context", "phase1_results", "phase2_results"])
 
         # Enqueue one task per file
         files_queued = 0
+        strategy_files = (job.phase1_results.get("strategy_map") or {}).get("files", {})
         for file_entry in job.uploaded_files:
             filename = file_entry["filename"]
-            run_file_semantic_analysis.apply_async(
+            strategy_row = strategy_files.get(filename, {})
+            operator_decision = strategy_row.get("operator_decision")
+            if operator_decision in {"skip", "hold", "misc"}:
+                logger.info(
+                    "[catalyst] Phase 2 skip — job=%s file=%s operator_decision=%s",
+                    job.id,
+                    filename,
+                    operator_decision,
+                )
+                continue
+            task_result = run_file_semantic_analysis.apply_async(
                 args=[str(job.id), filename],
                 queue="catalyst",
             )
+            phase2_results["analysis_queue"]["files"].append({
+                "filename": filename,
+                "task_id": task_result.id,
+                "status": "queued",
+            })
+            logger.info(
+                "[catalyst] Phase 2 queued — job=%s file=%s task_id=%s queue=catalyst",
+                job.id,
+                filename,
+                task_result.id,
+            )
             files_queued += 1
 
-        logger.info("[catalyst] Phase 2 started — job=%s files_queued=%d", job.id, files_queued)
+        if files_queued == 0:
+            job.status = CatalystParseJob.STATUS_COMPLETE
+            job.phase2_results = {
+                "files": {},
+                "merged_registers": [],
+                "summary": "No files queued; all sources were skipped or held in Strategy Review.",
+            }
+            job.save(update_fields=["status", "phase2_results"])
+        else:
+            job.phase2_results = phase2_results
+            job.save(update_fields=["phase2_results"])
+
+        logger.info(
+            "[catalyst] Phase 2 started — job=%s files_queued=%d mode=%s",
+            job.id,
+            files_queued,
+            analysis_mode,
+        )
 
         return Response({
             "job_id": str(job.id),
             "status": job.status,
             "files_queued": files_queued,
+            "analysis_mode": analysis_mode,
         }, status=status.HTTP_200_OK)
 
 
@@ -409,7 +583,8 @@ class ParseJobStatusView(APIView):
             return Response({"detail": "Job not found."}, status=status.HTTP_404_NOT_FOUND)
 
         files_done = len(job.phase2_results.get("files", {}))
-        files_total = len(job.uploaded_files)
+        queued_files = (job.phase2_results.get("analysis_queue") or {}).get("files") or []
+        files_total = len(queued_files) or len(job.uploaded_files)
 
         resp: dict = {
             "job_id": str(job.id),
@@ -417,12 +592,252 @@ class ParseJobStatusView(APIView):
             "files_done": files_done,
             "files_total": files_total,
         }
+        if job.phase2_results.get("analysis_mode"):
+            resp["analysis_mode"] = job.phase2_results.get("analysis_mode")
+        if job.phase2_results.get("analysis_queue"):
+            resp["analysis_queue"] = job.phase2_results.get("analysis_queue")
+        if job.phase2_results.get("analysis_started"):
+            resp["analysis_started"] = job.phase2_results.get("analysis_started")
+        if job.phase1_results.get("source_inventory"):
+            resp["source_inventory"] = job.phase1_results.get("source_inventory")
+        if job.phase1_results.get("strategy_map"):
+            resp["strategy_map"] = job.phase1_results.get("strategy_map")
+        if job.phase1_results.get("section_map"):
+            resp["section_map"] = job.phase1_results.get("section_map")
 
         if job.status == CatalystParseJob.STATUS_COMPLETE:
             resp["merged_registers"] = job.phase2_results.get("merged_registers", [])
             resp["completed_at"] = job.completed_at.isoformat() if job.completed_at else None
 
         return Response(resp, status=status.HTTP_200_OK)
+
+
+class LatestParseJobReviewView(APIView):
+    """
+    GET /api/catalyst/groups/{slug}/parse-jobs/latest-review/
+
+    Restores the latest saved Phase 1 inventory/strategy/section review for
+    browser reloads or operator handoffs. This does not re-read source files.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, slug):
+        group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
+        if not _is_group_admin(request.user, group):
+            return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+
+        from catalyst.models import CatalystParseJob
+
+        job = None
+        for candidate_status in (
+            CatalystParseJob.STATUS_COMPLETE,
+            CatalystParseJob.STATUS_ANALYZING,
+            CatalystParseJob.STATUS_PHASE1_COMPLETE,
+        ):
+            for candidate in (
+                CatalystParseJob.objects
+                .filter(group=group, status=candidate_status)
+                .order_by("-created_at")
+            ):
+                phase1 = candidate.phase1_results or {}
+                if phase1.get("source_inventory") or phase1.get("strategy_map") or phase1.get("section_map"):
+                    job = candidate
+                    break
+            if job:
+                break
+
+        if not job:
+            return Response(
+                {"detail": "No saved inventory review found for this group."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        phase1 = job.phase1_results or {}
+        inventory = phase1.get("source_inventory") or {}
+        inventory_files = inventory.get("files") or []
+        skipped_duplicates = [
+            item.get("filename")
+            for item in inventory_files
+            if item.get("filename") and (
+                item.get("duplicate_of")
+                or item.get("process_decision") in {"skipped_duplicate", "skipped_duplicate_text"}
+            )
+        ]
+        files = []
+        uploaded_by_name = {
+            item.get("filename"): item
+            for item in (job.uploaded_files or [])
+            if item.get("filename")
+        }
+        for item in inventory_files:
+            filename = item.get("filename")
+            if not filename or item.get("duplicate_of"):
+                continue
+            uploaded = uploaded_by_name.get(filename, {})
+            files.append({
+                "filename": filename,
+                "file_type": item.get("file_type") or uploaded.get("file_type") or "unknown",
+                "registers": [],
+                "skipped": [],
+                "file_notes": "Recovered from saved inventory review.",
+            })
+
+        return Response({
+            "job_id": str(job.id),
+            "status": job.status,
+            "phase1_results": phase1,
+            "source_inventory": phase1.get("source_inventory"),
+            "strategy_map": phase1.get("strategy_map"),
+            "section_map": phase1.get("section_map"),
+            "files": files,
+            "skipped_duplicates": skipped_duplicates,
+        }, status=status.HTTP_200_OK)
+
+
+class ParseJobSectionMapView(APIView):
+    """
+    PATCH /api/catalyst/groups/{slug}/parse-jobs/{job_id}/section-map/
+
+    Saves operator labels, decisions, and notes for one source section.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, slug, job_id):
+        group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
+        if not _is_group_admin(request.user, group):
+            return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+
+        from catalyst.models import CatalystParseJob
+
+        try:
+            job = CatalystParseJob.objects.get(pk=job_id, group=group)
+        except CatalystParseJob.DoesNotExist:
+            return Response({"detail": "Job not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        filename = request.data.get("filename")
+        section_id = request.data.get("section_id")
+        if not filename or not section_id:
+            return Response({"detail": "filename and section_id are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        phase1_results = dict(job.phase1_results or {})
+        section_map = dict(phase1_results.get("section_map") or {})
+        files = dict(section_map.get("files") or {})
+        file_map = dict(files.get(filename) or {})
+        sections = list(file_map.get("sections") or [])
+        updated = False
+
+        combine_with_next = bool(request.data.get("combine_with_next"))
+        allowed_keys = {"operator_label", "operator_decision", "operator_notes", "operator_confidence"}
+        for idx, section in enumerate(sections):
+            if section.get("section_id") != section_id:
+                continue
+            next_section = dict(section)
+            for key in allowed_keys:
+                if key in request.data:
+                    next_section[key] = request.data.get(key) or ""
+            if combine_with_next:
+                if idx + 1 >= len(sections):
+                    return Response({"detail": "No following section to combine."}, status=status.HTTP_400_BAD_REQUEST)
+                merged_section = dict(sections[idx + 1])
+                next_section["title"] = f"{next_section.get('title') or section_id} + {merged_section.get('title') or merged_section.get('section_id')}"
+                next_section["content_markdown"] = "\n\n".join(
+                    part for part in [
+                        next_section.get("content_markdown") or "",
+                        merged_section.get("content_markdown") or "",
+                    ]
+                    if part.strip()
+                )
+                next_section["content_chars"] = len(next_section["content_markdown"])
+                next_section["end_char"] = merged_section.get("end_char", next_section.get("end_char"))
+                next_section["merged_section_ids"] = [
+                    *(next_section.get("merged_section_ids") or [section_id]),
+                    *(merged_section.get("merged_section_ids") or [merged_section.get("section_id")]),
+                ]
+                next_section["merged_titles"] = [
+                    *(next_section.get("merged_titles") or [section.get("title")]),
+                    *(merged_section.get("merged_titles") or [merged_section.get("title")]),
+                ]
+            sections[idx] = next_section
+            if combine_with_next:
+                del sections[idx + 1]
+            updated = True
+            break
+
+        if not updated:
+            return Response({"detail": "Section not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        file_map["sections"] = sections
+        file_map["status"] = "operator_review"
+        files[filename] = file_map
+        section_map["files"] = files
+        section_map["status"] = "operator_review"
+        phase1_results["section_map"] = section_map
+        job.phase1_results = phase1_results
+        job.save(update_fields=["phase1_results"])
+
+        return Response({"section_map": section_map}, status=status.HTTP_200_OK)
+
+
+class ParseJobTuningNotesView(APIView):
+    """
+    POST /api/catalyst/groups/{slug}/parse-jobs/{job_id}/tuning-notes/
+
+    Stores operator-level batch guidance alongside the Phase 1 review.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, slug, job_id):
+        group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
+        if not _is_group_admin(request.user, group):
+            return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+
+        from catalyst.models import CatalystParseJob
+
+        try:
+            job = CatalystParseJob.objects.get(pk=job_id, group=group)
+        except CatalystParseJob.DoesNotExist:
+            return Response({"detail": "Job not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        note_text = (request.data.get("note") or "").strip()
+        shape = (request.data.get("shape") or "").strip()
+        field = (request.data.get("field") or "").strip()
+        value = (request.data.get("value") or "").strip()
+        confidence = (request.data.get("confidence") or "").strip()
+        if not note_text and not (shape and field and value):
+            return Response(
+                {"detail": "A note or structured tuning field is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        phase1_results = dict(job.phase1_results or {})
+        tuning_notes = list(phase1_results.get("tuning_notes") or [])
+        tuning_note = {
+            "id": str(uuid.uuid4()),
+            "created_at": NOW_ISO(),
+            "created_by": request.user.username,
+            "scope": request.data.get("scope") or "phase1_review",
+            "shape": shape,
+            "field": field,
+            "value": value,
+            "confidence": confidence,
+            "note": note_text,
+        }
+        tuning_notes.append(tuning_note)
+        phase1_results["tuning_notes"] = tuning_notes
+        job.phase1_results = phase1_results
+        job.save(update_fields=["phase1_results"])
+
+        return Response(
+            {
+                "tuning_note": tuning_note,
+                "tuning_notes": tuning_notes,
+                "phase1_results": phase1_results,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 # ── Materialize Registers ─────────────────────────────────────────────────────
@@ -674,16 +1089,27 @@ class RegisterMaterializeView(APIView):
 
         job_id = request.data.get("job_id")
         if not job_id:
-            # Fall back: find the latest completed job for this group
-            job = (
-                CatalystParseJob.objects
-                .filter(group=group, status=CatalystParseJob.STATUS_COMPLETE)
-                .order_by("-completed_at")
-                .first()
-            )
+            # Fall back: prefer the newest completed reviewed job. Phase-one
+            # jobs are usable, but should not outrank a completed curated pass.
+            job = None
+            for candidate_status in (
+                CatalystParseJob.STATUS_COMPLETE,
+                CatalystParseJob.STATUS_PHASE1_COMPLETE,
+            ):
+                for candidate in (
+                    CatalystParseJob.objects
+                    .filter(group=group, status=candidate_status)
+                    .order_by("-created_at")
+                ):
+                    phase1 = candidate.phase1_results or {}
+                    if phase1.get("source_inventory") or phase1.get("strategy_map") or phase1.get("section_map"):
+                        job = candidate
+                        break
+                if job:
+                    break
             if not job:
                 return Response(
-                    {"detail": "No completed parse job found for this group. Run Phase 2 first."},
+                    {"detail": "No usable parse job found for this group. Run Phase 1 first."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             job_id = str(job.pk)
@@ -752,6 +1178,56 @@ class RegisterEntryListView(APIView):
             })
 
         return Response({"register": register_slug, "entries": entries})
+
+
+class RegisterMaterializeProgressView(APIView):
+    """
+    GET /api/catalyst/groups/{slug}/registers/{register_slug}/materialize/progress/
+
+    Returns the current materialization progress sidecar for a register.
+    This is intentionally file-backed because materialization writes Codex
+    artifacts incrementally and should be inspectable without task result state.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, slug, register_slug):
+        group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
+        if not _is_group_admin(request.user, group):
+            return Response({"detail": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+
+        progress_path = (
+            _codex_root(slug)
+            / "CONTENT"
+            / "registers"
+            / register_slug
+            / "_materialization_progress.json"
+        )
+        if not progress_path.exists():
+            return Response({
+                "register": register_slug,
+                "status": "not_started",
+                "entry_count": 0,
+                "source_files": [],
+                "completed_files": [],
+                "file_results": {},
+            })
+        try:
+            progress = json.loads(progress_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return Response(
+                {"detail": "Materialization progress file is not valid JSON."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        if not isinstance(progress, dict):
+            progress = {}
+        progress.setdefault("register", register_slug)
+        progress.setdefault("status", "unknown")
+        progress.setdefault("entry_count", 0)
+        progress.setdefault("source_files", [])
+        progress.setdefault("completed_files", [])
+        progress.setdefault("file_results", {})
+        return Response(progress)
 
 
 class RegisterEntryDetailView(APIView):

@@ -8,6 +8,7 @@ stream:       integration test — requires `claude` binary on PATH.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import unittest
 from unittest.mock import MagicMock, patch
@@ -30,6 +31,27 @@ class TestRunBlocking(unittest.TestCase):
         self.assertIn("--dangerously-skip-permissions", args[0])
         self.assertEqual(kwargs["input"], "say hello")
         self.assertEqual(kwargs["timeout"], 30)
+
+    def test_unwraps_json_output_and_records_usage(self):
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = (
+            '{"result":"hello world","usage":{"input_tokens":12,"output_tokens":3},'
+            '"duration_ms":456}'
+        )
+        mock_result.stderr = ""
+        with patch("claude.service.subprocess.run", return_value=mock_result) as mock_run:
+            result = claude_service.run_blocking(
+                "say hello",
+                cwd="/tmp",
+                log_context={"phase": "test"},
+            )
+        self.assertEqual(result.output, "hello world")
+        self.assertEqual(result.usage, {"input_tokens": 12, "output_tokens": 3})
+        self.assertEqual(result.elapsed_ms, 456)
+        args, _ = mock_run.call_args
+        self.assertIn("--output-format", args[0])
+        self.assertIn("json", args[0])
 
     def test_returns_error_on_nonzero_exit(self):
         mock_result = MagicMock()
@@ -96,3 +118,20 @@ class TestStream(unittest.TestCase):
         full = "".join(chunks).strip()
         self.assertTrue(len(full) > 0, "stream yielded no output")
         self.assertIn("PONG", full, f"expected PONG in output, got: {full!r}")
+
+
+class TestStreamJsonSession(unittest.TestCase):
+    def test_read_turn_times_out_and_kills_process(self):
+        read_fd, write_fd = os.pipe()
+        proc = MagicMock()
+        proc.stdout = os.fdopen(read_fd, "r", encoding="utf-8")
+        proc.kill = MagicMock()
+
+        try:
+            events = list(claude_service._read_turn(proc, "session-timeout-test", timeout=0.01))
+        finally:
+            os.close(write_fd)
+            proc.stdout.close()
+
+        self.assertEqual(events, [("error", "Claude Code timed out after 0.01s.")])
+        proc.kill.assert_called_once()
