@@ -68,3 +68,34 @@ class GroupInvitationAdmin(admin.ModelAdmin):
         ]}),
         ("Timestamps", {"fields": ["created_at", "updated_at"]}),
     ]
+
+
+from .models.group_public_config import GroupPublicConfig
+
+
+@admin.register(GroupPublicConfig)
+class GroupPublicConfigAdmin(admin.ModelAdmin):
+    list_display = ["group", "is_active", "hero_headline", "subscription_list", "updated_at"]
+    list_filter = ["is_active"]
+    search_fields = ["group__title", "group__slug", "hero_headline"]
+    raw_id_fields = ["group", "featured_collection", "subscription_list"]
+    fieldsets = [
+        (None, {"fields": ["group", "is_active"]}),
+        ("Hero", {"fields": [
+            "hero_eyebrow", "hero_headline", "hero_body",
+            "hero_primary_cta_label", "hero_primary_cta_action",
+            "hero_secondary_cta_label", "hero_secondary_cta_action",
+        ]}),
+        ("Featured Content", {"fields": [
+            "featured_collection", "featured_item_ids",
+            "featured_content_type", "featured_layout",
+        ]}),
+        ("About", {"fields": ["about_text", "about_descriptors"]}),
+        ("Engagement", {"fields": [
+            "engagement_text", "engagement_capability_pills",
+            "engagement_cta_label", "engagement_cta_action",
+        ]}),
+        ("Subscription", {"fields": ["subscription_list"]}),
+        ("Timestamps", {"fields": ["created_at", "updated_at"]}),
+    ]
+    readonly_fields = ["created_at", "updated_at"]

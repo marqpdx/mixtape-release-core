@@ -33,3 +33,6 @@ from .circle import *
 # 10. Public page (Crossroads Page — DB-0002)
 from .public_page import PublicPage
 from .page_component import PageComponent
+
+# 11. Group Public Landing config (Group Public Landing ADR)
+from .group_public_config import GroupPublicConfig
