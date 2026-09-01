@@ -349,24 +349,12 @@ class PublicGroupWritingView(APIView):
     GET /api/public/groups/{slug}/writing
 
     Published writing pieces sponsored by a group, reverse chronological.
-    Requires authentication and active group membership.
+    AllowAny — public visibility only. No authentication required.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def get(self, request, slug):
-        group = get_object_or_404(Group, slug=slug, is_active=True)
-
-        user_ct = ContentType.objects.get_for_model(get_user_model())
-        is_member = group.memberships.filter(
-            member_content_type=user_ct,
-            member_object_id=request.user.pk,
-            is_active=True,
-            is_banned=False,
-            is_evicted=False,
-            is_pending=False,
-        ).exists()
-        if not is_member:
-            return Response({"detail": "You must be a member of this group."}, status=drf_status.HTTP_403_FORBIDDEN)
+        group = get_object_or_404(Group, slug=slug, is_active=True, visibility="public")
 
         ct_group = ContentType.objects.get_for_model(Group)
 
@@ -640,12 +628,17 @@ class PublicGroupLandingConfigView(APIView):
     """
     GET /api/public/groups/<slug>/public-config
 
-    Returns the Group's public landing configuration and resolved public
-    featured content. AllowAny — 404 if no active config exists.
+    Returns the Group's public landing configuration. AllowAny.
 
-    Server-side enforcement (Decision 9): only published, public-visibility
-    WritingPiece artifacts are returned. The frontend receives only public-safe
-    content and never decides visibility.
+    T1 (no GroupPublicConfig): synthesizes a payload from Group data and latest
+    published writing. Frontend renders the T1 surface (background image banner +
+    group name + writing grid).
+
+    T2 (active GroupPublicConfig with rows): returns the config plus resolved
+    featured content. Frontend renders from rows when rows is non-null.
+
+    Server-side enforcement (Decision 9): only published WritingPiece artifacts
+    are returned regardless of tier. Frontend never decides visibility.
     """
     permission_classes = [AllowAny]
 
@@ -655,20 +648,43 @@ class PublicGroupLandingConfigView(APIView):
             slug=slug,
         )
 
+        group_block = {
+            "id": str(group.id),
+            "slug": group.slug,
+            "title": group.title,
+            "summary": group.summary or "",
+            "profile_image_url": group.profile_image_url,
+            "background_image_url": group.background_image_url,
+        }
+
+        # T1 path — no config or inactive config
         try:
             config = group.public_config
+            config_active = config.is_active
         except GroupPublicConfig.DoesNotExist:
-            return Response(
-                {"detail": "No public landing page configured for this group."},
-                status=drf_status.HTTP_404_NOT_FOUND,
-            )
+            config = None
+            config_active = False
 
-        if not config.is_active:
-            return Response(
-                {"detail": "This group's public landing page is not yet active."},
-                status=drf_status.HTTP_404_NOT_FOUND,
-            )
+        if config is None or not config_active:
+            latest_pieces = self._latest_group_writing(group, limit=6)
+            return Response({
+                "tier": "t1",
+                "group": group_block,
+                "hero": None,
+                "featured_content": {
+                    "type": "writing",
+                    "layout": "grid",
+                    "collection_id": None,
+                    "pieces": latest_pieces,
+                },
+                "about": {"text": group.summary or "", "descriptors": []},
+                "engagement": {"text": "", "capability_pills": [], "cta": {"label": "", "action": ""}},
+                "subscription": {"list_slug": None, "has_list": False},
+                "rows": None,
+                "generation_status": "none",
+            })
 
+        # T2 path — active config
         featured_pieces = self._resolve_featured_content(config)
         subscription_list_slug = (
             config.subscription_list.listmonk_name
@@ -677,13 +693,8 @@ class PublicGroupLandingConfigView(APIView):
         )
 
         return Response({
-            "group": {
-                "id": str(group.id),
-                "slug": group.slug,
-                "title": group.title,
-                "profile_image_url": group.profile_image_url,
-                "background_image_url": group.background_image_url,
-            },
+            "tier": "t2",
+            "group": group_block,
             "hero": {
                 "eyebrow": config.hero_eyebrow,
                 "headline": config.hero_headline,
@@ -719,7 +730,45 @@ class PublicGroupLandingConfigView(APIView):
                 "list_slug": subscription_list_slug,
                 "has_list": subscription_list_slug is not None,
             },
+            "rows": config.rows,
+            "generation_status": config.generation_status,
         })
+
+    def _latest_group_writing(self, group: Group, limit: int = 6) -> list:
+        """Fetch the most recent published WritingPieces for a T1 group surface."""
+        ct_group = ContentType.objects.get_for_model(Group)
+        pieces = (
+            WritingPiece.objects
+            .filter(
+                sponsor_content_type=ct_group,
+                sponsor_object_id=group.id,
+                status="published",
+            )
+            .select_related("author")
+            .order_by("-published_at")[:limit]
+        )
+        result = []
+        for piece in pieces:
+            author = piece.author
+            author_profile = getattr(author, "profile", None) if author else None
+            result.append({
+                "id": str(piece.id),
+                "slug": piece.slug,
+                "title": piece.title,
+                "excerpt": piece.excerpt or "",
+                "writing_kind": piece.writing_kind,
+                "published_at": piece.published_at,
+                "reading_time": piece.reading_time,
+                "author": {
+                    "username": author.username if author else "",
+                    "display_name": (
+                        author_profile.display_name
+                        if author_profile
+                        else (author.username if author else "")
+                    ),
+                },
+            })
+        return result
 
     def _resolve_featured_content(self, config: GroupPublicConfig) -> list:
         """

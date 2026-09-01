@@ -125,6 +125,44 @@ class GroupPublicConfig(models.Model):
         help_text="The mailing list public visitors subscribe to. MB list ≠ Crossroads list.",
     )
 
+    # ---- T2 Rows Layout ----
+    rows = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text=(
+            "T2: AI-assembled Rows layout. Ordered list of Row objects: "
+            "[{type: str, content: {...}}]. Null for T1. "
+            "Frontend renders from rows when present; T1 synthesized payload has rows=null."
+        ),
+    )
+
+    # ---- AI Generation ----
+    generation_status = models.CharField(
+        max_length=20,
+        default="none",
+        choices=[
+            ("none", "None"),
+            ("pending", "Pending"),
+            ("complete", "Complete"),
+            ("stale", "Stale"),
+        ],
+        help_text=(
+            "Tier 2: tracks AI generation lifecycle. 'none' = human-only (Tier 1). "
+            "'stale' = source content changed since last generation."
+        ),
+    )
+    generation_metadata = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text=(
+            "Per-field provenance written by Tier 2 generation. "
+            "Shape: {field_name: {source: 'ai'|'human'|'ai_edited', generated_at: iso, model: str}}. "
+            "Null for Tier 1 configs. Prevents silent overwrite of human-edited fields on refresh."
+        ),
+    )
+
     # ---- Timestamps ----
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
