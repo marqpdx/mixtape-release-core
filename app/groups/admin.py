@@ -75,7 +75,7 @@ from .models.group_public_config import GroupPublicConfig
 
 @admin.register(GroupPublicConfig)
 class GroupPublicConfigAdmin(admin.ModelAdmin):
-    list_display = ["group", "is_active", "hero_headline", "subscription_list", "updated_at"]
+    list_display = ["group", "is_active", "generation_status", "hero_headline", "subscription_list", "updated_at"]
     list_filter = ["is_active"]
     search_fields = ["group__title", "group__slug", "hero_headline"]
     raw_id_fields = ["group", "featured_collection", "subscription_list"]
@@ -96,6 +96,7 @@ class GroupPublicConfigAdmin(admin.ModelAdmin):
             "engagement_cta_label", "engagement_cta_action",
         ]}),
         ("Subscription", {"fields": ["subscription_list"]}),
+        ("AI Generation", {"fields": ["generation_status", "rows", "generation_metadata"], "classes": ["collapse"]}),
         ("Timestamps", {"fields": ["created_at", "updated_at"]}),
     ]
-    readonly_fields = ["created_at", "updated_at"]
+    readonly_fields = ["rows", "generation_metadata", "created_at", "updated_at"]
