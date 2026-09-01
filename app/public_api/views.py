@@ -266,6 +266,16 @@ class PublicWritingPieceView(APIView):
 
         # Build lean public response
         author_profile = getattr(piece.author, "profile", None)
+
+        ct_group = ContentType.objects.get_for_model(Group)
+        sponsor_group = None
+        if piece.sponsor_content_type_id == ct_group.id and piece.sponsor_object_id:
+            try:
+                g = Group.objects.get(id=piece.sponsor_object_id)
+                sponsor_group = {"slug": g.slug, "title": g.title}
+            except Group.DoesNotExist:
+                pass
+
         data = {
             "id": str(piece.id),
             "slug": piece.slug,
@@ -280,6 +290,7 @@ class PublicWritingPieceView(APIView):
                 "avatar_url": author_profile.avatar_url if author_profile else "",
             },
             "placement_visibility": selected.visibility,
+            "sponsor_group": sponsor_group,
         }
 
         piece.increment_view_count()
