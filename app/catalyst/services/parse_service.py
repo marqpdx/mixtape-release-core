@@ -29,10 +29,12 @@ import logging
 import os
 import re
 import unicodedata
+import hashlib
 from dataclasses import dataclass, field
 from typing import BinaryIO
 
 from claude import service as claude_service
+from catalyst.services.shape_library import get_shape_library
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +55,9 @@ _CONF_RANK = {"high": 2, "medium": 1, "low": 0}
 VERTICAL_SHAPE_CHILDREN: dict[str, dict[str, list[str]]] = {
     "food-service": {
         "recipe":    ["ingredient", "instruction step", "storage guidance", "costing note"],
-        "menu":      ["recipe"],
+        "meal":      ["recipe", "ingredient", "dietary restriction"],
+        "menu":      ["meal", "recipe"],
+        "order":     ["supplier", "supply", "ingredient"],
     },
     "retail": {
         "product":   ["product variant", "variant"],
@@ -87,6 +91,8 @@ You are analyzing a file being imported into a knowledge base.
 --- CLIENT VOCABULARY (use this to determine what counts as one item) ---
 {client_context}
 --- END CLIENT VOCABULARY ---
+
+{operator_context}
 
 FILE NAME: {filename}
 CONTENT PREVIEW (headings listed first, then body content):
@@ -156,6 +162,8 @@ Count only what you see in THIS CHUNK — do not estimate for the whole file.
 --- CLIENT VOCABULARY ---
 {client_context}
 --- END CLIENT VOCABULARY ---
+
+{operator_context}
 
 FILE: {filename}  (chunk {chunk_num}/{chunk_total})
 CHUNK CONTENT:
@@ -400,6 +408,7 @@ def semantic_analyze(
     codex_cwd: str | None = None,
     timeout: int = 90,
     client_context: str | None = None,
+    operator_context: str | None = None,
     run_as_user: str | None = None,
 ) -> dict | None:
     """
@@ -415,24 +424,40 @@ def semantic_analyze(
     """
     logger.info("[catalyst] semantic_analyze: file=%s", filename)
 
-    if len(data) > 500_000:
-        logger.warning("[catalyst] %s is %d bytes — too large for semantic analysis, skipping", filename, len(data))
-        return {"entity_type": "records", "entity_plural": "records", "count": 0,
-                "examples": [], "confidence": "low",
-                "notes": f"File too large ({len(data)//1024}KB) — split into smaller files or import manually."}
-
     # Extract up to _CHUNK_FULL_TEXT_MAX chars so chunking can see the whole document.
     full_text = _extract_heading_priority(filename, data, max_chars=_CHUNK_FULL_TEXT_MAX)
     if not full_text.strip():
         return None
 
     ctx = client_context.strip() if client_context and client_context.strip() else _CLIENT_CONTEXT_FALLBACK
+    op_ctx = ""
+    if operator_context and operator_context.strip():
+        op_ctx = (
+            "--- OPERATOR SECTION REVIEW ---\n"
+            "Use these human annotations as high-priority guidance. They identify "
+            "which sections contain recipes, meals, ingredients, orders, supplies, "
+            "or miscellaneous material. Do not ignore explicit operator labels, "
+            "yield notes, or section decisions.\n"
+            f"{operator_context.strip()}\n"
+            "--- END OPERATOR SECTION REVIEW ---\n"
+        )
     chunks = _chunk_text(full_text)
 
     if len(chunks) == 1:
         # Single-pass — original behaviour
-        prompt = _SEMANTIC_PROMPT.format(filename=filename, content=full_text, client_context=ctx)
-        raw = claude_service.run_blocking(prompt, cwd=codex_cwd or os.getcwd(), timeout=timeout, run_as_user=run_as_user)
+        prompt = _SEMANTIC_PROMPT.format(
+            filename=filename,
+            content=full_text,
+            client_context=ctx,
+            operator_context=op_ctx,
+        )
+        raw = claude_service.run_blocking(
+            prompt,
+            cwd=codex_cwd or os.getcwd(),
+            timeout=timeout,
+            run_as_user=run_as_user,
+            log_context={"phase": "semantic", "file": filename, "chunk": "1/1"},
+        )
         if not raw.output:
             return None
         result = _parse_semantic_json(raw.output, filename)
@@ -446,9 +471,18 @@ def semantic_analyze(
     for i, chunk in enumerate(chunks, 1):
         prompt = _CHUNK_SEMANTIC_PROMPT.format(
             chunk_num=i, chunk_total=len(chunks),
-            filename=filename, content=chunk, client_context=ctx,
+            filename=filename,
+            content=chunk,
+            client_context=ctx,
+            operator_context=op_ctx,
         )
-        raw = claude_service.run_blocking(prompt, cwd=codex_cwd or os.getcwd(), timeout=timeout, run_as_user=run_as_user)
+        raw = claude_service.run_blocking(
+            prompt,
+            cwd=codex_cwd or os.getcwd(),
+            timeout=timeout,
+            run_as_user=run_as_user,
+            log_context={"phase": "semantic", "file": filename, "chunk": f"{i}/{len(chunks)}"},
+        )
         if not raw.output:
             logger.warning("[catalyst] chunk %d/%d got no response for %s", i, len(chunks), filename)
             continue
@@ -510,6 +544,72 @@ Chunk content:
 
 _EXTRACT_CONTEXT_BLOCK = "Client context: {client_context}"
 
+_FOOD_SERVICE_SECTION_BUNDLE_PROMPT = """\
+You are extracting structured food-service knowledge from one operator-reviewed source section.
+
+File: {filename}
+Section id: {section_id}
+Section title: {section_title}
+
+{client_context_block}
+
+Operator review:
+---
+{operator_review}
+---
+
+Section content:
+---
+{content}
+---
+
+Return JSON only. Return one object with these array keys:
+{{
+  "confidence": "high|medium|low|blocked",
+  "warnings": [],
+  "meals": [],
+  "recipes": [],
+  "ingredients": [],
+  "suppliers": [],
+  "supplies": [],
+  "orders": [],
+  "prep_tasks": [],
+  "dietary_restrictions": []
+}}
+
+Rules:
+- Use the operator review as high-priority guidance.
+- "service_group" means the people receiving the food, e.g. All, Gathering, Kitchen Staff.
+- A Meal is a service/date/service_group container. It may have recipe_names and ingredient_names.
+- A Recipe is a named preparation, dish, sauce, dressing, salad, base, or batch item.
+- If the operator wrote "Recipe(s) = ..." or "Recipe: ...", create recipe entries for those names.
+- If the operator wrote "Ingredients = ..." or "Ingredients:", create ingredient entries for those names.
+- Do not create recipes from Ingredients-only lists.
+- When one reviewed section contains multiple meals, keep recipes attached to the correct meal.
+- Do not invent quantities, yield, instructions, or ingredients not present in section content or operator review.
+- If a recipe has visible quantified ingredients, include those ingredients inside the recipe.
+- Include recipe.yield from operator review when present.
+- Put unclear issues in "uncertain" arrays.
+- Set top-level confidence to:
+  high when section content, operator review, and returned shapes align cleanly;
+  medium when likely correct but missing a meaningful field or relationship;
+  low when noisy, ambiguous, or based on weak evidence;
+  blocked when required shaping cannot be done without more operator/client input.
+- Put top-level warning strings in warnings when applicable, using names like:
+  missing_required_field, relationship_unclear, entity_type_unclear,
+  quantity_unclear, duplicate_possible, source_conflict, shape_contract_gap.
+
+Meal object fields:
+name, date, service, service_group, recipe_names, ingredient_names, notes, uncertain
+
+Recipe object fields:
+name, title, yield, timing, ingredients, instructions, storage, notes, source_fragments,
+meal_names, uncertain, shape_id, shape_version
+
+Ingredient object fields:
+name, quantity, unit, preparation, notes, original_text, uncertain
+"""
+
 _RECIPE_SHAPE_CONTRACT = """\
 
 Shape contract: food_service.recipe v0.1.0
@@ -553,6 +653,69 @@ def _shape_contract_for(entity_type: str, entity_plural: str) -> str:
     if _is_recipe_entity(entity_type, entity_plural):
         return _RECIPE_SHAPE_CONTRACT
     return ""
+
+
+def _parse_section_bundle_json(raw: str, filename: str) -> dict:
+    """Parse a curated section bundle response into register arrays."""
+    empty = {
+        "confidence": "low",
+        "warnings": [],
+        "meals": [],
+        "recipes": [],
+        "ingredients": [],
+        "suppliers": [],
+        "supplies": [],
+        "orders": [],
+        "prep_tasks": [],
+        "dietary_restrictions": [],
+    }
+    try:
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            m = re.search(r'\{.*\}', raw, re.DOTALL)
+            if not m:
+                logger.warning("[catalyst] no JSON object in section bundle response for %s: %r", filename, raw[:300])
+                return empty
+            parsed = json.loads(m.group())
+        if not isinstance(parsed, dict):
+            return empty
+        bundle = dict(empty)
+        confidence = str(parsed.get("confidence") or "medium").lower()
+        bundle["confidence"] = confidence if confidence in {"high", "medium", "low", "blocked"} else "medium"
+        warnings = parsed.get("warnings") or []
+        bundle["warnings"] = [str(item) for item in warnings if str(item).strip()] if isinstance(warnings, list) else []
+        for key in (
+            "meals",
+            "recipes",
+            "ingredients",
+            "suppliers",
+            "supplies",
+            "orders",
+            "prep_tasks",
+            "dietary_restrictions",
+        ):
+            value = parsed.get(key)
+            if isinstance(value, list):
+                bundle[key] = [item for item in value if isinstance(item, dict)]
+        for recipe in bundle["recipes"]:
+            if not recipe.get("shape_id"):
+                recipe["shape_id"] = "food_service.recipe"
+            if not recipe.get("shape_version"):
+                recipe["shape_version"] = "0.1.0"
+            _normalize_recipe_entity(recipe)
+        for meal in bundle["meals"]:
+            meal.setdefault("shape_id", "food_service.meal")
+            meal.setdefault("shape_version", "0.1.0")
+        for ingredient in bundle["ingredients"]:
+            if not ingredient.get("name") and ingredient.get("item"):
+                ingredient["name"] = ingredient.get("item")
+            ingredient.setdefault("shape_id", "food_service.ingredient")
+            ingredient.setdefault("shape_version", "0.1.0")
+        return bundle
+    except Exception as exc:
+        logger.warning("[catalyst] section bundle JSON parse failed for %s: %s", filename, exc)
+        return empty
 
 
 def _parse_entity_json(raw: str, filename: str) -> list[dict]:
@@ -921,9 +1084,21 @@ def _run_extract_on_text(
                 "Each request is an extraction pass. Return only the JSON requested by the prompt."
             ),
             run_as_user=run_as_user,
+            timeout=timeout,
         )
     else:
-        raw = claude_service.run_blocking(prompt, cwd=cwd, timeout=timeout, run_as_user=run_as_user)
+        raw = claude_service.run_blocking(
+            prompt,
+            cwd=cwd,
+            timeout=timeout,
+            run_as_user=run_as_user,
+            log_context={
+                "phase": "extract",
+                "file": filename,
+                "entity_plural": entity_plural,
+                "chunk": chunk_info or "1/1",
+            },
+        )
         raw = raw.output
     return _parse_entity_json(raw, filename) if raw else []
 
@@ -963,6 +1138,109 @@ def extract_entities(
     )
     logger.info("[catalyst] extract_entities: %d %s from %s", len(entities), entity_plural, filename)
     return entities
+
+
+def extract_entities_from_text(
+    filename: str,
+    text: str,
+    entity_type: str,
+    entity_plural: str,
+    codex_cwd: str | None = None,
+    client_context: str | None = None,
+    timeout: int = 180,
+    run_as_user: str | None = None,
+) -> list[dict]:
+    """
+    Extract entities from an already-selected text section.
+
+    Curated Catalyst ingest uses this after the operator has narrowed a source
+    document to reviewed sections, avoiding a second whole-file pass.
+    """
+    logger.info("[catalyst] extract_entities_from_text: %s → %s from %s", entity_type, entity_plural, filename)
+    if not text.strip():
+        return []
+    entities = _run_extract_on_text(
+        text,
+        filename,
+        entity_type,
+        entity_plural,
+        codex_cwd,
+        client_context,
+        timeout,
+        run_as_user=run_as_user,
+    )
+    _attach_source_locators(
+        entities,
+        filename=filename,
+        text=text,
+        source_start_char=0,
+        source_end_char=len(text),
+        source_start_word=0,
+        chunk_num=1,
+        chunk_total=1,
+    )
+    logger.info("[catalyst] extract_entities_from_text: %d %s from %s", len(entities), entity_plural, filename)
+    return entities
+
+
+def extract_food_service_section_bundle(
+    filename: str,
+    section_id: str,
+    section_title: str,
+    content: str,
+    operator_review: str,
+    codex_cwd: str | None = None,
+    client_context: str | None = None,
+    timeout: int = 180,
+    run_as_user: str | None = None,
+) -> dict:
+    """Extract all food-service shapes visible in one operator-reviewed section."""
+    logger.info("[catalyst] extract_food_service_section_bundle: %s#%s", filename, section_id)
+    if not content.strip() and not operator_review.strip():
+        return _parse_section_bundle_json("{}", f"{filename}#{section_id}")
+
+    ctx_block = _EXTRACT_CONTEXT_BLOCK.format(client_context=client_context.strip()) if client_context else ""
+    prompt = _FOOD_SERVICE_SECTION_BUNDLE_PROMPT.format(
+        filename=filename,
+        section_id=section_id,
+        section_title=section_title,
+        client_context_block=ctx_block,
+        operator_review=operator_review.strip() or "(none)",
+        content=content.strip(),
+    )
+    raw = claude_service.run_blocking(
+        prompt,
+        cwd=codex_cwd or os.getcwd(),
+        timeout=timeout,
+        run_as_user=run_as_user,
+        log_context={
+            "phase": "section_bundle",
+            "file": filename,
+            "section": section_id,
+        },
+    )
+    bundle = _parse_section_bundle_json(raw.output or "", f"{filename}#{section_id}")
+    text_for_locator = "\n\n".join(part for part in [section_title, content, operator_review] if part)
+    for key in ("meals", "recipes", "ingredients", "suppliers", "supplies", "orders", "prep_tasks", "dietary_restrictions"):
+        _attach_source_locators(
+            bundle[key],
+            filename=filename,
+            text=text_for_locator,
+            source_start_char=0,
+            source_end_char=len(text_for_locator),
+            source_start_word=0,
+            chunk_num=1,
+            chunk_total=1,
+        )
+    logger.info(
+        "[catalyst] extract_food_service_section_bundle: %s#%s meals=%d recipes=%d ingredients=%d",
+        filename,
+        section_id,
+        len(bundle["meals"]),
+        len(bundle["recipes"]),
+        len(bundle["ingredients"]),
+    )
+    return bundle
 
 
 def extract_entities_chunked(
@@ -1236,10 +1514,519 @@ class ParsedFile:
     file_notes: str = ""
 
 
+def _estimate_tokens(text_chars: int) -> int:
+    """Rough operator-facing token estimate. Good enough for relative cost."""
+    return max(1, int(text_chars / 4))
+
+
+def _inventory_text(filename: str, data: bytes, max_chars: int = 120_000) -> tuple[str, str]:
+    """Return extracted text plus a coarse status without using AI."""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    try:
+        if ext == "docx":
+            text = _docx_to_markdown(data)
+            if not text.strip():
+                text = extract_text_preview(filename, data, max_chars=max_chars)
+        else:
+            text = extract_text_preview(filename, data, max_chars=max_chars)
+    except Exception as exc:
+        logger.warning("[catalyst-inventory] text extraction failed for %s: %s", filename, exc)
+        return "", "failed"
+    text = text or ""
+    return text[:max_chars], "ok" if text.strip() else "empty"
+
+
+def _strip_markdown_metadata(text: str) -> str:
+    if text.startswith("---\n"):
+        end = text.find("\n---", 4)
+        if end != -1:
+            after = text.find("\n", end + 4)
+            return text[after + 1:] if after != -1 else ""
+    return text
+
+
+def _normalized_inventory_hash(filename: str, text: str) -> str | None:
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext in {"md", "markdown"}:
+        text = _strip_markdown_metadata(text)
+    text = re.sub(r'<a\s+id="[^"]+"\s*>\s*</a>', " ", text, flags=re.IGNORECASE)
+    normalized = re.sub(r"\s+", " ", text).strip().lower()
+    if not normalized:
+        return None
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _section_text_for_inventory(filename: str, data: bytes, max_chars: int = 240_000) -> tuple[str, str]:
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext == "docx":
+        text = _docx_to_markdown(data)
+        if text.strip():
+            return text[:max_chars], "mammoth_markdown"
+    if ext in {"md", "markdown", "txt"}:
+        return data.decode("utf-8", errors="replace")[:max_chars], "plain_text"
+    return extract_text_preview(filename, data, max_chars=max_chars), "extracted_text"
+
+
+def _clean_section_text(text: str) -> str:
+    text = re.sub(r'<a\s+id="[^"]+"\s*>\s*</a>', " ", text, flags=re.IGNORECASE)
+    return text.replace("\\-", "-").strip()
+
+
+def _plain_section_label(line: str) -> str:
+    line = re.sub(r"^#{1,6}\s+", "", line.strip())
+    line = re.sub(r"^[-*]\s+", "", line)
+    line = re.sub(r"^\d+\.\s+", "", line)
+    line = re.sub(r"^_{1,3}(.*?)_{1,3}$", r"\1", line)
+    line = re.sub(r"\*\*(.*?)\*\*", r"\1", line)
+    line = re.sub(r"__(.*?)__", r"\1", line)
+    line = re.sub(r"\\([()\-])", r"\1", line)
+    return re.sub(r"\s+", " ", line).strip(" -:")
+
+
+def _line_is_typographic_heading(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped or len(stripped) > 140:
+        return False
+    if re.match(r"^#{1,6}\s+", stripped):
+        return True
+    if re.match(r"^(__|\*\*).+(__|\*\*)$", stripped):
+        return True
+    plain = _plain_section_label(stripped)
+    lowered = plain.lower()
+    if len(plain) <= 50 and stripped.endswith(":"):
+        return True
+    section_words = {
+        "needs", "menu", "breakfast", "lunch", "dinner", "staff", "gathering",
+        "proteins", "protein", "sides", "starch", "sides/starch", "veg",
+        "vegetables", "prep", "yield", "ingredients",
+    }
+    if lowered in section_words:
+        return True
+    if lowered.startswith(("temple ", "final count")) and len(plain) <= 80:
+        return True
+    return False
+
+
+def _line_is_food_service_boundary(line: str) -> bool:
+    stripped = line.strip()
+    if len(stripped) > 180:
+        return False
+    plain = _plain_section_label(stripped)
+    lowered = plain.lower()
+    if re.match(r"^(monday|tuesday|weds|wednesday|thursday|friday|saturday|sunday)\b", lowered):
+        return any(term in lowered for term in ("breakfast", "lunch", "dinner", "potato", "salad", "sauce", "eggs"))
+    if re.match(r"^(breakfast|lunch|dinner)\b", lowered):
+        return True
+    return False
+
+
+def _propose_section_label(title: str, content: str, domain: str | None = None) -> tuple[str, list[str]]:
+    haystack = f"{title}\n{content[:2000]}".lower()
+    evidence: list[str] = []
+
+    def has(*terms: str) -> bool:
+        found = any(term in haystack for term in terms)
+        if found:
+            evidence.extend([term for term in terms if term in haystack][:3])
+        return found
+
+    if has("final count", "breakfast", "lunch", "dinner", "gathering meal", "staff meal"):
+        return "menu_or_meals", sorted(set(evidence))
+    if has("prep list", "low-skill", "high-skill", "close-to-service prep"):
+        return "prep_tasks", sorted(set(evidence))
+    if has("ingredient", "yield", "serves", "instructions"):
+        return "recipe_candidates", sorted(set(evidence))
+    if has("hire", "email", "apply", "order", "sign-up", "needs"):
+        return "tasks_needs", sorted(set(evidence))
+    if has("protein", "starch", "veg", "sides", "sauce", "dressing"):
+        return ("food_service_brainstorm" if domain == "food_service" else "brainstorm"), sorted(set(evidence))
+    return "unclear", sorted(set(evidence))
+
+
+def build_source_section_map(
+    filename: str,
+    data: bytes,
+    *,
+    domain: str | None = None,
+    max_sections: int = 80,
+) -> dict:
+    """
+    Build a local, operator-reviewable section map from semantic, typographic,
+    and textual evidence. This uses no AI.
+    """
+    text, parser = _section_text_for_inventory(filename, data)
+    text = _clean_section_text(text)
+    lines = text.splitlines()
+    sections: list[dict] = []
+    current_title = filename.rsplit(".", 1)[0]
+    current_lines: list[str] = []
+    current_start = 0
+    char_cursor = 0
+
+    def flush(end_char: int) -> None:
+        nonlocal current_lines, current_title, current_start
+        content = "\n".join(current_lines).strip()
+        if not content and not current_title:
+            return
+        label, evidence = _propose_section_label(current_title, content, domain=domain)
+        idx = len(sections) + 1
+        sections.append({
+            "section_id": f"sec-{idx:03d}",
+            "title": current_title or f"Section {idx}",
+            "proposed_label": label,
+            "operator_label": "",
+            "operator_decision": "review",
+            "operator_notes": "",
+            "evidence": evidence,
+            "start_char": current_start,
+            "end_char": end_char,
+            "content_markdown": content,
+            "content_chars": len(content),
+        })
+        current_lines = []
+
+    started = False
+    for raw_line in lines:
+        line = raw_line.rstrip()
+        clean = _clean_section_text(line)
+        is_boundary = _line_is_typographic_heading(clean) or (
+            domain == "food_service" and _line_is_food_service_boundary(clean)
+        )
+        next_cursor = char_cursor + len(raw_line) + 1
+        if is_boundary:
+            if started and current_lines:
+                flush(char_cursor)
+            current_title = _plain_section_label(clean) or current_title
+            current_start = char_cursor
+            current_lines = [line]
+            started = True
+        else:
+            if not started:
+                started = True
+                current_start = char_cursor
+            current_lines.append(line)
+        char_cursor = next_cursor
+
+    if current_lines:
+        flush(len(text))
+
+    if len(sections) > max_sections:
+        sections = sections[:max_sections]
+
+    return {
+        "version": "0.1",
+        "filename": filename,
+        "parser": parser,
+        "status": "proposed",
+        "sections": sections,
+    }
+
+
+def _expected_terms(general_context: str = "", entity_expectations: str = "") -> set[str]:
+    haystack = f"{general_context}\n{entity_expectations}".lower()
+    terms: set[str] = set()
+    for category, keywords in _CATEGORY_KEYWORDS.items():
+        if any(keyword in haystack for keyword in keywords):
+            terms.add(category)
+    return terms
+
+
+def _guess_domain(filename: str, text: str, general_context: str = "", entity_expectations: str = "") -> str | None:
+    vertical = _detect_vertical(general_context)
+    if vertical:
+        return vertical.replace("-", "_")
+    haystack = f"{filename}\n{text[:20_000]}\n{general_context}\n{entity_expectations}".lower()
+    food_terms = [
+        "recipe", "recipes", "menu", "ingredient", "ingredients", "breakfast",
+        "lunch", "dinner", "prep", "sauce", "dressing", "yield", "servings",
+        "purveyor", "vendor", "supplier", "chef", "kitchen",
+    ]
+    if any(term in haystack for term in food_terms):
+        return "food_service"
+    return None
+
+
+def _guess_source_shape(
+    filename: str,
+    file_type: str,
+    text: str,
+    parsed_file: ParsedFile | None = None,
+) -> tuple[str, str, list[str]]:
+    """Coarse local source-shape proposal for operator review."""
+    haystack = f"{filename}\n{text[:30_000]}".lower()
+    evidence: list[str] = []
+
+    def has(*terms: str) -> bool:
+        return any(term in haystack for term in terms)
+
+    if file_type in {"xlsx", "xls", "csv"}:
+        register_text = " ".join(
+            f"{r.display_name} {' '.join(r.columns or [])}" for r in (parsed_file.registers if parsed_file else [])
+        ).lower()
+        if any(term in register_text for term in ("confirmed partner", "partner", "vendor", "supplier", "sponsor")):
+            evidence.append("partner/vendor-like sheet names or columns")
+            return "partner_spreadsheet", "medium", evidence
+        evidence.append("spreadsheet/workbook structure")
+        return "workbook", "medium", evidence
+
+    if has("prep list", "master prep", "low-skill", "high-skill", "close-to-service prep"):
+        evidence.append("prep-list headings")
+        return "prep_list", "high", evidence
+
+    meal_terms = sum(1 for term in ("breakfast", "lunch", "dinner") if term in haystack)
+    if meal_terms >= 2 and has("final count", "staff meals", "gathering meals", "menu"):
+        evidence.append("meal headings and menu count language")
+        return "menu", "high", evidence
+
+    if has("meeting", "agenda", "action item", "needs") and not has("__ingredients__", "## ingredients"):
+        evidence.append("meeting/action-note language")
+        return "meeting_notes", "medium", evidence
+
+    if has("ingredients", "instructions", "yield", "serves"):
+        evidence.append("recipe field language")
+        return "recipe_collection", "medium", evidence
+
+    if parsed_file and len(parsed_file.registers) > 1:
+        evidence.append("multiple structural sections")
+        return "mixed_document", "low", evidence
+
+    evidence.append("single document-like source")
+    return "document", "low", evidence
+
+
+def _source_shape_id(domain: str | None, source_shape: str | None) -> str | None:
+    if not source_shape:
+        return None
+    if "." in source_shape:
+        return source_shape
+    if domain == "food_service":
+        mapping = {
+            "menu": "food_service.menu",
+            "prep_list": "food_service.prep_list",
+            "recipe_collection": "food_service.recipe",
+            "partner_spreadsheet": "food_service.purveyor",
+        }
+        return mapping.get(source_shape, f"food_service.{source_shape}")
+    return source_shape
+
+
+def _target_register_slug(shape_id: str | None) -> str | None:
+    if not shape_id:
+        return None
+    tail = shape_id.rsplit(".", 1)[-1]
+    if tail == "recipe":
+        return "recipes"
+    if tail == "meal":
+        return "meals"
+    if tail == "ingredient":
+        return "ingredients"
+    if tail in {"purveyor", "partner", "supplier"}:
+        return "suppliers"
+    if tail == "supply":
+        return "supplies"
+    if tail == "order":
+        return "orders"
+    if tail == "prep_task":
+        return "prep-tasks"
+    return tail.replace("_", "-")
+
+
+def _strategy_for_inventory_item(item: dict, expected: set[str]) -> dict:
+    """Build a minimal reusable strategy-map row for one source inventory item."""
+    filename = item.get("filename")
+    source_shape = item.get("source_shape")
+    source_shape_id = item.get("source_shape_id") or _source_shape_id(item.get("domain"), source_shape)
+    domain = item.get("domain")
+    process_decision = item.get("process_decision", "process")
+    target_registers: list[str] = []
+    strategy_id = "generic.document_to_candidates"
+    token_posture = "targeted_sections_when_available"
+    authority_status = "working_source"
+    operator_decision = "review"
+    notes = ""
+
+    wants_recipes = "recipes" in expected or "ingredients" in expected or (
+        domain == "food_service" and source_shape in {"menu", "prep_list", "recipe_collection"}
+    )
+    wants_meals = "meals" in expected or (domain == "food_service" and source_shape == "menu")
+    wants_suppliers = "suppliers" in expected or "partners" in expected
+    wants_orders = "orders" in expected or (domain == "food_service" and source_shape in {"partner_spreadsheet", "workbook"})
+
+    if process_decision.startswith("skipped_duplicate"):
+        strategy_id = "skip.duplicate_source"
+        token_posture = "no_ai"
+        authority_status = "duplicate"
+        operator_decision = "skip"
+        notes = f"Duplicate of {item.get('duplicate_of')}."
+    elif domain == "food_service" and source_shape == "menu" and wants_recipes:
+        target_registers = ["recipes"]
+        if wants_meals:
+            target_registers.insert(0, "meals")
+        strategy_id = "food_service.menu_to_component_recipes"
+        token_posture = "targeted_sections_only"
+        authority_status = "working_source"
+        notes = "Meal headings are Meal entities and section containers; extract named component dishes/preparations as Recipes."
+    elif domain == "food_service" and source_shape == "prep_list":
+        target_registers = ["prep_tasks"]
+        if wants_recipes:
+            target_registers.append("recipes")
+        strategy_id = "food_service.prep_list_to_recipe_candidates"
+        token_posture = "candidate_names_first"
+        authority_status = "supporting_source"
+        notes = "Useful for prep tasks and recipe references; may not contain complete recipes."
+    elif domain == "food_service" and source_shape == "partner_spreadsheet" and wants_suppliers:
+        target_registers = ["suppliers"]
+        if wants_orders:
+            target_registers.append("orders")
+        strategy_id = "food_service.partner_sheet_to_partners"
+        token_posture = "row_or_sheet_sections"
+        authority_status = "working_source"
+        notes = "Extract supplier/vendor entities from structured rows; capture order/purchase material when present."
+    elif source_shape == "meeting_notes":
+        target_registers = ["meeting-notes"]
+        strategy_id = "generic.meeting_notes_to_findings"
+        token_posture = "section_first"
+        authority_status = "supporting_source"
+        notes = "Treat as notes/actions unless operator maps it to a target register."
+
+    strategy_fields: dict = {}
+    contract_gaps: list[dict] = []
+    strategy = get_shape_library().get_strategy(strategy_id)
+    if strategy:
+        strategy_fields = strategy.as_strategy_map_fields()
+        token_posture = strategy.token_posture or token_posture
+        if strategy.primary_target:
+            target = _target_register_slug(strategy.primary_target)
+            if target and target not in target_registers:
+                target_registers.insert(0, target)
+        contract_gaps.extend(strategy.contract_gaps)
+    elif strategy_id.startswith("food_service."):
+        contract_gaps.append({"contract_gap": "missing_strategy", "strategy_id": strategy_id})
+
+    row = {
+        "filename": filename,
+        "domain": domain,
+        "source_shape": source_shape,
+        "source_shape_id": source_shape_id,
+        "duplicate_of": item.get("duplicate_of"),
+        "process_decision": process_decision,
+        "target_registers": target_registers,
+        "strategy": strategy_id,
+        "strategy_id": strategy_id,
+        "authority_status": authority_status,
+        "token_posture": token_posture,
+        "operator_decision": operator_decision,
+        "notes": notes,
+    }
+    row.update({key: value for key, value in strategy_fields.items() if value not in (None, [], {})})
+    if contract_gaps:
+        row["contract_gaps"] = contract_gaps
+    return row
+
+
+def build_source_inventory_item(
+    filename: str,
+    data: bytes,
+    parsed_file: ParsedFile | None = None,
+    file_hash: str | None = None,
+    duplicate_of: str | None = None,
+    general_context: str = "",
+    entity_expectations: str = "",
+) -> dict:
+    """
+    Pipeline v2 Phase 0/1 local inventory artifact.
+
+    This is intentionally AI-free. It records source health, rough text size,
+    duplicate status, structural features, and a broad source-shape proposal.
+    """
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "unknown"
+    if file_hash is None:
+        file_hash = hashlib.sha256(data).hexdigest()
+
+    text, text_status = _inventory_text(filename, data)
+    source_shape, shape_confidence, evidence = _guess_source_shape(filename, ext, text, parsed_file)
+    domain = _guess_domain(filename, text, general_context, entity_expectations)
+    source_shape_id = _source_shape_id(domain, source_shape)
+    registers = parsed_file.registers if parsed_file else []
+    structural_features = {
+        "register_count": len(registers),
+        "registers": [
+            {
+                "slug": r.slug,
+                "display_name": r.display_name,
+                "entry_count": r.entry_count,
+                "confidence": r.confidence,
+                "columns": r.columns[:8],
+            }
+            for r in registers[:20]
+        ],
+        "skipped": parsed_file.skipped if parsed_file else [],
+        "file_notes": parsed_file.file_notes if parsed_file else "",
+    }
+
+    return {
+        "filename": filename,
+        "file_type": ext,
+        "size_bytes": len(data),
+        "sha256": file_hash,
+        "text_sha256": _normalized_inventory_hash(filename, text),
+        "duplicate_of": duplicate_of,
+        "process_decision": "skipped_duplicate" if duplicate_of else "process",
+        "text_status": text_status,
+        "text_chars": len(text),
+        "estimated_tokens": _estimate_tokens(len(text)),
+        "domain": domain,
+        "source_shape": source_shape,
+        "source_shape_id": source_shape_id,
+        "source_shape_confidence": shape_confidence,
+        "evidence": evidence,
+        "structural_features": structural_features,
+    }
+
+
+def build_strategy_map(
+    inventory_items: list[dict],
+    general_context: str = "",
+    entity_expectations: str = "",
+) -> dict:
+    """Pipeline v2 Phase 2 skeleton: source file → operator-reviewable strategy."""
+    expected = _expected_terms(general_context, entity_expectations)
+    return {
+        "version": "0.1",
+        "status": "proposed",
+        "expected_categories": sorted(expected),
+        "files": {
+            str(item.get("filename")): _strategy_for_inventory_item(item, expected)
+            for item in inventory_items
+        },
+    }
+
+
 def slugify(text: str) -> str:
     text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
     text = re.sub(r"[^\w\s-]", "", text).strip().lower()
     return re.sub(r"[\s_]+", "-", text)[:64]
+
+
+def register_slug_for_entity(entity_type: str | None, entity_plural: str | None = None) -> str:
+    """Normalize model entity names into Catalyst register slugs."""
+    raw = (entity_plural or entity_type or "records").strip()
+    slug = slugify(raw)
+    singular_to_plural = {
+        "recipe": "recipes",
+        "meal": "meals",
+        "ingredient": "ingredients",
+        "supplier": "suppliers",
+        "purveyor": "suppliers",
+        "supply": "supplies",
+        "order": "orders",
+        "prep-task": "prep-tasks",
+        "prep": "prep-tasks",
+        "dietary-restriction": "dietary-restrictions",
+        "person": "people",
+        "staff-member": "staff",
+    }
+    return singular_to_plural.get(slug, slug)
 
 
 def _confidence(entry_count: int, columns: list) -> str:
@@ -1601,6 +2388,11 @@ _CATEGORY_KEYWORDS: dict[str, list[str]] = {
     "recipes":     ["recipe", "menu", "meal", "dish", "breakfast", "lunch", "dinner",
                     "sauce", "cook", "food", "prep"],
     "ingredients": ["ingredient", "pantry", "stock", "inventory"],
+    "meals":       ["meal", "menu", "breakfast", "lunch", "dinner", "service"],
+    "suppliers":   ["purveyor", "vendor", "supplier"],
+    "supplies":    ["supply", "supplies", "glove", "plate", "bowl", "utensil", "saran", "ziploc"],
+    "orders":      ["order", "purchase", "costco", "us foods", "supplier"],
+    "dietary_restrictions": ["dietary", "restriction", "vegan", "vegetarian", "gluten", "dairy", "halal", "kosher"],
     "partners":    ["purveyor", "vendor", "supplier", "partner", "fundrais", "outreach",
                     "grant", "sponsor", "donation", "confirmed"],
     "people":      ["people", "person", "staff", "volunteer", "crew", "team", "member",

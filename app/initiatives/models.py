@@ -784,6 +784,17 @@ class ApertureLog(BaseModel):
         help_text="How frequently the Continuous Keeper runs background compaction for this initiative.",
     )
 
+    # Conversation import provenance
+    import_source = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text=(
+            "Set when this log was populated by import_conversation. "
+            "Schema: {platform, conversation_id, title, model, exported, imported_at}"
+        ),
+    )
+
     class Meta(BaseModel.Meta):
         pass
 
@@ -857,7 +868,19 @@ class ApertureLogEntry(BaseModel):
         max_length=150,
         blank=True,
         default="",
-        help_text="username for member entries; 'system' for ledger entries.",
+        help_text="username for member entries; 'system' for ledger entries; 'claude' for imported AI turns.",
+    )
+    source_turn_index = models.IntegerField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="0-based position in the original imported conversation. Null for native entries.",
+    )
+    source_timestamp = models.DateTimeField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Original timestamp of an imported conversation turn. Null for native entries.",
     )
     created_by = models.ForeignKey(
         User,

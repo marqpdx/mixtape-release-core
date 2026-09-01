@@ -31,7 +31,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         from catalyst.models import CatalystParseJob
-        from catalyst.services.parse_service import semantic_analyze, slugify
+        from catalyst.services.parse_service import register_slug_for_entity, semantic_analyze, slugify
         from catalyst.api.views import (
             _bootstrap_codex, _git, REGISTER_INDEX_TEMPLATE, NOW_ISO,
         )
@@ -99,7 +99,7 @@ class Command(BaseCommand):
         for filename, ai in results.items():
             if not ai or ai.get("count", 0) == 0:
                 continue
-            ai_slug = slugify(ai.get("entity_type", "records"))
+            ai_slug = register_slug_for_entity(ai.get("entity_type"), ai.get("entity_plural"))
             ai_notes = f"e.g. {', '.join(ai['examples'][:3])}" if ai.get("examples") else ""
             if ai_slug in merged:
                 merged[ai_slug]["entry_count"] += ai["count"]

@@ -3,12 +3,16 @@
 from django.urls import path
 from .views import (
     ListRegistersView,
+    LatestParseJobReviewView,
     MaterializeRegistersView,
     ParseFilesView,
+    ParseJobSectionMapView,
     ParseJobStatusView,
+    ParseJobTuningNotesView,
     RegisterDetailView,
     RegisterEntryDetailView,
     RegisterEntryListView,
+    RegisterMaterializeProgressView,
     RegisterMaterializeView,
     StartAnalysisView,
 )
@@ -20,6 +24,11 @@ urlpatterns = [
         name="catalyst-parse-files",
     ),
     path(
+        "groups/<slug:slug>/parse-jobs/latest-review/",
+        LatestParseJobReviewView.as_view(),
+        name="catalyst-latest-parse-job-review",
+    ),
+    path(
         "groups/<slug:slug>/parse-jobs/<uuid:job_id>/start-analysis/",
         StartAnalysisView.as_view(),
         name="catalyst-start-analysis",
@@ -28,6 +37,16 @@ urlpatterns = [
         "groups/<slug:slug>/parse-jobs/<uuid:job_id>/status/",
         ParseJobStatusView.as_view(),
         name="catalyst-job-status",
+    ),
+    path(
+        "groups/<slug:slug>/parse-jobs/<uuid:job_id>/section-map/",
+        ParseJobSectionMapView.as_view(),
+        name="catalyst-job-section-map",
+    ),
+    path(
+        "groups/<slug:slug>/parse-jobs/<uuid:job_id>/tuning-notes/",
+        ParseJobTuningNotesView.as_view(),
+        name="catalyst-job-tuning-notes",
     ),
     path(
         "groups/<slug:slug>/materialize-registers/",
@@ -48,6 +67,11 @@ urlpatterns = [
         "groups/<slug:slug>/registers/<slug:register_slug>/materialize/",
         RegisterMaterializeView.as_view(),
         name="catalyst-register-materialize",
+    ),
+    path(
+        "groups/<slug:slug>/registers/<slug:register_slug>/materialize/progress/",
+        RegisterMaterializeProgressView.as_view(),
+        name="catalyst-register-materialize-progress",
     ),
     path(
         "groups/<slug:slug>/registers/<slug:register_slug>/entries/",
