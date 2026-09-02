@@ -4,12 +4,8 @@ from django.utils.text import slugify
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from accounts.api.permissions import IsSuperUser
 from accounts.api.throttles import IntakeThrottle, IntakeUploadThrottle
-
-
-class IsSuperUser(permissions.BasePermission):
-    def has_permission(self, request, view):
-        return bool(request.user and request.user.is_authenticated and request.user.is_superuser)
 
 from ..models import (
     BusinessProspect,
