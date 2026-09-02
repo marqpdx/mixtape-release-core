@@ -50,11 +50,10 @@ class TokenViewBaseWithCookie(TokenViewBase):
 
             # Build response data — exclude refresh token from body;
             # it is delivered exclusively via the httpOnly cookie below.
-            validated = serializer.validated_data
             response_data = {
                 "success": True,
-                "access": validated["access"],
-                "access_expires": validated["access_expires"],
+                **{k: v for k, v in serializer.validated_data.items()
+                   if k not in ("refresh", "refresh_expires")},
             }
 
             resp = Response(response_data, status=status.HTTP_200_OK)

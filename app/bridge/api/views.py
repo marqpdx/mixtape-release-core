@@ -7,6 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 
+from almanac.models import OccurrenceAttendee
 from bridge.models import BridgeSession
 
 
@@ -22,8 +23,24 @@ def room_token(request):
     except BridgeSession.DoesNotExist:
         return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
 
-    # Phase A: any authenticated user may join.
-    # Phase B+: validate EventOccurrence membership / RSVP.
+    # Phase B: validate RSVP / attendance before issuing a room token.
+    # Superusers may join any session for moderation purposes.
+    if not request.user.is_superuser:
+        if session.occurrence is None:
+            return Response(
+                {"detail": "This session is not open for public access."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        is_attendee = OccurrenceAttendee.objects.filter(
+            occurrence=session.occurrence,
+            user=request.user,
+            status__in=["going", "maybe", "attended"],
+        ).exists()
+        if not is_attendee:
+            return Response(
+                {"detail": "You are not registered for this session."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
     token = (
         AccessToken(settings.LIVEKIT_API_KEY, settings.LIVEKIT_API_SECRET)
