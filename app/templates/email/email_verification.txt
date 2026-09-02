@@ -1,0 +1,12 @@
+Welcome to Crossroads
+
+Hi {{ user.first_name|default:user.username }},
+
+Thanks for creating an account. Please verify your email address to get started:
+
+{{ verify_url }}
+
+This link expires in 24 hours. If you didn't create a Crossroads account, you can safely ignore this email.
+
+Best regards,
+The Crossroads Team
