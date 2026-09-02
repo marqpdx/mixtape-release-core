@@ -41,9 +41,10 @@ from django.conf import settings
 from django.shortcuts import get_object_or_404
 
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from accounts.api.permissions import IsSuperUser
 
 from groups.models.group import Group
 from groups.models import GroupMembership
@@ -193,7 +194,7 @@ class ParseFilesView(APIView):
       }
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsSuperUser]
 
     def post(self, request, slug):
         group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
@@ -435,7 +436,7 @@ class StartAnalysisView(APIView):
     Response: {"job_id": "...", "status": "analyzing", "files_queued": N}
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsSuperUser]
 
     def post(self, request, slug, job_id):
         group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
@@ -568,7 +569,7 @@ class ParseJobStatusView(APIView):
     Returns current job status. When complete, includes merged_registers.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsSuperUser]
 
     def get(self, request, slug, job_id):
         group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
@@ -620,7 +621,7 @@ class LatestParseJobReviewView(APIView):
     browser reloads or operator handoffs. This does not re-read source files.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsSuperUser]
 
     def get(self, request, slug):
         group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
@@ -702,7 +703,7 @@ class ParseJobSectionMapView(APIView):
     Saves operator labels, decisions, and notes for one source section.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsSuperUser]
 
     def patch(self, request, slug, job_id):
         group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
@@ -787,7 +788,7 @@ class ParseJobTuningNotesView(APIView):
     Stores operator-level batch guidance alongside the Phase 1 review.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsSuperUser]
 
     def post(self, request, slug, job_id):
         group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
@@ -847,7 +848,7 @@ class MaterializeRegistersView(APIView):
     POST /api/catalyst/groups/{slug}/materialize-registers/
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsSuperUser]
 
     def post(self, request, slug):
         group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
@@ -941,7 +942,7 @@ class MaterializeRegistersView(APIView):
 # ── List / Detail / Edit Registers ────────────────────────────────────────────
 
 class ListRegistersView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsSuperUser]
 
     def get(self, request, slug):
         group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
@@ -974,7 +975,7 @@ class ListRegistersView(APIView):
 
 
 class RegisterDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsSuperUser]
 
     def _get_index(self, slug, register_slug):
         path = _codex_root(slug) / "CONTENT" / "registers" / register_slug / "_index.md"
@@ -1074,7 +1075,7 @@ class RegisterMaterializeView(APIView):
     Returns immediately — the task runs asynchronously.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsSuperUser]
 
     def post(self, request, slug, register_slug):
         from catalyst.models import CatalystParseJob
@@ -1154,7 +1155,7 @@ class RegisterEntryListView(APIView):
     register directory that are NOT _index.md.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsSuperUser]
 
     def get(self, request, slug, register_slug):
         group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
@@ -1189,7 +1190,7 @@ class RegisterMaterializeProgressView(APIView):
     artifacts incrementally and should be inspectable without task result state.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsSuperUser]
 
     def get(self, request, slug, register_slug):
         group = get_object_or_404(Group, slug=slug, deleted_at__isnull=True)
@@ -1239,7 +1240,7 @@ class RegisterEntryDetailView(APIView):
     PATCH accepts body_markdown and/or status.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsSuperUser]
 
     def _entry_path(self, slug, register_slug, entry_slug):
         return _codex_root(slug) / "CONTENT" / "registers" / register_slug / f"{entry_slug}.md"
