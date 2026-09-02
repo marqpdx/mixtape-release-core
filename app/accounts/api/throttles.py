@@ -31,3 +31,7 @@ class InviteThrottle(AnonRateThrottle):
 
 class AssumeUserThrottle(UserRateThrottle):
     scope = "assume"
+
+
+class LogoutThrottle(AnonRateThrottle):
+    scope = "logout"

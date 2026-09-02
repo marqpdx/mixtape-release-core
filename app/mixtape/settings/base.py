@@ -328,6 +328,9 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+# Django default is 3 days (259200). 24 hours is standard practice.
+PASSWORD_RESET_TIMEOUT = 86400
+
 
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = "in-v3.mailjet.com"
@@ -449,6 +452,7 @@ REST_FRAMEWORK = {
         "intake_upload": "10/min",
         "invite": "10/min",
         "assume": "10/min",
+        "logout": "10/min",
     },
 
 }
