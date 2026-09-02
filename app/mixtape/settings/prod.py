@@ -174,6 +174,7 @@ ALLOWED_HOSTS = [
     "api.crossroads.place",      # API subdomain (MUST have this!)
     "www.crossroads.place",      # Frontend domain
     "crossroads.place",          # Main domain
+    ".crossroads.place",         # All subdomains (group public pages, tenant routes)
     "70.34.212.85",              # Server IP address
     "localhost",                 # For local testing
     "127.0.0.1",                 # For local testing

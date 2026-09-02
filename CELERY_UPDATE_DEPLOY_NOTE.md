@@ -41,6 +41,8 @@ Ensure the server checkout includes these repository changes:
   - `run_celery_synopsis_results_local.sh`
   - `run_celery_check.sh`
 - New systemd unit templates:
+  - `crossroads-celery-catalyst.service`
+  - `crossroads-celery-ocr.service`
   - `crossroads-celery-switchboard.service`
   - `crossroads-celery-synopsis-results.service`
 
@@ -76,6 +78,8 @@ Ensure the server checkout includes these repository changes:
 
    Add units equivalent to:
 
+   - `crossroads-celery-catalyst.service`
+   - `crossroads-celery-ocr.service`
    - `crossroads-celery-switchboard.service`
    - `crossroads-celery-synopsis-results.service`
 
@@ -83,6 +87,8 @@ Ensure the server checkout includes these repository changes:
 
    ```bash
    systemctl daemon-reload
+   systemctl enable crossroads-celery-catalyst.service
+   systemctl enable crossroads-celery-ocr.service
    systemctl enable crossroads-celery-switchboard.service
    systemctl enable crossroads-celery-synopsis-results.service
    ```
