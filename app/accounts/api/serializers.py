@@ -233,7 +233,8 @@ class UserCreateSerializer(serializers.ModelSerializer):
         required=True,
         validators=[UniqueValidator(
             queryset=get_user_model().users.all(),
-            message="has already been taken by other user"
+            message="has already been taken by other user",
+            lookup='iexact',
         )]
     )
 

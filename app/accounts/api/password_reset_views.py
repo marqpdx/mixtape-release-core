@@ -1,6 +1,7 @@
 # accounts/api/password_reset_views.py
 
 import logging
+import threading
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -33,31 +34,38 @@ class PasswordResetRequestView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Always return success to prevent user enumeration
         try:
             user = User.objects.get(email__iexact=email, is_active=True)
         except User.DoesNotExist:
-            logger.info("Password reset requested for unregistered address")
-            return Response({"detail": "If an account exists, a reset link has been sent."})
+            user = None
 
-        uid = urlsafe_base64_encode(force_bytes(user.pk))
-        token = default_token_generator.make_token(user)
-        reset_url = f"{FRONTEND_URL}/update-password?uid={uid}&token={token}"
+        if user is not None:
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            token = default_token_generator.make_token(user)
+            reset_url = f"{FRONTEND_URL}/update-password?uid={uid}&token={token}"
 
-        form = PasswordResetForm({"email": email})
-        if form.is_valid():
-            form.save(
-                request=request,
-                use_https=request.is_secure(),
-                token_generator=default_token_generator,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                email_template_name="email/password_reset.txt",
-                html_email_template_name="email/password_reset.html",
-                extra_email_context={"reset_url": reset_url, "site_name": "Crossroads"},
-            )
-            logger.info("Password reset email dispatched")
+            form = PasswordResetForm({"email": email})
+            if form.is_valid():
+                # Background thread so both code paths return in the same wall-clock
+                # time — prevents timing oracle on account existence.
+                threading.Thread(
+                    target=form.save,
+                    kwargs=dict(
+                        request=request,
+                        use_https=request.is_secure(),
+                        token_generator=default_token_generator,
+                        from_email=settings.DEFAULT_FROM_EMAIL,
+                        email_template_name="email/password_reset.txt",
+                        html_email_template_name="email/password_reset.html",
+                        extra_email_context={"reset_url": reset_url, "site_name": "Crossroads"},
+                    ),
+                    daemon=True,
+                ).start()
+                logger.info("Password reset email dispatched (background)")
+            else:
+                logger.warning("PasswordResetForm invalid — check email format validation")
         else:
-            logger.warning("PasswordResetForm invalid — check email format validation")
+            logger.info("Password reset requested for unregistered address")
 
         return Response({"detail": "If an account exists, a reset link has been sent."})
 
