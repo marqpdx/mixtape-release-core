@@ -71,7 +71,7 @@ class IntakeResponseSaveView(APIView):
         response_text = request.data.get("response_text", "")
 
         try:
-            question = ProspectQuestion.objects.get(id=question_id)
+            question = ProspectQuestion.objects.get(id=question_id, is_active=True)
         except ProspectQuestion.DoesNotExist:
             return Response({"detail": "Question not found."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -138,7 +138,7 @@ class IntakeFileUploadView(APIView):
             return Response({"detail": "File too large. Maximum size is 10 MB."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            question = ProspectQuestion.objects.get(id=question_id)
+            question = ProspectQuestion.objects.get(id=question_id, is_active=True)
         except ProspectQuestion.DoesNotExist:
             return Response({"detail": "Question not found."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -213,7 +213,7 @@ class IntakeVoiceUploadView(APIView):
             return Response({"detail": "Audio file too large. Maximum size is 25 MB."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            question = ProspectQuestion.objects.get(id=question_id)
+            question = ProspectQuestion.objects.get(id=question_id, is_active=True)
         except ProspectQuestion.DoesNotExist:
             return Response({"detail": "Question not found."}, status=status.HTTP_404_NOT_FOUND)
 
