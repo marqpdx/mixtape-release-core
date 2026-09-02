@@ -65,6 +65,7 @@ from groups.services.memberships import ensure_user_membership
 from users.models import CustomUser
 from utils.email.invitations import generate_username_from_email
 from mixtape.services.defaults import get_default_group
+from mixtape.tenant_urls import get_catalyst_workspace_url
 from publishing.models import ContentPlacement
 from publishing.services.content_access import can_view_placement
 from publishing.services.content_display import get_display_payload
@@ -1685,12 +1686,7 @@ class GroupCatalystStatusView(generics.GenericAPIView):
         if not membership or not membership.is_admin():
             return Response({"detail": "Admin or owner required."}, status=status.HTTP_403_FORBIDDEN)
 
-        url_template = getattr(
-            settings,
-            "CATALYST_TENANT_URL_TEMPLATE",
-            "https://{slug}.crossroads.place/catalyst",
-        )
-        workspace_url = url_template.format(slug=group.slug)
+        workspace_url = get_catalyst_workspace_url(group.slug)
 
         return Response({
             "status": group.catalyst_status,
