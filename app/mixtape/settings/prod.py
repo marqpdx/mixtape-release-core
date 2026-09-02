@@ -161,12 +161,13 @@ CORS_ALLOWED_ORIGINS = [
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https://[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.crossroads\.place$",
     r"^https://[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.apps\.crossroads\.place$",
+    r"^https://[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.go\.crossroads\.place$",
 ]
 
 # CSRF - Production domains
 CSRF_TRUSTED_ORIGINS = [
     "https://*.crossroads.place",
-    "https://*.apps.crossroads.place",   # tenant subdomains
+    "https://*.go.crossroads.place",     # public landing subdomains
     "https://crossroads.place",
 ]
 
@@ -176,7 +177,7 @@ ALLOWED_HOSTS = [
     "www.crossroads.place",
     "crossroads.place",
     ".crossroads.place",
-    ".apps.crossroads.place",    # tenant subdomains ({slug}.apps.crossroads.place)
+    ".go.crossroads.place",      # public landing subdomains ({slug}.go.crossroads.place)
     "70.34.212.85",
     "localhost",
     "127.0.0.1",
@@ -210,7 +211,7 @@ LOGGING = {
 CATALYST_CODEX_ROOT = Path(os.getenv("CATALYST_CODEX_ROOT", BASE_DIR / "catalyst_codex"))
 CATALYST_SEED_PATH = Path(os.getenv("CATALYST_SEED_PATH", "")) if os.getenv("CATALYST_SEED_PATH") else None
 CATALYST_TENANT_URL_TEMPLATE = "https://{slug}.apps.crossroads.place/app/groups/{slug}/catalyst"
-TENANT_SUBDOMAIN_SUFFIX = ".apps.crossroads.place"
+TENANT_SUBDOMAIN_SUFFIX = ".go.crossroads.place"
 
 INTAKE_FORM_ENABLED = True
 
