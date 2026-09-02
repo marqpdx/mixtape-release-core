@@ -47,6 +47,12 @@ class CustomUser(AbstractUser, BaseModel):
         help_text="UUID of this user's personal Stackroom library. Set when the library is first created."
     )
 
+    email_verified = models.BooleanField(
+        default=False,
+        help_text="True when the user has proven inbox control. Set automatically on invite acceptance; "
+                  "requires explicit verification link for open-registration accounts.",
+    )
+
     autocomplete_search_field = "first_name"
 
     def autocomplete_label(self):

@@ -294,6 +294,7 @@ class InvitationService:
             user.username = username
             user.set_password(password)
             user.is_active = True
+            user.email_verified = True  # invite receipt proves inbox control
 
             # Assign member role
             member_role, _ = Role.objects.get_or_create(name="member")
@@ -311,6 +312,10 @@ class InvitationService:
             # Verify the invite is for the logged-in user
             if authenticated_user.id != user.id:
                 raise ValidationError("This invitation is for a different user.")
+
+            # Gate: email must be verified before joining a group
+            if not getattr(authenticated_user, "email_verified", True):
+                raise ValidationError("Please verify your email address before joining a group.")
 
         # COMMON: Create group membership (for both new and existing users)
         user_ct = ContentType.objects.get_for_model(User)

@@ -473,6 +473,8 @@ def refresh_permissions(request):
 @permission_classes([AllowAny])
 @throttle_classes([SignupThrottle])
 def user_create_view(request):
+    from .email_verify_views import send_verification_email
+
     serializer = UserCreateSerializer(data=request.data, context={"request": request})
     if not serializer.is_valid():
         error_messages = {field: str(error) for field, error in serializer.errors.items()}
@@ -489,6 +491,8 @@ def user_create_view(request):
             "error": "An error occurred while creating the user.",
             "success": False
         }, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    send_verification_email(user)
 
     return Response(data={
         "message": "Record Created.",

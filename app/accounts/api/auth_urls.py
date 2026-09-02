@@ -6,7 +6,7 @@ from django.urls import path
 
 from groups.api.views import accept_invite, invite_info
 
-from . import jwt_views, views, password_reset_views
+from . import jwt_views, views, password_reset_views, email_verify_views
 
 
 urlpatterns = [
@@ -36,6 +36,10 @@ urlpatterns = [
     # Password reset
     path("password-reset", password_reset_views.PasswordResetRequestView.as_view(), name="password-reset-request"),
     path("password-reset/confirm", password_reset_views.PasswordResetConfirmView.as_view(), name="password-reset-confirm"),
+
+    # Email verification
+    path("verify-email", email_verify_views.EmailVerifyView.as_view(), name="verify-email"),
+    path("verify-email/resend", email_verify_views.ResendVerificationEmailView.as_view(), name="verify-email-resend"),
 
     # Utilities
     path("csrf", views.csrf, name="csrf-token"),
