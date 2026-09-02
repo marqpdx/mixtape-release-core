@@ -99,6 +99,19 @@ class PasswordResetConfirmView(APIView):
             return Response({"detail": str(errors)}, status=status.HTTP_400_BAD_REQUEST)
 
         form.save()
+
+        # Invalidate all outstanding refresh tokens so a captured token
+        # cannot be used to mint new access tokens after a password reset.
+        try:
+            from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
+            from rest_framework_simplejwt.utils import aware_utcnow
+            outstanding = OutstandingToken.objects.filter(user=user, expires_at__gt=aware_utcnow())
+            for token in outstanding:
+                BlacklistedToken.objects.get_or_create(token=token)
+            logger.info("Blacklisted %d outstanding refresh tokens after password reset", outstanding.count())
+        except Exception as e:
+            logger.warning("Could not blacklist tokens after password reset: %s", e)
+
         logger.info("Password reset completed")
 
         return Response({"detail": "Password has been reset successfully."})
