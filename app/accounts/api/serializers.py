@@ -6,6 +6,8 @@ import logging
 
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 
 # from django.contrib.auth.models import Group  # Deferred to Phase 3
 from django.utils.translation import gettext_lazy as _
@@ -219,11 +221,11 @@ class UserCreateSerializer(serializers.ModelSerializer):
         required=True
     )
     password = serializers.CharField(
-        min_length=4,
+        min_length=8,
         max_length=32,
         write_only=True,
         help_text=_(
-            "Required. 4-32 characters."
+            "Required. 8-32 characters."
         ),
         required=True
     )
@@ -243,6 +245,13 @@ class UserCreateSerializer(serializers.ModelSerializer):
         fields = (
             "username", "first_name", "last_name", "email", "password"
         )
+
+    def validate_password(self, value):
+        try:
+            validate_password(value)
+        except DjangoValidationError as e:
+            raise serializers.ValidationError(list(e.messages))
+        return value
 
     def create(self, validated_data):
 
