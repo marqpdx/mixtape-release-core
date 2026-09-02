@@ -13,7 +13,7 @@ from rest_framework_simplejwt.settings import api_settings as jwt_settings
 from rest_framework_simplejwt.views import TokenViewBase
 
 from . import serializers
-from .throttles import LoginThrottle, TokenRefreshThrottle
+from .throttles import LoginThrottle, LogoutThrottle, TokenRefreshThrottle
 
 
 logger = logging.getLogger(__name__)
@@ -124,6 +124,7 @@ class RefreshToken(TokenViewBaseWithCookie):
 class Logout(APIView):
     authentication_classes = []
     permission_classes = []
+    throttle_classes = [LogoutThrottle]
 
     def post(self, request, *args, **kwargs):
         refresh_token = request.COOKIES.get(JWT_COOKIE_NAME)
