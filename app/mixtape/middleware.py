@@ -8,8 +8,9 @@ Resolution order:
   1. X-Tenant-Slug header — accepted only in DEBUG mode or from TENANT_HEADER_TRUSTED_IPS.
      Production edge infrastructure must strip this header from external traffic
      before it reaches the app. (FN-D2)
-  2. Subdomain — {slug}.crossroads.place resolves to Group(slug=slug, is_active=True).
-     This is canonical for public production requests.
+  2. Subdomain — {slug}.apps.crossroads.place resolves to Group(slug=slug, is_active=True).
+     Only fires when the host ends with TENANT_SUBDOMAIN_SUFFIX; platform subdomains
+     (api, www, chat) are never tested against the Group table.
 
 Missing tenant is not an error at middleware level — request.tenant is set to None.
 Views that require a tenant apply TenantContextRequired (mixtape/permissions.py),
@@ -46,11 +47,12 @@ class TenantMiddleware:
             return Group.objects.filter(slug=header_slug, is_active=True).first()
 
         # Subdomain resolution — canonical for production
+        suffix = getattr(settings, "TENANT_SUBDOMAIN_SUFFIX", "")
         host = request.get_host().split(":")[0]
-        parts = host.split(".")
-        if len(parts) >= 3:
-            subdomain = parts[0]
-            return Group.objects.filter(slug=subdomain, is_active=True).first()
+        if suffix and host.endswith(suffix):
+            slug = host[: -len(suffix)]
+            if slug:
+                return Group.objects.filter(slug=slug, is_active=True).first()
 
         return None
 

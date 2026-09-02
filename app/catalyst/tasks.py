@@ -18,6 +18,8 @@ from celery import shared_task
 from django.conf import settings
 from django.db import transaction
 
+from mixtape.tenant_urls import get_catalyst_workspace_url
+
 logger = logging.getLogger(__name__)
 
 
@@ -92,8 +94,7 @@ def _get_or_create_activation_invite(group):
         )
 
     frontend_url = getattr(settings, "FRONTEND_URL", "https://app.crossroads.place")
-    url_template = getattr(settings, "CATALYST_TENANT_URL_TEMPLATE", "https://{slug}.apps.crossroads.place/app/groups/{slug}/catalyst")
-    workspace_url = url_template.format(slug=group.slug)
+    workspace_url = get_catalyst_workspace_url(group.slug)
     next_param = urllib.parse.quote(workspace_url, safe="")
     return f"{frontend_url}/app/invitations/accept/{invite_link.shortcode}/new?next={next_param}"
 
@@ -187,8 +188,7 @@ def send_catalyst_activation_email(self, prospect_id: int) -> None:
         logger.error("[catalyst-email] Prospect %s has no converted_to_group — aborting", prospect_id)
         return
 
-    url_template = getattr(settings, "CATALYST_TENANT_URL_TEMPLATE", "https://{slug}.apps.crossroads.place/app/groups/{slug}/catalyst")
-    workspace_url = url_template.format(slug=group.slug)
+    workspace_url = get_catalyst_workspace_url(group.slug)
     contact_name = prospect.primary_contact_name or prospect.name
 
     # Ghost owner → include account activation link; existing users → workspace only

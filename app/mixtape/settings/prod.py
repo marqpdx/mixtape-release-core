@@ -166,18 +166,20 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
 # CSRF - Production domains
 CSRF_TRUSTED_ORIGINS = [
     "https://*.crossroads.place",
+    "https://*.apps.crossroads.place",   # tenant subdomains
     "https://crossroads.place",
 ]
 
 # Allowed hosts
 ALLOWED_HOSTS = [
-    "api.crossroads.place",      # API subdomain (MUST have this!)
-    "www.crossroads.place",      # Frontend domain
-    "crossroads.place",          # Main domain
-    ".crossroads.place",         # All subdomains (group public pages, tenant routes)
-    "70.34.212.85",              # Server IP address
-    "localhost",                 # For local testing
-    "127.0.0.1",                 # For local testing
+    "api.crossroads.place",
+    "www.crossroads.place",
+    "crossroads.place",
+    ".crossroads.place",
+    ".apps.crossroads.place",    # tenant subdomains ({slug}.apps.crossroads.place)
+    "70.34.212.85",
+    "localhost",
+    "127.0.0.1",
 ]
 
 # Logging
@@ -208,6 +210,7 @@ LOGGING = {
 CATALYST_CODEX_ROOT = Path(os.getenv("CATALYST_CODEX_ROOT", BASE_DIR / "catalyst_codex"))
 CATALYST_SEED_PATH = Path(os.getenv("CATALYST_SEED_PATH", "")) if os.getenv("CATALYST_SEED_PATH") else None
 CATALYST_TENANT_URL_TEMPLATE = "https://{slug}.apps.crossroads.place/app/groups/{slug}/catalyst"
+TENANT_SUBDOMAIN_SUFFIX = ".apps.crossroads.place"
 
 INTAKE_FORM_ENABLED = True
 

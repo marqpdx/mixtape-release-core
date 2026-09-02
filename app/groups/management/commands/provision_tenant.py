@@ -21,6 +21,8 @@ Options:
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
+from mixtape.tenant_urls import get_catalyst_workspace_url
+
 
 class Command(BaseCommand):
     help = "Provision a new tenant Group for the Crossroads platform."
@@ -99,5 +101,5 @@ class Command(BaseCommand):
             f"\nProvisioned: {group.title} ({group.slug}) — pk={group.pk}"
         ))
         self.stdout.write(
-            f"  Subdomain URL: https://{slug}.crossroads.place\n"
+            f"  Subdomain URL: {get_catalyst_workspace_url(slug)}\n"
         )
