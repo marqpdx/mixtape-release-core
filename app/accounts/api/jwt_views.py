@@ -156,6 +156,8 @@ class Logout(APIView):
                     add_jti_to_denylist(jti, ttl)
             except Exception as e:
                 logger.warning("Could not denylist access token JTI on logout: %s", e)
+        else:
+            logger.warning("Logout called without Authorization: Bearer header — access token not denylisted")
 
         resp = Response({"success": True, "detail": "Logged out successfully"}, status=status.HTTP_200_OK)
 
