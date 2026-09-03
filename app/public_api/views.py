@@ -664,6 +664,7 @@ class PublicGroupLandingConfigView(APIView):
             "slug": group.slug,
             "title": group.title,
             "summary": group.summary or "",
+            "tagline": group.tagline or "",
             "profile_image_url": group.profile_image_url,
             "background_image_url": group.background_image_url,
         }
@@ -678,9 +679,18 @@ class PublicGroupLandingConfigView(APIView):
 
         if config is None or not config_active:
             latest_pieces = self._latest_group_writing(group, limit=6)
+            t1_presentation = None
+            if config is not None:
+                t1_presentation = {
+                    "typography_setting": config.typography_setting or "journal",
+                    "template_id": config.template_id or None,
+                    "palette_id": config.palette_id or None,
+                    "font_id": config.font_id or None,
+                }
             return Response({
                 "tier": "t1",
                 "group": group_block,
+                "presentation": t1_presentation,
                 "hero": None,
                 "featured_content": {
                     "type": "writing",
@@ -706,6 +716,12 @@ class PublicGroupLandingConfigView(APIView):
         return Response({
             "tier": "t2",
             "group": group_block,
+            "presentation": {
+                "typography_setting": config.typography_setting or "journal",
+                "template_id": config.template_id or None,
+                "palette_id": config.palette_id or None,
+                "font_id": config.font_id or None,
+            },
             "hero": {
                 "eyebrow": config.hero_eyebrow,
                 "headline": config.hero_headline,
