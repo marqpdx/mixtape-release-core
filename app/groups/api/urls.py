@@ -74,6 +74,10 @@ from .page_views import (
     PageComponentListCreateView,
     PageComponentDetailView,
 )
+from .presentation_views import (
+    GroupPresentationView,
+    GroupPresentationActionView,
+)
 from writing.api.views import WritingPieceDetailView
 from drop.api.urls import urlpatterns as drop_urlpatterns
 
@@ -193,6 +197,10 @@ urlpatterns = [
     path("<slug:slug>/public-page/archive", PublicPageArchiveView.as_view(), name="group-public-page-archive"),
     path("<slug:slug>/public-page/components", PageComponentListCreateView.as_view(), name="group-public-page-components"),
     path("<slug:slug>/public-page/components/<int:component_id>", PageComponentDetailView.as_view(), name="group-public-page-component-detail"),
+
+    # Presentation (Tier 2 PATCH + Tier 3 action vocabulary)
+    path("<slug:slug>/public-config/presentation", GroupPresentationView.as_view(), name="group-presentation"),
+    path("<slug:slug>/public-config/presentation/action", GroupPresentationActionView.as_view(), name="group-presentation-action"),
 
     # Catalyst intake (existing group requesting activation)
     path('<slug:slug>/catalyst-intake', GroupCatalystIntakeView.as_view(), name='group-catalyst-intake'),

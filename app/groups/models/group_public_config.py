@@ -137,6 +137,50 @@ class GroupPublicConfig(models.Model):
         ),
     )
 
+    # ---- Presentation (Tier 1–3) ----
+    typography_setting = models.CharField(
+        max_length=20,
+        default="journal",
+        choices=[("journal", "Journal"), ("notice", "Notice")],
+        help_text="Tier 1: 'journal' (serif) or 'notice' (sans). Governs font scale and spacing rhythm.",
+    )
+    template_id = models.CharField(
+        max_length=20,
+        blank=True,
+        choices=[
+            ("masthead", "Masthead"),
+            ("ledger", "Ledger"),
+            ("atlas", "Atlas"),
+            ("docket", "Docket"),
+        ],
+        help_text="Tier 2+: template layout. Empty → Masthead.",
+    )
+    palette_id = models.CharField(
+        max_length=20,
+        blank=True,
+        choices=[
+            ("quarto", "Quarto"),
+            ("foolscap", "Foolscap"),
+            ("pigment", "Pigment"),
+            ("common", "Common"),
+        ],
+        help_text="Tier 2+: tenant palette. Empty → platform default.",
+    )
+    font_id = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="Tier 2+: font ID from the ten-font shortlist. Empty → typography_setting default.",
+    )
+    presentation_overrides = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text=(
+            "Tier 3 only. Serialized action vocabulary result: palette hex per role/mode, "
+            "zone order/variants, density. Versioned for Look restoration."
+        ),
+    )
+
     # ---- AI Generation ----
     generation_status = models.CharField(
         max_length=20,

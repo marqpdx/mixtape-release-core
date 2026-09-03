@@ -27,6 +27,11 @@ class Group(LayoutParent, BaseContent):
     id = models.UUIDField(primary_key=True, editable=False, unique=True, default=uuid.uuid4)
     description = models.TextField(blank=True)
     group_type = models.CharField(max_length=20, choices=GroupType.choices)
+    tagline = models.CharField(
+        max_length=160,
+        blank=True,
+        help_text="Display tagline (≤160 chars). Used as the deck on public group pages; summary is reserved for metadata.",
+    )
 
 
     # DEPRECATED: These fields store expired presigned URLs
