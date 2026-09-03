@@ -2,6 +2,7 @@
 
 from django.urls import path
 from . import views
+from .views import lanternmail_posts_list, lanternmail_post_detail
 
 # ============================================================================
 # Group-scoped Lanternmail URL patterns
@@ -26,6 +27,10 @@ group_lanternmail_patterns = [
     path('campaigns/create', views.create_group_campaign, name='group-campaigns-create'),
     path('campaigns/<int:campaign_id>/test', views.test_group_campaign, name='group-campaign-test'),
     path('campaigns/<int:campaign_id>/send', views.send_group_campaign, name='group-campaign-send'),
+
+    # Posts
+    path('posts', lanternmail_posts_list, name='group-lanternmail-posts'),
+    path('posts/<uuid:post_id>', lanternmail_post_detail, name='group-lanternmail-post-detail'),
 ]
 
 # ============================================================================

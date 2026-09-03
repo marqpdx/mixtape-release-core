@@ -17,7 +17,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from groups.models import Group
 from groups.models import GroupMembership
-from lanternmail.models import LanternmailList
+from lanternmail.models import LanternmailList, LanternmailPost
 
 from lanternmail.services.listmonk_client import get_listmonk_client
 from lanternmail.api.utils import send_listmonk_invitations, build_email_query, build_uuid_query
@@ -824,3 +824,186 @@ def public_confirm_subscription(request) -> Response:
         return Response({"message": "Subscription confirmed"}, status=status.HTTP_200_OK)
     except (ListmonkBadRequestError, ListmonkAuthError, ListmonkNotFoundError, ListmonkUpstreamError) as e:
         return _listmonk_error_response(e)
+
+
+# ============================================================================
+# LanternmailPost — Phase 1
+# ============================================================================
+
+def _serialize_post(post: LanternmailPost) -> Dict[str, Any]:
+    return {
+        "id": str(post.id),
+        "group": {"id": str(post.group.id), "slug": post.group.slug, "title": post.group.title},
+        "created_by": str(post.created_by_id) if post.created_by_id else None,
+        "created_by_display": post.created_by.username if post.created_by else None,
+        "title": post.title,
+        "subject": post.subject,
+        "body": post.body,
+        "status": post.status,
+        "audience_kind": post.audience_kind,
+        "mailing_list": post.mailing_list_id,
+        "source_content_type": post.source_content_type_id,
+        "source_object_id": post.source_object_id,
+        "publication_group": post.publication_group_id,
+        "content_placement": post.content_placement_id,
+        "metadata": post.metadata,
+        "created_at": post.created_at.isoformat() if post.created_at else None,
+        "updated_at": post.updated_at.isoformat() if post.updated_at else None,
+    }
+
+
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+def lanternmail_posts_list(request, slug: str) -> Response:
+    group = get_object_or_404(Group, slug=slug)
+
+    denied = _require_lanternmail_manager(request, group)
+    if denied:
+        return denied
+
+    if request.method == "GET":
+        posts = LanternmailPost.objects.filter(group=group).select_related(
+            "created_by", "group", "mailing_list"
+        )
+        return Response([_serialize_post(p) for p in posts])
+
+    # POST — create
+    data = request.data
+    title = (data.get("title") or "").strip()
+    subject = (data.get("subject") or "").strip()
+    if not title or not subject:
+        return Response(
+            {"error": "title and subject are required."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    audience_kind = data.get("audience_kind", LanternmailPost.AUDIENCE_MEMBERS)
+    valid_audiences = {c[0] for c in LanternmailPost.AUDIENCE_CHOICES}
+    if audience_kind not in valid_audiences:
+        return Response(
+            {"error": f"Invalid audience_kind. Valid values: {sorted(valid_audiences)}"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    mailing_list = None
+    if data.get("mailing_list"):
+        mailing_list = LanternmailList.objects.filter(
+            id=data["mailing_list"], group=group
+        ).first()
+        if not mailing_list:
+            return Response(
+                {"error": "mailing_list not found for this group."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    post = LanternmailPost.objects.create(
+        group=group,
+        created_by=request.user,
+        title=title,
+        subject=subject,
+        body=data.get("body", ""),
+        audience_kind=audience_kind,
+        mailing_list=mailing_list,
+        metadata=data.get("metadata", {}),
+    )
+    return Response(_serialize_post(post), status=status.HTTP_201_CREATED)
+
+
+@api_view(["GET", "PATCH", "DELETE"])
+@permission_classes([IsAuthenticated])
+def lanternmail_post_detail(request, slug: str, post_id: str) -> Response:
+    group = get_object_or_404(Group, slug=slug)
+
+    denied = _require_lanternmail_manager(request, group)
+    if denied:
+        return denied
+
+    post = get_object_or_404(LanternmailPost, id=post_id, group=group)
+
+    if request.method == "GET":
+        return Response(_serialize_post(post))
+
+    if request.method == "DELETE":
+        if post.status not in (LanternmailPost.STATUS_DRAFT, LanternmailPost.STATUS_REVIEW):
+            return Response(
+                {"error": "Only draft or review posts may be deleted."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        post.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    # PATCH — update
+    data = request.data
+    updated_fields = []
+
+    if "title" in data:
+        title = (data["title"] or "").strip()
+        if not title:
+            return Response({"error": "title may not be blank."}, status=status.HTTP_400_BAD_REQUEST)
+        post.title = title
+        updated_fields.append("title")
+
+    if "subject" in data:
+        subject = (data["subject"] or "").strip()
+        if not subject:
+            return Response({"error": "subject may not be blank."}, status=status.HTTP_400_BAD_REQUEST)
+        post.subject = subject
+        updated_fields.append("subject")
+
+    if "body" in data:
+        post.body = data["body"] or ""
+        updated_fields.append("body")
+
+    if "audience_kind" in data:
+        valid_audiences = {c[0] for c in LanternmailPost.AUDIENCE_CHOICES}
+        if data["audience_kind"] not in valid_audiences:
+            return Response(
+                {"error": f"Invalid audience_kind. Valid values: {sorted(valid_audiences)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        post.audience_kind = data["audience_kind"]
+        updated_fields.append("audience_kind")
+
+    if "mailing_list" in data:
+        if data["mailing_list"] is None:
+            post.mailing_list = None
+        else:
+            ml = LanternmailList.objects.filter(id=data["mailing_list"], group=group).first()
+            if not ml:
+                return Response(
+                    {"error": "mailing_list not found for this group."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            post.mailing_list = ml
+        updated_fields.append("mailing_list")
+
+    if "metadata" in data:
+        if not isinstance(data["metadata"], dict):
+            return Response({"error": "metadata must be an object."}, status=status.HTTP_400_BAD_REQUEST)
+        post.metadata = data["metadata"]
+        updated_fields.append("metadata")
+
+    # Status transition — validated last
+    if "status" in data:
+        new_status = data["status"]
+        if new_status == LanternmailPost.STATUS_SENT:
+            return Response(
+                {"error": "Transitioning to 'sent' is not available in Phase 1. Use the Listmonk send flow."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not post.can_transition_to(new_status):
+            valid = sorted(post.VALID_TRANSITIONS.get(post.status, set()) - {LanternmailPost.STATUS_SENT})
+            return Response(
+                {
+                    "error": f"Invalid status transition from '{post.status}' to '{new_status}'.",
+                    "valid_next_statuses": valid,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        post.status = new_status
+        updated_fields.append("status")
+
+    if updated_fields:
+        post.save(update_fields=updated_fields + ["updated_at"])
+
+    return Response(_serialize_post(post))
