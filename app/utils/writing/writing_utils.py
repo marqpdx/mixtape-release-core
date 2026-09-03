@@ -77,6 +77,97 @@ def extract_text_from_prosemirror(doc: dict[Any, Any]) -> str:
         return ""
 
 
+_HTML_ESCAPE = str.maketrans({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"})
+
+
+def _escape(text: str) -> str:
+    return text.translate(_HTML_ESCAPE)
+
+
+def _apply_marks(text: str, marks: list) -> str:
+    for mark in reversed(marks):
+        kind = mark.get("type", "")
+        if kind == "bold":
+            text = f"<strong>{text}</strong>"
+        elif kind == "italic":
+            text = f"<em>{text}</em>"
+        elif kind == "code":
+            text = f"<code>{text}</code>"
+        elif kind == "strike":
+            text = f"<s>{text}</s>"
+        elif kind == "underline":
+            text = f"<u>{text}</u>"
+        elif kind == "link":
+            href = _escape(mark.get("attrs", {}).get("href", ""))
+            text = f'<a href="{href}">{text}</a>'
+    return text
+
+
+def _render_node(node: dict) -> str:
+    if not isinstance(node, dict):
+        return ""
+    kind = node.get("type", "")
+    children = node.get("content", [])
+
+    if kind == "text":
+        text = _escape(node.get("text", ""))
+        marks = node.get("marks", [])
+        if marks:
+            text = _apply_marks(text, marks)
+        return text
+
+    if kind == "doc":
+        return "".join(_render_node(c) for c in children)
+
+    if kind == "paragraph":
+        inner = "".join(_render_node(c) for c in children)
+        return f"<p>{inner}</p>"
+
+    if kind == "heading":
+        level = node.get("attrs", {}).get("level", 1)
+        inner = "".join(_render_node(c) for c in children)
+        return f"<h{level}>{inner}</h{level}>"
+
+    if kind == "hardBreak":
+        return "<br>"
+
+    if kind == "bulletList":
+        inner = "".join(_render_node(c) for c in children)
+        return f"<ul>{inner}</ul>"
+
+    if kind == "orderedList":
+        inner = "".join(_render_node(c) for c in children)
+        return f"<ol>{inner}</ol>"
+
+    if kind == "listItem":
+        inner = "".join(_render_node(c) for c in children)
+        return f"<li>{inner}</li>"
+
+    if kind == "blockquote":
+        inner = "".join(_render_node(c) for c in children)
+        return f"<blockquote>{inner}</blockquote>"
+
+    if kind == "codeBlock":
+        inner = "".join(_render_node(c) for c in children)
+        return f"<pre><code>{inner}</code></pre>"
+
+    if kind == "horizontalRule":
+        return "<hr>"
+
+    # Unknown node — render children if any
+    return "".join(_render_node(c) for c in children)
+
+
+def render_html_from_prosemirror(doc: dict) -> str:
+    """
+    Render a ProseMirror document to HTML at emit time. Never stored.
+    Covers all standard Tiptap node types for prose content.
+    """
+    if not doc or not isinstance(doc, dict):
+        return ""
+    return _render_node(doc)
+
+
 def estimate_reading_time(text: str, words_per_minute: int = 200) -> int:
     """
     Estimate reading time in minutes from text.

@@ -28,3 +28,23 @@ class CuratedSequenceMixin(models.Model):
 
     class Meta:
         abstract = True
+
+
+class RichBodyMixin(models.Model):
+    """
+    Abstract mixin for models carrying ProseMirror/Tiptap body content.
+    body_json is the source of truth; body_text is derived on save.
+    body_html is never stored — generate at emit time via render_html_from_prosemirror.
+    """
+
+    body_json = models.JSONField(default=dict, blank=True)
+    body_text = models.TextField(blank=True, default="")
+
+    class Meta:
+        abstract = True
+
+    def save(self, *args, **kwargs):
+        if self.body_json and not self.body_text:
+            from utils.writing.writing_utils import extract_text_from_prosemirror
+            self.body_text = extract_text_from_prosemirror(self.body_json) or ""
+        super().save(*args, **kwargs)
