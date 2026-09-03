@@ -30,6 +30,15 @@ def _get_runtime_for_group(group):
     ).first()
 
 
+def _get_codex_runtime_for_group(group):
+    from tenant_runtime.models import TenantCodexRuntime
+    ct = ContentType.objects.get_for_model(group)
+    return TenantCodexRuntime.objects.filter(
+        tenant_content_type=ct,
+        tenant_object_id=group.id,
+    ).first()
+
+
 class TenantRuntimeStartLoginView(APIView):
     """
     POST /api/tenant-runtime/groups/<slug>/start-login/
@@ -150,3 +159,160 @@ class TenantRuntimeStatusView(APIView):
             "last_verified_at": runtime.last_verified_at.isoformat() if runtime.last_verified_at else None,
             "last_verification_error": runtime.last_verification_error or None,
         })
+
+
+class TenantCodexRuntimeStartLoginView(APIView):
+    """
+    POST /api/tenant-runtime/groups/<slug>/codex/start-login/
+    """
+
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request, slug):
+        from tenant_runtime.tasks import run_tenant_codex_login
+
+        group = _get_group(slug)
+        if not group:
+            return Response({"detail": "Group not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        runtime = _get_codex_runtime_for_group(group)
+        if not runtime:
+            return Response(
+                {"detail": "No TenantCodexRuntime configured for this group."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if not runtime.linux_user:
+            return Response(
+                {"detail": "Runtime has no linux_user configured."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        task = run_tenant_codex_login.delay(str(runtime.id))
+        logger.info(
+            "[tenant_runtime] codex start-login queued: group=%s runtime=%s task=%s",
+            slug,
+            runtime.id,
+            task.id,
+        )
+
+        return Response({
+            "task_id": task.id,
+            "runtime_id": str(runtime.id),
+            "status": "starting",
+            "detail": "Codex login task queued. Poll codex/login-status for URL and device code.",
+        }, status=status.HTTP_202_ACCEPTED)
+
+
+class TenantCodexRuntimeLoginStatusView(APIView):
+    """
+    GET /api/tenant-runtime/groups/<slug>/codex/login-status/
+    """
+
+    permission_classes = [permissions.IsAdminUser]
+
+    def get(self, request, slug):
+        group = _get_group(slug)
+        if not group:
+            return Response({"detail": "Group not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        runtime = _get_codex_runtime_for_group(group)
+        if not runtime:
+            return Response(
+                {"detail": "No TenantCodexRuntime configured for this group."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        session = runtime.login_sessions.order_by("-started_at").first()
+        if not session:
+            return Response({
+                "runtime_status": runtime.status,
+                "session": None,
+            })
+
+        return Response({
+            "runtime_status": runtime.status,
+            "session": {
+                "id": str(session.id),
+                "status": session.status,
+                "login_url": session.login_url or None,
+                "login_code": session.login_code or None,
+                "started_at": session.started_at.isoformat(),
+                "expires_at": session.expires_at.isoformat(),
+                "completed_at": session.completed_at.isoformat() if session.completed_at else None,
+                "is_expired": session.is_expired,
+                "error": session.error or None,
+            },
+        })
+
+
+class TenantCodexRuntimeStatusView(APIView):
+    """
+    GET /api/tenant-runtime/groups/<slug>/codex/status/
+    """
+
+    permission_classes = [permissions.IsAdminUser]
+
+    def get(self, request, slug):
+        group = _get_group(slug)
+        if not group:
+            return Response({"detail": "Group not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        runtime = _get_codex_runtime_for_group(group)
+        if not runtime:
+            return Response({
+                "configured": False,
+                "detail": "No TenantCodexRuntime configured for this group.",
+            })
+
+        return Response({
+            "configured": True,
+            "id": str(runtime.id),
+            "provider": runtime.provider,
+            "auth_method": runtime.auth_method,
+            "linux_user": runtime.linux_user,
+            "home_dir": runtime.home_dir,
+            "provider_home_dir": runtime.codex_home_dir,
+            "status": runtime.status,
+            "privacy_mode": runtime.privacy_mode,
+            "allowed_ai_modes": runtime.allowed_ai_modes,
+            "last_verified_at": runtime.last_verified_at.isoformat() if runtime.last_verified_at else None,
+            "last_verification_error": runtime.last_verification_error or None,
+        })
+
+
+class TenantCodexRuntimeLogoutView(APIView):
+    """
+    POST /api/tenant-runtime/groups/<slug>/codex/logout/
+    """
+
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request, slug):
+        from codex import service as codex_service
+        from tenant_runtime.models import TenantCodexRuntime
+
+        group = _get_group(slug)
+        if not group:
+            return Response({"detail": "Group not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        runtime = _get_codex_runtime_for_group(group)
+        if not runtime:
+            return Response(
+                {"detail": "No TenantCodexRuntime configured for this group."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        result = codex_service.logout(run_as_user=runtime.linux_user, home_dir=runtime.home_dir)
+        if result.failure:
+            runtime.status = TenantCodexRuntime.STATUS_FAILED
+            runtime.last_verification_error = f"Codex logout failed: {result.failure}"
+            runtime.save(update_fields=["status", "last_verification_error", "updated_at"])
+            return Response(
+                {"detail": "Codex logout failed.", "failure": result.failure},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        runtime.status = TenantCodexRuntime.STATUS_LOGIN_REQUIRED
+        runtime.last_verification_error = ""
+        runtime.save(update_fields=["status", "last_verification_error", "updated_at"])
+        return Response({"status": runtime.status})

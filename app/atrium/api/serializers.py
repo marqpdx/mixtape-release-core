@@ -39,6 +39,7 @@ class AtriumSessionListSerializer(serializers.ModelSerializer):
             "title",
             "session_context",
             "dial_mode",
+            "ai_provider",
             "sponsor_type",
             "sponsor_slug",
             "initiative_id",

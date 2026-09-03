@@ -6,6 +6,8 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.utils import timezone
 
+from cloud_agents.constants import PROVIDER_OPENAI_CODEX
+
 
 class TenantClaudeRuntime(models.Model):
     """
@@ -148,6 +150,171 @@ class TenantClaudeLoginSession(models.Model):
 
     def __str__(self):
         return f"LoginSession {self.id} [{self.status}] for {self.runtime}"
+
+    def save(self, *args, **kwargs):
+        if not self.expires_at:
+            self.expires_at = timezone.now() + timezone.timedelta(seconds=self.LOGIN_TTL_SECONDS)
+        super().save(*args, **kwargs)
+
+    @property
+    def is_expired(self) -> bool:
+        return timezone.now() > self.expires_at
+
+
+class TenantCodexRuntime(models.Model):
+    """
+    Non-secret runtime metadata for a tenant's per-user OpenAI Codex CLI runtime.
+
+    Codex credentials stay under the tenant Linux user's CODEX_HOME. This record
+    tracks operational state and paths only; it must not store provider tokens.
+    """
+
+    STATUS_NOT_CONFIGURED = "not_configured"
+    STATUS_LOGIN_REQUIRED = "login_required"
+    STATUS_READY = "ready"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = [
+        (STATUS_NOT_CONFIGURED, "Not configured"),
+        (STATUS_LOGIN_REQUIRED, "Login required"),
+        (STATUS_READY, "Ready"),
+        (STATUS_FAILED, "Failed"),
+    ]
+
+    AUTH_METHOD_CHATGPT = "chatgpt"
+    AUTH_METHOD_API_KEY = "api_key"
+    AUTH_METHOD_ACCESS_TOKEN = "access_token"
+    AUTH_METHOD_CHOICES = [
+        (AUTH_METHOD_CHATGPT, "ChatGPT"),
+        (AUTH_METHOD_API_KEY, "API key"),
+        (AUTH_METHOD_ACCESS_TOKEN, "Access token"),
+    ]
+
+    PRIVACY_LOCAL_ONLY = TenantClaudeRuntime.PRIVACY_LOCAL_ONLY
+    PRIVACY_ESCALATION_ALLOWED = TenantClaudeRuntime.PRIVACY_ESCALATION_ALLOWED
+    PRIVACY_CHOICES = TenantClaudeRuntime.PRIVACY_CHOICES
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant_content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE,
+        related_name="+",
+    )
+    tenant_object_id = models.UUIDField()
+    tenant = GenericForeignKey("tenant_content_type", "tenant_object_id")
+
+    provider = models.CharField(
+        max_length=64,
+        default=PROVIDER_OPENAI_CODEX,
+        help_text="AI runtime provider identifier.",
+    )
+    linux_user = models.CharField(
+        max_length=64,
+        help_text="Linux username under which Codex subprocesses run.",
+    )
+    home_dir = models.CharField(
+        max_length=256,
+        help_text="Absolute home directory for linux_user.",
+    )
+    provider_home_dir = models.CharField(
+        max_length=256,
+        blank=True,
+        default="",
+        help_text="CODEX_HOME directory. Defaults to <home_dir>/.codex when blank.",
+    )
+    auth_method = models.CharField(
+        max_length=32,
+        choices=AUTH_METHOD_CHOICES,
+        default=AUTH_METHOD_CHATGPT,
+        help_text="Declared Codex auth mode; credentials are not stored here.",
+    )
+    status = models.CharField(
+        max_length=32,
+        choices=STATUS_CHOICES,
+        default=STATUS_NOT_CONFIGURED,
+        db_index=True,
+    )
+    privacy_mode = models.CharField(
+        max_length=32,
+        choices=PRIVACY_CHOICES,
+        default=PRIVACY_LOCAL_ONLY,
+    )
+    allowed_ai_modes = models.JSONField(
+        default=list,
+        help_text='Permitted AI operation types for this tenant, e.g. ["atrium", "extraction"].',
+    )
+    last_verified_at = models.DateTimeField(null=True, blank=True)
+    last_verification_error = models.TextField(blank=True, default="")
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Tenant Codex Runtime"
+        verbose_name_plural = "Tenant Codex Runtimes"
+
+    def __str__(self):
+        return f"{self.linux_user} [{self.status}]"
+
+    @property
+    def codex_home_dir(self) -> str:
+        return self.provider_home_dir or f"{self.home_dir.rstrip('/')}/.codex"
+
+    def tenant_slug(self) -> str | None:
+        obj = self.tenant
+        return getattr(obj, "slug", None)
+
+
+class TenantCodexLoginSession(models.Model):
+    """
+    Tracks one headless Codex device-auth login subprocess.
+
+    URL/code are non-secret bootstrap values. Codex auth tokens must remain in
+    the tenant Linux user's CODEX_HOME.
+    """
+
+    STATUS_STARTING = "starting"
+    STATUS_AWAITING_AUTH = "awaiting_auth"
+    STATUS_COMPLETE = "complete"
+    STATUS_FAILED = "failed"
+    STATUS_EXPIRED = "expired"
+    STATUS_CHOICES = [
+        (STATUS_STARTING, "Starting"),
+        (STATUS_AWAITING_AUTH, "Awaiting auth"),
+        (STATUS_COMPLETE, "Complete"),
+        (STATUS_FAILED, "Failed"),
+        (STATUS_EXPIRED, "Expired"),
+    ]
+
+    LOGIN_TTL_SECONDS = 600
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    runtime = models.ForeignKey(
+        TenantCodexRuntime,
+        on_delete=models.CASCADE,
+        related_name="login_sessions",
+    )
+    status = models.CharField(
+        max_length=32,
+        choices=STATUS_CHOICES,
+        default=STATUS_STARTING,
+        db_index=True,
+    )
+    login_url = models.TextField(blank=True, default="")
+    login_code = models.CharField(max_length=128, blank=True, default="")
+    started_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    completed_at = models.DateTimeField(null=True, blank=True)
+    error = models.TextField(blank=True, default="")
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-started_at"]
+        verbose_name = "Tenant Codex Login Session"
+        verbose_name_plural = "Tenant Codex Login Sessions"
+
+    def __str__(self):
+        return f"CodexLoginSession {self.id} [{self.status}] for {self.runtime}"
 
     def save(self, *args, **kwargs):
         if not self.expires_at:
