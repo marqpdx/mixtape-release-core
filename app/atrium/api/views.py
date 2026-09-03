@@ -11,10 +11,17 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from atrium.models import AtriumSession, AtriumSessionStatus, AtriumSessionRole, Distillate, DistillateDocumentType
 from atrium.ai.service import PUDDLEJUMP_GROUPS
+from atrium.models import (
+    AtriumSession,
+    AtriumSessionRole,
+    AtriumSessionStatus,
+    Distillate,
+    DistillateDocumentType,
+)
 from profiles.services.profiles import ensure_user_profile
-from .serializers import AtriumSessionListSerializer, AtriumSessionEntrySerializer
+
+from .serializers import AtriumSessionEntrySerializer, AtriumSessionListSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -89,10 +96,19 @@ class AtriumSessionCreateView(generics.CreateAPIView):
                 id=initiative_id, deleted_at__isnull=True
             ).first()
 
+        ai_provider = request.data.get("ai_provider", AtriumSession._meta.get_field("ai_provider").default)
+        valid_providers = {choice[0] for choice in AtriumSession._meta.get_field("ai_provider").choices}
+        if ai_provider not in valid_providers:
+            return Response(
+                {"detail": f"ai_provider must be one of: {', '.join(sorted(valid_providers))}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         session = AtriumSession.objects.create(
             member=profile,
             title=request.data.get("title", ""),
             session_context=request.data.get("session_context", ""),
+            ai_provider=ai_provider,
             sponsor_content_type=sponsor_ct,
             sponsor_object_id=sponsor_id,
             initiative=initiative,
@@ -232,6 +248,12 @@ class AtriumSessionUpdateView(APIView):
             if val in valid_values:
                 session.dial_mode = val
                 update_fields.append("dial_mode")
+        if "ai_provider" in request.data:
+            valid_values = {choice[0] for choice in AtriumSession._meta.get_field("ai_provider").choices}
+            val = request.data["ai_provider"]
+            if val in valid_values:
+                session.ai_provider = val
+                update_fields.append("ai_provider")
 
         if update_fields:
             session.save(update_fields=update_fields)

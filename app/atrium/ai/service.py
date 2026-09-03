@@ -16,6 +16,11 @@ import os
 from typing import Generator
 
 from atrium.ai.tools import TOOLS, dispatch_tool
+from cloud_agents.constants import (
+    PROVIDER_ANTHROPIC_CLAUDE_CODE,
+    PROVIDER_OPENAI_CODEX,
+)
+from cloud_agents.events import sse_event
 
 logger = logging.getLogger(__name__)
 
@@ -212,6 +217,144 @@ class ClaudeCodeAdapter:
         claude_service.get_or_spawn(session_id, cwd, orientation)
 
 
+class CodexExecAdapter:
+    """
+    Codex CLI adapter using `codex exec --json` and native session resume.
+
+    Unlike ClaudeCodeAdapter, this does not keep a long-lived subprocess. Codex
+    owns provider-native history through its thread id; Mixtape persists that
+    mapping in CloudAgentSession.
+    """
+
+    def __init__(self, session=None):
+        self._session = session
+
+    def warm(self) -> Generator[bytes, None, None]:
+        yield sse_event("ready")
+
+    def exchange_stream(
+        self,
+        system_prompt: str,
+        messages: list[dict],
+    ) -> Generator[bytes, None, None]:
+        from atrium.models import CloudAgentSession, CloudAgentSessionStatus
+        from codex import service as codex_service
+        from django.conf import settings
+        from django.utils import timezone
+        from tenant_runtime.models import TenantCodexRuntime
+
+        if not self._session:
+            yield sse_event("error", detail="Codex requires an Atrium session.")
+            return
+
+        runtime = None
+        if self._session.sponsor_content_type_id and self._session.sponsor_object_id:
+            runtime = TenantCodexRuntime.objects.filter(
+                tenant_content_type_id=self._session.sponsor_content_type_id,
+                tenant_object_id=self._session.sponsor_object_id,
+            ).first()
+
+        if runtime is None:
+            yield sse_event("error", detail="No Codex runtime is configured for this session.")
+            return
+        if runtime.status != TenantCodexRuntime.STATUS_READY:
+            yield sse_event("error", detail="Codex runtime is not ready.", status=runtime.status)
+            return
+
+        cwd = (
+            getattr(settings, "ATRIUM_CODEX_CWD", "")
+            or getattr(settings, "ATRIUM_CLAUDE_CODE_CWD", "")
+            or os.getcwd()
+        )
+        agent_session, _ = CloudAgentSession.objects.get_or_create(
+            atrium_session=self._session,
+            provider=PROVIDER_OPENAI_CODEX,
+            defaults={
+                "linux_user": runtime.linux_user,
+                "working_directory": cwd,
+                "policy": "read_only",
+                "status": CloudAgentSessionStatus.STARTING,
+            },
+        )
+        update_fields = []
+        if agent_session.linux_user != runtime.linux_user:
+            agent_session.linux_user = runtime.linux_user
+            update_fields.append("linux_user")
+        if agent_session.working_directory != cwd:
+            agent_session.working_directory = cwd
+            update_fields.append("working_directory")
+        if update_fields:
+            update_fields.append("updated_at")
+            agent_session.save(update_fields=update_fields)
+
+        user_message = ""
+        for msg in reversed(messages):
+            if msg["role"] == "user":
+                user_message = msg["content"]
+                break
+
+        if not user_message:
+            yield sse_event("done")
+            return
+
+        if agent_session.provider_session_id:
+            prompt = user_message
+            provider_session_id = agent_session.provider_session_id
+        else:
+            prompt = _build_agent_prompt(system_prompt, messages)
+            provider_session_id = None
+
+        agent_session.status = CloudAgentSessionStatus.RUNNING
+        agent_session.last_used_at = timezone.now()
+        agent_session.save(update_fields=["status", "last_used_at", "updated_at"])
+
+        saw_error = False
+        for event_type, text in codex_service.stream_exec(
+            prompt,
+            cwd=cwd,
+            run_as_user=runtime.linux_user,
+            home_dir=runtime.home_dir,
+            policy=agent_session.policy,
+            provider_session_id=provider_session_id,
+        ):
+            if event_type == "provider_session":
+                if text and agent_session.provider_session_id != text:
+                    agent_session.provider_session_id = text
+                    agent_session.save(update_fields=["provider_session_id", "updated_at"])
+                continue
+            if event_type == "context_status":
+                try:
+                    yield sse_event("context_status", **json.loads(text))
+                except json.JSONDecodeError:
+                    yield sse_event("context_status", raw=text)
+                continue
+            if event_type == "activity":
+                yield sse_event("activity", text=text)
+                continue
+            if event_type == "error":
+                saw_error = True
+                yield sse_event("error", detail=text)
+                continue
+            yield sse_event("delta", text=text)
+
+        agent_session.status = (
+            CloudAgentSessionStatus.FAILED if saw_error else CloudAgentSessionStatus.READY
+        )
+        agent_session.last_used_at = timezone.now()
+        agent_session.save(update_fields=["status", "last_used_at", "updated_at"])
+
+    def reset(self, cwd: str) -> None:
+        if not self._session:
+            return
+        from atrium.models import CloudAgentSession
+
+        CloudAgentSession.objects.filter(
+            atrium_session=self._session,
+            provider=PROVIDER_OPENAI_CODEX,
+            deleted_at__isnull=True,
+        ).update(provider_session_id="", status="starting")
+
+
 class AtriumAIService:
     """
     Provider-agnostic façade for Atrium session AI exchanges.
@@ -227,6 +370,7 @@ class AtriumAIService:
     def __init__(self, session=None):
         from django.conf import settings
         use_claude_code = False
+        use_codex = False
 
         # Per-session dispatch: sponsor slug in PUDDLEJUMP_GROUPS wins.
         if session and session.sponsor_object_id:
@@ -236,11 +380,20 @@ class AtriumAIService:
             except Exception:
                 pass
 
+        if session and getattr(session, "ai_provider", "") == PROVIDER_OPENAI_CODEX:
+            use_codex = True
+            use_claude_code = False
+        elif session and getattr(session, "ai_provider", "") == PROVIDER_ANTHROPIC_CLAUDE_CODE:
+            use_claude_code = True
+
         # Fall back to global toggle (useful for testing without a sponsor).
-        if not use_claude_code:
+        if not use_claude_code and not use_codex:
             use_claude_code = getattr(settings, "ATRIUM_USE_CLAUDE_CODE", False)
 
-        if use_claude_code:
+        if use_codex:
+            logger.info("[atrium] AtriumAIService: CodexExecAdapter")
+            self._adapter = CodexExecAdapter(session=session)
+        elif use_claude_code:
             sponsor_slug = getattr(getattr(session, "sponsor", None), "slug", "global") if session else "global"
             logger.info("[atrium] AtriumAIService: ClaudeCodeAdapter stream-json (sponsor=%s)", sponsor_slug)
             self._adapter = ClaudeCodeAdapter(session=session)
@@ -397,6 +550,11 @@ def _build_claude_code_prompt(system_prompt: str, messages: list[dict]) -> str:
     for the claude -p subprocess. Claude Code CLI is single-turn; we carry
     the full history so the session feels continuous.
     """
+    return _build_agent_prompt(system_prompt, messages)
+
+
+def _build_agent_prompt(system_prompt: str, messages: list[dict]) -> str:
+    """Flatten system prompt and visible conversation into a provider CLI prompt."""
     parts = [system_prompt.strip(), ""]
     for msg in messages:
         role_label = "User" if msg["role"] == "user" else "Assistant"

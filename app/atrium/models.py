@@ -4,6 +4,7 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
 
+from cloud_agents.constants import PROVIDER_ANTHROPIC_API, PROVIDER_CHOICES
 from fundamentals.bases import BaseModel
 
 
@@ -93,6 +94,13 @@ class AtriumSession(BaseModel):
         help_text="The Dial anchor for this session — governs AI posture.",
     )
 
+    ai_provider = models.CharField(
+        max_length=64,
+        choices=PROVIDER_CHOICES,
+        default=PROVIDER_ANTHROPIC_API,
+        help_text="Preferred cloud-agent provider for this human-visible session.",
+    )
+
     pty_pid = models.IntegerField(
         null=True,
         blank=True,
@@ -156,6 +164,57 @@ class AtriumSessionEntry(BaseModel):
 
     def __str__(self):
         return f"AtriumSessionEntry({self.role}) in {self.session_id}"
+
+
+class CloudAgentSessionStatus(models.TextChoices):
+    STARTING = "starting", "Starting"
+    RUNNING = "running", "Running"
+    READY = "ready", "Ready"
+    FAILED = "failed", "Failed"
+    CANCELLED = "cancelled", "Cancelled"
+
+
+class CloudAgentSession(BaseModel):
+    """
+    Provider-native session mapping for an Atrium conversation.
+
+    AtriumSession is the human-visible conversation. CloudAgentSession records
+    the provider-specific thread/process state needed to resume a given backend.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    atrium_session = models.ForeignKey(
+        AtriumSession,
+        on_delete=models.CASCADE,
+        related_name="cloud_agent_sessions",
+    )
+    provider = models.CharField(max_length=64, choices=PROVIDER_CHOICES, db_index=True)
+    provider_session_id = models.CharField(max_length=255, blank=True, default="")
+    linux_user = models.CharField(max_length=64, blank=True, default="")
+    working_directory = models.CharField(max_length=512, blank=True, default="")
+    policy = models.CharField(max_length=32, default="read_only")
+    status = models.CharField(
+        max_length=32,
+        choices=CloudAgentSessionStatus.choices,
+        default=CloudAgentSessionStatus.STARTING,
+        db_index=True,
+    )
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta(BaseModel.Meta):
+        verbose_name = "Cloud Agent Session"
+        verbose_name_plural = "Cloud Agent Sessions"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["atrium_session", "provider"],
+                condition=models.Q(deleted_at__isnull=True),
+                name="unique_active_cloud_agent_session_per_provider",
+            )
+        ]
+
+    def __str__(self):
+        return f"CloudAgentSession({self.provider}) for {self.atrium_session_id}"
 
 
 class Distillate(models.Model):
