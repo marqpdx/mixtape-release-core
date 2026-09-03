@@ -280,6 +280,7 @@ class GroupDetailSerializer(GroupListSerializer):
                 "background_image_url",
                 "emblem",
                 "summary",
+                "tagline",
                 "body",
                 "author_name",
                 "sponsor_group",
