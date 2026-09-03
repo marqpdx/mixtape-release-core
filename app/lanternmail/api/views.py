@@ -16,6 +16,7 @@ from rest_framework.response import Response
 from django.views.decorators.csrf import csrf_exempt
 
 from groups.models import Group
+from groups.models import GroupMembership
 from lanternmail.models import LanternmailList
 
 from lanternmail.services.listmonk_client import get_listmonk_client
@@ -31,6 +32,57 @@ from lanternmail.services.exceptions import (
 from lanternmail.api.throttles import NewsletterIPThrottle, NewsletterEmailThrottle
 
 User = get_user_model()
+
+
+LANTERNMAIL_MANAGER_DECORATOR = "can__ManageLanternmail"
+
+
+def _get_active_user_membership(user: User, group: Group) -> Optional[GroupMembership]:
+    if not user or not user.is_authenticated:
+        return None
+
+    user_content_type = ContentType.objects.get_for_model(user)
+    return GroupMembership.objects.filter(
+        group=group,
+        member_content_type=user_content_type,
+        member_object_id=user.id,
+        is_active=True,
+        is_pending=False,
+        is_banned=False,
+        is_evicted=False,
+    ).first()
+
+
+def _can_manage_lanternmail(user: User, group: Group) -> bool:
+    if getattr(user, "is_superuser", False):
+        return True
+
+    membership = _get_active_user_membership(user, group)
+    if not membership:
+        return False
+
+    if membership.is_admin():
+        return True
+
+    return LANTERNMAIL_MANAGER_DECORATOR in membership.get_decorator_codes()
+
+
+def _require_lanternmail_manager(request, group: Group) -> Optional[Response]:
+    if _can_manage_lanternmail(request.user, group):
+        return None
+
+    return Response(
+        {"error": "You do not have permission to manage Lanternmail for this group."},
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
+def _campaign_belongs_to_group(campaign: Dict[str, Any], group: Group) -> bool:
+    group_listmonk_ids = set(
+        LanternmailList.objects.filter(group=group, is_active=True).values_list("listmonk_id", flat=True)
+    )
+    campaign_list_ids = {item.get("id") for item in campaign.get("lists", []) if item.get("id") is not None}
+    return bool(group_listmonk_ids.intersection(campaign_list_ids))
 
 
 # -----------------------------------------------------------------------------
@@ -96,6 +148,9 @@ def create_group_mailing_list(request, slug: str) -> Response:
     """
     try:
         group = get_object_or_404(Group, slug=slug)
+        permission_error = _require_lanternmail_manager(request, group)
+        if permission_error:
+            return permission_error
 
         display_name = request.data.get("name", "").strip()
         list_description = request.data.get("description", "").strip()
@@ -150,6 +205,9 @@ def create_group_mailing_list(request, slug: str) -> Response:
 def get_group_mailing_lists(request, slug: str) -> Response:
     """Get all active mailing lists for a specific group (Django-side truth)."""
     group = get_object_or_404(Group, slug=slug)
+    permission_error = _require_lanternmail_manager(request, group)
+    if permission_error:
+        return permission_error
 
     group_lists = (
         LanternmailList.objects.filter(group=group, is_active=True)
@@ -202,7 +260,12 @@ def get_mailing_list_detail(request, slug: str, list_id: int) -> Response:
     Get details of a specific mailing list including Listmonk stats.
     Returns Django record even if Listmonk is temporarily unavailable.
     """
-    mailing_list = get_object_or_404(LanternmailList, id=list_id)
+    group = get_object_or_404(Group, slug=slug)
+    permission_error = _require_lanternmail_manager(request, group)
+    if permission_error:
+        return permission_error
+
+    mailing_list = get_object_or_404(LanternmailList, id=list_id, group=group)
 
     lm = get_listmonk_client()
 
@@ -232,9 +295,14 @@ def get_mailing_list_detail(request, slug: str, list_id: int) -> Response:
 
 @api_view(["PATCH"])
 @permission_classes([IsAuthenticated])
-def toggle_mailing_list(request, list_id: int) -> Response:
+def toggle_mailing_list(request, slug: str, list_id: int) -> Response:
     """Toggle active status of a mailing list (Django-side)."""
-    mailing_list = get_object_or_404(LanternmailList, id=list_id, group__members=request.user)
+    group = get_object_or_404(Group, slug=slug)
+    permission_error = _require_lanternmail_manager(request, group)
+    if permission_error:
+        return permission_error
+
+    mailing_list = get_object_or_404(LanternmailList, id=list_id, group=group)
 
     mailing_list.is_active = not mailing_list.is_active
     mailing_list.save(update_fields=["is_active"])
@@ -269,6 +337,10 @@ def get_group_members_with_subscription_status(request, slug: str, list_id: int)
     - If this gets slow later, switch to batching/caching or storing subscriber_id in Django.
     """
     group = get_object_or_404(Group, slug=slug)
+    permission_error = _require_lanternmail_manager(request, group)
+    if permission_error:
+        return permission_error
+
     mailing_list = get_object_or_404(LanternmailList, id=list_id, group=group)
 
     user_content_type = ContentType.objects.get_for_model(User)
@@ -348,6 +420,10 @@ def get_group_members_all_lists(request, slug: str) -> Response:
     For a group, return members + subscription breakdown across all active lists for that group.
     """
     group = get_object_or_404(Group, slug=slug)
+    permission_error = _require_lanternmail_manager(request, group)
+    if permission_error:
+        return permission_error
+
     mailing_lists = LanternmailList.objects.filter(group=group, is_active=True).order_by("created_at")
     list_id_param = request.query_params.get("list_id")
     list_id = int(list_id_param) if list_id_param and list_id_param.isdigit() else None
@@ -464,6 +540,10 @@ def remove_list_subscriber(request, slug: str, list_id: int) -> Response:
         return Response({"error": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
 
     group = get_object_or_404(Group, slug=slug)
+    permission_error = _require_lanternmail_manager(request, group)
+    if permission_error:
+        return permission_error
+
     mailing_list = get_object_or_404(LanternmailList, id=list_id, group=group)
 
     lm = get_listmonk_client()
@@ -496,6 +576,10 @@ def list_group_campaigns(request, slug: str) -> Response:
     List campaigns for a group. Optional query param: list_id (Django list id).
     """
     group = get_object_or_404(Group, slug=slug)
+    permission_error = _require_lanternmail_manager(request, group)
+    if permission_error:
+        return permission_error
+
     list_id_param = request.query_params.get("list_id")
     list_id = int(list_id_param) if list_id_param and list_id_param.isdigit() else None
 
@@ -506,8 +590,19 @@ def list_group_campaigns(request, slug: str) -> Response:
 
     lm = get_listmonk_client()
     try:
-        campaigns = lm.list_campaigns(list_id=listmonk_list_id)
-        return Response({"data": campaigns.get("data", {}).get("results", [])})
+        if listmonk_list_id is not None:
+            campaigns = lm.list_campaigns(list_id=listmonk_list_id)
+            return Response({"data": campaigns.get("data", {}).get("results", [])})
+
+        results_by_id: Dict[int, Dict[str, Any]] = {}
+        for mailing_list in LanternmailList.objects.filter(group=group, is_active=True):
+            campaigns = lm.list_campaigns(list_id=mailing_list.listmonk_id)
+            for campaign in campaigns.get("data", {}).get("results", []):
+                campaign_id = campaign.get("id")
+                if campaign_id is not None:
+                    results_by_id[campaign_id] = campaign
+
+        return Response({"data": list(results_by_id.values())})
     except (ListmonkBadRequestError, ListmonkAuthError, ListmonkNotFoundError, ListmonkUpstreamError) as e:
         return _listmonk_error_response(e)
 
@@ -520,6 +615,10 @@ def create_group_campaign(request, slug: str) -> Response:
     Expects: { list_id, name, subject, body, content_type? }
     """
     group = get_object_or_404(Group, slug=slug)
+    permission_error = _require_lanternmail_manager(request, group)
+    if permission_error:
+        return permission_error
+
     list_id = request.data.get("list_id")
     name = (request.data.get("name") or "").strip()
     subject = (request.data.get("subject") or "").strip()
@@ -558,8 +657,17 @@ def test_group_campaign(request, slug: str, campaign_id: int) -> Response:
     if not emails:
         return Response({"error": "No email addresses provided"}, status=status.HTTP_400_BAD_REQUEST)
 
+    group = get_object_or_404(Group, slug=slug)
+    permission_error = _require_lanternmail_manager(request, group)
+    if permission_error:
+        return permission_error
+
     lm = get_listmonk_client()
     try:
+        campaign = lm.get_campaign(campaign_id).get("data") or {}
+        if not _campaign_belongs_to_group(campaign, group):
+            return Response({"error": "Campaign not found for this group"}, status=status.HTTP_404_NOT_FOUND)
+
         resp = lm.test_campaign(campaign_id=campaign_id, subscribers=emails)
         return Response({"data": resp.get("data")})
     except (ListmonkBadRequestError, ListmonkAuthError, ListmonkNotFoundError, ListmonkUpstreamError) as e:
@@ -572,8 +680,17 @@ def send_group_campaign(request, slug: str, campaign_id: int) -> Response:
     """
     Send a campaign now (set status to running).
     """
+    group = get_object_or_404(Group, slug=slug)
+    permission_error = _require_lanternmail_manager(request, group)
+    if permission_error:
+        return permission_error
+
     lm = get_listmonk_client()
     try:
+        campaign = lm.get_campaign(campaign_id).get("data") or {}
+        if not _campaign_belongs_to_group(campaign, group):
+            return Response({"error": "Campaign not found for this group"}, status=status.HTTP_404_NOT_FOUND)
+
         resp = lm.update_campaign_status(campaign_id=campaign_id, status="running")
         return Response({"data": resp.get("data")})
     except (ListmonkBadRequestError, ListmonkAuthError, ListmonkNotFoundError, ListmonkUpstreamError) as e:
@@ -585,14 +702,19 @@ def send_group_campaign(request, slug: str, campaign_id: int) -> Response:
 # -----------------------------------------------------------------------------
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
-def send_list_invitations(request, list_id: int) -> Response:
+def send_list_invitations(request, slug: str, list_id: int) -> Response:
     """
     Send invitation emails to subscribe to a mailing list.
 
     This currently uses `send_listmonk_invitations` util. You can later promote this
     into LanternmailService as well, but this keeps your working path intact.
     """
-    mailing_list = get_object_or_404(LanternmailList, id=list_id)
+    group = get_object_or_404(Group, slug=slug)
+    permission_error = _require_lanternmail_manager(request, group)
+    if permission_error:
+        return permission_error
+
+    mailing_list = get_object_or_404(LanternmailList, id=list_id, group=group)
     emails = request.data.get("emails", [])
 
     if not emails:
