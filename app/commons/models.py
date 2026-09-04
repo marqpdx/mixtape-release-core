@@ -9,6 +9,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import models
 
 from fundamentals.bases import BaseModel
+from fundamentals.mixins import RichBodyMixin
 from fundamentals.models import BaseContent
 
 
@@ -132,7 +133,7 @@ class CommonsItem(BaseContent):
 # Leaf — Commons content unit (ADR-0049; moved from app/writing/, D19)
 # ============================================================================
 
-class Leaf(BaseModel):
+class Leaf(RichBodyMixin, BaseModel):
     """
     First-class Commons content unit (formerly the Storyline content unit;
     Storyline is superseded by ADR-0049 — see commons-adr.md D1/D2).
@@ -148,8 +149,7 @@ class Leaf(BaseModel):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="leaves"
     )
 
-    # Content
-    body_text = models.TextField(blank=True, default="")
+    # Content (body_json + body_text from RichBodyMixin)
     body_json = models.JSONField(
         default=dict,
         help_text="ProseMirror content for rich text + images",

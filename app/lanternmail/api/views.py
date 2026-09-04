@@ -24,6 +24,7 @@ from lanternmail.api.utils import send_listmonk_invitations, build_email_query, 
 
 from lanternmail.services.lanternmail_service import LanternmailService
 from lanternmail.services.exceptions import (
+    ListmonkError,
     ListmonkAuthError,
     ListmonkBadRequestError,
     ListmonkNotFoundError,
@@ -838,10 +839,14 @@ def _serialize_post(post: LanternmailPost) -> Dict[str, Any]:
         "created_by_display": post.created_by.username if post.created_by else None,
         "title": post.title,
         "subject": post.subject,
-        "body": post.body,
+        "body_json": post.body_json,
+        "body_text": post.body_text,
         "status": post.status,
         "audience_kind": post.audience_kind,
         "mailing_list": post.mailing_list_id,
+        "listmonk_campaign_id": post.listmonk_campaign_id,
+        "sent_at": post.sent_at.isoformat() if post.sent_at else None,
+        "ingest_status": post.ingest_status,
         "source_content_type": post.source_content_type_id,
         "source_object_id": post.source_object_id,
         "publication_group": post.publication_group_id,
@@ -901,7 +906,7 @@ def lanternmail_posts_list(request, slug: str) -> Response:
         created_by=request.user,
         title=title,
         subject=subject,
-        body=data.get("body", ""),
+        body_json=data.get("body_json", {}),
         audience_kind=audience_kind,
         mailing_list=mailing_list,
         metadata=data.get("metadata", {}),
@@ -950,9 +955,10 @@ def lanternmail_post_detail(request, slug: str, post_id: str) -> Response:
         post.subject = subject
         updated_fields.append("subject")
 
-    if "body" in data:
-        post.body = data["body"] or ""
-        updated_fields.append("body")
+    if "body_json" in data:
+        post.body_json = data["body_json"] or {}
+        post.body_text = ""  # reset so mixin save re-derives from body_json
+        updated_fields.extend(["body_json", "body_text"])
 
     if "audience_kind" in data:
         valid_audiences = {c[0] for c in LanternmailPost.AUDIENCE_CHOICES}
@@ -1007,3 +1013,79 @@ def lanternmail_post_detail(request, slug: str, post_id: str) -> Response:
         post.save(update_fields=updated_fields + ["updated_at"])
 
     return Response(_serialize_post(post))
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def sync_lanternmail_post_campaign(request, slug: str, post_id: str) -> Response:
+    group = get_object_or_404(Group, slug=slug)
+    denied = _require_lanternmail_manager(request, group)
+    if denied:
+        return denied
+
+    post = get_object_or_404(
+        LanternmailPost.objects.select_related("group", "mailing_list", "created_by"),
+        id=post_id,
+        group=group,
+    )
+    svc = LanternmailService(lm=get_listmonk_client())
+
+    try:
+        post = svc.create_or_update_post_campaign(post=post)
+    except ListmonkError as e:
+        return _listmonk_error_response(e)
+
+    return Response({"data": _serialize_post(post)})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def test_lanternmail_post(request, slug: str, post_id: str) -> Response:
+    emails = request.data.get("emails", [])
+    if not emails:
+        return Response({"error": "No email addresses provided"}, status=status.HTTP_400_BAD_REQUEST)
+    if not isinstance(emails, list):
+        return Response({"error": "emails must be a list."}, status=status.HTTP_400_BAD_REQUEST)
+
+    group = get_object_or_404(Group, slug=slug)
+    denied = _require_lanternmail_manager(request, group)
+    if denied:
+        return denied
+
+    post = get_object_or_404(
+        LanternmailPost.objects.select_related("group", "mailing_list", "created_by"),
+        id=post_id,
+        group=group,
+    )
+    svc = LanternmailService(lm=get_listmonk_client())
+
+    try:
+        post = svc.create_or_update_post_campaign(post=post)
+        resp = svc.lm.test_campaign(campaign_id=post.listmonk_campaign_id, subscribers=emails)
+    except ListmonkError as e:
+        return _listmonk_error_response(e)
+
+    return Response({"data": resp.get("data"), "post": _serialize_post(post)})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def send_lanternmail_post(request, slug: str, post_id: str) -> Response:
+    group = get_object_or_404(Group, slug=slug)
+    denied = _require_lanternmail_manager(request, group)
+    if denied:
+        return denied
+
+    post = get_object_or_404(
+        LanternmailPost.objects.select_related("group", "mailing_list", "created_by"),
+        id=post_id,
+        group=group,
+    )
+    svc = LanternmailService(lm=get_listmonk_client())
+
+    try:
+        post = svc.send_post(post=post)
+    except ListmonkError as e:
+        return _listmonk_error_response(e)
+
+    return Response({"data": _serialize_post(post)})
