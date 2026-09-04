@@ -25,14 +25,4 @@ class Migration(migrations.Migration):
             name='authored_by',
             field=models.CharField(blank=True, default='', help_text="username for member entries; 'system' for ledger entries; 'claude' for imported AI turns.", max_length=150),
         ),
-        migrations.AddField(
-            model_name='aperturelogentry',
-            name='source_timestamp',
-            field=models.DateTimeField(
-                blank=True,
-                default=None,
-                null=True,
-                help_text='Original timestamp of an imported conversation turn. Null for native entries.',
-            ),
-        ),
     ]
