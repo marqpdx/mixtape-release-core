@@ -8,6 +8,7 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.auth import get_user_model
 
 from fundamentals.bases import BaseModel
+from fundamentals.mixins import RichBodyMixin
 from fundamentals.models import BaseContent
 from publishing.models import BaseVersion
 
@@ -357,7 +358,7 @@ class DispatchComment(BaseModel):
         return f"DispatchComment<{self.id}> on {self.writing_piece_id} by {self.author_id}"
 
 
-class DispatchSnapshot(BaseVersion):
+class DispatchSnapshot(RichBodyMixin, BaseVersion):
     """
     Immutable snapshot of collaborative DispatchContent.
     Inherits from BaseVersion for universal publishing architecture.

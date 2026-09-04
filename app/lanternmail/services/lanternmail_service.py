@@ -9,9 +9,10 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 from groups.models import Group
-from lanternmail.models import LanternmailList
+from lanternmail.models import LanternmailList, LanternmailPost
 from .exceptions import ListmonkBadRequestError, ListmonkUpstreamError
 from .listmonk_client import ListmonkClient
 
@@ -72,3 +73,87 @@ class LanternmailService:
             if existing2:
                 return existing2
             raise
+
+    def _post_campaign_name(self, post: LanternmailPost) -> str:
+        return f"lanternmail:{post.group.slug}:{post.pk}"
+
+    def _post_campaign_tags(self, post: LanternmailPost) -> list[str]:
+        return [
+            "lantern-mail",
+            "lanternmail-post",
+            f"group:{post.group.slug}",
+            f"post:{post.pk}",
+            f"audience:{post.audience_kind}",
+        ]
+
+    def create_or_update_post_campaign(
+        self,
+        *,
+        post: LanternmailPost,
+        content_type: str = "richtext",
+    ) -> LanternmailPost:
+        """
+        Create or update the Listmonk draft campaign for a LanternmailPost.
+
+        Listmonk is the delivery engine. The post remains the local source of
+        truth, and only the upstream campaign id is mirrored onto the post.
+        """
+        if not post.mailing_list:
+            raise ListmonkBadRequestError("LanternmailPost requires a mailing_list before campaign sync.")
+        if post.status == LanternmailPost.STATUS_ARCHIVED:
+            raise ListmonkBadRequestError("Archived LanternmailPosts cannot be synced to Listmonk.")
+        if post.status == LanternmailPost.STATUS_SENT:
+            raise ListmonkBadRequestError("Sent LanternmailPosts cannot be updated in Listmonk.")
+
+        list_ids = [post.mailing_list.listmonk_id]
+        tags = self._post_campaign_tags(post)
+        name = self._post_campaign_name(post)
+
+        if post.listmonk_campaign_id:
+            self.lm.update_campaign(
+                campaign_id=post.listmonk_campaign_id,
+                name=name,
+                subject=post.subject,
+                list_ids=list_ids,
+                body=post.body_text,
+                content_type=content_type,
+                messenger="email",
+                tags=tags,
+            )
+            return post
+
+        response = self.lm.create_campaign(
+            name=name,
+            subject=post.subject,
+            list_ids=list_ids,
+            body=post.body,
+            content_type=content_type,
+            messenger="email",
+            tags=tags,
+        )
+        campaign_id = response.get("data", {}).get("id")
+        if not campaign_id:
+            raise ListmonkUpstreamError("Listmonk create campaign response did not include data.id.")
+
+        post.listmonk_campaign_id = campaign_id
+        post.save(update_fields=["listmonk_campaign_id", "updated_at"])
+        return post
+
+    def send_post(self, *, post: LanternmailPost) -> LanternmailPost:
+        """
+        Dispatch a ready LanternmailPost through Listmonk.
+
+        This is intentionally the only Phase 2 path that marks a post sent.
+        Plain PATCH requests still cannot set status=sent.
+        """
+        if post.status != LanternmailPost.STATUS_READY:
+            raise ListmonkBadRequestError("Only ready LanternmailPosts can be sent.")
+
+        post = self.create_or_update_post_campaign(post=post)
+        self.lm.update_campaign_status(post.listmonk_campaign_id, "running")
+
+        post.status = LanternmailPost.STATUS_SENT
+        post.sent_at = timezone.now()
+        post.ingest_status = LanternmailPost.INGEST_ELIGIBLE
+        post.save(update_fields=["status", "sent_at", "ingest_status", "updated_at"])
+        return post

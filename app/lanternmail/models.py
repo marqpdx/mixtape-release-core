@@ -5,6 +5,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import models
 
 from fundamentals.bases import BaseModel
+from fundamentals.mixins import RichBodyMixin
 from django.contrib.auth import get_user_model
 
 from groups.models import Group
@@ -12,7 +13,7 @@ from groups.models import Group
 User = get_user_model()
 
 
-class LanternmailPost(BaseModel):
+class LanternmailPost(RichBodyMixin, BaseModel):
     STATUS_DRAFT = "draft"
     STATUS_REVIEW = "review"
     STATUS_READY = "ready"
@@ -64,7 +65,6 @@ class LanternmailPost(BaseModel):
     )
     title = models.CharField(max_length=255)
     subject = models.CharField(max_length=255)
-    body = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_DRAFT)
     audience_kind = models.CharField(
         max_length=30, choices=AUDIENCE_CHOICES, default=AUDIENCE_MEMBERS
