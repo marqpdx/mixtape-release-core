@@ -994,7 +994,7 @@ def lanternmail_post_detail(request, slug: str, post_id: str) -> Response:
         new_status = data["status"]
         if new_status == LanternmailPost.STATUS_SENT:
             return Response(
-                {"error": "Transitioning to 'sent' is not available in Phase 1. Use the Listmonk send flow."},
+                {"error": "Use the /send endpoint to send a post. Direct status updates to 'sent' are not permitted."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if not post.can_transition_to(new_status):

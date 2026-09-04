@@ -90,6 +90,7 @@ class LanternmailService:
         self,
         *,
         post: LanternmailPost,
+        body_html: str = "",
         content_type: str = "richtext",
     ) -> LanternmailPost:
         """
@@ -97,6 +98,10 @@ class LanternmailService:
 
         Listmonk is the delivery engine. The post remains the local source of
         truth, and only the upstream campaign id is mirrored onto the post.
+
+        body_html: rendered HTML for the campaign body. When provided, body_text
+        is sent as the plain-text altbody. When absent, body_text is used for
+        both (sync/test flows where full HTML is not required).
         """
         if not post.mailing_list:
             raise ListmonkBadRequestError("LanternmailPost requires a mailing_list before campaign sync.")
@@ -108,6 +113,8 @@ class LanternmailService:
         list_ids = [post.mailing_list.listmonk_id]
         tags = self._post_campaign_tags(post)
         name = self._post_campaign_name(post)
+        campaign_body = body_html if body_html else post.body_text
+        altbody = post.body_text if body_html else ""
 
         if post.listmonk_campaign_id:
             self.lm.update_campaign(
@@ -115,10 +122,11 @@ class LanternmailService:
                 name=name,
                 subject=post.subject,
                 list_ids=list_ids,
-                body=post.body_text,
+                body=campaign_body,
                 content_type=content_type,
                 messenger="email",
                 tags=tags,
+                altbody=altbody,
             )
             return post
 
@@ -126,10 +134,11 @@ class LanternmailService:
             name=name,
             subject=post.subject,
             list_ids=list_ids,
-            body=post.body,
+            body=campaign_body,
             content_type=content_type,
             messenger="email",
             tags=tags,
+            altbody=altbody,
         )
         campaign_id = response.get("data", {}).get("id")
         if not campaign_id:
@@ -143,13 +152,16 @@ class LanternmailService:
         """
         Dispatch a ready LanternmailPost through Listmonk.
 
-        This is intentionally the only Phase 2 path that marks a post sent.
-        Plain PATCH requests still cannot set status=sent.
+        Renders HTML from body_json at send time — body_html is never stored.
+        This is the only path that marks a post sent; PATCH cannot set status=sent.
         """
         if post.status != LanternmailPost.STATUS_READY:
             raise ListmonkBadRequestError("Only ready LanternmailPosts can be sent.")
 
-        post = self.create_or_update_post_campaign(post=post)
+        from utils.writing.writing_utils import render_html_from_prosemirror
+        body_html = render_html_from_prosemirror(post.body_json)
+
+        post = self.create_or_update_post_campaign(post=post, body_html=body_html)
         self.lm.update_campaign_status(post.listmonk_campaign_id, "running")
 
         post.status = LanternmailPost.STATUS_SENT

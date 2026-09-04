@@ -158,6 +158,7 @@ class ListmonkClient:
         content_type: str = "richtext",
         messenger: str = "email",
         tags: Optional[List[str]] = None,
+        altbody: str = "",
     ) -> Json:
         payload = {
             "name": name,
@@ -168,7 +169,34 @@ class ListmonkClient:
             "messenger": messenger,
             "tags": tags or [],
         }
+        if altbody:
+            payload["altbody"] = altbody
         return self._req("POST", "/api/campaigns", json=payload)
+
+    def update_campaign(
+        self,
+        campaign_id: int,
+        name: str,
+        subject: str,
+        list_ids: List[int],
+        body: str,
+        content_type: str = "richtext",
+        messenger: str = "email",
+        tags: Optional[List[str]] = None,
+        altbody: str = "",
+    ) -> Json:
+        payload = {
+            "name": name,
+            "subject": subject,
+            "lists": list_ids,
+            "content_type": content_type,
+            "body": body,
+            "messenger": messenger,
+            "tags": tags or [],
+        }
+        if altbody:
+            payload["altbody"] = altbody
+        return self._req("PUT", f"/api/campaigns/{campaign_id}", json=payload)
 
     def get_campaign(self, campaign_id: int) -> Json:
         return self._req("GET", f"/api/campaigns/{campaign_id}")

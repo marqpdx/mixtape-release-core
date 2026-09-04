@@ -181,7 +181,7 @@ class LanternmailPostApiTests(TestCase):
         post.refresh_from_db()
         self.assertEqual(post.status, LanternmailPost.STATUS_DRAFT)
 
-    def test_phase_one_blocks_sent_transition(self):
+    def test_patch_blocks_sent_transition(self):
         self.client.force_authenticate(user=self.admin)
         post = LanternmailPost.objects.create(
             group=self.group,
@@ -198,7 +198,7 @@ class LanternmailPostApiTests(TestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Phase 1", response.data["error"])
+        self.assertIn("/send endpoint", response.data["error"])
 
     def test_only_draft_or_review_posts_can_be_deleted(self):
         self.client.force_authenticate(user=self.admin)
