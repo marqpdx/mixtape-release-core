@@ -494,6 +494,7 @@ class AtriumAIService:
 
 def _build_system_prompt(session) -> str:
     from atrium.ai.context import BerylPersonalContextBuilder
+    from atrium.ai.filters import get_persona_filter
 
     parts = [
         "You are an AI thinking partner for a member working inside Mixtape — "
@@ -520,6 +521,10 @@ def _build_system_prompt(session) -> str:
                     "This session operates in the Puddlejump planning context for this group. "
                     "You have access to the group's canon documents, ADRs, and decision records."
                 )
+
+    persona_filter = get_persona_filter(session)
+    if persona_filter:
+        parts.append(f"\n\n{persona_filter}")
 
     if session.session_context and session.session_context.strip():
         parts.append(f"\n\nSession context:\n{session.session_context.strip()}")
