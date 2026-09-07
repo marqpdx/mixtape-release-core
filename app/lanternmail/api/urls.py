@@ -30,6 +30,8 @@ group_lanternmail_patterns = [
 
     # Posts
     path('posts', lanternmail_posts_list, name='group-lanternmail-posts'),
+    path('posts/from-writing/<uuid:piece_id>', views.create_lanternmail_post_from_writing, name='group-lanternmail-post-from-writing'),
+    path('posts/from-placement/<uuid:placement_id>', views.create_lanternmail_post_from_placement, name='group-lanternmail-post-from-placement'),
     path('posts/<int:post_id>', lanternmail_post_detail, name='group-lanternmail-post-detail'),
     path('posts/<int:post_id>/sync-campaign', views.sync_lanternmail_post_campaign, name='group-lanternmail-post-sync-campaign'),
     path('posts/<int:post_id>/test', views.test_lanternmail_post, name='group-lanternmail-post-test'),

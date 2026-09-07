@@ -18,6 +18,8 @@ from django.views.decorators.csrf import csrf_exempt
 from groups.models import Group
 from groups.models import GroupMembership
 from lanternmail.models import LanternmailList, LanternmailPost
+from publishing.models import ContentPlacement
+from writing.models import WritingPiece
 
 from lanternmail.services.listmonk_client import get_listmonk_client
 from lanternmail.api.utils import send_listmonk_invitations, build_email_query, build_uuid_query
@@ -911,6 +913,87 @@ def lanternmail_posts_list(request, slug: str) -> Response:
         mailing_list=mailing_list,
         metadata=data.get("metadata", {}),
     )
+    return Response(_serialize_post(post), status=status.HTTP_201_CREATED)
+
+
+def _resolve_group_mailing_list(group: Group, mailing_list_id) -> tuple[LanternmailList | None, Response | None]:
+    if not mailing_list_id:
+        return None, None
+
+    mailing_list = LanternmailList.objects.filter(id=mailing_list_id, group=group).first()
+    if not mailing_list:
+        return None, Response(
+            {"error": "mailing_list not found for this group."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return mailing_list, None
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def create_lanternmail_post_from_writing(request, slug: str, piece_id: str) -> Response:
+    group = get_object_or_404(Group, slug=slug)
+
+    denied = _require_lanternmail_manager(request, group)
+    if denied:
+        return denied
+
+    piece = get_object_or_404(WritingPiece, id=piece_id)
+    mailing_list, error = _resolve_group_mailing_list(group, request.data.get("mailing_list"))
+    if error:
+        return error
+
+    svc = LanternmailService(lm=None)
+    try:
+        post = svc.create_post_from_writing(
+            group=group,
+            piece=piece,
+            created_by=request.user,
+            mailing_list=mailing_list,
+            audience_kind=request.data.get("audience_kind", LanternmailPost.AUDIENCE_MEMBERS),
+            subject=request.data.get("subject", ""),
+        )
+    except ListmonkError as e:
+        return _listmonk_error_response(e)
+
+    return Response(_serialize_post(post), status=status.HTTP_201_CREATED)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def create_lanternmail_post_from_placement(request, slug: str, placement_id: str) -> Response:
+    group = get_object_or_404(Group, slug=slug)
+
+    denied = _require_lanternmail_manager(request, group)
+    if denied:
+        return denied
+
+    placement = get_object_or_404(
+        ContentPlacement.objects.select_related(
+            "publication_group",
+            "source_content_type",
+            "target_content_type",
+            "locked_artifact_content_type",
+        ),
+        id=placement_id,
+    )
+
+    mailing_list, error = _resolve_group_mailing_list(group, request.data.get("mailing_list"))
+    if error:
+        return error
+
+    svc = LanternmailService(lm=None)
+    try:
+        post = svc.create_post_from_placement(
+            group=group,
+            placement=placement,
+            created_by=request.user,
+            mailing_list=mailing_list,
+            audience_kind=request.data.get("audience_kind", LanternmailPost.AUDIENCE_MEMBERS),
+        )
+    except ListmonkError as e:
+        return _listmonk_error_response(e)
+
     return Response(_serialize_post(post), status=status.HTTP_201_CREATED)
 
 
