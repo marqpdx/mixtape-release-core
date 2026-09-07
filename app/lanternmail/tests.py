@@ -1,15 +1,30 @@
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 from unittest.mock import patch
 
 from groups.models import Group, GroupMembership
 from lanternmail.models import LanternmailList, LanternmailPost
+from publishing.models import ContentPlacement, PublicationGroup
+from writing.models import WritingPiece, WritingVersion
 
 
 User = get_user_model()
+
+
+def _body_json(text: str) -> dict:
+    return {
+        "type": "doc",
+        "content": [
+            {
+                "type": "paragraph",
+                "content": [{"type": "text", "text": text}],
+            }
+        ],
+    }
 
 
 class FakeListmonkClient:
@@ -114,6 +129,98 @@ class LanternmailPostApiTests(TestCase):
             description="Primary list",
         )
         self.posts_url = f"/api/groups/{self.group.slug}/lanternmail/posts"
+
+    def _create_lantern_placement(
+        self,
+        *,
+        channel: str = "lantern",
+        title: str = "Placed Writing",
+        body_text: str = "Placed body",
+        overrides: dict | None = None,
+    ) -> ContentPlacement:
+        piece = WritingPiece(
+            author=self.admin,
+            author_name=self.admin.username,
+            title=title,
+            excerpt="Placed excerpt",
+            body_json=_body_json("current draft body"),
+            status="published",
+            published_at=timezone.now(),
+        )
+        piece.set_sponsor(self.group)
+        piece.set_submitted_by(self.admin)
+        piece.save()
+
+        version = WritingVersion.objects.create(
+            writing_piece=piece,
+            sequence_no=1,
+            version_label="1",
+            body_json=_body_json(body_text),
+            title=title,
+            excerpt="Placed excerpt",
+            kind="release",
+            created_by=self.admin,
+        )
+        piece.current_version_no = 1
+        piece.save(update_fields=["current_version_no", "updated_at"])
+
+        piece_ct = ContentType.objects.get_for_model(WritingPiece)
+        group_ct = ContentType.objects.get_for_model(Group)
+        version_ct = ContentType.objects.get_for_model(WritingVersion)
+        publication_group = PublicationGroup.objects.create(
+            created_by=self.admin,
+            source_content_type=piece_ct,
+            source_object_id=piece.id,
+        )
+        return ContentPlacement.objects.create(
+            publication_group=publication_group,
+            placed_by=self.admin,
+            source_content_type=piece_ct,
+            source_object_id=piece.id,
+            target_content_type=group_ct,
+            target_object_id=self.group.id,
+            channel=channel,
+            visibility="members",
+            follow_updates=False,
+            locked_artifact_content_type=version_ct,
+            locked_artifact_object_id=version.id,
+            overrides=overrides or {},
+        )
+
+    def _create_published_piece(
+        self,
+        *,
+        group: Group | None = None,
+        title: str = "Published Writing",
+        body_text: str = "Published body",
+    ) -> WritingPiece:
+        target_group = group or self.group
+        piece = WritingPiece(
+            author=self.admin,
+            author_name=self.admin.username,
+            title=title,
+            excerpt="Published excerpt",
+            body_json=_body_json("current draft body"),
+            status="published",
+            published_at=timezone.now(),
+        )
+        piece.set_sponsor(target_group)
+        piece.set_submitted_by(self.admin)
+        piece.save()
+
+        WritingVersion.objects.create(
+            writing_piece=piece,
+            sequence_no=1,
+            version_label="1",
+            body_json=_body_json(body_text),
+            title=title,
+            excerpt="Published excerpt",
+            kind="release",
+            created_by=self.admin,
+        )
+        piece.current_version_no = 1
+        piece.save(update_fields=["current_version_no", "updated_at"])
+        return piece
 
     def test_admin_can_create_and_list_posts(self):
         self.client.force_authenticate(user=self.admin)
@@ -330,3 +437,128 @@ class LanternmailPostApiTests(TestCase):
         self.assertIsNotNone(post.sent_at)
         self.assertEqual(post.listmonk_campaign_id, 12345)
         self.assertEqual(fake_client.status_updates, [{"campaign_id": 12345, "status": "running"}])
+
+    def test_create_post_from_lantern_placement_preserves_editable_copy_and_provenance(self):
+        self.client.force_authenticate(user=self.admin)
+        placement = self._create_lantern_placement(
+            title="Harvest Note",
+            body_text="Locked version body",
+            overrides={"lantern_subject": "Harvest subject"},
+        )
+
+        response = self.client.post(
+            f"{self.posts_url}/from-placement/{placement.id}",
+            data={
+                "mailing_list": self.mailing_list.id,
+                "audience_kind": LanternmailPost.AUDIENCE_SUBSCRIBERS,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        post = LanternmailPost.objects.get(id=response.data["id"])
+        self.assertEqual(post.title, "Harvest Note")
+        self.assertEqual(post.subject, "Harvest subject")
+        self.assertEqual(post.body_text, "Locked version body")
+        self.assertEqual(post.status, LanternmailPost.STATUS_DRAFT)
+        self.assertEqual(post.audience_kind, LanternmailPost.AUDIENCE_SUBSCRIBERS)
+        self.assertEqual(post.mailing_list, self.mailing_list)
+        self.assertEqual(post.content_placement, placement)
+        self.assertEqual(post.publication_group, placement.publication_group)
+        self.assertEqual(post.source_content_type, placement.source_content_type)
+        self.assertEqual(post.source_object_id, str(placement.source_object_id))
+        self.assertEqual(post.metadata["created_from"], "content_placement")
+
+    def test_create_post_from_placement_is_idempotent(self):
+        self.client.force_authenticate(user=self.admin)
+        placement = self._create_lantern_placement()
+
+        first = self.client.post(f"{self.posts_url}/from-placement/{placement.id}", format="json")
+        second = self.client.post(f"{self.posts_url}/from-placement/{placement.id}", format="json")
+
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(first.data["id"], second.data["id"])
+        self.assertEqual(LanternmailPost.objects.filter(content_placement=placement).count(), 1)
+
+    def test_create_post_from_placement_rejects_non_lantern_channel(self):
+        self.client.force_authenticate(user=self.admin)
+        placement = self._create_lantern_placement(channel="feed")
+
+        response = self.client.post(f"{self.posts_url}/from-placement/{placement.id}", format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Only lantern placements", response.data["detail"])
+
+    def test_create_post_from_placement_does_not_mutate_source_writing(self):
+        self.client.force_authenticate(user=self.admin)
+        placement = self._create_lantern_placement(title="Original Title", body_text="Original body")
+        piece = placement.source
+        original_piece_body = piece.body_json
+
+        response = self.client.post(f"{self.posts_url}/from-placement/{placement.id}", format="json")
+        post = LanternmailPost.objects.get(id=response.data["id"])
+        patch_response = self.client.patch(
+            f"{self.posts_url}/{post.id}",
+            data={"title": "Email Title", "subject": "Email subject", "body_json": _body_json("Email body")},
+            format="json",
+        )
+
+        self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
+        piece.refresh_from_db()
+        self.assertEqual(piece.title, "Original Title")
+        self.assertEqual(piece.body_json, original_piece_body)
+
+    def test_create_post_from_writing_creates_lantern_placement_and_post(self):
+        self.client.force_authenticate(user=self.admin)
+        piece = self._create_published_piece(title="Source Piece", body_text="Version body")
+
+        response = self.client.post(
+            f"{self.posts_url}/from-writing/{piece.id}",
+            data={
+                "mailing_list": self.mailing_list.id,
+                "audience_kind": LanternmailPost.AUDIENCE_SUBSCRIBERS,
+                "subject": "Custom subject",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        post = LanternmailPost.objects.get(id=response.data["id"])
+        placement = post.content_placement
+        self.assertIsNotNone(placement)
+        self.assertEqual(placement.channel, "lantern")
+        self.assertEqual(placement.source, piece)
+        self.assertEqual(placement.target, self.group)
+        self.assertEqual(placement.overrides["lantern_subject"], "Custom subject")
+        self.assertEqual(post.title, "Source Piece")
+        self.assertEqual(post.subject, "Custom subject")
+        self.assertEqual(post.body_text, "Version body")
+        self.assertEqual(post.mailing_list, self.mailing_list)
+
+    def test_create_post_from_writing_reuses_existing_lantern_placement(self):
+        self.client.force_authenticate(user=self.admin)
+        placement = self._create_lantern_placement(overrides={"lantern_subject": "Existing subject"})
+        piece = placement.source
+
+        response = self.client.post(f"{self.posts_url}/from-writing/{piece.id}", format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        post = LanternmailPost.objects.get(id=response.data["id"])
+        self.assertEqual(post.content_placement, placement)
+        self.assertEqual(post.subject, "Existing subject")
+        self.assertEqual(ContentPlacement.objects.filter(source_object_id=piece.id, channel="lantern").count(), 1)
+
+    def test_create_post_from_writing_rejects_piece_from_other_group(self):
+        self.client.force_authenticate(user=self.admin)
+        other_group = _create_group(
+            sponsor_user=self.admin,
+            title="Other Group",
+            slug="other-lantern-group",
+        )
+        piece = self._create_published_piece(group=other_group)
+
+        response = self.client.post(f"{self.posts_url}/from-writing/{piece.id}", format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("does not belong", response.data["detail"])

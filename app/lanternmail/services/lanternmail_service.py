@@ -9,17 +9,20 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from django.db import IntegrityError, transaction
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from groups.models import Group
 from lanternmail.models import LanternmailList, LanternmailPost
+from publishing.models import ContentPlacement, PublicationGroup
+from publishing.services.content_display import get_display_payload
 from .exceptions import ListmonkBadRequestError, ListmonkUpstreamError
 from .listmonk_client import ListmonkClient
 
 
 @dataclass
 class LanternmailService:
-    lm: ListmonkClient
+    lm: Optional[ListmonkClient]
 
     def _safe_slug(self, display_name: str) -> str:
         return re.sub(r"[^a-zA-Z0-9\-]", "", display_name.lower().replace(" ", "-"))
@@ -109,6 +112,8 @@ class LanternmailService:
             raise ListmonkBadRequestError("Archived LanternmailPosts cannot be synced to Listmonk.")
         if post.status == LanternmailPost.STATUS_SENT:
             raise ListmonkBadRequestError("Sent LanternmailPosts cannot be updated in Listmonk.")
+        if self.lm is None:
+            raise ListmonkBadRequestError("Listmonk client is required for campaign sync.")
 
         list_ids = [post.mailing_list.listmonk_id]
         tags = self._post_campaign_tags(post)
@@ -147,6 +152,139 @@ class LanternmailService:
         post.listmonk_campaign_id = campaign_id
         post.save(update_fields=["listmonk_campaign_id", "updated_at"])
         return post
+
+    @transaction.atomic
+    def create_post_from_placement(
+        self,
+        *,
+        group: Group,
+        placement: ContentPlacement,
+        created_by,
+        mailing_list: LanternmailList | None = None,
+        audience_kind: str = LanternmailPost.AUDIENCE_MEMBERS,
+    ) -> LanternmailPost:
+        """
+        Create an editable LanternmailPost from a lantern ContentPlacement.
+
+        The placement/source artifact remains immutable. LanternmailPost gets
+        its own editable body fields plus provenance links back to publishing.
+        """
+        if placement.channel != "lantern":
+            raise ListmonkBadRequestError("Only lantern placements can create LanternmailPosts.")
+
+        existing = LanternmailPost.objects.filter(group=group, content_placement=placement).first()
+        if existing:
+            return existing
+
+        if mailing_list and mailing_list.group_id != group.id:
+            raise ListmonkBadRequestError("mailing_list not found for this group.")
+
+        valid_audiences = {choice[0] for choice in LanternmailPost.AUDIENCE_CHOICES}
+        if audience_kind not in valid_audiences:
+            raise ListmonkBadRequestError(f"Invalid audience_kind. Valid values: {sorted(valid_audiences)}")
+
+        try:
+            display = get_display_payload(placement)
+        except (ValidationError, AttributeError, TypeError) as exc:
+            raise ListmonkBadRequestError(f"Placement cannot be resolved: {exc}") from exc
+
+        artifact = display.get("artifact")
+        metadata = display.get("metadata") or {}
+        title = (metadata.get("title") or getattr(artifact, "title", "") or "Untitled").strip()
+        overrides = placement.overrides or {}
+        subject = (
+            metadata.get("lantern_subject")
+            or metadata.get("subject")
+            or overrides.get("lantern_subject")
+            or overrides.get("subject")
+            or title
+        ).strip()
+        body_json = getattr(artifact, "body_json", {}) or {}
+
+        return LanternmailPost.objects.create(
+            group=group,
+            created_by=created_by,
+            title=title,
+            subject=subject,
+            body_json=body_json,
+            status=LanternmailPost.STATUS_DRAFT,
+            audience_kind=audience_kind,
+            mailing_list=mailing_list,
+            source_content_type=placement.source_content_type,
+            source_object_id=str(placement.source_object_id),
+            publication_group=placement.publication_group,
+            content_placement=placement,
+            metadata={
+                "created_from": "content_placement",
+                "placement_id": str(placement.id),
+                "artifact_type": artifact.__class__.__name__ if artifact else None,
+                "artifact_id": str(getattr(artifact, "id", "")) if artifact else None,
+            },
+        )
+
+    @transaction.atomic
+    def create_post_from_writing(
+        self,
+        *,
+        group: Group,
+        piece,
+        created_by,
+        mailing_list: LanternmailList | None = None,
+        audience_kind: str = LanternmailPost.AUDIENCE_MEMBERS,
+        subject: str = "",
+    ) -> LanternmailPost:
+        """
+        Create or reuse a lantern placement for a published WritingPiece, then
+        create the editable LanternmailPost from that placement.
+        """
+        if piece.group != group:
+            raise ListmonkBadRequestError("Writing piece does not belong to this group.")
+
+        artifact = piece.get_current_artifact()
+        if not artifact:
+            raise ListmonkBadRequestError("Writing piece must have a published artifact before Lanternmail creation.")
+
+        from django.contrib.contenttypes.models import ContentType
+        from writing.models import WritingPiece
+
+        piece_ct = ContentType.objects.get_for_model(WritingPiece)
+        group_ct = ContentType.objects.get_for_model(Group)
+        artifact_ct = ContentType.objects.get_for_model(artifact.__class__)
+
+        publication_group = PublicationGroup.objects.create(
+            created_by=created_by,
+            source_content_type=piece_ct,
+            source_object_id=piece.id,
+            note="Lanternmail post creation",
+        )
+        placement, created = ContentPlacement.objects.get_or_create(
+            source_content_type=piece_ct,
+            source_object_id=piece.id,
+            target_content_type=group_ct,
+            target_object_id=group.id,
+            channel="lantern",
+            defaults={
+                "publication_group": publication_group,
+                "placed_by": created_by,
+                "visibility": "members",
+                "follow_updates": False,
+                "locked_artifact_content_type": artifact_ct,
+                "locked_artifact_object_id": artifact.id,
+                "overrides": {
+                    "lantern_subject": subject.strip() or f"New from {group.title}: {piece.title}",
+                },
+            },
+        )
+        if not created:
+            publication_group.delete()
+
+        return self.create_post_from_placement(
+            group=group,
+            placement=placement,
+            created_by=created_by,
+            mailing_list=mailing_list,
+            audience_kind=audience_kind,
+        )
 
     def send_post(self, *, post: LanternmailPost) -> LanternmailPost:
         """

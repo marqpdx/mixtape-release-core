@@ -85,7 +85,7 @@ class LanternmailPost(RichBodyMixin, BaseModel):
         on_delete=models.SET_NULL,
         related_name="+",
     )
-    source_object_id = models.PositiveIntegerField(null=True, blank=True)
+    source_object_id = models.CharField(max_length=64, null=True, blank=True)
     source = GenericForeignKey("source_content_type", "source_object_id")
     publication_group = models.ForeignKey(
         "publishing.PublicationGroup",
