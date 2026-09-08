@@ -11,6 +11,7 @@ from .views import (
     SourceGrantImportLatestView,
     SourceGrantListCreateView,
     WorkingSetListView,
+    WorkingSetPushToLanternmailView,
 )
 
 
@@ -24,5 +25,6 @@ group_sourcework_patterns = [
     path("source-grants/<uuid:grant_id>/import-from-source", SourceGrantImportFromSourceView.as_view(), name="sourcework-import-from-source"),
     path("source-evidence/<uuid:evidence_id>/raw-message", SourceEvidenceRawMessageView.as_view(), name="sourcework-evidence-raw-message"),
     path("working-sets", WorkingSetListView.as_view(), name="sourcework-working-sets"),
+    path("working-sets/<uuid:ws_id>/push-to-lanternmail", WorkingSetPushToLanternmailView.as_view(), name="sourcework-push-to-lanternmail"),
     path("provisional-things/<uuid:thing_id>/verify-name", ProvisionalThingVerifyNameView.as_view(), name="sourcework-verify-name"),
 ]

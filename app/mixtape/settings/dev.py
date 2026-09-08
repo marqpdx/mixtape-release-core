@@ -249,6 +249,18 @@ OPS_BACKUP_MONITORS = {
 
 
 # ============================================================================
+# SOURCEWORK — DEV TEST OVERRIDE
+# When set, Lanternmail push uses these emails instead of real verified members.
+# Remove before any production / real-recruiter push.
+# ============================================================================
+SOURCEWORK_LANTERNMAIL_TEST_EMAILS = [
+    {"email": "marq@streetyoga.org", "name": "Renata Solberg"},
+    {"email": "marq@noticedesign.net", "name": "Darian Foss"},
+    {"email": "info@mindfulbrilliance.com", "name": "Cleo Wainwright"},
+]
+
+
+# ============================================================================
 # DEFERRED SETTINGS (Phase 2+)
 # ============================================================================
 # PostgreSQL database - uncomment when ready to use

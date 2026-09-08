@@ -418,6 +418,79 @@ def _looks_like_single_name(value: str) -> bool:
     return bool(re.match(r"^[A-Z][A-Za-z'-]{2,}$", name))
 
 
+def push_working_set_to_lanternmail(
+    working_set: WorkingSet,
+    *,
+    list_name: str,
+    user,
+) -> dict:
+    """
+    Create a named Listmonk list from the confirmed (name_status=ready) members
+    of a Working Set and subscribe each one.
+
+    DEV override: if SOURCEWORK_LANTERNMAIL_TEST_EMAILS is set in settings, that
+    list of {email, name} dicts is used instead of the real verified members.
+    Remove the setting before any real-recruiter push.
+    """
+    from lanternmail.services.listmonk_client import get_listmonk_client
+
+    test_override = getattr(settings, "SOURCEWORK_LANTERNMAIL_TEST_EMAILS", None)
+
+    if test_override:
+        members_to_push = list(test_override)
+    else:
+        confirmed = (
+            working_set.memberships
+            .filter(provisional_thing__name_status=NameStatus.READY)
+            .select_related("provisional_thing")
+        )
+        members_to_push = [
+            {"email": m.provisional_thing.email, "name": m.provisional_thing.preferred_name}
+            for m in confirmed
+            if m.provisional_thing.email
+        ]
+
+    if not members_to_push:
+        raise ValueError("No confirmed members with email addresses to push.")
+
+    client = get_listmonk_client()
+    lm_resp = client.create_list(
+        name=list_name,
+        list_type="private",
+        optin="single",
+        tags=["sourcework", "recruiter-pipeline"],
+        description=f"Sourcework recruiter list — {working_set.title}",
+    )
+    list_id = lm_resp["data"]["id"]
+
+    results = []
+    for member in members_to_push:
+        try:
+            sub_resp = client.create_subscriber(
+                email=member["email"],
+                name=member.get("name", ""),
+                status="enabled",
+                lists=[list_id],
+                preconfirm_subscriptions=True,
+            )
+            results.append({
+                "email": member["email"],
+                "status": "subscribed",
+                "subscriber_id": (sub_resp.get("data") or {}).get("id"),
+            })
+        except Exception as exc:
+            results.append({"email": member["email"], "status": "error", "detail": str(exc)})
+
+    return {
+        "list_id": list_id,
+        "list_name": list_name,
+        "pushed": sum(1 for r in results if r["status"] == "subscribed"),
+        "errors": sum(1 for r in results if r["status"] == "error"),
+        "results": results,
+        "dev_override_active": bool(test_override),
+    }
+
+
 def _refresh_working_set_summary(working_set: WorkingSet) -> None:
     memberships = working_set.memberships.select_related("provisional_thing")
     total = memberships.count()
