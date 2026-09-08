@@ -32,6 +32,9 @@ celerybeat-schedule.*
 .env.local
 .env.*.local
 
+# Local OAuth client secrets
+google-client-secret-local.json
+
 # IDE
 .vscode/
 .idea/
