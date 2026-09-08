@@ -168,6 +168,7 @@ INSTALLED_APPS = [
     "media_capture",   # MediaCapture — screencast & media ingestion pipeline (Bridge Phase D)
     "catalyst",        # Catalyst — per-tenant Codex provisioning and activation
     "tenant_runtime",  # TenantRuntime — shared per-tenant AI subprocess service layer
+    "sourcework",      # Sourcework - SourceGrant, provisional things, and Working Sets
 ]
 
 if OCR_SPIKE_ENABLED:
