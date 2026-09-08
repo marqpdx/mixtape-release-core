@@ -15,9 +15,13 @@ from .views import (
     AtriumSessionDistillView,
     AtriumSessionResetView,
     AtriumSponsorContextView,
+    AtriumMeSessionView,
+    AtriumMeSessionExchangeView,
 )
 
 urlpatterns = [
+    path("me/session", AtriumMeSessionView.as_view(), name="atrium-me-session"),
+    path("me/session/exchange", AtriumMeSessionExchangeView.as_view(), name="atrium-me-session-exchange"),
     path("sponsor-context/", AtriumSponsorContextView.as_view(), name="atrium-sponsor-context"),
     path("sessions/", AtriumSessionListView.as_view(), name="atrium-session-list"),
     path("sessions/new", AtriumSessionCreateView.as_view(), name="atrium-session-create"),

@@ -224,8 +224,8 @@ class Distillate(models.Model):
     Linked to the Initiative that owns the body of work (via ApertureLog / sponsor).
     The session field records which Atrium session generated it.
 
-    Note: `initiative` maps to the future Pulse model once that concept is fully
-    designed. Migration path: Distillate.initiative → Distillate.pulse.
+    AtriumSession IS the Pulse concept — no separate Pulse model. A session that
+    produced at least one Distillate is a "Pulse" in product vocabulary.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
