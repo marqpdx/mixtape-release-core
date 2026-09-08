@@ -34,6 +34,11 @@ class AtriumSessionRole(models.TextChoices):
     ASSISTANT = "assistant", "Assistant"
 
 
+class AtriumSessionEntryType(models.TextChoices):
+    MESSAGE = "message", "Message"
+    DOCUMENT = "document", "Document"
+
+
 class AtriumSession(BaseModel):
     """
     A personal AI conversation session for a member in the Atrium surface.
@@ -157,13 +162,28 @@ class AtriumSessionEntry(BaseModel):
 
     content = models.TextField()
 
+    entry_type = models.CharField(
+        max_length=16,
+        choices=AtriumSessionEntryType.choices,
+        default=AtriumSessionEntryType.MESSAGE,
+        db_index=True,
+        help_text="message = prose bubble; document = rendered AtriumDocCard.",
+    )
+
+    document_title = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Populated when entry_type=document. Extracted from the <document title> envelope.",
+    )
+
     class Meta(BaseModel.Meta):
         verbose_name = "Atrium Session Entry"
         verbose_name_plural = "Atrium Session Entries"
         ordering = ["created_at"]
 
     def __str__(self):
-        return f"AtriumSessionEntry({self.role}) in {self.session_id}"
+        return f"AtriumSessionEntry({self.role}/{self.entry_type}) in {self.session_id}"
 
 
 class CloudAgentSessionStatus(models.TextChoices):
@@ -261,3 +281,61 @@ class Distillate(models.Model):
 
     def __str__(self):
         return f"Distillate({self.document_type}): {self.title[:60]}"
+
+
+class InitiativeDocument(models.Model):
+    """
+    An AI-generated document attachment on an Atrium session.
+
+    Created when the stream parser detects a <document> envelope in the
+    assistant response. Linked to the Initiative that owns the session
+    so it persists and accumulates independent of the session log.
+    The session FK records which Atrium session generated it.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    initiative = models.ForeignKey(
+        "initiatives.Initiative",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="initiative_documents",
+        help_text="Initiative this document belongs to. Null for personal sessions with no linked initiative.",
+    )
+
+    session = models.ForeignKey(
+        AtriumSession,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="documents",
+        help_text="The Atrium session that generated this document.",
+    )
+
+    session_entry = models.OneToOneField(
+        AtriumSessionEntry,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="initiative_document",
+        help_text="The AtriumSessionEntry (entry_type=document) this record backs.",
+    )
+
+    title = models.CharField(max_length=255)
+    body = models.TextField()
+    format = models.CharField(
+        max_length=16,
+        default="markdown",
+        help_text="Body format. Default: markdown.",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Initiative Document"
+        verbose_name_plural = "Initiative Documents"
+
+    def __str__(self):
+        return f"InitiativeDocument: {self.title[:60]}"
