@@ -13,6 +13,7 @@
 import json
 import logging
 import os
+import re as _re
 from typing import Generator
 
 from atrium.ai.tools import TOOLS, dispatch_tool
@@ -491,13 +492,16 @@ class AtriumAIService:
                 pass
             yield chunk
 
-        # Save assistant entry
+        # Save assistant entry — parse document envelope if present
         assistant_text = "".join(full_response)
         if assistant_text:
+            entry_type, doc_title, saved_content = _parse_document_envelope(assistant_text)
             AtriumSessionEntry.objects.create(
                 session=session,
                 role=AtriumSessionRole.ASSISTANT,
-                content=assistant_text,
+                content=saved_content,
+                entry_type=entry_type,
+                document_title=doc_title,
             )
 
         # Update session activity timestamp
@@ -869,6 +873,30 @@ def _trigger_keeper_if_due(session) -> None:
             keeper_compact_task.delay(str(session.id))
     except Exception as exc:
         logger.warning("[atrium] _trigger_keeper_if_due failed: %s", exc)
+
+
+_DOCUMENT_OPEN_RE = _re.compile(r'<document(?:\s+title="([^"]*)")?[^>]*>', _re.DOTALL)
+
+
+def _parse_document_envelope(text: str) -> tuple:
+    """
+    Detect a <document title="...">...</document> envelope.
+    Returns (entry_type, document_title, body).
+    If the envelope is absent or incomplete, returns ("message", "", text).
+    Body is stripped of the envelope tags; document_title may be empty string.
+    """
+    from atrium.models import AtriumSessionEntryType
+    m = _DOCUMENT_OPEN_RE.search(text)
+    if not m:
+        return AtriumSessionEntryType.MESSAGE, "", text
+    title = m.group(1) or ""
+    body = text[m.end():]
+    close_idx = body.rfind("</document>")
+    if close_idx == -1:
+        # Opened but never closed — stream was interrupted; fall back to message.
+        return AtriumSessionEntryType.MESSAGE, "", text
+    body = body[:close_idx].strip()
+    return AtriumSessionEntryType.DOCUMENT, title, body
 
 
 def _trigger_idle_keeper_if_due(session) -> None:

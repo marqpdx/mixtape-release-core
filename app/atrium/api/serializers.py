@@ -8,7 +8,7 @@ from atrium.models import AtriumSession, AtriumSessionEntry
 class AtriumSessionEntrySerializer(serializers.ModelSerializer):
     class Meta:
         model = AtriumSessionEntry
-        fields = ["id", "role", "content", "created_at"]
+        fields = ["id", "role", "content", "entry_type", "document_title", "created_at"]
 
 
 class AtriumSessionListSerializer(serializers.ModelSerializer):
