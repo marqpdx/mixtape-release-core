@@ -632,6 +632,122 @@ class AtriumSessionResetView(APIView):
         return Response({"status": "ready"}, status=status.HTTP_200_OK)
 
 
+class AtriumMeSessionView(APIView):
+    """
+    GET /api/atrium/me/session
+
+    Resolves or creates the requesting user's personal AtriumSession (no sponsor).
+    Returns the session object. Creates a new active session if none exists.
+
+    Personal sessions have sponsor_object_id=null — the member is their own context.
+    This mirrors the initiatives me/sessions pattern and unblocks the mobile migration.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        profile = ensure_user_profile(request.user)
+
+        session = (
+            AtriumSession.objects.filter(
+                member=profile,
+                sponsor_object_id__isnull=True,
+                status=AtriumSessionStatus.ACTIVE,
+                deleted_at__isnull=True,
+            )
+            .order_by("-last_activity_at", "-created_at")
+            .first()
+        )
+
+        if session is None:
+            session = AtriumSession.objects.create(
+                member=profile,
+                title="",
+                session_context="",
+            )
+
+        return Response(AtriumSessionListSerializer(session).data, status=status.HTTP_200_OK)
+
+
+class AtriumMeSessionExchangeView(APIView):
+    """
+    POST /api/atrium/me/session/exchange
+
+    Streams a Claude API exchange on the user's personal AtriumSession.
+    Resolves the personal session first (same logic as AtriumMeSessionView),
+    then delegates to the standard exchange stream.
+
+    Body: { message: string }
+    Response: text/event-stream SSE — same format as /sessions/<id>/exchange
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        profile = ensure_user_profile(request.user)
+
+        session = (
+            AtriumSession.objects.filter(
+                member=profile,
+                sponsor_object_id__isnull=True,
+                status=AtriumSessionStatus.ACTIVE,
+                deleted_at__isnull=True,
+            )
+            .order_by("-last_activity_at", "-created_at")
+            .first()
+        )
+
+        if session is None:
+            session = AtriumSession.objects.create(
+                member=profile,
+                title="",
+                session_context="",
+            )
+
+        if session.status == AtriumSessionStatus.ARCHIVED:
+            return Response(
+                {"detail": "Session is archived."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        message = (request.data.get("message") or "").strip()
+        if not message:
+            return Response({"detail": "message is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            from atrium.ai.service import AtriumAIService
+            ai = AtriumAIService(session=session)
+        except Exception as exc:
+            logger.error("atrium_me_exchange_ai_init_failed user=%s error=%s", request.user.username, exc)
+            return Response(
+                {"detail": "AI service is currently unavailable."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        logger.info("atrium_me_exchange_start session=%s user=%s", session.id, request.user.username)
+
+        def stream():
+            try:
+                for chunk in ai.exchange_stream(session, message):
+                    yield chunk
+            except Exception:
+                logger.exception("atrium_me_exchange_stream_error session=%s", session.id)
+                yield (
+                    b"data: "
+                    + json.dumps({"type": "error", "detail": "An error occurred during the AI exchange."}).encode()
+                    + b"\n\n"
+                )
+
+        return StreamingHttpResponse(
+            stream(),
+            content_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+
 class AtriumSponsorContextView(APIView):
     """
     GET /api/atrium/sponsor-context/
