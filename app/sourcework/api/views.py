@@ -31,6 +31,7 @@ from sourcework.models import (
     ExternalConnection,
     ExternalConnectionStatus,
     ProvisionalThing,
+    SourceEvidence,
     SourceGrant,
     SourceGrantStatus,
     WorkingSet,
@@ -39,6 +40,7 @@ from sourcework.services import import_latest_from_source_grant, verify_provisio
 from switchboard.source_grants import (
     SourceGrantAccessError,
     fetch_gmail_labels_for_connection,
+    fetch_gmail_message_raw,
     fetch_gmail_profile_from_credentials_payload,
 )
 
@@ -303,6 +305,30 @@ class SourceGrantImportFromSourceView(APIView):
             limit=serializer.validated_data["limit"],
         )
         return Response(result, status=status.HTTP_201_CREATED)
+
+
+class SourceEvidenceRawMessageView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, slug, evidence_id):
+        if not _superuser_required(request):
+            return _forbidden()
+        group = _get_group(slug)
+        evidence = get_object_or_404(
+            SourceEvidence,
+            id=evidence_id,
+            source_grant__connection__group=group,
+        )
+        if not evidence.provider_message_id:
+            return Response({"error": "No provider message ID stored."}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            connection = evidence.source_grant.connection
+            data = fetch_gmail_message_raw(connection, message_id=evidence.provider_message_id)
+        except SourceGrantAccessError as exc:
+            return Response({"error": exc.detail}, status=status.HTTP_502_BAD_GATEWAY)
+        except Exception as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response(data)
 
 
 class WorkingSetListView(APIView):
