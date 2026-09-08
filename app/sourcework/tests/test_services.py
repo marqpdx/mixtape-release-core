@@ -1,6 +1,7 @@
 from django.test import SimpleTestCase
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
+from django.core.cache import cache
 from django.test import TestCase
 from rest_framework.test import APIClient
 from unittest.mock import patch
@@ -9,6 +10,7 @@ from groups.models import Group
 from initiatives.models import ActionRun, ActionRunStatus
 from sourcework.models import NameConfidence, NameSource, NameStatus
 from sourcework.models import ExternalConnection, ExternalConnectionStatus, ProvisionalThing, SourceGrant, WorkingSet
+from sourcework.api.views import OAUTH_STATE_CACHE_PREFIX
 from sourcework.providers import SourceMessage, get_source_provider_adapter
 from sourcework.services import _parse_sent_at, import_latest_from_source_grant, resolve_sender_name
 from switchboard.source_grants import (
@@ -224,6 +226,35 @@ class SourceImportAuditTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["labels"], [{"id": "Label_123", "name": "Recruiters", "type": "user"}])
+
+    def test_google_oauth_callback_accepts_cached_state_without_bearer_auth(self):
+        self.user.is_superuser = True
+        self.user.save(update_fields=["is_superuser"])
+        state = "state-from-google"
+        redirect_uri = f"http://127.0.0.1:8010/api/groups/{self.group.slug}/sourcework/google-oauth/callback"
+        cache.set(
+            f"{OAUTH_STATE_CACHE_PREFIX}{state}",
+            {
+                "group_id": str(self.group.id),
+                "user_id": str(self.user.pk),
+                "redirect_uri": redirect_uri,
+            },
+            timeout=600,
+        )
+
+        with (
+            patch("sourcework.api.views.fetch_google_credentials", return_value={"client_id": "client-id"}),
+            patch("sourcework.api.views.fetch_gmail_profile_from_credentials_payload", return_value={"emailAddress": "mark@example.com"}),
+        ):
+            response = APIClient().get(
+                f"/api/groups/{self.group.slug}/sourcework/google-oauth/callback",
+                {"state": state, "code": "google-code"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        connection = ExternalConnection.objects.get(provider_account_id="mark@example.com")
+        self.assertEqual(connection.owner, self.user)
+        self.assertEqual(connection.metadata["gmail_profile"]["emailAddress"], "mark@example.com")
 
 
 def _gmail_service_mock(*, labels=None, profile=None):

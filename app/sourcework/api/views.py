@@ -1,8 +1,10 @@
 import json
 
-from django.shortcuts import get_object_or_404
+from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
 from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import permissions, status
 from rest_framework.response import Response
@@ -39,6 +41,11 @@ from switchboard.source_grants import (
     fetch_gmail_labels_for_connection,
     fetch_gmail_profile_from_credentials_payload,
 )
+
+
+User = get_user_model()
+OAUTH_STATE_CACHE_PREFIX = "sourcework:google-oauth-state:"
+OAUTH_STATE_CACHE_TTL_SECONDS = 10 * 60
 
 
 def _get_group(slug: str) -> Group:
@@ -102,6 +109,15 @@ class GoogleOAuthStartView(APIView):
             "user_id": str(request.user.pk),
             "redirect_uri": redirect_uri,
         }
+        cache.set(
+            f"{OAUTH_STATE_CACHE_PREFIX}{oauth_start.state}",
+            {
+                "group_id": str(group.id),
+                "user_id": str(request.user.pk),
+                "redirect_uri": redirect_uri,
+            },
+            timeout=OAUTH_STATE_CACHE_TTL_SECONDS,
+        )
         request.session.modified = True
         return Response(
             {
@@ -113,23 +129,31 @@ class GoogleOAuthStartView(APIView):
 
 
 class GoogleOAuthCallbackView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     def get(self, request, slug):
-        if not _superuser_required(request):
-            return _forbidden()
         group = _get_group(slug)
+        state = str(request.GET.get("state") or "")
         session_state = request.session.get(OAUTH_SESSION_KEY) or {}
-        if session_state.get("state") != request.GET.get("state"):
+        cached_state = cache.get(f"{OAUTH_STATE_CACHE_PREFIX}{state}") or {}
+        oauth_state = cached_state or {
+            "group_id": session_state.get("group_id"),
+            "user_id": session_state.get("user_id"),
+            "redirect_uri": session_state.get("redirect_uri"),
+        }
+        if not state or (session_state.get("state") and session_state.get("state") != state):
             return Response({"detail": "Google OAuth state did not match."}, status=status.HTTP_400_BAD_REQUEST)
-        if session_state.get("group_id") != str(group.id):
+        if not oauth_state or oauth_state.get("group_id") != str(group.id):
             return Response({"detail": "Google OAuth group did not match."}, status=status.HTTP_400_BAD_REQUEST)
+        owner = User.objects.filter(pk=oauth_state.get("user_id"), is_superuser=True).first()
+        if not owner:
+            return Response({"detail": "Google OAuth user could not be resolved."}, status=status.HTTP_400_BAD_REQUEST)
         if request.GET.get("error"):
             return Response({"detail": f"Google OAuth returned error: {request.GET['error']}"}, status=status.HTTP_400_BAD_REQUEST)
         if not request.GET.get("code"):
             return Response({"detail": "Google OAuth callback did not include a code."}, status=status.HTTP_400_BAD_REQUEST)
 
-        redirect_uri = session_state.get("redirect_uri") or request.build_absolute_uri(
+        redirect_uri = oauth_state.get("redirect_uri") or request.build_absolute_uri(
             f"/api/groups/{group.slug}/sourcework/google-oauth/callback"
         )
         try:
@@ -152,7 +176,7 @@ class GoogleOAuthCallbackView(APIView):
             pass
         connection = ExternalConnection.objects.create(
             group=group,
-            owner=request.user,
+            owner=owner,
             provider="google_gmail",
             provider_account_id=str(account_email),
             display_name=f"Google Mail - {account_email}" if account_email != "google-gmail" else "Google Mail",
@@ -164,6 +188,7 @@ class GoogleOAuthCallbackView(APIView):
             refreshed_at=timezone.now(),
             metadata={"adapter": "switchboard_gmail_v1", "oauth_flow": "google_web_server", "gmail_profile": profile},
         )
+        cache.delete(f"{OAUTH_STATE_CACHE_PREFIX}{state}")
         request.session.pop(OAUTH_SESSION_KEY, None)
         request.session.modified = True
         return HttpResponse(
