@@ -36,7 +36,7 @@ from sourcework.models import (
     SourceGrantStatus,
     WorkingSet,
 )
-from sourcework.services import import_latest_from_source_grant, verify_provisional_name
+from sourcework.services import import_latest_from_source_grant, push_working_set_to_lanternmail, verify_provisional_name
 from switchboard.source_grants import (
     SourceGrantAccessError,
     fetch_gmail_labels_for_connection,
@@ -329,6 +329,26 @@ class SourceEvidenceRawMessageView(APIView):
         except Exception as exc:
             return Response({"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
         return Response(data)
+
+
+class WorkingSetPushToLanternmailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, slug, ws_id):
+        if not _superuser_required(request):
+            return _forbidden()
+        group = _get_group(slug)
+        working_set = get_object_or_404(WorkingSet, id=ws_id, group=group)
+        list_name = (request.data.get("list_name") or "").strip()
+        if not list_name:
+            return Response({"detail": "list_name is required."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            result = push_working_set_to_lanternmail(working_set, list_name=list_name, user=request.user)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response(result, status=status.HTTP_201_CREATED)
 
 
 class WorkingSetListView(APIView):
