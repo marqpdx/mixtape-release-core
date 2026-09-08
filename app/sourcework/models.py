@@ -4,6 +4,7 @@ from django.conf import settings
 from django.db import models
 
 from fundamentals.bases import BaseModel
+from fundamentals.encrypted_fields import EncryptedTextField
 
 
 class ExternalConnectionStatus(models.TextChoices):
@@ -67,6 +68,11 @@ class ExternalConnection(BaseModel):
     provider_account_id = models.CharField(max_length=255, blank=True, default="")
     display_name = models.CharField(max_length=255, blank=True, default="")
     credential_reference = models.CharField(max_length=255, blank=True, default="")
+    credential_payload = EncryptedTextField(
+        blank=True,
+        default="",
+        help_text="Encrypted provider credential payload. Never expose through agent or public API surfaces.",
+    )
     provider_scopes = models.JSONField(default=list, blank=True)
     status = models.CharField(
         max_length=24,

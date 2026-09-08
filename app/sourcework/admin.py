@@ -15,6 +15,7 @@ class ExternalConnectionAdmin(admin.ModelAdmin):
     list_display = ("display_name", "provider", "group", "status", "connected_at", "created_at")
     list_filter = ("provider", "status", "group")
     search_fields = ("display_name", "provider_account_id", "credential_reference")
+    exclude = ("credential_payload",)
 
 
 @admin.register(SourceGrant)
