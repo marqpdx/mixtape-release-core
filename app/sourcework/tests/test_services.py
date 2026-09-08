@@ -9,7 +9,7 @@ from initiatives.models import ActionRun, ActionRunStatus
 from sourcework.models import NameConfidence, NameSource, NameStatus
 from sourcework.models import ExternalConnection, ExternalConnectionStatus, ProvisionalThing, SourceGrant, WorkingSet
 from sourcework.providers import SourceMessage, get_source_provider_adapter
-from sourcework.services import import_latest_from_source_grant, resolve_sender_name
+from sourcework.services import _parse_sent_at, import_latest_from_source_grant, resolve_sender_name
 from switchboard.source_grants import SourceGrantAccessError, SourceGrantReadRequest, fetch_latest_messages_for_source_grant
 
 
@@ -84,6 +84,14 @@ class SourceProviderAdapterTests(SimpleTestCase):
                 subject="Senior Django Engineer",
             )
         ])
+
+    def test_parse_sent_at_accepts_rfc_email_dates(self):
+        parsed = _parse_sent_at("Tue, 1 Sep 2026 12:00:00 -0700")
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.year, 2026)
+        self.assertEqual(parsed.month, 9)
+        self.assertEqual(parsed.day, 1)
 
 
 class SourceImportAuditTests(TestCase):

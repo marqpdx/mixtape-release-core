@@ -1,7 +1,7 @@
 import hashlib
 import re
 from dataclasses import dataclass
-from email.utils import parseaddr
+from email.utils import parseaddr, parsedate_to_datetime
 
 from django.conf import settings
 from django.db import transaction
@@ -347,6 +347,11 @@ def _parse_sent_at(value):
     if hasattr(value, "isoformat"):
         return value
     parsed = parse_datetime(str(value))
+    if not parsed:
+        try:
+            parsed = parsedate_to_datetime(str(value))
+        except (TypeError, ValueError):
+            parsed = None
     if parsed and timezone.is_naive(parsed):
         return timezone.make_aware(parsed, timezone.get_current_timezone())
     return parsed

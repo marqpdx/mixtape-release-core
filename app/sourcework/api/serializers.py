@@ -145,6 +145,11 @@ class ImportLatestSerializer(serializers.Serializer):
         return value[:5]
 
 
+class ImportFromSourceSerializer(serializers.Serializer):
+    adapter = serializers.ChoiceField(choices=["switchboard_gmail_v1"], default="switchboard_gmail_v1")
+    limit = serializers.IntegerField(default=5, min_value=1, max_value=25)
+
+
 class VerifyNameSerializer(serializers.Serializer):
     preferred_name = serializers.CharField(max_length=255)
     note = serializers.CharField(required=False, allow_blank=True)
