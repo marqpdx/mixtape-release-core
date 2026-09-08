@@ -2,6 +2,7 @@ from django.urls import path
 
 from .views import (
     ConnectionListCreateView,
+    ConnectionGmailLabelsView,
     GoogleOAuthCallbackView,
     GoogleOAuthStartView,
     ProvisionalThingVerifyNameView,
@@ -14,6 +15,7 @@ from .views import (
 
 group_sourcework_patterns = [
     path("connections", ConnectionListCreateView.as_view(), name="sourcework-connections"),
+    path("connections/<uuid:connection_id>/gmail-labels", ConnectionGmailLabelsView.as_view(), name="sourcework-gmail-labels"),
     path("google-oauth/start", GoogleOAuthStartView.as_view(), name="sourcework-google-oauth-start"),
     path("google-oauth/callback", GoogleOAuthCallbackView.as_view(), name="sourcework-google-oauth-callback"),
     path("source-grants", SourceGrantListCreateView.as_view(), name="sourcework-source-grants"),

@@ -30,6 +30,12 @@ class ExternalConnectionSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "connected_at", "refreshed_at", "revoked_at", "created_at", "updated_at"]
 
 
+class GmailLabelSerializer(serializers.Serializer):
+    id = serializers.CharField()
+    name = serializers.CharField()
+    type = serializers.CharField(required=False, allow_blank=True)
+
+
 class SourceGrantSerializer(serializers.ModelSerializer):
     connection_display_name = serializers.CharField(source="connection.display_name", read_only=True)
 
