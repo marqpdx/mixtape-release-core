@@ -509,6 +509,14 @@ class ActionRun(BaseModel):
         blank=True,
         related_name="action_runs",
     )
+    source_grant = models.ForeignKey(
+        "sourcework.SourceGrant",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="action_runs",
+        help_text="External Source Grant used by this action, when applicable.",
+    )
 
     tool_name = models.CharField(max_length=120)
     status = models.CharField(
