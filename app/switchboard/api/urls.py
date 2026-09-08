@@ -20,6 +20,7 @@ from .views import (
     draft_async_proxy,
     group_search_proxy,
     refine_async_proxy,
+    source_grant_latest_messages_proxy,
     summarize_async_proxy,
     think_cluster_async_proxy,
 )
@@ -27,6 +28,7 @@ from .views import (
 urlpatterns = [
     path("summarize/async", summarize_async_proxy, name="switchboard-summarize-async"),
     path("classify/async", classify_async_proxy, name="switchboard-classify-async"),
+    path("source-grants/<uuid:grant_id>/messages/latest", source_grant_latest_messages_proxy, name="switchboard-source-grant-latest-messages"),
     path("context-shape/async", context_shape_async_proxy, name="switchboard-context-shape-async"),
     path("draft/async", draft_async_proxy, name="switchboard-draft-async"),
     path("refine/async", refine_async_proxy, name="switchboard-refine-async"),

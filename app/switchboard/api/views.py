@@ -6,8 +6,9 @@ from django.conf import settings
 from django.http import JsonResponse
 from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import authentication_classes
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 
 from initiatives.api.serializers import NoteSerializer, ReminderSerializer, TaskSerializer
 from initiatives.services import (
@@ -23,6 +24,7 @@ from initiatives.models import (
     ActionRunInitiatorType,
     ActionRunStatus,
 )
+from livewire.auth import InternalServiceAuthentication
 from mixtape.celery_app import app as celery_app
 from switchboard.api.serializers import (
     AgentAddCommandSerializer,
@@ -37,6 +39,12 @@ from switchboard.api.serializers import (
     AgentSynopsisLinkedInCommandSerializer,
     AgentTaskCommandSerializer,
     GroupSearchSerializer,
+    SourceGrantLatestMessagesSerializer,
+)
+from switchboard.source_grants import (
+    SourceGrantAccessError,
+    SourceGrantReadRequest,
+    fetch_latest_messages_for_source_grant,
 )
 
 logger = logging.getLogger(__name__)
@@ -100,6 +108,39 @@ def classify_async_proxy(request):
     )
 
     return JsonResponse({"action_run_id": str(action_run.id)}, status=202)
+
+
+@api_view(["POST"])
+@authentication_classes([InternalServiceAuthentication])
+@permission_classes([AllowAny])
+def source_grant_latest_messages_proxy(request, grant_id):
+    principal = getattr(request, "service_principal", None)
+    scopes = set((principal or {}).get("scopes") or [])
+    if "sourcework:read" not in scopes and "source-grants:read" not in scopes:
+        return JsonResponse({"detail": "Internal source-read service scope required.", "code": "service_scope_required"}, status=403)
+
+    serializer = SourceGrantLatestMessagesSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    try:
+        messages = fetch_latest_messages_for_source_grant(
+            SourceGrantReadRequest(
+                grant_id=str(grant_id),
+                resource_kind=serializer.validated_data["resource_kind"],
+                resource_id=serializer.validated_data["resource_id"],
+                limit=serializer.validated_data["limit"],
+            ),
+            user=request.user,
+        )
+    except SourceGrantAccessError as exc:
+        return JsonResponse({"detail": exc.detail, "code": exc.code}, status=403)
+
+    return JsonResponse(
+        {
+            "messages": [message.as_import_payload() for message in messages],
+            "count": len(messages),
+        },
+        status=200,
+    )
 
 
 _VALID_CONTENT_TYPES = {"writing.piece", "puddlejump.item", "puddlejump.snapshot"}

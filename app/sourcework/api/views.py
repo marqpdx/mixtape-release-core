@@ -1,18 +1,10 @@
 from django.shortcuts import get_object_or_404
-from django.conf import settings
-from django.utils import timezone
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from groups.models import Group
-from initiatives.models import (
-    ActionRun,
-    ActionRunExecutionMode,
-    ActionRunInitiatorType,
-    ActionRunStatus,
-    Initiative,
-)
+from initiatives.models import Initiative
 from sourcework.api.serializers import (
     ExternalConnectionSerializer,
     ImportLatestSerializer,
@@ -28,11 +20,7 @@ from sourcework.models import (
     SourceGrantStatus,
     WorkingSet,
 )
-from sourcework.services import import_latest_messages, verify_provisional_name
-
-
-_DEFAULT_TENANT_ID = getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_ID", "00000000-0000-0000-0000-000000000001")
-_DEFAULT_TENANT_NAMESPACE = getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", "platform:crossroads")
+from sourcework.services import import_latest_from_source_grant, verify_provisional_name
 
 
 def _get_group(slug: str) -> Group:
@@ -127,38 +115,16 @@ class SourceGrantImportLatestView(APIView):
         grant = get_object_or_404(SourceGrant, id=grant_id, connection__group=group, status=SourceGrantStatus.ACTIVE)
         serializer = ImportLatestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        action_run = ActionRun.objects.create(
-            initiative=grant.initiative,
-            source_grant=grant,
-            tool_name="source.gmail.import_latest_manual_v1",
-            status=ActionRunStatus.RUNNING,
-            execution_mode=ActionRunExecutionMode.LOCAL,
-            service_name="switchboard",
-            tenant_id=str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_ID", _DEFAULT_TENANT_ID)),
-            tenant_namespace=str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", _DEFAULT_TENANT_NAMESPACE)),
-            initiator_type=ActionRunInitiatorType.HUMAN,
-            initiator_id=str(request.user.pk),
-            request_payload={
-                "source_grant_id": str(grant.id),
-                "resource_kind": grant.resource_kind,
-                "resource_id": grant.resource_id,
-                "message_count": len(serializer.validated_data["messages"]),
-                "adapter": "manual_v1",
-            },
-        )
         try:
-            result = import_latest_messages(grant, serializer.validated_data["messages"], user=request.user)
-        except Exception as exc:
-            action_run.status = ActionRunStatus.FAILED
-            action_run.error_payload = {"error": str(exc)}
-            action_run.completed_at = timezone.now()
-            action_run.save(update_fields=["status", "error_payload", "completed_at", "updated_at"])
+            result = import_latest_from_source_grant(
+                grant,
+                user=request.user,
+                adapter_key="manual_v1",
+                limit=5,
+                payload={"messages": serializer.validated_data["messages"]},
+            )
+        except Exception:
             raise
-
-        action_run.status = ActionRunStatus.SUCCEEDED
-        action_run.result_payload = result
-        action_run.completed_at = timezone.now()
-        action_run.save(update_fields=["status", "result_payload", "completed_at", "updated_at"])
         return Response(result, status=status.HTTP_201_CREATED)
 
 
