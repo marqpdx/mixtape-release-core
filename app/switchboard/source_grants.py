@@ -49,6 +49,23 @@ def fetch_latest_messages_for_source_grant(request: SourceGrantReadRequest, *, u
     raise SourceGrantAccessError("provider_unsupported", f"Provider is not supported: {grant.connection.provider}")
 
 
+def fetch_gmail_message_raw(connection: ExternalConnection, *, message_id: str) -> dict:
+    _assert_connection_ready(connection)
+    service = _gmail_service_for_connection(connection)
+    raw = service.users().messages().get(userId="me", id=message_id, format="full").execute()
+    headers = {
+        h.get("name", "").lower(): h.get("value", "")
+        for h in raw.get("payload", {}).get("headers", [])
+    }
+    return {
+        "provider_message_id": raw.get("id", ""),
+        "from_header": headers.get("from", ""),
+        "subject": headers.get("subject", ""),
+        "sent_at": headers.get("date", ""),
+        "body": _extract_gmail_text(raw.get("payload") or {}),
+    }
+
+
 def fetch_gmail_profile_for_connection(connection: ExternalConnection) -> dict:
     _assert_connection_ready(connection)
     service = _gmail_service_for_connection(connection)
