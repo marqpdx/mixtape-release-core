@@ -108,6 +108,7 @@ class GoogleOAuthStartView(APIView):
             "group_id": str(group.id),
             "user_id": str(request.user.pk),
             "redirect_uri": redirect_uri,
+            "code_verifier": oauth_start.code_verifier,
         }
         cache.set(
             f"{OAUTH_STATE_CACHE_PREFIX}{oauth_start.state}",
@@ -115,6 +116,7 @@ class GoogleOAuthStartView(APIView):
                 "group_id": str(group.id),
                 "user_id": str(request.user.pk),
                 "redirect_uri": redirect_uri,
+                "code_verifier": oauth_start.code_verifier,
             },
             timeout=OAUTH_STATE_CACHE_TTL_SECONDS,
         )
@@ -140,6 +142,7 @@ class GoogleOAuthCallbackView(APIView):
             "group_id": session_state.get("group_id"),
             "user_id": session_state.get("user_id"),
             "redirect_uri": session_state.get("redirect_uri"),
+            "code_verifier": session_state.get("code_verifier"),
         }
         if not state or (session_state.get("state") and session_state.get("state") != state):
             return Response({"detail": "Google OAuth state did not match."}, status=status.HTTP_400_BAD_REQUEST)
@@ -161,6 +164,7 @@ class GoogleOAuthCallbackView(APIView):
                 redirect_uri=redirect_uri,
                 state=str(request.GET.get("state") or ""),
                 authorization_response=request.build_absolute_uri(),
+                code_verifier=str(oauth_state.get("code_verifier") or ""),
             )
         except ImproperlyConfigured as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)

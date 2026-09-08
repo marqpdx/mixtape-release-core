@@ -238,12 +238,13 @@ class SourceImportAuditTests(TestCase):
                 "group_id": str(self.group.id),
                 "user_id": str(self.user.pk),
                 "redirect_uri": redirect_uri,
+                "code_verifier": "cached-code-verifier",
             },
             timeout=600,
         )
 
         with (
-            patch("sourcework.api.views.fetch_google_credentials", return_value={"client_id": "client-id"}),
+            patch("sourcework.api.views.fetch_google_credentials", return_value={"client_id": "client-id"}) as fetch_credentials,
             patch("sourcework.api.views.fetch_gmail_profile_from_credentials_payload", return_value={"emailAddress": "mark@example.com"}),
         ):
             response = APIClient().get(
@@ -252,6 +253,7 @@ class SourceImportAuditTests(TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(fetch_credentials.call_args.kwargs["code_verifier"], "cached-code-verifier")
         connection = ExternalConnection.objects.get(provider_account_id="mark@example.com")
         self.assertEqual(connection.owner, self.user)
         self.assertEqual(connection.metadata["gmail_profile"]["emailAddress"], "mark@example.com")

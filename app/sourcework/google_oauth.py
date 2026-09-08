@@ -16,6 +16,7 @@ class GoogleOAuthStart:
     authorization_url: str
     state: str
     scopes: list[str]
+    code_verifier: str
 
 
 def build_google_oauth_flow(*, redirect_uri: str, state: str | None = None):
@@ -44,11 +45,20 @@ def start_google_oauth(*, redirect_uri: str) -> GoogleOAuthStart:
         authorization_url=authorization_url,
         state=state,
         scopes=[GMAIL_READONLY_SCOPE],
+        code_verifier=str(getattr(flow, "code_verifier", "") or ""),
     )
 
 
-def fetch_google_credentials(*, redirect_uri: str, state: str, authorization_response: str) -> dict:
+def fetch_google_credentials(
+    *,
+    redirect_uri: str,
+    state: str,
+    authorization_response: str,
+    code_verifier: str = "",
+) -> dict:
     flow = build_google_oauth_flow(redirect_uri=redirect_uri, state=state)
+    if code_verifier:
+        flow.code_verifier = code_verifier
     flow.fetch_token(authorization_response=authorization_response)
     return json.loads(flow.credentials.to_json())
 
