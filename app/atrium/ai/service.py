@@ -44,6 +44,14 @@ _DOC_SIGNAL_INSTRUCTION = (
     "code snippets."
 )
 
+# Compact one-liner injected as a prefix for warm ClaudeCode subprocess sessions
+# that already have history but didn't receive the full _DOC_SIGNAL_INSTRUCTION
+# in their cold-spawn context.
+_DOC_PROTOCOL_HINT = (
+    "[Atrium doc protocol: if this response is a titled document, wrap it in "
+    "<document title=\"Title\">...markdown body...</document>]\n\n"
+)
+
 # Groups that route through ClaudeCodeAdapter (Puddlejump cwd).
 # Hard-coded for local use — VPS deployment is a separate ADR item.
 PUDDLEJUMP_GROUPS: frozenset[str] = frozenset({"mindful-brilliance"})
@@ -191,8 +199,13 @@ class ClaudeCodeAdapter:
         was_alive = claude_service.is_session_alive(session_id)
         opening_context, _ = _build_cold_spawn_context(self._session) if not was_alive else (None, None)
 
+        # For warm sessions the opening_context (which carries the full doc protocol) was
+        # already injected on cold spawn. Prepend the compact hint so the subprocess
+        # is reminded on every turn without re-injecting the full block.
+        message_to_send = (_DOC_PROTOCOL_HINT + user_message) if was_alive else user_message
+
         for event_type, text in claude_service.send_to_session(
-            session_id, user_message, cwd, opening_context
+            session_id, message_to_send, cwd, opening_context
         ):
             if event_type == "context_status":
                 payload = json.dumps({"type": "context_status", **json.loads(text)})
@@ -747,6 +760,13 @@ def _build_cold_spawn_context(session) -> tuple[str | None, str | None]:
         parts = []
         provenance_parts = []
 
+        # --- document protocol (always first so subprocess learns it before history) ---
+        parts.append(
+            "[Atrium session context]\n"
+            + _DOC_SIGNAL_INSTRUCTION.strip()
+            + "\n[End session context]"
+        )
+
         # --- compact summary block ---
         if log and log.compact_summary:
             ts = log.compact_at.strftime("%Y-%m-%d") if log.compact_at else "prior"
@@ -816,11 +836,12 @@ def _build_cold_spawn_context(session) -> tuple[str | None, str | None]:
                 )
                 provenance_parts.append(f"last {n} turn(s)")
 
-        if not parts:
-            return None, None
-
         context_str = "\n\n".join(parts)
-        provenance_note = "Resumed from " + " + ".join(provenance_parts) + "."
+        provenance_note = (
+            "Resumed from " + " + ".join(provenance_parts) + "."
+            if provenance_parts
+            else "Session context loaded."
+        )
         return context_str, provenance_note
 
     except Exception as exc:
