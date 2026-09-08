@@ -33,6 +33,10 @@ SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
 # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 FIELD_ENCRYPTION_KEY = os.getenv("FIELD_ENCRYPTION_KEY")
 
+# Sourcework Google OAuth
+SOURCEWORK_GOOGLE_OAUTH_CLIENT_CONFIG_JSON = os.getenv("SOURCEWORK_GOOGLE_OAUTH_CLIENT_CONFIG_JSON", "")
+SOURCEWORK_GOOGLE_OAUTH_CLIENT_SECRETS_FILE = os.getenv("SOURCEWORK_GOOGLE_OAUTH_CLIENT_SECRETS_FILE", "")
+
 # AI / Initiatives
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 AI_PROVIDER = os.getenv("AI_PROVIDER", "anthropic")
