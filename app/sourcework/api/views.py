@@ -12,6 +12,7 @@ from groups.models import Group
 from initiatives.models import Initiative
 from sourcework.api.serializers import (
     ExternalConnectionSerializer,
+    GmailLabelSerializer,
     ImportFromSourceSerializer,
     ImportLatestSerializer,
     SourceGrantSerializer,
@@ -33,6 +34,11 @@ from sourcework.models import (
     WorkingSet,
 )
 from sourcework.services import import_latest_from_source_grant, verify_provisional_name
+from switchboard.source_grants import (
+    SourceGrantAccessError,
+    fetch_gmail_labels_for_connection,
+    fetch_gmail_profile_from_credentials_payload,
+)
 
 
 def _get_group(slug: str) -> Group:
@@ -137,20 +143,26 @@ class GoogleOAuthCallbackView(APIView):
         except Exception as exc:
             return Response({"detail": f"Google OAuth callback failed: {exc}"}, status=status.HTTP_400_BAD_REQUEST)
 
-        account_email = credentials.get("id_token") or credentials.get("client_id") or "google-gmail"
+        account_email = "google-gmail"
+        profile = {}
+        try:
+            profile = fetch_gmail_profile_from_credentials_payload(credentials, scopes=[GMAIL_READONLY_SCOPE])
+            account_email = str(profile.get("emailAddress") or account_email)
+        except SourceGrantAccessError:
+            pass
         connection = ExternalConnection.objects.create(
             group=group,
             owner=request.user,
             provider="google_gmail",
             provider_account_id=str(account_email),
-            display_name="Google Mail",
+            display_name=f"Google Mail - {account_email}" if account_email != "google-gmail" else "Google Mail",
             credential_reference="encrypted:credential_payload",
             credential_payload=json.dumps(credentials),
             provider_scopes=[GMAIL_READONLY_SCOPE],
             status=ExternalConnectionStatus.READY,
             connected_at=timezone.now(),
             refreshed_at=timezone.now(),
-            metadata={"adapter": "switchboard_gmail_v1", "oauth_flow": "google_web_server"},
+            metadata={"adapter": "switchboard_gmail_v1", "oauth_flow": "google_web_server", "gmail_profile": profile},
         )
         request.session.pop(OAUTH_SESSION_KEY, None)
         request.session.modified = True
@@ -159,6 +171,27 @@ class GoogleOAuthCallbackView(APIView):
             "<p>Google Mail connected. You can close this tab and return to Mixtape.</p>"
             f"<p>Connection: {connection.display_name}</p>"
         )
+
+
+class ConnectionGmailLabelsView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, slug, connection_id):
+        if not _superuser_required(request):
+            return _forbidden()
+        group = _get_group(slug)
+        connection = get_object_or_404(
+            ExternalConnection,
+            id=connection_id,
+            group=group,
+            provider="google_gmail",
+            status=ExternalConnectionStatus.READY,
+        )
+        try:
+            labels = fetch_gmail_labels_for_connection(connection)
+        except SourceGrantAccessError as exc:
+            return Response({"detail": exc.detail, "code": exc.code}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"labels": GmailLabelSerializer(labels, many=True).data})
 
 
 class SourceGrantListCreateView(APIView):

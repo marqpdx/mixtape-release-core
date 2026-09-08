@@ -3,6 +3,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 from rest_framework.test import APIClient
+from unittest.mock import patch
 
 from groups.models import Group
 from initiatives.models import ActionRun, ActionRunStatus
@@ -10,7 +11,12 @@ from sourcework.models import NameConfidence, NameSource, NameStatus
 from sourcework.models import ExternalConnection, ExternalConnectionStatus, ProvisionalThing, SourceGrant, WorkingSet
 from sourcework.providers import SourceMessage, get_source_provider_adapter
 from sourcework.services import _parse_sent_at, import_latest_from_source_grant, resolve_sender_name
-from switchboard.source_grants import SourceGrantAccessError, SourceGrantReadRequest, fetch_latest_messages_for_source_grant
+from switchboard.source_grants import (
+    SourceGrantAccessError,
+    SourceGrantReadRequest,
+    fetch_gmail_labels_for_connection,
+    fetch_latest_messages_for_source_grant,
+)
 
 
 User = get_user_model()
@@ -114,6 +120,7 @@ class SourceImportAuditTests(TestCase):
             provider="google_gmail",
             provider_account_id="sourcework@example.com",
             display_name="Google Mail",
+            credential_payload="{}",
             provider_scopes=["gmail.readonly"],
             status=ExternalConnectionStatus.READY,
         )
@@ -189,3 +196,59 @@ class SourceImportAuditTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["code"], "service_scope_required")
+
+    def test_switchboard_lists_gmail_labels_for_ready_connection(self):
+        service = _gmail_service_mock(
+            labels={
+                "labels": [
+                    {"id": "INBOX", "name": "INBOX", "type": "system"},
+                    {"id": "Label_123", "name": "Recruiters", "type": "user"},
+                ]
+            }
+        )
+        with patch("switchboard.source_grants._gmail_service_from_payload", return_value=service):
+            labels = fetch_gmail_labels_for_connection(self.connection)
+
+        self.assertEqual(labels[0], {"id": "INBOX", "name": "INBOX", "type": "system"})
+        self.assertEqual(labels[1], {"id": "Label_123", "name": "Recruiters", "type": "user"})
+
+    def test_sourcework_gmail_labels_endpoint_returns_connection_labels(self):
+        self.user.is_superuser = True
+        self.user.save(update_fields=["is_superuser"])
+        client = APIClient()
+        client.force_authenticate(self.user)
+        service = _gmail_service_mock(labels={"labels": [{"id": "Label_123", "name": "Recruiters", "type": "user"}]})
+
+        with patch("switchboard.source_grants._gmail_service_from_payload", return_value=service):
+            response = client.get(f"/api/groups/{self.group.slug}/sourcework/connections/{self.connection.id}/gmail-labels")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["labels"], [{"id": "Label_123", "name": "Recruiters", "type": "user"}])
+
+
+def _gmail_service_mock(*, labels=None, profile=None):
+    class _Call:
+        def __init__(self, value):
+            self.value = value
+
+        def execute(self):
+            return self.value
+
+    class _Labels:
+        def list(self, **kwargs):
+            self.list_kwargs = kwargs
+            return _Call(labels or {"labels": []})
+
+    class _Users:
+        def labels(self):
+            return _Labels()
+
+        def getProfile(self, **kwargs):
+            self.profile_kwargs = kwargs
+            return _Call(profile or {})
+
+    class _Service:
+        def users(self):
+            return _Users()
+
+    return _Service()

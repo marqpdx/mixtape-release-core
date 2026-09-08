@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from django.utils import timezone
 
-from sourcework.models import SourceGrant, SourceGrantStatus
+from sourcework.models import ExternalConnection, ExternalConnectionStatus, SourceGrant, SourceGrantStatus
 from sourcework.providers import SourceMessage
 
 
@@ -49,6 +49,46 @@ def fetch_latest_messages_for_source_grant(request: SourceGrantReadRequest, *, u
     raise SourceGrantAccessError("provider_unsupported", f"Provider is not supported: {grant.connection.provider}")
 
 
+def fetch_gmail_profile_for_connection(connection: ExternalConnection) -> dict:
+    _assert_connection_ready(connection)
+    service = _gmail_service_for_connection(connection)
+    return service.users().getProfile(userId="me").execute()
+
+
+def fetch_gmail_labels_for_connection(connection: ExternalConnection) -> list[dict]:
+    _assert_connection_ready(connection)
+    service = _gmail_service_for_connection(connection)
+    response = service.users().labels().list(userId="me").execute()
+    labels = []
+    for label in response.get("labels", []):
+        label_id = str(label.get("id") or "")
+        label_name = str(label.get("name") or "")
+        if not label_id or not label_name:
+            continue
+        labels.append(
+            {
+                "id": label_id,
+                "name": label_name,
+                "type": str(label.get("type") or ""),
+            }
+        )
+    return labels
+
+
+def fetch_gmail_profile_from_credentials_payload(credentials_payload: dict, *, scopes: list[str] | None = None) -> dict:
+    service = _gmail_service_from_payload(credentials_payload, scopes=scopes)
+    return service.users().getProfile(userId="me").execute()
+
+
+def _assert_connection_ready(connection: ExternalConnection) -> None:
+    if connection.status != ExternalConnectionStatus.READY:
+        raise SourceGrantAccessError("connection_not_ready", "External connection is not ready.")
+    if connection.revoked_at and connection.revoked_at <= timezone.now():
+        raise SourceGrantAccessError("connection_revoked", "External connection has been revoked.")
+    if connection.provider != "google_gmail":
+        raise SourceGrantAccessError("provider_unsupported", f"Provider is not supported: {connection.provider}")
+
+
 def _assert_grant_can_read(grant: SourceGrant, request: SourceGrantReadRequest) -> None:
     if grant.status != SourceGrantStatus.ACTIVE:
         raise SourceGrantAccessError("grant_inactive", "Source Grant is not active.")
@@ -65,18 +105,7 @@ def _assert_grant_can_read(grant: SourceGrant, request: SourceGrantReadRequest) 
 
 
 def _fetch_gmail_latest_messages(grant: SourceGrant, *, limit: int) -> list[SourceMessage]:
-    try:
-        from google.oauth2.credentials import Credentials
-        from googleapiclient.discovery import build
-    except ImportError as exc:
-        raise SourceGrantAccessError(
-            "provider_dependency_missing",
-            "Google Gmail adapter requires google-auth and google-api-python-client.",
-        ) from exc
-
-    credentials_payload = _load_credential_payload(grant)
-    credentials = Credentials.from_authorized_user_info(credentials_payload, scopes=grant.connection.provider_scopes or None)
-    service = build("gmail", "v1", credentials=credentials, cache_discovery=False)
+    service = _gmail_service_for_connection(grant.connection)
     listed = (
         service.users()
         .messages()
@@ -90,8 +119,27 @@ def _fetch_gmail_latest_messages(grant: SourceGrant, *, limit: int) -> list[Sour
     return messages
 
 
-def _load_credential_payload(grant: SourceGrant) -> dict:
-    raw = grant.connection.credential_payload
+def _gmail_service_for_connection(connection: ExternalConnection):
+    credentials_payload = _load_credential_payload(connection)
+    return _gmail_service_from_payload(credentials_payload, scopes=connection.provider_scopes or None)
+
+
+def _gmail_service_from_payload(credentials_payload: dict, *, scopes: list[str] | None = None):
+    try:
+        from google.oauth2.credentials import Credentials
+        from googleapiclient.discovery import build
+    except ImportError as exc:
+        raise SourceGrantAccessError(
+            "provider_dependency_missing",
+            "Google Gmail adapter requires google-auth and google-api-python-client.",
+        ) from exc
+
+    credentials = Credentials.from_authorized_user_info(credentials_payload, scopes=scopes)
+    return build("gmail", "v1", credentials=credentials, cache_discovery=False)
+
+
+def _load_credential_payload(connection: ExternalConnection) -> dict:
+    raw = connection.credential_payload
     if not raw:
         raise SourceGrantAccessError("credential_missing", "External connection has no credential payload.")
     if isinstance(raw, dict):
