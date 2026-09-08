@@ -3,11 +3,18 @@ import re
 from dataclasses import dataclass
 from email.utils import parseaddr
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from groups.models import Group
+from initiatives.models import (
+    ActionRun,
+    ActionRunExecutionMode,
+    ActionRunInitiatorType,
+    ActionRunStatus,
+)
 from sourcework.models import (
     NameConfidence,
     NameSource,
@@ -20,7 +27,11 @@ from sourcework.models import (
     WorkingSetMembership,
     WorkingSetStatus,
 )
+from sourcework.providers import get_source_provider_adapter
 
+
+_DEFAULT_TENANT_ID = getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_ID", "00000000-0000-0000-0000-000000000001")
+_DEFAULT_TENANT_NAMESPACE = getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", "platform:crossroads")
 
 SIGNOFF_PHRASES = [
     "best",
@@ -164,6 +175,65 @@ def import_latest_messages(source_grant: SourceGrant, messages: list[dict], *, u
         "provisional_created": provisional_created,
         "provisional_reused": provisional_reused,
     }
+
+
+def import_latest_from_source_grant(
+    source_grant: SourceGrant,
+    *,
+    user,
+    adapter_key: str = "manual_v1",
+    limit: int = 5,
+    payload: dict | None = None,
+) -> dict:
+    """
+    Fetch bounded messages through a provider adapter and import them under an
+    ActionRun audit record.
+
+    The manual adapter is the only V1 implementation today, but Gmail/IMAP/Drive
+    readers should enter here after Switchboard has enforced the SourceGrant.
+    """
+    action_run = ActionRun.objects.create(
+        initiative=source_grant.initiative,
+        source_grant=source_grant,
+        tool_name=f"source.{source_grant.connection.provider}.import_latest_{adapter_key}",
+        status=ActionRunStatus.RUNNING,
+        execution_mode=ActionRunExecutionMode.LOCAL,
+        service_name="switchboard",
+        tenant_id=str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_ID", _DEFAULT_TENANT_ID)),
+        tenant_namespace=str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", _DEFAULT_TENANT_NAMESPACE)),
+        initiator_type=ActionRunInitiatorType.HUMAN,
+        initiator_id=str(user.pk) if getattr(user, "is_authenticated", False) else "",
+        request_payload={
+            "source_grant_id": str(source_grant.id),
+            "resource_kind": source_grant.resource_kind,
+            "resource_id": source_grant.resource_id,
+            "limit": limit,
+            "adapter": adapter_key,
+        },
+    )
+    try:
+        adapter = get_source_provider_adapter(adapter_key)
+        source_messages = adapter.fetch_latest_messages(source_grant, limit=limit, payload=payload)
+        import_payloads = [message.as_import_payload() for message in source_messages]
+        result = import_latest_messages(source_grant, import_payloads, user=user)
+    except Exception as exc:
+        action_run.status = ActionRunStatus.FAILED
+        action_run.error_payload = {"error": str(exc), "adapter": adapter_key}
+        action_run.completed_at = timezone.now()
+        action_run.save(update_fields=["status", "error_payload", "completed_at", "updated_at"])
+        raise
+
+    result = {
+        **result,
+        "adapter": adapter_key,
+        "messages_seen": len(source_messages),
+        "action_run_id": str(action_run.id),
+    }
+    action_run.status = ActionRunStatus.SUCCEEDED
+    action_run.result_payload = result
+    action_run.completed_at = timezone.now()
+    action_run.save(update_fields=["status", "result_payload", "completed_at", "updated_at"])
+    return result
 
 
 def resolve_sender_name(message: dict) -> NameResolution:
