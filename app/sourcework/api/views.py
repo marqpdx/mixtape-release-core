@@ -1,4 +1,9 @@
+import json
+
 from django.shortcuts import get_object_or_404
+from django.core.exceptions import ImproperlyConfigured
+from django.http import HttpResponse
+from django.utils import timezone
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -7,10 +12,17 @@ from groups.models import Group
 from initiatives.models import Initiative
 from sourcework.api.serializers import (
     ExternalConnectionSerializer,
+    ImportFromSourceSerializer,
     ImportLatestSerializer,
     SourceGrantSerializer,
     VerifyNameSerializer,
     WorkingSetSerializer,
+)
+from sourcework.google_oauth import (
+    GMAIL_READONLY_SCOPE,
+    OAUTH_SESSION_KEY,
+    fetch_google_credentials,
+    start_google_oauth,
 )
 from sourcework.models import (
     ExternalConnection,
@@ -63,6 +75,90 @@ class ConnectionListCreateView(APIView):
             metadata=data.get("metadata") or {"adapter": "manual_v1"},
         )
         return Response(ExternalConnectionSerializer(connection).data, status=status.HTTP_201_CREATED)
+
+
+class GoogleOAuthStartView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, slug):
+        if not _superuser_required(request):
+            return _forbidden()
+        group = _get_group(slug)
+        redirect_uri = request.build_absolute_uri(f"/api/groups/{group.slug}/sourcework/google-oauth/callback")
+        try:
+            oauth_start = start_google_oauth(redirect_uri=redirect_uri)
+        except ImproperlyConfigured as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        request.session[OAUTH_SESSION_KEY] = {
+            "state": oauth_start.state,
+            "group_id": str(group.id),
+            "user_id": str(request.user.pk),
+            "redirect_uri": redirect_uri,
+        }
+        request.session.modified = True
+        return Response(
+            {
+                "authorization_url": oauth_start.authorization_url,
+                "state": oauth_start.state,
+                "scopes": oauth_start.scopes,
+            }
+        )
+
+
+class GoogleOAuthCallbackView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, slug):
+        if not _superuser_required(request):
+            return _forbidden()
+        group = _get_group(slug)
+        session_state = request.session.get(OAUTH_SESSION_KEY) or {}
+        if session_state.get("state") != request.GET.get("state"):
+            return Response({"detail": "Google OAuth state did not match."}, status=status.HTTP_400_BAD_REQUEST)
+        if session_state.get("group_id") != str(group.id):
+            return Response({"detail": "Google OAuth group did not match."}, status=status.HTTP_400_BAD_REQUEST)
+        if request.GET.get("error"):
+            return Response({"detail": f"Google OAuth returned error: {request.GET['error']}"}, status=status.HTTP_400_BAD_REQUEST)
+        if not request.GET.get("code"):
+            return Response({"detail": "Google OAuth callback did not include a code."}, status=status.HTTP_400_BAD_REQUEST)
+
+        redirect_uri = session_state.get("redirect_uri") or request.build_absolute_uri(
+            f"/api/groups/{group.slug}/sourcework/google-oauth/callback"
+        )
+        try:
+            credentials = fetch_google_credentials(
+                redirect_uri=redirect_uri,
+                state=str(request.GET.get("state") or ""),
+                authorization_response=request.build_absolute_uri(),
+            )
+        except ImproperlyConfigured as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except Exception as exc:
+            return Response({"detail": f"Google OAuth callback failed: {exc}"}, status=status.HTTP_400_BAD_REQUEST)
+
+        account_email = credentials.get("id_token") or credentials.get("client_id") or "google-gmail"
+        connection = ExternalConnection.objects.create(
+            group=group,
+            owner=request.user,
+            provider="google_gmail",
+            provider_account_id=str(account_email),
+            display_name="Google Mail",
+            credential_reference="encrypted:credential_payload",
+            credential_payload=json.dumps(credentials),
+            provider_scopes=[GMAIL_READONLY_SCOPE],
+            status=ExternalConnectionStatus.READY,
+            connected_at=timezone.now(),
+            refreshed_at=timezone.now(),
+            metadata={"adapter": "switchboard_gmail_v1", "oauth_flow": "google_web_server"},
+        )
+        request.session.pop(OAUTH_SESSION_KEY, None)
+        request.session.modified = True
+        return HttpResponse(
+            "<!doctype html><title>Google Mail connected</title>"
+            "<p>Google Mail connected. You can close this tab and return to Mixtape.</p>"
+            f"<p>Connection: {connection.display_name}</p>"
+        )
 
 
 class SourceGrantListCreateView(APIView):
@@ -125,6 +221,25 @@ class SourceGrantImportLatestView(APIView):
             )
         except Exception:
             raise
+        return Response(result, status=status.HTTP_201_CREATED)
+
+
+class SourceGrantImportFromSourceView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, slug, grant_id):
+        if not _superuser_required(request):
+            return _forbidden()
+        group = _get_group(slug)
+        grant = get_object_or_404(SourceGrant, id=grant_id, connection__group=group, status=SourceGrantStatus.ACTIVE)
+        serializer = ImportFromSourceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = import_latest_from_source_grant(
+            grant,
+            user=request.user,
+            adapter_key=serializer.validated_data["adapter"],
+            limit=serializer.validated_data["limit"],
+        )
         return Response(result, status=status.HTTP_201_CREATED)
 
 
