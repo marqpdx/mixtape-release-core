@@ -26,6 +26,23 @@ logger = logging.getLogger(__name__)
 
 MAX_TOOL_ITERATIONS = 6
 
+# P-1: Document signal protocol.
+# When the AI generates a titled document (summary, spec, plan, ADR, etc.),
+# it wraps the body in this XML envelope so the stream parser can switch
+# rendering mode and display an AtriumDocCard instead of a prose bubble.
+_DOC_SIGNAL_INSTRUCTION = (
+    "\n\nDocument protocol: when you generate a structured document — a summary, "
+    "spec, plan, ADR, finding, or similar titled artifact intended for saving — "
+    "wrap the entire document body in an XML envelope:\n\n"
+    "<document title=\"Your Document Title Here\">\n"
+    "...document body in markdown...\n"
+    "</document>\n\n"
+    "Use this only for genuine document-shaped responses: multi-section or "
+    "multi-paragraph artifacts with a clear title, intended as a standalone "
+    "artifact. Do not wrap conversational replies, short answers, or inline "
+    "code snippets."
+)
+
 # Groups that route through ClaudeCodeAdapter (Puddlejump cwd).
 # Hard-coded for local use — VPS deployment is a separate ADR item.
 PUDDLEJUMP_GROUPS: frozenset[str] = frozenset({"mindful-brilliance"})
@@ -532,6 +549,8 @@ def _build_system_prompt(session) -> str:
     personal_ctx = BerylPersonalContextBuilder().build(session)
     if personal_ctx:
         parts.append(f"\n\nPersonal context:\n{personal_ctx}")
+
+    parts.append(_DOC_SIGNAL_INSTRUCTION)
 
     return "\n".join(parts)
 
