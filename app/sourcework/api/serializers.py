@@ -2,11 +2,11 @@ from rest_framework import serializers
 
 from sourcework.models import (
     ExternalConnection,
-    ProvisionalThing,
+    ProvisionalData,
+    ProvisionalDataMembership,
     SourceEvidence,
     SourceGrant,
     WorkingSet,
-    WorkingSetMembership,
 )
 
 
@@ -78,41 +78,68 @@ class SourceEvidenceSerializer(serializers.ModelSerializer):
         ]
 
 
-class ProvisionalThingSerializer(serializers.ModelSerializer):
-    evidence = SourceEvidenceSerializer(many=True, read_only=True)
+class RecruiterContactSerializer(serializers.ModelSerializer):
+    """
+    Serializer for ProvisionalData records of kind=recruiter_contact.
+    Surfaces normalized_payload fields as top-level keys for frontend compat.
+    """
+    preferred_name = serializers.SerializerMethodField()
+    email = serializers.SerializerMethodField()
+    organization_guess = serializers.SerializerMethodField()
+    name_source = serializers.SerializerMethodField()
+    name_confidence = serializers.SerializerMethodField()
+    name_status = serializers.SerializerMethodField()
+    source_evidence = SourceEvidenceSerializer(read_only=True)
 
     class Meta:
-        model = ProvisionalThing
+        model = ProvisionalData
         fields = [
             "id",
-            "possible_type",
-            "status",
+            "kind",
+            "state",
             "preferred_name",
             "email",
             "organization_guess",
-            "relationship_context",
             "name_source",
             "name_confidence",
             "name_status",
-            "payload",
-            "evidence",
-            "verified_at",
+            "source_evidence",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "possible_type", "verified_at", "created_at", "updated_at"]
+        read_only_fields = ["id", "kind", "created_at", "updated_at"]
+
+    def get_preferred_name(self, obj):
+        return (obj.normalized_payload or {}).get("preferred_name", "")
+
+    def get_email(self, obj):
+        return (obj.normalized_payload or {}).get("email", "")
+
+    def get_organization_guess(self, obj):
+        return (obj.normalized_payload or {}).get("organization_guess", "")
+
+    def get_name_source(self, obj):
+        return (obj.normalized_payload or {}).get("name_source", "unknown")
+
+    def get_name_confidence(self, obj):
+        return (obj.normalized_payload or {}).get("name_confidence", "low")
+
+    def get_name_status(self, obj):
+        return (obj.normalized_payload or {}).get("name_status", "needs_review")
 
 
 class WorkingSetMembershipSerializer(serializers.ModelSerializer):
-    provisional_thing = ProvisionalThingSerializer(read_only=True)
+    provisional_data = RecruiterContactSerializer(read_only=True)
 
     class Meta:
-        model = WorkingSetMembership
-        fields = ["id", "status", "position", "note", "provisional_thing", "created_at", "updated_at"]
+        model = ProvisionalDataMembership
+        fields = ["id", "status", "position", "note", "provisional_data", "created_at", "updated_at"]
 
 
 class WorkingSetSerializer(serializers.ModelSerializer):
-    memberships = WorkingSetMembershipSerializer(many=True, read_only=True)
+    memberships = WorkingSetMembershipSerializer(
+        source="provisional_data_memberships", many=True, read_only=True
+    )
 
     class Meta:
         model = WorkingSet

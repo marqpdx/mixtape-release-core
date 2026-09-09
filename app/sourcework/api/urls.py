@@ -5,7 +5,7 @@ from .views import (
     ConnectionGmailLabelsView,
     GoogleOAuthCallbackView,
     GoogleOAuthStartView,
-    ProvisionalThingVerifyNameView,
+    ProvisionalDataVerifyNameView,
     SourceEvidenceRawMessageView,
     SourceGrantImportFromSourceView,
     SourceGrantImportLatestView,
@@ -26,5 +26,5 @@ group_sourcework_patterns = [
     path("source-evidence/<uuid:evidence_id>/raw-message", SourceEvidenceRawMessageView.as_view(), name="sourcework-evidence-raw-message"),
     path("working-sets", WorkingSetListView.as_view(), name="sourcework-working-sets"),
     path("working-sets/<uuid:ws_id>/push-to-lanternmail", WorkingSetPushToLanternmailView.as_view(), name="sourcework-push-to-lanternmail"),
-    path("provisional-things/<uuid:thing_id>/verify-name", ProvisionalThingVerifyNameView.as_view(), name="sourcework-verify-name"),
+    path("provisional-data/<uuid:data_id>/verify-name", ProvisionalDataVerifyNameView.as_view(), name="sourcework-verify-name"),
 ]
