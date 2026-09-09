@@ -19,12 +19,12 @@ from sourcework.models import (
     NameConfidence,
     NameSource,
     NameStatus,
-    ProvisionalThing,
-    ProvisionalThingStatus,
+    ProvisionalData,
+    ProvisionalDataMembership,
+    ProvisionalDataState,
     SourceEvidence,
     SourceGrant,
     WorkingSet,
-    WorkingSetMembership,
     WorkingSetStatus,
 )
 from sourcework.providers import get_source_provider_adapter
@@ -86,8 +86,8 @@ def default_recruiter_working_set(group: Group, user, initiative=None) -> Workin
 def import_latest_messages(source_grant: SourceGrant, messages: list[dict], *, user) -> dict:
     """
     Import bounded Gmail-like message metadata into source evidence and
-    provisional person records. The caller is responsible for ensuring the
-    messages came through the SourceGrant/Switchboard boundary.
+    provisional recruiter contact records. The caller is responsible for
+    ensuring the messages came through the SourceGrant/Switchboard boundary.
     """
     group = source_grant.connection.group
     working_set = default_recruiter_working_set(group, user, source_grant.initiative)
@@ -132,33 +132,44 @@ def import_latest_messages(source_grant: SourceGrant, messages: list[dict], *, u
                 },
             )
 
-            thing = _find_existing_person(group, resolution.email)
-            if thing:
+            record = _find_existing_recruiter_contact(group, resolution.email)
+            if record:
                 provisional_reused += 1
-                _apply_name_resolution(thing, resolution, user=user, update_existing=True)
+                _apply_name_resolution(record, resolution, user=user, update_existing=True)
             else:
-                thing = ProvisionalThing.objects.create(
+                record = ProvisionalData.objects.create(
                     group=group,
-                    possible_type="person",
-                    status=(
-                        ProvisionalThingStatus.READY
-                        if resolution.status == NameStatus.READY
-                        else ProvisionalThingStatus.PROVISIONAL
-                    ),
-                    preferred_name=resolution.preferred_name,
-                    email=resolution.email,
-                    name_source=resolution.source,
-                    name_confidence=resolution.confidence,
-                    name_status=resolution.status,
-                    payload={"relationship_context": "Historical recruiter correspondence"},
-                    created_by=user if getattr(user, "is_authenticated", False) else None,
+                    kind="recruiter_contact",
+                    source_type=source_grant.connection.provider,
+                    source_external_id=provider_message_id,
+                    captured_at=timezone.now(),
+                    observed_at=sent_at,
+                    state=ProvisionalDataState.NEW,
+                    source_evidence=evidence,
+                    owner_user=user if getattr(user, "is_authenticated", False) else None,
+                    normalized_payload={
+                        "preferred_name": resolution.preferred_name,
+                        "email": resolution.email.lower(),
+                        "organization_guess": "",
+                        "relationship_context": "Historical recruiter correspondence",
+                        "name_source": resolution.source,
+                        "name_confidence": resolution.confidence,
+                        "name_status": resolution.status,
+                    },
+                    provenance={
+                        "source_grant_id": str(source_grant.id),
+                        "name_resolution": {
+                            "source": resolution.source,
+                            "confidence": resolution.confidence,
+                            "status": resolution.status,
+                        },
+                    },
                 )
                 provisional_created += 1
 
-            thing.evidence.add(evidence)
-            WorkingSetMembership.objects.get_or_create(
+            ProvisionalDataMembership.objects.get_or_create(
                 working_set=working_set,
-                provisional_thing=thing,
+                provisional_data=record,
                 defaults={"position": position},
             )
 
@@ -274,59 +285,51 @@ def resolve_sender_name(message: dict) -> NameResolution:
     )
 
 
-def verify_provisional_name(thing: ProvisionalThing, *, preferred_name: str, user, note: str = "") -> ProvisionalThing:
-    thing.preferred_name = preferred_name.strip()
-    thing.name_source = NameSource.HUMAN_VERIFIED
-    thing.name_confidence = NameConfidence.HIGH
-    thing.name_status = NameStatus.READY
-    thing.status = ProvisionalThingStatus.READY
-    thing.verified_by = user if getattr(user, "is_authenticated", False) else None
-    thing.verified_at = timezone.now()
-    payload = thing.payload or {}
+def verify_provisional_name(record: ProvisionalData, *, preferred_name: str, user, note: str = "") -> ProvisionalData:
+    payload = dict(record.normalized_payload or {})
+    payload["preferred_name"] = preferred_name.strip()
+    payload["name_source"] = NameSource.HUMAN_VERIFIED
+    payload["name_confidence"] = NameConfidence.HIGH
+    payload["name_status"] = NameStatus.READY
+    provenance = dict(record.provenance or {})
+    provenance["verified_by"] = str(user.pk) if getattr(user, "is_authenticated", False) else None
+    provenance["verified_at"] = timezone.now().isoformat()
     if note:
-        payload["verification_note"] = note
-    thing.payload = payload
-    thing.save(
-        update_fields=[
-            "preferred_name",
-            "name_source",
-            "name_confidence",
-            "name_status",
-            "status",
-            "verified_by",
-            "verified_at",
-            "payload",
-            "updated_at",
-        ]
-    )
-    return thing
+        provenance["verification_note"] = note
+    record.normalized_payload = payload
+    record.provenance = provenance
+    record.save(update_fields=["normalized_payload", "provenance", "updated_at"])
+    return record
 
 
-def _find_existing_person(group: Group, email: str) -> ProvisionalThing | None:
+def _find_existing_recruiter_contact(group: Group, email: str) -> ProvisionalData | None:
     if not email:
         return None
-    return ProvisionalThing.objects.filter(group=group, possible_type="person", email__iexact=email).first()
+    return ProvisionalData.objects.filter(
+        group=group,
+        kind="recruiter_contact",
+        normalized_payload__email=email.lower(),
+    ).first()
 
 
-def _apply_name_resolution(thing: ProvisionalThing, resolution: NameResolution, *, user, update_existing: bool) -> None:
-    changed = []
-    if update_existing and resolution.preferred_name and thing.name_source != NameSource.HUMAN_VERIFIED:
-        thing.preferred_name = resolution.preferred_name
-        changed.append("preferred_name")
-    if resolution.email and not thing.email:
-        thing.email = resolution.email
-        changed.append("email")
-    if thing.name_source != NameSource.HUMAN_VERIFIED:
-        thing.name_source = resolution.source
-        thing.name_confidence = resolution.confidence
-        thing.name_status = resolution.status
-        changed.extend(["name_source", "name_confidence", "name_status"])
-    if resolution.status == NameStatus.READY and thing.status == ProvisionalThingStatus.PROVISIONAL:
-        thing.status = ProvisionalThingStatus.READY
-        changed.append("status")
+def _apply_name_resolution(record: ProvisionalData, resolution: NameResolution, *, user, update_existing: bool) -> None:
+    payload = dict(record.normalized_payload or {})
+    changed = False
+    current_name_source = payload.get("name_source", NameSource.UNKNOWN)
+    if update_existing and resolution.preferred_name and current_name_source != NameSource.HUMAN_VERIFIED:
+        payload["preferred_name"] = resolution.preferred_name
+        changed = True
+    if resolution.email and not payload.get("email"):
+        payload["email"] = resolution.email.lower()
+        changed = True
+    if current_name_source != NameSource.HUMAN_VERIFIED:
+        payload["name_source"] = resolution.source
+        payload["name_confidence"] = resolution.confidence
+        payload["name_status"] = resolution.status
+        changed = True
     if changed:
-        changed.append("updated_at")
-        thing.save(update_fields=sorted(set(changed)))
+        record.normalized_payload = payload
+        record.save(update_fields=["normalized_payload", "updated_at"])
 
 
 def _message_fingerprint(source_grant: SourceGrant, message: dict) -> str:
@@ -440,14 +443,17 @@ def push_working_set_to_lanternmail(
         members_to_push = list(test_override)
     else:
         confirmed = (
-            working_set.memberships
-            .filter(provisional_thing__name_status=NameStatus.READY)
-            .select_related("provisional_thing")
+            working_set.provisional_data_memberships
+            .filter(provisional_data__normalized_payload__name_status=NameStatus.READY)
+            .select_related("provisional_data")
         )
         members_to_push = [
-            {"email": m.provisional_thing.email, "name": m.provisional_thing.preferred_name}
+            {
+                "email": m.provisional_data.normalized_payload.get("email", ""),
+                "name": m.provisional_data.normalized_payload.get("preferred_name", ""),
+            }
             for m in confirmed
-            if m.provisional_thing.email
+            if m.provisional_data.normalized_payload.get("email")
         ]
 
     if not members_to_push:
@@ -463,7 +469,7 @@ def push_working_set_to_lanternmail(
     )
     list_id = lm_resp["data"]["id"]
 
-    results = []
+    results: list[dict] = []
     for member in members_to_push:
         try:
             sub_resp = client.create_subscriber(
@@ -492,16 +498,16 @@ def push_working_set_to_lanternmail(
 
 
 def _refresh_working_set_summary(working_set: WorkingSet) -> None:
-    memberships = working_set.memberships.select_related("provisional_thing")
+    memberships = working_set.provisional_data_memberships.select_related("provisional_data")
     total = memberships.count()
     ready = 0
     needs_review = 0
     excluded = 0
     for membership in memberships:
-        thing = membership.provisional_thing
-        if thing.status == ProvisionalThingStatus.EXCLUDED:
+        record = membership.provisional_data
+        if record.state == ProvisionalDataState.REJECTED:
             excluded += 1
-        elif thing.name_status == NameStatus.READY:
+        elif record.normalized_payload.get("name_status") == NameStatus.READY:
             ready += 1
         else:
             needs_review += 1

@@ -4,11 +4,9 @@ from .models import (
     ExternalConnection,
     ProvisionalData,
     ProvisionalDataMembership,
-    ProvisionalThing,
     SourceEvidence,
     SourceGrant,
     WorkingSet,
-    WorkingSetMembership,
 )
 
 
@@ -34,16 +32,10 @@ class SourceEvidenceAdmin(admin.ModelAdmin):
     search_fields = ("sender_email", "sender_display_name_raw", "provider_message_id", "subject")
 
 
-@admin.register(ProvisionalThing)
-class ProvisionalThingAdmin(admin.ModelAdmin):
-    list_display = ("preferred_name", "email", "possible_type", "status", "name_source", "name_confidence", "name_status")
-    list_filter = ("possible_type", "status", "name_source", "name_confidence", "name_status")
-    search_fields = ("preferred_name", "email", "organization_guess")
-
-
-class WorkingSetMembershipInline(admin.TabularInline):
-    model = WorkingSetMembership
+class ProvisionalDataMembershipInline(admin.TabularInline):
+    model = ProvisionalDataMembership
     extra = 0
+    fields = ("provisional_data", "status", "position", "note")
 
 
 @admin.register(WorkingSet)
@@ -51,19 +43,7 @@ class WorkingSetAdmin(admin.ModelAdmin):
     list_display = ("title", "group", "source", "initiative", "status", "updated_at")
     list_filter = ("status", "source", "group")
     search_fields = ("title", "purpose")
-    inlines = [WorkingSetMembershipInline]
-
-
-@admin.register(WorkingSetMembership)
-class WorkingSetMembershipAdmin(admin.ModelAdmin):
-    list_display = ("working_set", "provisional_thing", "status", "position", "created_at")
-    list_filter = ("status",)
-
-
-class ProvisionalDataMembershipInline(admin.TabularInline):
-    model = ProvisionalDataMembership
-    extra = 0
-    fields = ("provisional_data", "status", "position", "note")
+    inlines = [ProvisionalDataMembershipInline]
 
 
 @admin.register(ProvisionalData)

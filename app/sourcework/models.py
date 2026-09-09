@@ -21,15 +21,6 @@ class SourceGrantStatus(models.TextChoices):
     REVOKED = "revoked", "Revoked"
 
 
-class ProvisionalThingStatus(models.TextChoices):
-    PROVISIONAL = "provisional", "Provisional"
-    READY = "ready", "Ready"
-    EXCLUDED = "excluded", "Excluded"
-    MERGED = "merged", "Merged"
-    PROMOTED = "promoted", "Promoted"
-    ARCHIVED = "archived", "Archived"
-
-
 class WorkingSetStatus(models.TextChoices):
     ACTIVE = "active", "Active"
     CLOSED = "closed", "Closed"
@@ -184,51 +175,6 @@ class SourceEvidence(BaseModel):
         return f"{self.sender_email or self.sender_header_raw} {self.sent_at or ''}".strip()
 
 
-class ProvisionalThing(BaseModel):
-    """
-    Mutable, non-canonical provisional object assembled from source evidence.
-    """
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    group = models.ForeignKey("groups.Group", on_delete=models.CASCADE, related_name="provisional_things")
-    possible_type = models.CharField(max_length=80, blank=True, default="")
-    status = models.CharField(
-        max_length=24,
-        choices=ProvisionalThingStatus.choices,
-        default=ProvisionalThingStatus.PROVISIONAL,
-        db_index=True,
-    )
-    preferred_name = models.CharField(max_length=255, blank=True, default="")
-    email = models.EmailField(blank=True, default="")
-    organization_guess = models.CharField(max_length=255, blank=True, default="")
-    relationship_context = models.TextField(blank=True, default="")
-    name_source = models.CharField(max_length=32, choices=NameSource.choices, default=NameSource.UNKNOWN)
-    name_confidence = models.CharField(max_length=16, choices=NameConfidence.choices, default=NameConfidence.LOW)
-    name_status = models.CharField(max_length=32, choices=NameStatus.choices, default=NameStatus.NEEDS_REVIEW)
-    payload = models.JSONField(default=dict, blank=True)
-    evidence = models.ManyToManyField(SourceEvidence, related_name="provisional_things", blank=True)
-    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
-    verified_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="verified_provisional_things",
-    )
-    verified_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        ordering = ["preferred_name", "email"]
-        indexes = [
-            models.Index(fields=["group", "possible_type", "status"]),
-            models.Index(fields=["group", "email"]),
-            models.Index(fields=["name_status", "name_confidence"]),
-        ]
-
-    def __str__(self):
-        return self.preferred_name or self.email or str(self.id)
-
-
 class WorkingSet(BaseModel):
     """
     Durable record of assembled work. Member provisional things may have their
@@ -286,29 +232,8 @@ class WorkingSet(BaseModel):
         return self.title
 
 
-class WorkingSetMembership(BaseModel):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    working_set = models.ForeignKey(WorkingSet, on_delete=models.CASCADE, related_name="memberships")
-    provisional_thing = models.ForeignKey(ProvisionalThing, on_delete=models.CASCADE, related_name="working_set_memberships")
-    status = models.CharField(max_length=24, default="active", db_index=True)
-    position = models.PositiveIntegerField(default=0)
-    note = models.TextField(blank=True, default="")
-
-    class Meta:
-        ordering = ["position", "created_at"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["working_set", "provisional_thing"],
-                name="sourcework_unique_thing_per_working_set",
-            )
-        ]
-
-    def __str__(self):
-        return f"{self.working_set_id}:{self.provisional_thing_id}"
-
-
 # ---------------------------------------------------------------------------
-# ProvisionalData — Opportunity Pipeline Phase 0
+# ProvisionalData
 # ---------------------------------------------------------------------------
 
 
@@ -353,6 +278,14 @@ class ProvisionalData(BaseModel):
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    group = models.ForeignKey(
+        "groups.Group",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="provisional_data_records",
+        db_index=True,
+    )
 
     # ---- Kind and source ----
     kind = models.CharField(
@@ -467,13 +400,14 @@ class ProvisionalData(BaseModel):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="provisional_data_records",
+        related_name="grounded_provisional_data",
         help_text="SourceEvidence record that grounds this provisional finding.",
     )
 
     class Meta:
         ordering = ["-observed_at", "-created_at"]
         indexes = [
+            models.Index(fields=["group", "kind", "state"]),
             models.Index(fields=["kind", "state"]),
             models.Index(fields=["owner_user", "state"]),
             models.Index(fields=["source_type", "source_external_id"]),

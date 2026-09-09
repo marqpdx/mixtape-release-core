@@ -30,7 +30,7 @@ from sourcework.google_oauth import (
 from sourcework.models import (
     ExternalConnection,
     ExternalConnectionStatus,
-    ProvisionalThing,
+    ProvisionalData,
     SourceEvidence,
     SourceGrant,
     SourceGrantStatus,
@@ -359,23 +359,23 @@ class WorkingSetListView(APIView):
             return _forbidden()
         group = _get_group(slug)
         qs = WorkingSet.objects.filter(group=group).prefetch_related(
-            "memberships__provisional_thing__evidence"
+            "provisional_data_memberships__provisional_data__source_evidence"
         )
         return Response(WorkingSetSerializer(qs, many=True).data)
 
 
-class ProvisionalThingVerifyNameView(APIView):
+class ProvisionalDataVerifyNameView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
-    def patch(self, request, slug, thing_id):
+    def patch(self, request, slug, data_id):
         if not _superuser_required(request):
             return _forbidden()
         group = _get_group(slug)
-        thing = get_object_or_404(ProvisionalThing, id=thing_id, group=group)
+        record = get_object_or_404(ProvisionalData, id=data_id, group=group)
         serializer = VerifyNameSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         verify_provisional_name(
-            thing,
+            record,
             preferred_name=serializer.validated_data["preferred_name"],
             note=serializer.validated_data.get("note") or "",
             user=request.user,
@@ -383,7 +383,7 @@ class ProvisionalThingVerifyNameView(APIView):
         from sourcework.services import _refresh_working_set_summary
 
         first_membership = None
-        for membership in thing.working_set_memberships.select_related("working_set"):
+        for membership in record.working_set_memberships.select_related("working_set"):
             first_membership = first_membership or membership
             _refresh_working_set_summary(membership.working_set)
         if not first_membership:

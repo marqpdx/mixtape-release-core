@@ -12,7 +12,7 @@ class SourceMessage:
     Provider-neutral message envelope used by Sourcework import services.
 
     Provider adapters should normalize external payloads into this shape before
-    SourceEvidence and ProvisionalThing records are created.
+    SourceEvidence and ProvisionalData records are created.
     """
 
     provider_message_id: str = ""

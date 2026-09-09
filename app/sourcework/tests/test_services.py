@@ -9,7 +9,7 @@ from unittest.mock import patch
 from groups.models import Group
 from initiatives.models import ActionRun, ActionRunStatus
 from sourcework.models import NameConfidence, NameSource, NameStatus
-from sourcework.models import ExternalConnection, ExternalConnectionStatus, ProvisionalThing, SourceGrant, WorkingSet
+from sourcework.models import ExternalConnection, ExternalConnectionStatus, ProvisionalData, SourceGrant, WorkingSet
 from sourcework.api.views import OAUTH_STATE_CACHE_PREFIX
 from sourcework.providers import SourceMessage, get_source_provider_adapter
 from sourcework.services import _parse_sent_at, import_latest_from_source_grant, resolve_sender_name
@@ -158,9 +158,13 @@ class SourceImportAuditTests(TestCase):
         self.assertEqual(result["imported"], 1)
         self.assertEqual(result["provisional_created"], 1)
 
-        thing = ProvisionalThing.objects.get(group=self.group, email="vaughn@example.com")
-        self.assertEqual(thing.preferred_name, "Vaughn Smith")
-        self.assertEqual(thing.name_source, NameSource.HEADER)
+        record = ProvisionalData.objects.get(
+            group=self.group,
+            kind="recruiter_contact",
+            normalized_payload__email="vaughn@example.com",
+        )
+        self.assertEqual(record.normalized_payload["preferred_name"], "Vaughn Smith")
+        self.assertEqual(record.normalized_payload["name_source"], NameSource.HEADER)
 
         working_set = WorkingSet.objects.get(group=self.group, title="Recruiter Reconnection")
         self.assertEqual(working_set.summary["total"], 1)
