@@ -444,7 +444,7 @@ def push_working_set_to_lanternmail(
     else:
         confirmed = (
             working_set.provisional_data_memberships
-            .filter(provisional_data__normalized_payload__name_status=NameStatus.READY)
+            .filter(provisional_data__normalized_payload__name_source=NameSource.HUMAN_VERIFIED)
             .select_related("provisional_data")
         )
         members_to_push = [
