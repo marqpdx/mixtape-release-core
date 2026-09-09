@@ -486,6 +486,8 @@ def push_working_set_to_lanternmail(
     )
     list_id = lm_resp["data"]["id"]
 
+    from lanternmail.services.exceptions import ListmonkBadRequestError
+
     results: list[dict] = []
     for member in members_to_push:
         try:
@@ -501,6 +503,23 @@ def push_working_set_to_lanternmail(
                 "status": "subscribed",
                 "subscriber_id": (sub_resp.get("data") or {}).get("id"),
             })
+        except ListmonkBadRequestError:
+            # Subscriber already exists — look them up and add to this list.
+            try:
+                search = client.search_subscribers(query=f"email = '{member['email']}'")
+                existing = ((search.get("data") or {}).get("results") or [None])[0]
+                if existing and existing.get("id"):
+                    client.update_subscriber_lists(existing["id"], add=[list_id], status="confirmed")
+                    results.append({
+                        "email": member["email"],
+                        "status": "subscribed",
+                        "subscriber_id": existing["id"],
+                        "note": "existing subscriber added to list",
+                    })
+                else:
+                    results.append({"email": member["email"], "status": "error", "detail": "Subscriber exists but could not be found by search."})
+            except Exception as inner_exc:
+                results.append({"email": member["email"], "status": "error", "detail": str(inner_exc)})
         except Exception as exc:
             results.append({"email": member["email"], "status": "error", "detail": str(exc)})
 
