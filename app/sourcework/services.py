@@ -97,7 +97,7 @@ def import_latest_messages(source_grant: SourceGrant, messages: list[dict], *, u
     provisional_created = 0
     provisional_reused = 0
 
-    for position, message in enumerate(messages[:5]):
+    for position, message in enumerate(messages):
         provider_message_id = str(message.get("provider_message_id") or message.get("id") or "").strip()
         if not provider_message_id:
             provider_message_id = _message_fingerprint(source_grant, message)
