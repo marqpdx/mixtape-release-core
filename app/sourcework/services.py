@@ -506,7 +506,7 @@ def push_working_set_to_lanternmail(
         except ListmonkBadRequestError:
             # Subscriber already exists — look them up and add to this list.
             try:
-                search = client.search_subscribers(query=f"email = '{member['email']}'")
+                search = client.search_subscribers(query=f"subscribers.email = '{member['email']}'")
                 existing = ((search.get("data") or {}).get("results") or [None])[0]
                 if existing and existing.get("id"):
                     client.update_subscriber_lists(existing["id"], add=[list_id], status="confirmed")
