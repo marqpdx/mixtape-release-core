@@ -36,7 +36,7 @@ from sourcework.models import (
     SourceGrantStatus,
     WorkingSet,
 )
-from sourcework.services import import_latest_from_source_grant, push_working_set_to_lanternmail, verify_provisional_name
+from sourcework.services import import_latest_from_source_grant, push_working_set_to_lanternmail, reject_provisional_data, verify_provisional_name
 from switchboard.source_grants import (
     SourceGrantAccessError,
     fetch_gmail_labels_for_connection,
@@ -362,6 +362,21 @@ class WorkingSetListView(APIView):
             "provisional_data_memberships__provisional_data__source_evidence"
         )
         return Response(WorkingSetSerializer(qs, many=True).data)
+
+
+class ProvisionalDataRejectView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, slug, data_id):
+        if not _superuser_required(request):
+            return _forbidden()
+        group = _get_group(slug)
+        record = get_object_or_404(ProvisionalData, id=data_id, group=group)
+        working_set = record.working_set_memberships.select_related("working_set").first()
+        if not working_set:
+            return Response({"detail": "Record is not in a Working Set."}, status=status.HTTP_400_BAD_REQUEST)
+        reject_provisional_data(record, user=request.user, working_set=working_set.working_set)
+        return Response(WorkingSetSerializer(working_set.working_set).data)
 
 
 class ProvisionalDataVerifyNameView(APIView):

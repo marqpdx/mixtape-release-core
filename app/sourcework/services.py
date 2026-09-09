@@ -135,6 +135,8 @@ def import_latest_messages(source_grant: SourceGrant, messages: list[dict], *, u
             record = _find_existing_recruiter_contact(group, resolution.email)
             if record:
                 provisional_reused += 1
+                if record.state == ProvisionalDataState.REJECTED:
+                    continue  # never re-surface a rejected contact
                 _apply_name_resolution(record, resolution, user=user, update_existing=True)
             else:
                 record = ProvisionalData.objects.create(
@@ -300,6 +302,21 @@ def verify_provisional_name(record: ProvisionalData, *, preferred_name: str, use
     record.provenance = provenance
     record.save(update_fields=["normalized_payload", "provenance", "updated_at"])
     return record
+
+
+def reject_provisional_data(record: ProvisionalData, *, user, working_set) -> None:
+    """
+    Mark a ProvisionalData record as rejected and remove it from the working set.
+    The record is retained so the dedup pass can suppress the same email on re-import.
+    """
+    record.state = ProvisionalDataState.REJECTED
+    provenance = dict(record.provenance or {})
+    provenance["rejected_by"] = str(user.pk) if getattr(user, "is_authenticated", False) else None
+    provenance["rejected_at"] = timezone.now().isoformat()
+    record.provenance = provenance
+    record.save(update_fields=["state", "provenance", "updated_at"])
+    ProvisionalDataMembership.objects.filter(working_set=working_set, provisional_data=record).delete()
+    _refresh_working_set_summary(working_set)
 
 
 def _find_existing_recruiter_contact(group: Group, email: str) -> ProvisionalData | None:
