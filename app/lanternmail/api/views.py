@@ -237,13 +237,10 @@ def list_user_mailing_lists(request) -> Response:
     """
     user_content_type = ContentType.objects.get_for_model(User)
     group_ids = (
-        Group.memberships.through.objects.filter(
-            is_active=True,
-            is_pending=False,
-            is_banned=False,
-            is_evicted=False,
+        GroupMembership.objects.filter(
             member_content_type=user_content_type,
-            member_object_id=request.user.id,
+            member_object_id=request.user.pk,
+            deleted_at__isnull=True,
         )
         .values_list("group_id", flat=True)
     )
@@ -347,12 +344,10 @@ def get_group_members_with_subscription_status(request, slug: str, list_id: int)
     mailing_list = get_object_or_404(LanternmailList, id=list_id, group=group)
 
     user_content_type = ContentType.objects.get_for_model(User)
-    user_memberships = group.memberships.filter(
-        is_active=True,
-        is_pending=False,
-        is_banned=False,
-        is_evicted=False,
+    user_memberships = GroupMembership.objects.filter(
+        group=group,
         member_content_type=user_content_type,
+        deleted_at__isnull=True,
     )
 
     lm = get_listmonk_client()
@@ -432,12 +427,10 @@ def get_group_members_all_lists(request, slug: str) -> Response:
     list_id = int(list_id_param) if list_id_param and list_id_param.isdigit() else None
 
     user_content_type = ContentType.objects.get_for_model(User)
-    user_memberships = group.memberships.filter(
-        is_active=True,
-        is_pending=False,
-        is_banned=False,
-        is_evicted=False,
+    user_memberships = GroupMembership.objects.filter(
+        group=group,
         member_content_type=user_content_type,
+        deleted_at__isnull=True,
     )
 
     lm = get_listmonk_client()
@@ -526,6 +519,50 @@ def get_group_members_all_lists(request, slug: str) -> Response:
             },
         }
     )
+
+
+# -----------------------------------------------------------------------------
+# List subscribers — Listmonk-direct (all subscribers on a list, not just group members)
+# -----------------------------------------------------------------------------
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def get_list_subscribers(request, slug: str, list_id: int) -> Response:
+    """
+    Return all Listmonk subscribers on a specific mailing list.
+    Source of truth is Listmonk, not group membership — anyone pushed to
+    this list appears here (recruiters, external contacts, group members alike).
+    """
+    group = get_object_or_404(Group, slug=slug)
+    permission_error = _require_lanternmail_manager(request, group)
+    if permission_error:
+        return permission_error
+
+    mailing_list = get_object_or_404(LanternmailList, id=list_id, group=group)
+
+    lm = get_listmonk_client()
+    try:
+        resp = lm.search_subscribers(list_id=mailing_list.listmonk_id, per_page=500)
+        results = (resp.get("data") or {}).get("results") or []
+    except (ListmonkBadRequestError, ListmonkAuthError, ListmonkNotFoundError, ListmonkUpstreamError) as e:
+        return _listmonk_error_response(e)
+
+    subscribers = []
+    for sub in results:
+        sub_lists = sub.get("lists") or []
+        list_entry = next((x for x in sub_lists if x.get("id") == mailing_list.listmonk_id), None)
+        subscription_status = (list_entry or {}).get("subscription_status", "unknown")
+        subscribed_at = (list_entry or {}).get("subscription_created_at")
+
+        subscribers.append({
+            "id": sub.get("id"),
+            "email": sub.get("email", ""),
+            "name": sub.get("name", ""),
+            "status": sub.get("status", ""),
+            "subscription_status": subscription_status,
+            "subscribed_at": subscribed_at,
+        })
+
+    return Response({"data": subscribers, "total": len(subscribers)})
 
 
 # -----------------------------------------------------------------------------
