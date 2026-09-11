@@ -19,6 +19,7 @@ group_lanternmail_patterns = [
     # Subscribers
     path('subscribers', views.get_group_members_all_lists, name='group-all-subscribers'),
     path('mailing-lists/<int:list_id>/subscribers', views.get_group_members_with_subscription_status, name='list-subscribers'),
+    path('mailing-lists/<int:list_id>/list-subscribers', views.get_list_subscribers, name='list-direct-subscribers'),
     path('mailing-lists/<int:list_id>/subscribers/remove', views.remove_list_subscriber, name='remove-list-subscriber'),
     path('mailing-lists/<int:list_id>/invitations', views.send_list_invitations, name='send-invitations'),
 

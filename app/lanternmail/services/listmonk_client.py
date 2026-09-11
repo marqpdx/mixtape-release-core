@@ -61,7 +61,7 @@ class ListmonkClient:
             raise ListmonkAuthError(message=message, status_code=r.status_code, response_text=body)
         if r.status_code == 404:
             raise ListmonkNotFoundError(message=message, status_code=r.status_code, response_text=body)
-        if r.status_code == 400:
+        if r.status_code in (400, 409):
             raise ListmonkBadRequestError(message=message, status_code=r.status_code, response_text=body)
 
         raise ListmonkUpstreamError(message=message, status_code=r.status_code, response_text=body)
@@ -115,8 +115,11 @@ class ListmonkClient:
             payload["preconfirm_subscriptions"] = preconfirm_subscriptions
         return self._req("POST", "/api/subscribers", json=payload)
 
-    def search_subscribers(self, query: str, per_page: int = 100, page: int = 1) -> Json:
-        return self._req("GET", "/api/subscribers", params={"query": query, "per_page": per_page, "page": page})
+    def search_subscribers(self, query: str = "", per_page: int = 100, page: int = 1, list_id: Optional[int] = None) -> Json:
+        params: Dict[str, Any] = {"query": query, "per_page": per_page, "page": page}
+        if list_id is not None:
+            params["list_id"] = list_id
+        return self._req("GET", "/api/subscribers", params=params)
 
     def update_subscriber_lists(
         self,

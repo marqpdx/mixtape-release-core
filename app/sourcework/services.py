@@ -1,6 +1,9 @@
 import hashlib
+import logging
 import re
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 from email.utils import parseaddr, parsedate_to_datetime
 
 from django.conf import settings
@@ -476,6 +479,8 @@ def push_working_set_to_lanternmail(
     if not members_to_push:
         raise ValueError("No confirmed members with email addresses to push.")
 
+    from lanternmail.models import LanternmailList
+
     client = get_listmonk_client()
     lm_resp = client.create_list(
         name=list_name,
@@ -484,7 +489,18 @@ def push_working_set_to_lanternmail(
         tags=["sourcework", "recruiter-pipeline"],
         description=f"Sourcework recruiter list — {working_set.title}",
     )
-    list_id = lm_resp["data"]["id"]
+    list_data = lm_resp["data"]
+    list_id = list_data["id"]
+
+    LanternmailList.objects.create(
+        group=working_set.group,
+        listmonk_id=list_id,
+        listmonk_uuid=list_data["uuid"],
+        display_name=list_name,
+        listmonk_name=list_data["name"],
+        description=f"Sourcework recruiter list — {working_set.title}",
+        is_active=True,
+    )
 
     from lanternmail.services.exceptions import ListmonkBadRequestError
 
