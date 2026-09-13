@@ -56,6 +56,9 @@ class Command(BaseCommand):
             self.stdout.write(f"   current:  {step.current_state}")
             self.stdout.write(f"   intended: {step.intended_state}")
             self.stdout.write(f"   confirm:  {'yes' if step.requires_confirmation else 'no'}")
+            if step.metadata:
+                for key, value in step.metadata.items():
+                    self.stdout.write(f"   {key}: {value}")
 
         if not options["execute"]:
             self.stdout.write("")
@@ -64,10 +67,11 @@ class Command(BaseCommand):
 
         self.stdout.write("")
         self.stdout.write(self.style.WARNING("Executing governed Install specimen..."))
-        execute_recruiter_ai_literacy_install(
+        result = execute_recruiter_ai_literacy_install(
             group_slug=options["group_slug"],
             admin_username=options["admin"],
             draft_course=options["draft_course"],
             skip_course=options["skip_course"],
         )
         self.stdout.write(self.style.SUCCESS("Install execution complete."))
+        self.stdout.write(f"ActionRun: {result['action_run_id']}")
