@@ -6,8 +6,6 @@ from typing import Any
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
-from django.core.management import call_command
-from django.db import transaction
 from django.utils import timezone
 
 from earthlab.choices import CourseRunStatus, CourseStatus, EnrollmentPolicy
@@ -21,6 +19,7 @@ from initiatives.models import (
     ActionRunInitiatorType,
     ActionRunStatus,
 )
+from orchestration.governed_verbs.adapters import provision_recruiter_ai_literacy_install
 from orchestration.governed_verbs import get_governed_verb
 
 
@@ -194,13 +193,12 @@ def execute_recruiter_ai_literacy_install(
         },
     )
     try:
-        args = ["--admin", admin_username, "--group-slug", group_slug]
-        if draft_course:
-            args.append("--draft-course")
-        if skip_course:
-            args.append("--skip-course")
-        with transaction.atomic():
-            call_command("provision_recruiter_ai_literacy_pilot", *args)
+        provision_recruiter_ai_literacy_install(
+            admin_username=admin_username,
+            group_slug=group_slug,
+            draft_course=draft_course,
+            skip_course=skip_course,
+        )
         after_plan = build_recruiter_ai_literacy_plan(group_slug=group_slug, admin_username=admin_username)
     except Exception as exc:
         action_run.status = ActionRunStatus.FAILED
