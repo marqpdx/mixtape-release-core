@@ -168,6 +168,7 @@ INSTALLED_APPS = [
     "sprig",           # Sprig — mobile relational capture affordance (Mobile Capture ADR B)
     "bridge",          # Bridge — live gathering infrastructure (Bridge/Continuity ADR)
     "atrium",          # Atrium — personal AI session surface (AtriumSession, AtriumSessionEntry)
+    "orchestration",   # Orchestration — governed verbs and Install specimens
     "tapestry",        # Tapestry — Place stub (CM-0, commons-adr.md D17); full GIS deferred
     "media_capture",   # MediaCapture — screencast & media ingestion pipeline (Bridge Phase D)
     "catalyst",        # Catalyst — per-tenant Codex provisioning and activation
