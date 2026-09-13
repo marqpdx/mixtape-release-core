@@ -1310,6 +1310,7 @@ def invite_info(request, shortcode):
 
     grp = invite.group
     return JsonResponse({
+        "is_existing_user": bool(invite.user and invite.user.is_active),
         "group": {
             "title": grp.title,
             "slug": grp.slug,
