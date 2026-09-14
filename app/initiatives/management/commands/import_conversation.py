@@ -17,8 +17,17 @@ claude.ai: YAML frontmatter followed by alternating
     # Claude — <timestamp>
 section headers.
 
+The export format for --platform chatgpt is the markdown produced by the
+pionxzh/chatgpt-exporter userscript: a bare "# <title>" H1, no YAML
+frontmatter, no per-turn timestamps, turns delimited by
+    #### You:
+    #### ChatGPT:
+on their own line. If a different ChatGPT export tool/format is
+encountered later, extend CHATGPT_TURN_RE / _parse_chatgpt_markdown rather
+than assuming this format generalizes.
+
 Each turn becomes a prose ApertureLogEntry. Turns detected as standalone
-documents (long structured Claude responses) are extracted to --output-dir
+documents (long structured responses) are extracted to --output-dir
 and replaced in the log with a stub + ledger_data reference. Two ledger
 bookends (session_started / session_ended) bracket the stream.
 """
@@ -45,6 +54,15 @@ from initiatives.models import (
 
 TURN_RE = re.compile(r"^# (Human|Claude) — (.+)$", re.MULTILINE)
 SOURCE_URL_RE = re.compile(r"https://claude\.ai/chat/([a-f0-9-]{36})")
+
+# ChatGPT export format observed from the pionxzh/chatgpt-exporter userscript
+# markdown output: a bare "# <conversation title>" H1, no YAML frontmatter,
+# no per-turn timestamps, turns delimited by "#### You:" / "#### ChatGPT:"
+# on their own line. If a different exporter/format shows up later, extend
+# CHATGPT_TURN_RE / _parse_chatgpt_markdown rather than generalizing
+# speculatively now.
+CHATGPT_TURN_RE = re.compile(r"^#### (You|ChatGPT):\s*$", re.MULTILINE)
+CHATGPT_TITLE_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 HEADING_RE = re.compile(r"^#{1,6}\s+(.+)$", re.MULTILINE)
 H2_PLUS_RE = re.compile(r"^#{2,6}\s+", re.MULTILINE)
 ATTACHMENT_HEADER_RE = re.compile(r"^\*\*Attachment:[^*]+\*\*\s*\n?")
@@ -94,6 +112,42 @@ def _parse_claude_markdown(text: str) -> tuple[dict, list[dict]]:
                 "timestamp": ts_str,
                 "parsed_timestamp": _parse_turn_timestamp(ts_str),
                 "body": body[start:end].strip(),
+                "index": i,
+            }
+        )
+
+    return frontmatter, turns
+
+
+def _parse_chatgpt_markdown(text: str) -> tuple[dict, list[dict]]:
+    """
+    Returns (frontmatter_dict, turns_list) for a ChatGPT markdown export.
+
+    Each turn: {role: 'Human'|'ChatGPT', timestamp: '', parsed_timestamp: None,
+    body: str, index: int}
+
+    No YAML frontmatter and no per-turn timestamps exist in this export
+    format — frontmatter is always {}; title comes from the first H1
+    heading in the file instead of a `title:` field.
+    """
+    matches = list(CHATGPT_TURN_RE.finditer(text))
+    if not matches:
+        raise ValueError("No turn headers found (expected '#### You:' or '#### ChatGPT:').")
+
+    title_match = CHATGPT_TITLE_RE.search(text[: matches[0].start()])
+    frontmatter = {"title": title_match.group(1).strip()} if title_match else {}
+
+    role_map = {"You": "Human", "ChatGPT": "ChatGPT"}
+    turns = []
+    for i, match in enumerate(matches):
+        start = match.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        turns.append(
+            {
+                "role": role_map[match.group(1)],
+                "timestamp": "",
+                "parsed_timestamp": None,
+                "body": text[start:end].strip(),
                 "index": i,
             }
         )
@@ -166,7 +220,7 @@ def _extract_title(body: str, turn_index: int) -> str:
 
 def _save_document(output_dir: Path, turn: dict, doc_title: str, seq: int) -> str:
     """Write the document body to a file; return the relative path from output_dir."""
-    role_dir = "human" if turn["role"] == "Human" else "claude"
+    role_dir = "human" if turn["role"] == "Human" else turn["role"].lower()
     slug = _slugify(doc_title) or f"turn-{turn['index']}"
     filename = f"{seq:03d}-{slug}.md"
     dest = output_dir / role_dir
@@ -237,8 +291,13 @@ class Command(BaseCommand):
                 frontmatter, turns = _parse_claude_markdown(text)
             except ValueError as e:
                 raise CommandError(str(e))
+        elif options["platform"] == "chatgpt":
+            try:
+                frontmatter, turns = _parse_chatgpt_markdown(text)
+            except ValueError as e:
+                raise CommandError(str(e))
         else:
-            raise CommandError("ChatGPT import not yet implemented.")
+            raise CommandError(f"Unknown platform: {options['platform']}")
 
         title = options["title"] or frontmatter.get("title", export_path.stem)
         source_url = frontmatter.get("source", "")
@@ -333,7 +392,7 @@ class Command(BaseCommand):
             author_name = options["author_name"]
             entries = []
             for turn in turns:
-                authored_by = author_name if turn["role"] == "Human" else "claude"
+                authored_by = author_name if turn["role"] == "Human" else turn["role"].lower()
                 if turn["is_document"]:
                     filename = doc_filenames[turn["index"]]
                     body = turn["body"]  # full text always preserved

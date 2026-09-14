@@ -876,7 +876,7 @@ class ApertureLogEntry(BaseModel):
         max_length=150,
         blank=True,
         default="",
-        help_text="username for member entries; 'system' for ledger entries; 'claude' for imported AI turns.",
+        help_text="username for member entries; 'system' for ledger entries; the lowercased AI platform name (e.g. 'claude', 'chatgpt') for imported AI turns.",
     )
     source_turn_index = models.IntegerField(
         null=True,
