@@ -527,7 +527,7 @@ class AtriumAIService:
 # ---------------------------------------------------------------------------
 
 def _build_system_prompt(session) -> str:
-    from atrium.ai.context import BerylPersonalContextBuilder
+    from atrium.ai.context import ClioPersonalContextBuilder
     from atrium.ai.filters import get_persona_filter
 
     parts = [
@@ -563,7 +563,7 @@ def _build_system_prompt(session) -> str:
     if session.session_context and session.session_context.strip():
         parts.append(f"\n\nSession context:\n{session.session_context.strip()}")
 
-    personal_ctx = BerylPersonalContextBuilder().build(session)
+    personal_ctx = ClioPersonalContextBuilder().build(session)
     if personal_ctx:
         parts.append(f"\n\nPersonal context:\n{personal_ctx}")
 

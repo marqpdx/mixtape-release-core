@@ -183,7 +183,7 @@ class AtriumSessionContextView(APIView):
     """
     GET /api/atrium/sessions/<session_id>/context/
 
-    Returns the synthesized Beryl personal context that will be injected into
+    Returns the synthesized Clio personal context that will be injected into
     the system prompt for this session. Surfaces to the member as a preview
     panel — transparent about what Claude knows before each exchange.
 
@@ -204,8 +204,8 @@ class AtriumSessionContextView(APIView):
         except AtriumSession.DoesNotExist:
             return Response({"detail": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        from atrium.ai.context import BerylPersonalContextBuilder
-        builder = BerylPersonalContextBuilder()
+        from atrium.ai.context import ClioPersonalContextBuilder
+        builder = ClioPersonalContextBuilder()
         return Response({
             "context": builder.build(session),
             "sources": builder.sources(session),

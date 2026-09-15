@@ -24,7 +24,7 @@ CREATION_SIGNAL_WEIGHTS = {'low': 1.0, 'medium': 3.0, 'high': 5.0}
 SUMMARY_APPROVED_WEIGHT = 10.0
 
 MEMORY_VALUE_WORKTABLE_THRESHOLD = 15.0
-BERYL_TRIGGER_POST_INTERVAL = 10
+CLIO_TRIGGER_POST_INTERVAL = 10
 
 # Decay constants — initial values; tune against post-launch data (ADR-0047 §12)
 # DECAY_MODE: 'exponential' multiplies the score by (1 - rate) per run;
@@ -51,19 +51,19 @@ def _log_event_and_update_score(container, event_type, delta, actor=None, notes=
     )
 
 
-def _maybe_trigger_beryl_summary(discussion):
+def _maybe_trigger_clio_summary(discussion):
     """
-    Fire Beryl summary candidate generation when post count hits an interval.
-    Stub: wired to Switchboard/Beryl in a subsequent pass.
+    Fire Clio summary candidate generation when post count hits an interval.
+    Stub: wired to Switchboard/Clio in a subsequent pass.
     """
     count = discussion.posts.filter(is_deleted=False).count()
-    if count > 0 and count % BERYL_TRIGGER_POST_INTERVAL == 0:
-        _generate_beryl_candidate(discussion)
+    if count > 0 and count % CLIO_TRIGGER_POST_INTERVAL == 0:
+        _generate_clio_candidate(discussion)
 
 
-def _generate_beryl_candidate(discussion):
+def _generate_clio_candidate(discussion):
     """
-    Request a candidate summary from Beryl and store it in summary_pending.
+    Request a candidate summary from Clio and store it in summary_pending.
     Stub — replace with Switchboard call when the integration is ready.
     """
     pass  # noqa: placeholder — Switchboard integration pending
@@ -163,7 +163,7 @@ def feed_post_created_signal_seed(sender, instance, created, **kwargs):
 def post_created_memory_update(sender, instance, created, **kwargs):
     """
     Update memory-value score when a new Post is created (D6, D10, D11).
-    Fires Beryl trigger for Discussion containers (D12).
+    Fires Clio trigger for Discussion containers (D12).
     """
     if not created:
         return
@@ -202,9 +202,9 @@ def post_created_memory_update(sender, instance, created, **kwargs):
         memory_value_score=F('memory_value_score') + total_delta
     )
 
-    # Beryl summary trigger (D12) — Discussion only
+    # Clio summary trigger (D12) — Discussion only
     if isinstance(container, Discussion):
-        _maybe_trigger_beryl_summary(container)
+        _maybe_trigger_clio_summary(container)
 
     _maybe_surface_in_worktable(container)
 
