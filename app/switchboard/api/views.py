@@ -1327,7 +1327,7 @@ def draft_async_proxy(request):
 
 
 # ---------------------------------------------------------------------------
-# Beryl group search (ADR: beryl-search-spec.md)
+# Clio group search (ADR: decisions/surfaces/clio-search-spec.md)
 # Synchronous: retrieve from Stackroom → synthesize via Inkwell → return answer
 # ---------------------------------------------------------------------------
 

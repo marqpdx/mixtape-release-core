@@ -2,7 +2,7 @@
 #
 # Prompt templates for the group_search Switchboard route.
 # Inkwell returns JSON: {answer, found, used_chunk_indices}
-# Spec: decisions/surfaces/beryl-search-spec.md
+# Spec: decisions/surfaces/clio-search-spec.md
 
 SYSTEM_PROMPT = """\
 You are answering a question about {group_name}'s shared knowledge.
