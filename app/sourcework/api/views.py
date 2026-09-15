@@ -180,20 +180,24 @@ class GoogleOAuthCallbackView(APIView):
             account_email = str(profile.get("emailAddress") or account_email)
         except SourceGrantAccessError:
             pass
-        connection = ExternalConnection.objects.create(
+        connection, _created = ExternalConnection.objects.update_or_create(
             group=group,
-            owner=owner,
             provider="google_gmail",
             provider_account_id=str(account_email),
-            display_name=f"Google Mail - {account_email}" if account_email != "google-gmail" else "Google Mail",
-            credential_reference="encrypted:credential_payload",
-            credential_payload=json.dumps(credentials),
-            provider_scopes=[GMAIL_READONLY_SCOPE],
-            status=ExternalConnectionStatus.READY,
-            connected_at=timezone.now(),
-            refreshed_at=timezone.now(),
-            metadata={"adapter": "switchboard_gmail_v1", "oauth_flow": "google_web_server", "gmail_profile": profile},
+            defaults={
+                "owner": owner,
+                "display_name": f"Google Mail - {account_email}" if account_email != "google-gmail" else "Google Mail",
+                "credential_reference": "encrypted:credential_payload",
+                "credential_payload": json.dumps(credentials),
+                "provider_scopes": [GMAIL_READONLY_SCOPE],
+                "status": ExternalConnectionStatus.READY,
+                "refreshed_at": timezone.now(),
+                "metadata": {"adapter": "switchboard_gmail_v1", "oauth_flow": "google_web_server", "gmail_profile": profile},
+            },
         )
+        if _created:
+            connection.connected_at = timezone.now()
+            connection.save(update_fields=["connected_at"])
         cache.delete(f"{OAUTH_STATE_CACHE_PREFIX}{state}")
         request.session.pop(OAUTH_SESSION_KEY, None)
         request.session.modified = True
