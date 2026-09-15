@@ -14,7 +14,7 @@ Options:
     --slug           Group slug (required, must be unique)
     --title          Display title (required)
     --catalyst-enabled     Set catalyst_enabled=True
-    --commons        Set in_crossroads_commons=True (default: False; use with care)
+    --directory      Set in_crossroads_directory=True (default: False; use with care)
     --dry-run        Print what would be created without writing to the database
 """
 
@@ -37,10 +37,10 @@ class Command(BaseCommand):
             help="Enable Catalyst features for this tenant",
         )
         parser.add_argument(
-            "--commons",
+            "--directory",
             action="store_true",
             default=False,
-            help="Opt into Crossroads public directory (in_crossroads_commons=True). "
+            help="Opt into Crossroads public directory (in_crossroads_directory=True). "
                  "Default is False — standalone tenants should omit this flag.",
         )
         parser.add_argument(
@@ -56,7 +56,7 @@ class Command(BaseCommand):
         slug = options["slug"]
         title = options["title"]
         catalyst_enabled = options["catalyst_enabled"]
-        in_crossroads_commons = options["commons"]
+        in_crossroads_directory = options["directory"]
         dry_run = options["dry_run"]
 
         # Validate slug is available
@@ -64,10 +64,10 @@ class Command(BaseCommand):
             raise CommandError(f"A Group with slug '{slug}' already exists.")
 
         self.stdout.write(f"\nTenant provisioning {'(DRY RUN) ' if dry_run else ''}—")
-        self.stdout.write(f"  slug:                  {slug}")
-        self.stdout.write(f"  title:                 {title}")
-        self.stdout.write(f"  catalyst_enabled:      {catalyst_enabled}")
-        self.stdout.write(f"  in_crossroads_commons: {in_crossroads_commons}")
+        self.stdout.write(f"  slug:                    {slug}")
+        self.stdout.write(f"  title:                   {title}")
+        self.stdout.write(f"  catalyst_enabled:        {catalyst_enabled}")
+        self.stdout.write(f"  in_crossroads_directory: {in_crossroads_directory}")
 
         if dry_run:
             self.stdout.write(self.style.WARNING("\nDry run — no changes written."))
@@ -87,7 +87,7 @@ class Command(BaseCommand):
                 visibility=GroupVisibility.PUBLIC,
                 is_active=True,
                 catalyst_enabled=catalyst_enabled,
-                in_crossroads_commons=in_crossroads_commons,
+                in_crossroads_directory=in_crossroads_directory,
             )
 
             # Bootstrap sponsor: tenant groups sponsor themselves

@@ -5,7 +5,7 @@ Covers:
 - TenantContext ContextVar isolation
 - TenantScopedQuerySet.for_tenant() filtering
 - No cross-tenant leakage across two groups
-- Mall-directory gate: in_crossroads_commons=False group absent from /api/public/groups/
+- Mall-directory gate: in_crossroads_directory=False group absent from /api/public/groups
 - TenantMiddleware: subdomain resolution, header-override in DEBUG, fails-closed
 - TenantContextRequired: returns 428 when tenant absent
 
@@ -31,7 +31,7 @@ def make_group(slug, **kwargs):
         is_active=kwargs.get("is_active", True),
         visibility=kwargs.get("visibility", "public"),
         catalyst_enabled=kwargs.get("catalyst_enabled", False),
-        in_crossroads_commons=kwargs.get("in_crossroads_commons", False),
+        in_crossroads_directory=kwargs.get("in_crossroads_directory", False),
     )
     ct = ContentType.objects.get_for_model(Group)
     g.sponsor_content_type = ct
@@ -133,20 +133,20 @@ class TenantScopedQuerySetTests(TestCase):
 
 class MallDirectoryTests(TestCase):
     """
-    FN-D11: in_crossroads_commons=False group must not appear in /api/public/groups/.
+    FN-D11: in_crossroads_directory=False group must not appear in /api/public/groups.
     """
 
     def setUp(self):
         self.client = APIClient()
 
-    def test_standalone_tenant_not_in_commons_directory(self):
+    def test_standalone_tenant_not_in_directory(self):
         standalone = make_group(
             "the-law",
             title="The Law",
             visibility="public",
-            in_crossroads_commons=False,
+            in_crossroads_directory=False,
         )
-        response = self.client.get("/api/public/groups/")
+        response = self.client.get("/api/public/groups")
         self.assertEqual(response.status_code, 200)
         slugs = [g["slug"] for g in response.json()]
         self.assertNotIn(
@@ -154,24 +154,24 @@ class MallDirectoryTests(TestCase):
             slugs,
             msg=(
                 f"Standalone group '{standalone.slug}' appeared in Crossroads directory "
-                "without commons opt-in. The in_crossroads_commons=False gate was not enforced."
+                "without directory opt-in. The in_crossroads_directory=False gate was not enforced."
             ),
         )
 
-    def test_commons_tenant_appears_in_directory(self):
-        commons_group = make_group(
-            "mb-commons",
-            title="MB Commons",
+    def test_directory_tenant_appears_in_directory(self):
+        directory_group = make_group(
+            "mb-directory",
+            title="MB Directory",
             visibility="public",
-            in_crossroads_commons=True,
+            in_crossroads_directory=True,
         )
-        response = self.client.get("/api/public/groups/")
+        response = self.client.get("/api/public/groups")
         self.assertEqual(response.status_code, 200)
         slugs = [g["slug"] for g in response.json()]
         self.assertIn(
-            commons_group.slug,
+            directory_group.slug,
             slugs,
-            msg=f"Commons group '{commons_group.slug}' did not appear in directory.",
+            msg=f"Directory-opted-in group '{directory_group.slug}' did not appear in directory.",
         )
 
 
