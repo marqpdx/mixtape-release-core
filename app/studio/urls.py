@@ -8,7 +8,7 @@ urlpatterns = [
     # Personal Studio
     path("personal", views.PersonalStudioView.as_view(), name="studio-personal"),
     path("personal/groups", views.PersonalGroupsView.as_view(), name="studio-personal-groups"),
-    path("personal/beryl/dismiss", views.BerylDismissView.as_view(), name="studio-beryl-dismiss"),
+    path("personal/clio/dismiss", views.ClioDismissView.as_view(), name="studio-clio-dismiss"),
     path("personal/recurring-actions", views.PersonalRecurringActionsView.as_view(), name="studio-personal-recurring-actions"),
     path("personal/recurring-actions/<uuid:pk>", views.PersonalRecurringActionDetailView.as_view(), name="studio-personal-recurring-action-detail"),
 
@@ -18,9 +18,9 @@ urlpatterns = [
     path("groups/<slug:slug>/command", views.GroupCommandView.as_view(), name="studio-group-command"),
     path("groups/<slug:slug>/clients", views.GroupClientsView.as_view(), name="studio-group-clients"),
 
-    # Beryl session surface
-    path("beryl/session", views.BerylSessionView.as_view(), name="studio-beryl-session"),
-    path("beryl/scraps/<uuid:pk>", views.BerylScrapView.as_view(), name="studio-beryl-scrap"),
+    # Clio session surface
+    path("clio/session", views.ClioSessionView.as_view(), name="studio-clio-session"),
+    path("clio/scraps/<uuid:pk>", views.ClioScrapView.as_view(), name="studio-clio-scrap"),
 
     # RecurringAction admin
     path("groups/<slug:slug>/recurring-actions", views.GroupRecurringActionsView.as_view(), name="studio-group-recurring-actions"),

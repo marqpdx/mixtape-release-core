@@ -1,4 +1,4 @@
-# beryl/models.py
+# clio/models.py
 import uuid
 
 from django.db import models
@@ -6,12 +6,12 @@ from django.db import models
 from fundamentals.bases import BaseModel
 
 
-class BerylState(BaseModel):
+class ClioState(BaseModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     profile = models.OneToOneField(
         "profiles.UserProfile",
         on_delete=models.CASCADE,
-        related_name="beryl_state",
+        related_name="clio_state",
     )
     last_surfaced_at = models.DateTimeField(null=True, blank=True)
     last_surfaced_signal = models.CharField(max_length=64, blank=True)
@@ -32,4 +32,4 @@ class BerylState(BaseModel):
         pass
 
     def __str__(self):
-        return f"BerylState for profile {self.profile_id}"
+        return f"ClioState for profile {self.profile_id}"
