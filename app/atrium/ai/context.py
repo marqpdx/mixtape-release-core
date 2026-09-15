@@ -1,6 +1,6 @@
 # atrium/ai/context.py
 #
-# BerylPersonalContextBuilder — assembles personal context for Atrium dispatch.
+# ClioPersonalContextBuilder — assembles personal context for Atrium dispatch.
 #
 # Sources (v1):
 #   - UserProfile fields: display_name, practice_area, quick_intro, skills,
@@ -11,7 +11,7 @@
 # A preview is surfaced to the member via GET /api/atrium/sessions/<id>/context/.
 
 
-class BerylPersonalContextBuilder:
+class ClioPersonalContextBuilder:
 
     RECENT_SESSION_LIMIT = 5
 

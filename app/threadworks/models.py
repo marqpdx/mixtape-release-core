@@ -180,7 +180,7 @@ class Discussion(BaseData):
         blank=True,
     )
 
-    # D12 — Beryl-generated, moderator-mediated summary
+    # D12 — Clio-generated, moderator-mediated summary
     summary = models.TextField(null=True, blank=True)
     summary_pending = models.TextField(null=True, blank=True)
     summary_pending_delta = models.FloatField(

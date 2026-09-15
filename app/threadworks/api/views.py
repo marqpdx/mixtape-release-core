@@ -806,7 +806,7 @@ class ForumFeedView(generics.GenericAPIView):
 
 
 # ============================================================================
-# DISCUSSION SUMMARY (D12 — Moderator-mediated Beryl summaries)
+# DISCUSSION SUMMARY (D12 — Moderator-mediated Clio summaries)
 # ============================================================================
 
 @api_view(['POST'])
