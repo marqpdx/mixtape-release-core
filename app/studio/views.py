@@ -71,11 +71,11 @@ def _action_runs_for_group(group):
     return ActionRun.objects.filter(tenant_id=group.pk)
 
 
-def _build_beryl_prompt(user):
+def _build_clio_prompt(user):
     """
-    Return a BerylPrompt dict if Signal 1 conditions are met, else None.
+    Return a ClioPrompt dict if Signal 1 conditions are met, else None.
     Signal 1: 2+ raw Scrap records older than 4h, created after last_surfaced_at.
-    Degrades gracefully if beryl or scrap apps are not yet installed.
+    Degrades gracefully if clio or scrap apps are not yet installed.
     """
     try:
         from profiles.models import UserProfile
@@ -84,25 +84,25 @@ def _build_beryl_prompt(user):
         return None
 
     try:
-        from beryl.models import BerylState
-        beryl_state = BerylState.objects.filter(profile=profile).first()
+        from clio.models import ClioState
+        clio_state = ClioState.objects.filter(profile=profile).first()
     except Exception:
         return None
 
-    if beryl_state:
+    if clio_state:
         now = timezone.now()
         # Suppress: remind_later still active
         if (
-            beryl_state.dismiss_mode == "remind_later"
-            and beryl_state.remind_later_at
-            and now < beryl_state.remind_later_at
+            clio_state.dismiss_mode == "remind_later"
+            and clio_state.remind_later_at
+            and now < clio_state.remind_later_at
         ):
             return None
         # Suppress: session-dismissed within the last 8 hours
         if (
-            beryl_state.dismiss_mode == "session"
-            and beryl_state.last_dismissed_at
-            and (now - beryl_state.last_dismissed_at) < timedelta(hours=8)
+            clio_state.dismiss_mode == "session"
+            and clio_state.last_dismissed_at
+            and (now - clio_state.last_dismissed_at) < timedelta(hours=8)
         ):
             return None
 
@@ -118,8 +118,8 @@ def _build_beryl_prompt(user):
             status="raw",
             created_at__lte=cutoff,
         )
-        if beryl_state and beryl_state.last_surfaced_at:
-            qs = qs.filter(created_at__gt=beryl_state.last_surfaced_at)
+        if clio_state and clio_state.last_surfaced_at:
+            qs = qs.filter(created_at__gt=clio_state.last_surfaced_at)
         count = qs.count()
     except Exception:
         return None
@@ -232,7 +232,7 @@ class PersonalStudioView(generics.GenericAPIView):
         return Response({
             "activity": [_serialize_action(a) for a in activity],
             "my_content": my_content,
-            "beryl_prompt": _build_beryl_prompt(user),
+            "clio_prompt": _build_clio_prompt(user),
             "recurring_actions": personal_due_actions,
         })
 
@@ -555,7 +555,7 @@ class GroupClientsView(generics.GenericAPIView):
 
 
 # ---------------------------------------------------------------------------
-# Beryl session helpers
+# Clio session helpers
 # ---------------------------------------------------------------------------
 
 def _serialize_scrap(s):
@@ -571,11 +571,11 @@ def _serialize_scrap(s):
 
 
 # ---------------------------------------------------------------------------
-# Beryl dismiss
+# Clio dismiss
 # ---------------------------------------------------------------------------
 
-class BerylDismissView(generics.GenericAPIView):
-    """POST /api/studio/personal/beryl/dismiss — update BerylState dismiss mode."""
+class ClioDismissView(generics.GenericAPIView):
+    """POST /api/studio/personal/clio/dismiss — update ClioState dismiss mode."""
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
@@ -585,32 +585,32 @@ class BerylDismissView(generics.GenericAPIView):
 
         try:
             from profiles.models import UserProfile
-            from beryl.models import BerylState
+            from clio.models import ClioState
             profile = UserProfile.objects.get(user=request.user)
-            beryl_state, _ = BerylState.objects.get_or_create(profile=profile)
+            clio_state, _ = ClioState.objects.get_or_create(profile=profile)
         except Exception:
-            return Response({"detail": "BerylState unavailable."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            return Response({"detail": "ClioState unavailable."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         now = timezone.now()
-        beryl_state.last_dismissed_at = now
-        beryl_state.dismiss_mode = mode
+        clio_state.last_dismissed_at = now
+        clio_state.dismiss_mode = mode
 
         if mode == "permanent":
-            beryl_state.last_surfaced_at = now
+            clio_state.last_surfaced_at = now
         elif mode == "remind_later":
-            beryl_state.remind_later_at = now + timedelta(hours=24)
+            clio_state.remind_later_at = now + timedelta(hours=24)
 
-        beryl_state.save()
+        clio_state.save()
         return Response({"status": "ok"})
 
 
 # ---------------------------------------------------------------------------
-# Beryl session surface
+# Clio session surface
 # ---------------------------------------------------------------------------
 
-class BerylSessionView(generics.GenericAPIView):
+class ClioSessionView(generics.GenericAPIView):
     """
-    GET /api/studio/beryl/session?ctx=<action_context>
+    GET /api/studio/clio/session?ctx=<action_context>
     Returns raw Scrap records for the member (>4h old, post-last_surfaced_at).
     The ctx param is opaque — used for future signal routing; currently ignored
     beyond being echoed back so the client can correlate the session.
@@ -624,7 +624,7 @@ class BerylSessionView(generics.GenericAPIView):
             from profiles.models import UserProfile
             from scrap.models import Scrap
             from django.contrib.contenttypes.models import ContentType as CT
-            from beryl.models import BerylState
+            from clio.models import ClioState
 
             profile = UserProfile.objects.get(user=request.user)
             profile_ct = CT.objects.get_for_model(UserProfile)
@@ -637,9 +637,9 @@ class BerylSessionView(generics.GenericAPIView):
                 created_at__lte=cutoff,
             )
 
-            beryl_state = BerylState.objects.filter(profile=profile).first()
-            if beryl_state and beryl_state.last_surfaced_at:
-                qs = qs.filter(created_at__gt=beryl_state.last_surfaced_at)
+            clio_state = ClioState.objects.filter(profile=profile).first()
+            if clio_state and clio_state.last_surfaced_at:
+                qs = qs.filter(created_at__gt=clio_state.last_surfaced_at)
 
             scraps = qs.order_by("intent_tag", "-created_at")[:20]
         except Exception:
@@ -651,10 +651,10 @@ class BerylSessionView(generics.GenericAPIView):
         })
 
 
-class BerylScrapView(generics.GenericAPIView):
+class ClioScrapView(generics.GenericAPIView):
     """
-    PATCH /api/studio/beryl/scraps/<pk>
-    Update a Scrap within a Beryl session: re-tag, add labels, archive, set remind_at.
+    PATCH /api/studio/clio/scraps/<pk>
+    Update a Scrap within a Clio session: re-tag, add labels, archive, set remind_at.
     Any mutation transitions status to 'reviewed' unless explicitly archiving.
     """
     permission_classes = [permissions.IsAuthenticated]

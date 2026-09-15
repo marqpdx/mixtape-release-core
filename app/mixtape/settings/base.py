@@ -161,7 +161,7 @@ INSTALLED_APPS = [
     "living_book",     # Living Book — structured collaborative reading (ADR-0042 Phase 3)
     "console",         # Console — re-entry control surface
     "studio",          # Studio — unified member and group admin surface
-    "beryl",           # Beryl — ambient intelligence layer (BerylState)
+    "clio",            # Clio — ambient intelligence layer (ClioState)
     "recurring_action", # RecurringAction — recurring operational nudges
     "scrap",           # Scrap — ad hoc capture primitive
     "drop",            # Drop — named ephemeral group knowledge packets
