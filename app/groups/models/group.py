@@ -185,12 +185,12 @@ class Group(LayoutParent, BaseContent):
         default="none",
         help_text="Self-serve Catalyst provisioning state.",
     )
-    in_crossroads_commons = models.BooleanField(
+    in_crossroads_directory = models.BooleanField(
         default=False,
         help_text=(
             "This group has explicitly opted into the Crossroads public directory. "
             "Must default False — every group is standalone until an admin sets this. "
-            "Defaulting True would opt all existing groups into the commons on migration."
+            "Defaulting True would opt all existing groups into the directory on migration."
         )
     )
 

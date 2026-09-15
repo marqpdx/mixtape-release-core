@@ -76,7 +76,7 @@ class BusinessProspectAdmin(admin.ModelAdmin):
                 visibility=GroupVisibility.PUBLIC,
                 is_active=True,
                 catalyst_enabled=True,
-                in_crossroads_commons=False,
+                in_crossroads_directory=False,
             )
             ct = ContentType.objects.get_for_model(Group)
             group.sponsor_content_type = ct

@@ -52,7 +52,7 @@ class PublicGroupsListView(APIView):
             Group.objects.filter(
                 visibility="public",
                 is_active=True,
-                in_crossroads_commons=True,
+                in_crossroads_directory=True,
             )
             .select_related("emblem", "sponsor_content_type")
             .annotate(
