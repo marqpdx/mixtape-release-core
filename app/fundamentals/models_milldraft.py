@@ -798,7 +798,7 @@ class SuggestionSource(models.TextChoices):
     CONCORD = 'concord', 'Concord'
     GRISTMILL = 'gristmill', 'Grist Mill'
     COPYDESK = 'copydesk', 'Copy Desk'
-    IN_EDITOR = 'in_editor', 'In-Editor (Inkwell / Beryl)'
+    IN_EDITOR = 'in_editor', 'In-Editor (Inkwell / Clio)'
     MANUAL = 'manual', 'Manual'
 
 
