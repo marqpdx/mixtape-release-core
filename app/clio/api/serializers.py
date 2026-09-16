@@ -1,6 +1,13 @@
 from rest_framework import serializers
 
-from clio.models import KeeperClosingMode, KeeperFindingCadence, KeeperRegistration
+from clio.models import (
+    KEEPER_ID_VALIDATOR,
+    KeeperClosingMode,
+    KeeperFinding,
+    KeeperFindingCadence,
+    KeeperFindingSignal,
+    KeeperRegistration,
+)
 
 
 class QuestionShapeSerializer(serializers.Serializer):
@@ -14,7 +21,7 @@ class KeeperRegisterSerializer(serializers.Serializer):
     Validates a registration payload against the AD-10 wire format exactly.
     """
 
-    keeper_id = serializers.SlugField(max_length=200)
+    keeper_id = serializers.CharField(max_length=200, validators=[KEEPER_ID_VALIDATOR])
     keeper_name = serializers.CharField(max_length=200)
     owner_subsystem = serializers.CharField(max_length=200)
     watch_scope = serializers.CharField()
@@ -41,6 +48,20 @@ class KeeperDeregisterSerializer(serializers.Serializer):
 class KeeperRouteQuestionSerializer(serializers.Serializer):
     intent = serializers.SlugField(max_length=200)
     question_params = serializers.JSONField(required=False, default=dict)
+
+
+class KeeperFindingSubmitSerializer(serializers.Serializer):
+    keeper_id = serializers.CharField(max_length=200, validators=[KEEPER_ID_VALIDATOR])
+    finding_type = serializers.CharField(max_length=200)
+    finding_body = serializers.JSONField(required=False, default=dict)
+    suggested_clio_signal = serializers.ChoiceField(choices=KeeperFindingSignal.choices)
+
+
+class KeeperFindingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = KeeperFinding
+        fields = ["id", "keeper_id", "finding_type", "finding_body", "suggested_clio_signal", "submitted_at"]
+        read_only_fields = fields
 
 
 class KeeperRegistrationSerializer(serializers.ModelSerializer):
