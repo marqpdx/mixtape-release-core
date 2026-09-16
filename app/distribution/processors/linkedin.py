@@ -15,24 +15,32 @@ Tier required: community.
 """
 
 import logging
-from urllib.parse import urlencode, quote_plus
+from urllib.parse import urlencode
 
 logger = logging.getLogger(__name__)
 
 LINKEDIN_SHARE_BASE = "https://www.linkedin.com/sharing/share-offsite/"
 
 
+def _public_crossroads_base() -> str:
+    from django.conf import settings
+
+    configured = getattr(settings, "CROSSROADS_PUBLIC_BASE_URL", "")
+    if configured:
+        return configured.rstrip("/")
+    if getattr(settings, "DEBUG", False):
+        return "http://127.0.0.1:3010"
+    return "https://www.crossroads.place"
+
+
 def _build_canonical_url(piece) -> str:
     if piece.canonical_url:
         return piece.canonical_url
 
-    from django.conf import settings
-    base = getattr(settings, "SITE_BASE_URL", "https://mixtape.social")
-
-    # Always use the public /writing/<slug> route.
-    # The group-scoped URL (/groups/<slug>/writing/<slug>) requires authentication
-    # and would present a login wall to LinkedIn readers who aren't Mixtape members.
-    return f"{base}/writing/{piece.slug}"
+    # Always use the Crossroads public reader route. Authenticated app routes
+    # and group-scoped Mixtape writing routes are not suitable for LinkedIn
+    # crawlers or logged-out readers.
+    return f"{_public_crossroads_base()}/reading/{piece.slug}"
 
 
 class LinkedInProcessor:
