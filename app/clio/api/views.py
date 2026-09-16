@@ -10,14 +10,16 @@ from rest_framework.views import APIView
 
 from clio.api.serializers import (
     KeeperDeregisterSerializer,
+    KeeperFindingSerializer,
+    KeeperFindingSubmitSerializer,
     KeeperRegisterSerializer,
     KeeperRegistrationSerializer,
     KeeperRouteQuestionSerializer,
 )
 from accounts.api.permissions import IsSuperUser
-from clio.models import KeeperClosingMode, KeeperRegistration, KeeperRegistrationStatus
+from clio.models import KeeperClosingMode, KeeperFinding, KeeperRegistration, KeeperRegistrationStatus
 from livewire.auth import InternalServiceAuthentication
-from livewire.permissions import HasKeeperRouteScope, HasKeeperWriteScope
+from livewire.permissions import HasKeeperFindingScope, HasKeeperRouteScope, HasKeeperWriteScope
 from mixtape.celery_app import app as celery_app
 
 logger = logging.getLogger(__name__)
@@ -169,6 +171,58 @@ class KeeperRouteView(APIView):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         return Response(answer)
+
+
+class KeeperFindingSubmitView(APIView):
+    """
+    AD-12 proactive finding submission — store-and-defer scope (K-3, see
+    keeper-adr-status.md). Validates keeper_id against an active
+    registration (unregistered Keepers cannot submit) and durably stores
+    the finding. Does NOT surface it anywhere — no ClioState/signal-salience
+    integration in this pass; that's a deliberate, separate follow-up.
+    """
+
+    authentication_classes = [InternalServiceAuthentication]
+    permission_classes = [HasKeeperFindingScope]
+
+    def post(self, request):
+        serializer = KeeperFindingSubmitSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        is_registered = KeeperRegistration.objects.filter(
+            keeper_id=data["keeper_id"], status=KeeperRegistrationStatus.ACTIVE
+        ).exists()
+        if not is_registered:
+            return Response(
+                {"detail": f"'{data['keeper_id']}' has no active registration. Unregistered Keepers cannot submit findings."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        finding = KeeperFinding.objects.create(
+            keeper_id=data["keeper_id"],
+            finding_type=data["finding_type"],
+            finding_body=data.get("finding_body") or {},
+            suggested_clio_signal=data["suggested_clio_signal"],
+        )
+        return Response(KeeperFindingSerializer(finding).data, status=status.HTTP_201_CREATED)
+
+
+class KeeperFindingListView(APIView):
+    """
+    Human-readable inspection of stored findings — the "queryable" half of
+    K-3's store-and-defer scope. Not a surfacing mechanism; just makes
+    stored findings visible without needing direct DB/admin access.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsSuperUser]
+
+    def get(self, request):
+        qs = KeeperFinding.objects.all().order_by("-submitted_at")
+        keeper_id = request.query_params.get("keeper_id")
+        if keeper_id:
+            qs = qs.filter(keeper_id=keeper_id)
+        return Response(KeeperFindingSerializer(qs, many=True).data)
 
 
 class KeeperRegistryListView(APIView):

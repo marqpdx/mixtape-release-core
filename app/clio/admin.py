@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import ClioState, KeeperRegistration
+from .models import ClioState, KeeperFinding, KeeperRegistration
 
 
 @admin.register(ClioState)
@@ -16,3 +16,11 @@ class KeeperRegistrationAdmin(admin.ModelAdmin):
     list_filter = ["status", "finding_cadence", "owner_subsystem"]
     search_fields = ["keeper_id", "keeper_name", "owner_subsystem"]
     readonly_fields = ["id", "registered_at", "archived_at"]
+
+
+@admin.register(KeeperFinding)
+class KeeperFindingAdmin(admin.ModelAdmin):
+    list_display = ["keeper_id", "finding_type", "suggested_clio_signal", "submitted_at"]
+    list_filter = ["suggested_clio_signal"]
+    search_fields = ["keeper_id", "finding_type"]
+    readonly_fields = ["id", "submitted_at"]

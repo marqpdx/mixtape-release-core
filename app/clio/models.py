@@ -2,9 +2,19 @@
 import uuid
 
 from django.contrib.postgres.fields import ArrayField
+from django.core.validators import RegexValidator
 from django.db import models
 
 from fundamentals.bases import BaseModel
+
+# AD-10's own canonical example ("count-nag-keeper.junk-pile") uses a dot to
+# separate a parameterizable type from its instance context, so keeper_id
+# cannot use Django's stock SlugField (letters/digits/underscore/hyphen only,
+# no dots). This allows dot-separated kebab/underscore segments instead.
+KEEPER_ID_VALIDATOR = RegexValidator(
+    regex=r"^[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)*$",
+    message="keeper_id must be dot-separated segments of letters, numbers, underscores, or hyphens.",
+)
 
 
 class ClioState(BaseModel):
@@ -76,9 +86,10 @@ class KeeperRegistration(BaseModel):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
-    keeper_id = models.SlugField(
+    keeper_id = models.CharField(
         max_length=200,
         db_index=True,
+        validators=[KEEPER_ID_VALIDATOR],
         help_text="Kebab-case slug, e.g. 'recency-keeper' or 'count-nag-keeper.junk-pile'.",
     )
     keeper_name = models.CharField(max_length=200)
@@ -137,3 +148,48 @@ class KeeperRegistration(BaseModel):
 
     def __str__(self):
         return f"{self.keeper_id} ({self.status})"
+
+
+class KeeperFindingSignal(models.TextChoices):
+    NAG = "nag", "Nag"
+    NOTICE = "notice", "Notice"
+    SUGGEST = "suggest", "Suggest"
+
+
+class KeeperFinding(BaseModel):
+    """
+    AD-12 proactive finding submission — store-and-defer scope (K-3 decision,
+    2026-09-16, see keeper-adr-status.md). Findings are durably stored and
+    queryable here, but are NOT YET wired into any surfacing mechanism.
+    AD-12 says a finding should follow "Clio's existing signal-salience
+    model" — that model belongs to ClioState (the Personal Studio nudge
+    feature), a distinct app/feature from this campus-wide registry. Wiring
+    stored findings into ClioState's salience logic is a deliberate, named
+    follow-up for a later session — not done here, to avoid bundling an
+    unplanned cross-surface change into this commit.
+
+    keeper_id is a plain string, not an FK to KeeperRegistration: a finding
+    must remain queryable after its Keeper is later archived or dropped.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    keeper_id = models.CharField(max_length=200, db_index=True, validators=[KEEPER_ID_VALIDATOR])
+    finding_type = models.CharField(
+        max_length=200,
+        help_text="Keeper-defined slug describing what was found.",
+    )
+    finding_body = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Keeper-specific payload. Opaque beyond logging/storage.",
+    )
+    suggested_clio_signal = models.CharField(max_length=16, choices=KeeperFindingSignal.choices)
+    submitted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta(BaseModel.Meta):
+        indexes = [
+            models.Index(fields=["keeper_id", "submitted_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.keeper_id}: {self.finding_type}"

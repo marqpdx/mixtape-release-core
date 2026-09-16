@@ -28,3 +28,7 @@ class HasKeeperWriteScope(_HasServiceScope):
 
 class HasKeeperRouteScope(_HasServiceScope):
     required_scope = "keeper:route"
+
+
+class HasKeeperFindingScope(_HasServiceScope):
+    required_scope = "keeper:finding"
