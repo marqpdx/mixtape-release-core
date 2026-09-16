@@ -966,19 +966,34 @@ def _trigger_idle_keeper_if_due(session) -> None:
     """
     Fire the Continuous Keeper task if the session has been idle past the
     cadence threshold. Called at the start of warm() on cold spawn.
+
+    ApertureLog.last_session_end has no dedicated write path — Atrium has no
+    explicit session-close event (sessions use generic soft-delete, and
+    reset() terminates only to immediately respawn). AtriumSession.last_activity_at
+    (updated after every assistant turn, once the entry is saved) is a reliable
+    stand-in: at the exact point we discover `not was_alive`, it holds the
+    timestamp of this session's last real turn, which is what "idle since"
+    should mean here. Backfilled onto the ApertureLog for any other consumer
+    that expects last_session_end to be populated.
     """
     try:
         from django.utils import timezone
         log, cadence = _resolve_aperture_log(session)
+        if log is None:
+            return
         idle_minutes = _IDLE_THRESHOLDS.get(cadence)
         if idle_minutes is None:
             return  # "light" cadence — no idle trigger
 
-        last_end = getattr(log, "last_session_end", None)
-        last_compact = getattr(log, "compact_at", None)
+        last_end = session.last_activity_at
         if last_end is None:
             return
 
+        if log.last_session_end != last_end:
+            log.last_session_end = last_end
+            log.save(update_fields=["last_session_end", "updated_at"])
+
+        last_compact = getattr(log, "compact_at", None)
         idle_delta = (timezone.now() - last_end).total_seconds() / 60
         if idle_delta >= idle_minutes:
             # Only re-compact if compact is stale (older than last_end).
