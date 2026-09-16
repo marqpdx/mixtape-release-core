@@ -869,6 +869,47 @@ def _store_compact_summary(session, summary: str) -> None:
         logger.warning("[atrium] _store_compact_summary failed: %s", exc)
 
 
+def _continuous_keeper_id(session) -> str:
+    """
+    Keeper ADR AD-8-style parameterized instance id — one Continuous Keeper
+    "instance" per Atrium session, matching CountNagKeeper's own
+    dot-separated instance convention (e.g. count-nag-keeper.junk-pile).
+    """
+    return f"continuous-keeper.{session.id}"
+
+
+def _ensure_continuous_keeper_registered(session, cadence: str) -> None:
+    """
+    K-4: register this session's Continuous Keeper with Clio (AD-3/AD-4 —
+    all Keepers register, no exceptions) the first time it becomes active
+    for a session. Idempotent — safe to call on every trigger check.
+
+    No question_shapes: Continuous Keeper never answers routed questions
+    (AD-2 permits this for proactive-only Keepers). closing_mode is "drop"
+    since a session-scoped registration has no lineage value once the
+    session ends (contrast RecencyKeeper etc., which are longer-lived).
+    """
+    try:
+        from clio import services as clio_services
+
+        clio_services.ensure_keeper_registered(
+            keeper_id=_continuous_keeper_id(session),
+            keeper_name="Continuous Keeper",
+            owner_subsystem="atrium",
+            watch_scope=(
+                f"AtriumSessionEntry rows for session {session.id}; triggers on turn-count/idle "
+                f"thresholds per Thermostat cadence (Phase 2D)."
+            ),
+            finding_cadence="proactive",
+            closing_mode="drop",
+            instance_params={"session_id": str(session.id), "compact_cadence": cadence},
+        )
+    except Exception as exc:
+        # Registration is Keeper-pattern bookkeeping, not correctness-critical
+        # for the compaction itself (mirrors the ADR's own Celery-down stance).
+        logger.warning("[atrium] Continuous Keeper registration failed for session %s: %s", session.id, exc)
+
+
 def _trigger_keeper_if_due(session) -> None:
     """
     Fire the Continuous Keeper task if the turn threshold for this session's
@@ -890,6 +931,7 @@ def _trigger_keeper_if_due(session) -> None:
             qs = qs.filter(created_at__gt=since)
         count = qs.count()
         if count >= threshold:
+            _ensure_continuous_keeper_registered(session, cadence)
             from atrium.tasks import keeper_compact_task
             keeper_compact_task.delay(str(session.id))
     except Exception as exc:
@@ -941,6 +983,7 @@ def _trigger_idle_keeper_if_due(session) -> None:
         if idle_delta >= idle_minutes:
             # Only re-compact if compact is stale (older than last_end).
             if last_compact is None or last_compact < last_end:
+                _ensure_continuous_keeper_registered(session, cadence)
                 from atrium.tasks import keeper_compact_task
                 keeper_compact_task.delay(str(session.id))
     except Exception as exc:
