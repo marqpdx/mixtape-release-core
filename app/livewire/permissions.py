@@ -20,3 +20,7 @@ class HasDispatchWriteScope(_HasServiceScope):
 
 class HasOrchestrationWriteScope(_HasServiceScope):
     required_scope = "orchestration:write"
+
+
+class HasKeeperWriteScope(_HasServiceScope):
+    required_scope = "keeper:write"
