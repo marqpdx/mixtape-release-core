@@ -1,5 +1,7 @@
 import logging
 
+import celery.exceptions
+from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import permissions, status
@@ -10,11 +12,13 @@ from clio.api.serializers import (
     KeeperDeregisterSerializer,
     KeeperRegisterSerializer,
     KeeperRegistrationSerializer,
+    KeeperRouteQuestionSerializer,
 )
 from accounts.api.permissions import IsSuperUser
 from clio.models import KeeperClosingMode, KeeperRegistration, KeeperRegistrationStatus
 from livewire.auth import InternalServiceAuthentication
-from livewire.permissions import HasKeeperWriteScope
+from livewire.permissions import HasKeeperRouteScope, HasKeeperWriteScope
+from mixtape.celery_app import app as celery_app
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +98,77 @@ class KeeperDeregisterView(APIView):
         closing_mode = serializer.validated_data.get("closing_mode") or registration.closing_mode
         _close_registration(registration, closing_mode=closing_mode)
         return Response({"keeper_id": keeper_id, "closing_mode": closing_mode}, status=status.HTTP_200_OK)
+
+
+class KeeperRouteView(APIView):
+    """
+    AD-11 routing endpoint. Matches an incoming intent against active
+    registrations' denormalized `intents`, dispatches the matched
+    question_shape's answer_task as a Celery task by name (send_task —
+    Clio never imports a Keeper's task module, per AD-3's "does not inspect
+    internal logic beyond the registered payload"), awaits the result, and
+    relays it unmodified. no_keeper_available is a valid non-error response.
+    """
+
+    authentication_classes = [InternalServiceAuthentication]
+    permission_classes = [HasKeeperRouteScope]
+
+    def post(self, request):
+        serializer = KeeperRouteQuestionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        intent = serializer.validated_data["intent"]
+        question_params = serializer.validated_data.get("question_params") or {}
+
+        candidates = list(
+            KeeperRegistration.objects.filter(
+                status=KeeperRegistrationStatus.ACTIVE, intents__contains=[intent]
+            ).order_by("-registered_at")
+        )
+        if not candidates:
+            return Response({"intent": intent, "status": "no_keeper_available"})
+
+        registration = candidates[0]
+        if len(candidates) > 1:
+            logger.warning(
+                "Intent '%s' matched %d active Keeper registrations (%s); "
+                "most-recently-registered wins: '%s'. Duplicate intent registration is a misconfiguration.",
+                intent,
+                len(candidates),
+                [c.keeper_id for c in candidates],
+                registration.keeper_id,
+            )
+
+        answer_task_name = next(
+            (shape["answer_task"] for shape in registration.question_shapes if shape.get("intent") == intent),
+            None,
+        )
+        if not answer_task_name:
+            logger.error(
+                "Keeper '%s' has intent '%s' in its denormalized intents array but no matching "
+                "question_shapes entry — registration data is inconsistent.",
+                registration.keeper_id,
+                intent,
+            )
+            return Response({"intent": intent, "status": "no_keeper_available"})
+
+        async_result = celery_app.send_task(
+            answer_task_name, args=[registration.keeper_id, intent, question_params]
+        )
+        try:
+            answer = async_result.get(timeout=settings.CLIO_KEEPER_ROUTE_TIMEOUT_SECONDS)
+        except celery.exceptions.TimeoutError:
+            logger.warning("Keeper '%s' did not answer intent '%s' within timeout.", registration.keeper_id, intent)
+            return Response(
+                {"intent": intent, "keeper_id": registration.keeper_id, "detail": "Keeper did not respond in time."},
+                status=status.HTTP_504_GATEWAY_TIMEOUT,
+            )
+        except Exception as exc:
+            logger.exception("Keeper '%s' answer_task '%s' raised an error.", registration.keeper_id, answer_task_name)
+            return Response(
+                {"intent": intent, "keeper_id": registration.keeper_id, "detail": f"Keeper task failed: {exc}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response(answer)
 
 
 class KeeperRegistryListView(APIView):
