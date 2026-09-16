@@ -168,10 +168,16 @@ def _notify_linkedin_ready(event) -> None:
         from django.conf import settings
         from utils.tasks import send_transactional_email_task
 
-        site_base = getattr(settings, "SITE_BASE_URL", "https://mixtape.social")
         piece_url = piece.canonical_url or ""
-        if not piece_url and piece.group:
-            piece_url = f"{site_base}/groups/{piece.group.slug}/writing/{piece.slug}"
+        if not piece_url:
+            public_base = getattr(settings, "CROSSROADS_PUBLIC_BASE_URL", "")
+            if public_base:
+                public_base = public_base.rstrip("/")
+            elif getattr(settings, "DEBUG", False):
+                public_base = "http://127.0.0.1:3010"
+            else:
+                public_base = "https://www.crossroads.place"
+            piece_url = f"{public_base}/reading/{piece.slug}"
 
         send_transactional_email_task.delay(
             subject=f'"{piece.title}" is live — share on LinkedIn',
