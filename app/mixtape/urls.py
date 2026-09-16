@@ -117,6 +117,7 @@ urlpatterns = [
     path("api/storyline/", include("writing.api.storyline_urls")),
     path("api/distribution/", include("distribution.api.urls")),
     path("api/studio/", include("studio.urls")),  # Studio — personal and group admin surface
+    path("api/clio/", include("clio.urls")),  # Clio — Keeper registry/relay (Keeper ADR K-1)
     path("api/bridge/", include("bridge.api.urls")),              # Bridge — live gatherings
     path("api/concord/", include("concord.api.urls")),            # Audio transcription/interpretation
     path("api/media-capture/", include("media_capture.api.urls")),  # MediaCapture screencast pipeline
