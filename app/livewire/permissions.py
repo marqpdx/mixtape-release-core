@@ -24,3 +24,7 @@ class HasOrchestrationWriteScope(_HasServiceScope):
 
 class HasKeeperWriteScope(_HasServiceScope):
     required_scope = "keeper:write"
+
+
+class HasKeeperRouteScope(_HasServiceScope):
+    required_scope = "keeper:route"

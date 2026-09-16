@@ -38,6 +38,11 @@ class KeeperDeregisterSerializer(serializers.Serializer):
     closing_mode = serializers.ChoiceField(choices=KeeperClosingMode.choices, required=False)
 
 
+class KeeperRouteQuestionSerializer(serializers.Serializer):
+    intent = serializers.SlugField(max_length=200)
+    question_params = serializers.JSONField(required=False, default=dict)
+
+
 class KeeperRegistrationSerializer(serializers.ModelSerializer):
     class Meta:
         model = KeeperRegistration
