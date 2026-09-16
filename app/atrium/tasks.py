@@ -78,6 +78,21 @@ def keeper_compact_task(self, session_id: str) -> None:
         log.save(update_fields=["compact_summary", "compact_at"])
         logger.info("[keeper] compact summary updated for session %s (%d chars)", session_id, len(summary))
 
+        # K-4: submit a proactive finding to Clio's registry (store-and-defer,
+        # see keeper-adr-status.md — not surfaced anywhere yet, but this gives
+        # K-3's storage its first real production caller).
+        try:
+            from clio import services as clio_services
+
+            clio_services.submit_finding(
+                keeper_id=f"continuous-keeper.{session_id}",
+                finding_type="compact_summary_updated",
+                finding_body={"session_id": session_id, "summary_chars": len(summary)},
+                suggested_clio_signal="notice",
+            )
+        except Exception as exc:
+            logger.warning("[keeper] Clio finding submission failed for session %s: %s", session_id, exc)
+
     except Exception as exc:
         logger.exception("[keeper] keeper_compact_task failed for session %s", session_id)
         raise self.retry(exc=exc, countdown=60)

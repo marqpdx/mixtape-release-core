@@ -3,7 +3,6 @@ import logging
 import celery.exceptions
 from django.conf import settings
 from django.shortcuts import get_object_or_404
-from django.utils import timezone
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -17,7 +16,8 @@ from clio.api.serializers import (
     KeeperRouteQuestionSerializer,
 )
 from accounts.api.permissions import IsSuperUser
-from clio.models import KeeperClosingMode, KeeperFinding, KeeperRegistration, KeeperRegistrationStatus
+from clio import services as clio_services
+from clio.models import KeeperFinding, KeeperRegistration, KeeperRegistrationStatus
 from livewire.auth import InternalServiceAuthentication
 from livewire.permissions import HasKeeperFindingScope, HasKeeperRouteScope, HasKeeperWriteScope
 from mixtape.celery_app import app as celery_app
@@ -25,25 +25,10 @@ from mixtape.celery_app import app as celery_app
 logger = logging.getLogger(__name__)
 
 
-def _close_registration(registration: KeeperRegistration, *, closing_mode: str) -> None:
-    """
-    Apply AD-5's drop/archive semantics. Drop is a real delete; archive
-    retains the full row (payload, owner, timestamp) and is never deleted.
-    """
-    if closing_mode == KeeperClosingMode.DROP:
-        registration.delete()
-        return
-    registration.status = KeeperRegistrationStatus.ARCHIVED
-    registration.archived_at = timezone.now()
-    registration.save(update_fields=["status", "archived_at", "updated_at"])
-
-
 class KeeperRegisterView(APIView):
     """
-    AD-10 registration endpoint. A restarted Keeper is always a new
-    registration (AD-5) — if an active registration already exists under the
-    same keeper_id, it is implicitly closed (using its own declared closing
-    mode) before the new one is created, rather than erroring.
+    AD-10 registration endpoint. Thin wrapper over clio.services.register_keeper —
+    see that function for the actual restart/re-registration semantics (AD-5).
     """
 
     authentication_classes = [InternalServiceAuthentication]
@@ -54,27 +39,14 @@ class KeeperRegisterView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        existing = KeeperRegistration.objects.filter(
-            keeper_id=data["keeper_id"], status=KeeperRegistrationStatus.ACTIVE
-        ).first()
-        if existing:
-            logger.info(
-                "Keeper '%s' re-registered while an active registration existed; closing prior registration (mode=%s).",
-                data["keeper_id"],
-                existing.closing_mode,
-            )
-            _close_registration(existing, closing_mode=existing.closing_mode)
-
-        question_shapes = data.get("question_shapes") or []
-        registration = KeeperRegistration.objects.create(
+        registration = clio_services.register_keeper(
             keeper_id=data["keeper_id"],
             keeper_name=data["keeper_name"],
             owner_subsystem=data["owner_subsystem"],
             watch_scope=data["watch_scope"],
-            question_shapes=question_shapes,
-            intents=[shape["intent"] for shape in question_shapes],
+            question_shapes=data.get("question_shapes") or [],
             finding_cadence=data["finding_cadence"],
-            closing_mode=data.get("closing_mode") or KeeperClosingMode.ARCHIVE,
+            closing_mode=data.get("closing_mode"),
             instance_params=data.get("instance_params") or {},
         )
         return Response(KeeperRegistrationSerializer(registration).data, status=status.HTTP_201_CREATED)
@@ -82,9 +54,9 @@ class KeeperRegisterView(APIView):
 
 class KeeperDeregisterView(APIView):
     """
-    AD-5 deregistration endpoint. closing_mode in the request body overrides
-    the registration's own declared preference for this deregistration only;
-    omit it to use what was declared at registration time.
+    AD-5 deregistration endpoint. Thin wrapper over clio.services.deregister_keeper.
+    closing_mode in the request body overrides the registration's own
+    declared preference for this deregistration only.
     """
 
     authentication_classes = [InternalServiceAuthentication]
@@ -94,12 +66,13 @@ class KeeperDeregisterView(APIView):
         serializer = KeeperDeregisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        registration = get_object_or_404(
-            KeeperRegistration, keeper_id=keeper_id, status=KeeperRegistrationStatus.ACTIVE
+        get_object_or_404(KeeperRegistration, keeper_id=keeper_id, status=KeeperRegistrationStatus.ACTIVE)
+        closing_mode_override = serializer.validated_data.get("closing_mode")
+        registration = clio_services.deregister_keeper(keeper_id=keeper_id, closing_mode=closing_mode_override)
+        return Response(
+            {"keeper_id": keeper_id, "closing_mode": closing_mode_override or registration.closing_mode},
+            status=status.HTTP_200_OK,
         )
-        closing_mode = serializer.validated_data.get("closing_mode") or registration.closing_mode
-        _close_registration(registration, closing_mode=closing_mode)
-        return Response({"keeper_id": keeper_id, "closing_mode": closing_mode}, status=status.HTTP_200_OK)
 
 
 class KeeperRouteView(APIView):
@@ -190,21 +163,15 @@ class KeeperFindingSubmitView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        is_registered = KeeperRegistration.objects.filter(
-            keeper_id=data["keeper_id"], status=KeeperRegistrationStatus.ACTIVE
-        ).exists()
-        if not is_registered:
-            return Response(
-                {"detail": f"'{data['keeper_id']}' has no active registration. Unregistered Keepers cannot submit findings."},
-                status=status.HTTP_400_BAD_REQUEST,
+        try:
+            finding = clio_services.submit_finding(
+                keeper_id=data["keeper_id"],
+                finding_type=data["finding_type"],
+                finding_body=data.get("finding_body") or {},
+                suggested_clio_signal=data["suggested_clio_signal"],
             )
-
-        finding = KeeperFinding.objects.create(
-            keeper_id=data["keeper_id"],
-            finding_type=data["finding_type"],
-            finding_body=data.get("finding_body") or {},
-            suggested_clio_signal=data["suggested_clio_signal"],
-        )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(KeeperFindingSerializer(finding).data, status=status.HTTP_201_CREATED)
 
 
