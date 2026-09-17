@@ -338,6 +338,9 @@ app.conf.task_routes = {
     "atrium.tasks.keepers.answer_recency_question": {
         "queue": "catalyst", "routing_key": "catalyst"
     },
+    "scrap.tasks.answer_raw_scrap_pile_question": {
+        "queue": "catalyst", "routing_key": "catalyst"
+    },
     # --- OCR Spike: isolated evaluation workflow ---
     "ocr_spike.tasks.run_local_ocr_for_artifact": {
         "queue": "ocr", "routing_key": "ocr"
