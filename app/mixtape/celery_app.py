@@ -341,6 +341,12 @@ app.conf.task_routes = {
     "scrap.tasks.answer_raw_scrap_pile_question": {
         "queue": "catalyst", "routing_key": "catalyst"
     },
+    "console.tasks.register_inbox_keeper_task": {
+        "queue": "catalyst", "routing_key": "catalyst"
+    },
+    "console.tasks.answer_inbox_type_guess": {
+        "queue": "catalyst", "routing_key": "catalyst"
+    },
     # --- OCR Spike: isolated evaluation workflow ---
     "ocr_spike.tasks.run_local_ocr_for_artifact": {
         "queue": "ocr", "routing_key": "ocr"
@@ -410,6 +416,10 @@ app.conf.beat_schedule = {
     "ensure-recency-keeper-registered": {
         "task": "atrium.tasks.keepers.register_recency_keeper_task",
         "schedule": 300.0,  # every 5 minutes — RecencyKeeper is long-lived infra, not spawned per-request (K-5)
+    },
+    "ensure-inbox-keeper-registered": {
+        "task": "console.tasks.register_inbox_keeper_task",
+        "schedule": 300.0,  # every 5 minutes — same rationale as RecencyKeeper's heartbeat (K-7)
     },
 }
 

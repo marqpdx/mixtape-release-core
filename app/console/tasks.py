@@ -116,3 +116,41 @@ def transcribe_hub_capture_task(self, capture_id: str):
         capture.transcript_error = str(exc)
         capture.save(update_fields=["status", "transcript_error", "updated_at"])
         return {"status": "failed", "reason": str(exc)}
+
+
+@shared_task(queue="catalyst")
+def register_inbox_keeper_task() -> None:
+    """Celery beat heartbeat keeping InboxKeeper's registration alive (K-7) —
+    same rationale as RecencyKeeper's heartbeat (K-5): Clio's routing can
+    only reach an already-registered Keeper, and InboxKeeper isn't spawned
+    per-request."""
+    from console.inbox_keeper import ensure_inbox_keeper_registered
+    ensure_inbox_keeper_registered()
+
+
+@shared_task(queue="catalyst")
+def answer_inbox_type_guess(keeper_id: str, intent: str, question_params: dict) -> dict:
+    """AD-11 answer_task for InboxKeeper's question shape. question_params
+    must carry capture_id."""
+    from console.inbox_keeper import guess_capture_type
+
+    capture_id = question_params.get("capture_id")
+    if not capture_id:
+        return {
+            "intent": intent, "keeper_id": keeper_id,
+            "answer": {"error": "capture_id is required"}, "confidence": None,
+        }
+    try:
+        capture = HubCapture.objects.get(id=capture_id)
+    except HubCapture.DoesNotExist:
+        return {
+            "intent": intent, "keeper_id": keeper_id,
+            "answer": {"error": "capture not found"}, "confidence": None,
+        }
+    guess = guess_capture_type(capture.body)
+    return {
+        "intent": intent,
+        "keeper_id": keeper_id,
+        "answer": {"guessed_type": guess["guessed_type"], "capture_id": capture_id},
+        "confidence": guess["confidence"],
+    }
