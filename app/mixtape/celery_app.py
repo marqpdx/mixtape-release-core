@@ -332,6 +332,12 @@ app.conf.task_routes = {
     "atrium.tasks.keeper_compact_task": {
         "queue": "catalyst", "routing_key": "catalyst"
     },
+    "atrium.tasks.keepers.register_recency_keeper_task": {
+        "queue": "catalyst", "routing_key": "catalyst"
+    },
+    "atrium.tasks.keepers.answer_recency_question": {
+        "queue": "catalyst", "routing_key": "catalyst"
+    },
     # --- OCR Spike: isolated evaluation workflow ---
     "ocr_spike.tasks.run_local_ocr_for_artifact": {
         "queue": "ocr", "routing_key": "ocr"
@@ -397,6 +403,10 @@ app.conf.beat_schedule = {
     "apply-memory-value-decay": {
         "task": "threadworks.tasks.apply_memory_value_decay_task",
         "schedule": 86400.0,  # daily — tune cadence alongside weight parameters
+    },
+    "ensure-recency-keeper-registered": {
+        "task": "atrium.tasks.keepers.register_recency_keeper_task",
+        "schedule": 300.0,  # every 5 minutes — RecencyKeeper is long-lived infra, not spawned per-request (K-5)
     },
 }
 
