@@ -83,6 +83,13 @@ class ExternalConnection(BaseModel):
         indexes = [
             models.Index(fields=["group", "provider", "status"]),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["group", "provider", "provider_account_id"],
+                condition=~models.Q(provider_account_id=""),
+                name="unique_connected_account_per_group_provider",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.provider}:{self.display_name or self.provider_account_id or self.id}"
