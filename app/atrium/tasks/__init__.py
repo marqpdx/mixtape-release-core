@@ -10,6 +10,8 @@ import os
 
 from celery import shared_task
 
+from atrium.tasks import keepers  # noqa: F401 — registers RecencyKeeper tasks (K-5)
+
 logger = logging.getLogger(__name__)
 
 _SUMMARIZE_PROMPT_TEMPLATE = """\
