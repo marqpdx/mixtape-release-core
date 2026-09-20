@@ -18,10 +18,31 @@ TEASER_MAX = 220
 DESCRIPTION_MAX = 500
 
 
+# Leading blocks of these types are skipped before text accumulation starts,
+# so a preview doesn't open empty or mid-heading when the doc's first block
+# is a heading/image/etc. Mirrors utils.writing.writing_utils's
+# _EXCERPT_SKIP_BLOCK_TYPES. Only leading blocks are skipped — once a real
+# block is found, every subsequent block (headings included) still
+# contributes, since this walk accumulates across the whole doc, unlike
+# generate_excerpt_from_prosemirror's single-paragraph excerpt.
+_PREVIEW_SKIP_LEADING_TYPES = {"heading", "image", "horizontalRule", "codeBlock"}
+
+
 def _extract_plain_text(body_json: dict, char_limit: int = 600) -> str:
     """Walk a ProseMirror/TipTap doc and extract plain text up to char_limit."""
     if not body_json or not isinstance(body_json, dict):
         return ""
+
+    top_level = body_json.get("content", [])
+    if isinstance(top_level, list):
+        skip = 0
+        for block in top_level:
+            if isinstance(block, dict) and block.get("type") in _PREVIEW_SKIP_LEADING_TYPES:
+                skip += 1
+            else:
+                break
+        if skip:
+            body_json = {**body_json, "content": top_level[skip:]}
 
     parts: list[str] = []
     total = 0
