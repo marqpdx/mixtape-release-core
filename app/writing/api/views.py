@@ -170,6 +170,18 @@ class WorkingDocumentUpsertView(generics.GenericAPIView):
             bootstrapped_at=timezone.now(),
         )
         wc.refresh_from_db()
+
+        # Suggested excerpt: only fills in while the field is blank, so it
+        # never overwrites anything the user has typed. Recomputed on every
+        # autosave until the user provides their own excerpt (or clears it,
+        # which re-enables the suggestion).
+        if not wc.excerpt.strip():
+            from utils.writing.writing_utils import generate_excerpt_from_prosemirror
+            suggested = generate_excerpt_from_prosemirror(wc.body_json or {}, max_length=200)
+            if suggested:
+                wc.excerpt = suggested
+                wc.save(update_fields=["excerpt"])
+
         response_data = self.get_serializer(wc).data
         response_data["split_suggestion_status"] = _check_and_trigger_split_suggestion(piece, wc)
         return Response(response_data, status=status.HTTP_200_OK)
