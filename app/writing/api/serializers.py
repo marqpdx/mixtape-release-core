@@ -548,7 +548,14 @@ class WorkingDocumentListSerializer(WorkingDocumentSerializer):
         For collaborative docs, the dispatch PATCH handler keeps wc.body_json in sync
         with content_snapshot, so wc.body_json is always current here.
         For solo docs that have never been autosaved (auto_save_count == 0), fall back
-        to piece.body_json (e.g. imported content that pre-dates the WC row)."""
+        to piece.body_json (e.g. imported content that pre-dates the WC row).
+
+        Leading heading/image/codeBlock/horizontalRule blocks are skipped before
+        extraction starts (see writing.synopsis_service._extract_plain_text),
+        so a piece that opens with a heading or image doesn't preview as empty
+        or as a duplicate of its own title."""
+        from writing.synopsis_service import _extract_plain_text
+
         body = obj.body_json
 
         if obj.auto_save_count == 0:
@@ -559,35 +566,8 @@ class WorkingDocumentListSerializer(WorkingDocumentSerializer):
                 piece_nodes = len(piece_body["content"])
                 if wc_nodes < piece_nodes:
                     body = piece_body
-        if not body or not isinstance(body, dict):
-            return ""
-        content = body.get("content", [])
-        if not content:
-            return ""
 
-        parts = []
-        remaining = 300
-
-        def walk(node):
-            nonlocal remaining
-            if remaining <= 0:
-                return
-            if isinstance(node, dict):
-                if node.get("type") == "text":
-                    text = node.get("text", "")
-                    parts.append(text[:remaining])
-                    remaining -= len(text)
-                for child in node.get("content", []):
-                    if remaining <= 0:
-                        break
-                    walk(child)
-
-        for block in content:
-            if remaining <= 0:
-                break
-            walk(block)
-
-        return "".join(parts)
+        return _extract_plain_text(body or {}, char_limit=300)
 
     class Meta(WorkingDocumentSerializer.Meta):
         fields = [
