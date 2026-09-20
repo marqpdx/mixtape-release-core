@@ -23,6 +23,7 @@ from publishing.services.content_access import can_view_placement
 from publishing.services.content_display import get_display_payload
 from curation.models import Collection
 from writing.models import WritingPiece
+from writing.synopsis_service import _extract_plain_text
 from earthlab.models import Course, CourseItem
 
 from django.db.models import Count, Q
@@ -327,6 +328,7 @@ class PublicMemberWritingView(APIView):
         results = []
         for piece in pieces:
             sponsor_group = None
+            body_preview = _extract_plain_text(piece.body_json or {}, char_limit=400)
             if (
                 piece.sponsor_content_type_id == ct_group.id
                 and piece.sponsor_object_id
@@ -342,6 +344,7 @@ class PublicMemberWritingView(APIView):
                 "slug": piece.slug,
                 "title": piece.title,
                 "excerpt": piece.excerpt or "",
+                "body_preview": body_preview or piece.excerpt or "",
                 "writing_kind": piece.writing_kind,
                 "published_at": piece.published_at,
                 "reading_time": piece.reading_time,
@@ -384,11 +387,13 @@ class PublicGroupWritingView(APIView):
         for piece in pieces:
             author = piece.author
             author_profile = getattr(author, "profile", None) if author else None
+            body_preview = _extract_plain_text(piece.body_json or {}, char_limit=400)
             results.append({
                 "id": str(piece.id),
                 "slug": piece.slug,
                 "title": piece.title,
                 "excerpt": piece.excerpt or "",
+                "body_preview": body_preview or piece.excerpt or "",
                 "writing_kind": piece.writing_kind,
                 "published_at": piece.published_at,
                 "reading_time": piece.reading_time,
@@ -663,6 +668,7 @@ class PublicGroupLandingConfigView(APIView):
             "id": str(group.id),
             "slug": group.slug,
             "title": group.title,
+            "description": group.description or "",
             "summary": group.summary or "",
             "tagline": group.tagline or "",
             "profile_image_url": group.profile_image_url,

@@ -8,6 +8,7 @@ from rest_framework.test import APIClient
 from profiles.models import UserProfile
 from publishing.models import ContentPlacement, PublicationGroup
 from curation.models import Collection
+from groups.services.groups import GroupService
 from writing.models import WritingPiece, WritingVersion
 
 
@@ -367,6 +368,60 @@ class PublicMemberShelvesViewTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         for shelf in response.data:
             self.assertEqual(shelf["item_count"], len(shelf["items"]))
+
+
+class PublicGroupWritingViewTests(TestCase):
+    def setUp(self):
+        self.author = User.objects.create_user(
+            username="groupauthor",
+            email="groupauthor@example.com",
+            password="testpass123",
+        )
+        _create_profile(user=self.author, display_name="Group Author")
+        self.group = GroupService.create_group(
+            title="Public Writing Group",
+            group_type="community",
+            created_by=self.author,
+            visibility="public",
+            add_creator_membership=False,
+        )
+        self.client = APIClient()
+
+    def _url(self) -> str:
+        return f"/api/public/groups/{self.group.slug}/writing"
+
+    def _sponsor_with_group(self, piece: WritingPiece) -> None:
+        piece.set_sponsor(self.group)
+        piece.save()
+
+    def test_body_preview_is_derived_from_published_body(self):
+        piece = _create_piece(
+            author=self.author,
+            title="Body Preview Piece",
+            excerpt="Canonical excerpt stays separate.",
+        )
+        piece.body_json = _body_json("Actual opening sentence. More body follows.")
+        self._sponsor_with_group(piece)
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data[0]["body_preview"], "Actual opening sentence. More body follows.")
+        self.assertEqual(response.data[0]["excerpt"], "Canonical excerpt stays separate.")
+
+    def test_body_preview_falls_back_to_excerpt_when_body_is_empty(self):
+        piece = _create_piece(
+            author=self.author,
+            title="Excerpt Fallback Piece",
+            excerpt="Fallback excerpt sentence.",
+        )
+        piece.body_json = {}
+        self._sponsor_with_group(piece)
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data[0]["body_preview"], "Fallback excerpt sentence.")
 
 
 class PublicWritingPieceViewTests(TestCase):
