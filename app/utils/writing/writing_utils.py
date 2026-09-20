@@ -43,6 +43,22 @@ def generate_unique_slug(title: str, model_class, max_length: int = 50) -> str:
     return slug
 
 
+def _extract_node_text(node: dict[Any, Any]) -> str:
+    """Recursively pull plain text out of one ProseMirror node (and its children)."""
+    if not isinstance(node, dict):
+        return ""
+
+    # Text nodes contain the actual text
+    if node.get("type") == "text":
+        return node.get("text", "")
+
+    # Nodes with content have child nodes
+    if "content" in node and isinstance(node["content"], list):
+        return " ".join(_extract_node_text(child) for child in node["content"])
+
+    return ""
+
+
 def extract_text_from_prosemirror(doc: dict[Any, Any]) -> str:
     """
     Extract plain text from ProseMirror document structure.
@@ -56,25 +72,54 @@ def extract_text_from_prosemirror(doc: dict[Any, Any]) -> str:
     if not doc or not isinstance(doc, dict) or "content" not in doc:
         return ""
 
-    def extract_from_node(node: dict[Any, Any]) -> str:
-        if not isinstance(node, dict):
-            return ""
-
-        # Text nodes contain the actual text
-        if node.get("type") == "text":
-            return node.get("text", "")
-
-        # Nodes with content have child nodes
-        if "content" in node and isinstance(node["content"], list):
-            return " ".join(extract_from_node(child) for child in node["content"])
-
-        return ""
-
     try:
-        text_parts = [extract_from_node(node) for node in doc["content"]]
+        text_parts = [_extract_node_text(node) for node in doc["content"]]
         return " ".join(filter(None, text_parts))
     except (KeyError, TypeError):
         return ""
+
+
+# Top-level block types that never carry excerpt-worthy prose on their own —
+# mirrors resolve_excerpt()'s markdown heading skip, generalized to ProseMirror.
+_EXCERPT_SKIP_BLOCK_TYPES = {"heading", "image", "horizontalRule", "codeBlock"}
+
+
+def generate_excerpt_from_prosemirror(doc: dict[Any, Any], max_length: int = 200) -> str:
+    """
+    Generate an excerpt from a ProseMirror document by finding the first
+    block that actually carries prose — skipping headings, images, code
+    blocks, and horizontal rules — then truncating that block's text at a
+    sentence or word boundary via generate_excerpt().
+
+    Mirrors the approach markdown_to_tiptap.resolve_excerpt() uses for
+    markdown import (skip headings, take the first real paragraph), adapted
+    to walk parsed ProseMirror nodes instead of regex-splitting raw text.
+
+    Args:
+        doc: ProseMirror document JSON
+        max_length: Maximum length of the resulting excerpt
+
+    Returns:
+        Excerpt string, or "" if no block with real text is found
+    """
+    if not doc or not isinstance(doc, dict) or "content" not in doc:
+        return ""
+
+    try:
+        blocks = doc["content"]
+    except (KeyError, TypeError):
+        return ""
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") in _EXCERPT_SKIP_BLOCK_TYPES:
+            continue
+        text = _extract_node_text(block).strip()
+        if text:
+            return generate_excerpt(text, max_length=max_length)
+
+    return ""
 
 
 _HTML_ESCAPE = str.maketrans({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"})

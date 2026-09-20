@@ -5,6 +5,7 @@ from django.utils import timezone
 from .models import Seed, WritingPiece
 from .utils import first_line_as_title, plaintext_to_tiptap_json
 from utils.shared.contenttypes import resolve_content_type
+from utils.writing.writing_utils import generate_excerpt, generate_excerpt_from_prosemirror
 
 
 class PromotionError(Exception):
@@ -26,7 +27,7 @@ def promote_seed_to_working_copy(*, seed: Seed, requested_by, extra_meta: dict |
 
     title = first_line_as_title(seed.body_text) or "Untitled"
     body_json = plaintext_to_tiptap_json(seed.body_text)
-    excerpt = (seed.body_text or "").strip()[:280]
+    excerpt = generate_excerpt(seed.body_text or "", max_length=280)
 
     piece = WritingPiece(
         author=seed.author,
@@ -168,7 +169,16 @@ def promote_leaf_to_working_copy(*, leaf, author, extra_meta: dict | None = None
 
     title = first_line_as_title(leaf.body_text) or "Untitled"
     body_json = leaf.body_json if leaf.body_json else plaintext_to_tiptap_json(leaf.body_text)
-    excerpt = (leaf.caption or leaf.body_text or "").strip()[:280]
+    if leaf.caption:
+        # Caption is plain author commentary, not structured ProseMirror content.
+        excerpt = generate_excerpt(leaf.caption, max_length=280)
+    else:
+        # Leaf bodies are real ProseMirror content (rich text + images per the
+        # model docstring) — skip headings/images to find the first real
+        # paragraph, same approach as markdown import's resolve_excerpt().
+        excerpt = generate_excerpt_from_prosemirror(body_json, max_length=280)
+        if not excerpt:
+            excerpt = generate_excerpt(leaf.body_text or "", max_length=280)
 
     piece = WritingPiece(
         author=author,
