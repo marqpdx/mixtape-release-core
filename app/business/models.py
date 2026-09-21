@@ -215,7 +215,7 @@ class Client(BaseModel):
 
     group = models.OneToOneField(
         "groups.Group",
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         related_name="client",
     )
     prospect = models.OneToOneField(
