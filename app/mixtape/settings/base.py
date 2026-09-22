@@ -175,6 +175,7 @@ INSTALLED_APPS = [
     "catalyst",        # Catalyst — per-tenant Codex provisioning and activation
     "tenant_runtime",  # TenantRuntime — shared per-tenant AI subprocess service layer
     "sourcework",      # Sourcework - SourceGrant, provisional things, and Working Sets
+    "folio",           # Folio — Inception + Hildegard materiality prototype (Phase 0)
 ]
 
 if OCR_SPIKE_ENABLED:
