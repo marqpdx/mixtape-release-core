@@ -8,4 +8,9 @@ from . import views
 urlpatterns = [
     path("inceptions", views.FolioInceptionListCreateView.as_view(), name="folio-inception-list-create"),
     path("inceptions/<uuid:inception_id>", views.FolioInceptionDetailView.as_view(), name="folio-inception-detail"),
+    path(
+        "inceptions/<uuid:inception_id>/analyze",
+        views.FolioInceptionAnalyzeView.as_view(),
+        name="folio-inception-analyze",
+    ),
 ]
