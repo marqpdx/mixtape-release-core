@@ -68,6 +68,9 @@ urlpatterns = [
     # Business hub (Supplier, SupplyRequest, FixItem)
     path("api/business/", include("business.api.urls")),
 
+    # Folio — Inception + Hildegard materiality prototype (Phase 0)
+    path("api/folio/", include("folio.api.urls")),
+
     # WorkTable group-scoped buckets (reminders, tasks)
     path("api/worktable/groups/", include(worktable_group_patterns)),
 
