@@ -55,7 +55,13 @@ class ExternalConnection(BaseModel):
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    group = models.ForeignKey("groups.Group", on_delete=models.CASCADE, related_name="sourcework_connections")
+    group = models.ForeignKey(
+        "groups.Group",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="sourcework_connections",
+    )
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     provider = models.CharField(max_length=64, default="google_gmail", db_index=True)
     provider_account_id = models.CharField(max_length=255, blank=True, default="")
@@ -82,12 +88,18 @@ class ExternalConnection(BaseModel):
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["group", "provider", "status"]),
+            models.Index(fields=["owner", "provider", "status"]),
         ]
         constraints = [
             models.UniqueConstraint(
                 fields=["group", "provider", "provider_account_id"],
-                condition=~models.Q(provider_account_id=""),
+                condition=models.Q(group__isnull=False) & ~models.Q(provider_account_id=""),
                 name="unique_connected_account_per_group_provider",
+            ),
+            models.UniqueConstraint(
+                fields=["owner", "provider", "provider_account_id"],
+                condition=models.Q(group__isnull=True, owner__isnull=False) & ~models.Q(provider_account_id=""),
+                name="sourcework_unique_member_provider_account",
             ),
         ]
 
@@ -189,7 +201,20 @@ class WorkingSet(BaseModel):
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    group = models.ForeignKey("groups.Group", on_delete=models.CASCADE, related_name="sourcework_working_sets")
+    group = models.ForeignKey(
+        "groups.Group",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="sourcework_working_sets",
+    )
+    owner_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="sourcework_working_sets",
+    )
     initiative = models.ForeignKey(
         "initiatives.Initiative",
         on_delete=models.SET_NULL,
@@ -231,12 +256,66 @@ class WorkingSet(BaseModel):
         ordering = ["-updated_at"]
         indexes = [
             models.Index(fields=["group", "status"]),
+            models.Index(fields=["owner_user", "status"]),
             models.Index(fields=["initiative", "status"]),
             models.Index(fields=["source", "status"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(group__isnull=False) | models.Q(owner_user__isnull=False),
+                name="sourcework_working_set_has_sponsor",
+            ),
         ]
 
     def __str__(self):
         return self.title
+
+
+class OpportunityProfile(BaseModel):
+    """Versioned member-owned intent used to plan opportunity searches."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="opportunity_profiles",
+    )
+    version = models.PositiveIntegerField(default=1)
+    is_current = models.BooleanField(default=True, db_index=True)
+    name = models.CharField(max_length=120, default="Current opportunity profile")
+    resume_label = models.CharField(max_length=255, blank=True, default="")
+    resume_version = models.CharField(max_length=80, blank=True, default="")
+    query_lanes = models.JSONField(default=list, blank=True)
+    target_roles = models.JSONField(default=list, blank=True)
+    geography = models.JSONField(default=list, blank=True)
+    workplace_types = models.JSONField(default=list, blank=True)
+    employment_types = models.JSONField(default=list, blank=True)
+    seniority = models.JSONField(default=list, blank=True)
+    strong_domains = models.JSONField(default=list, blank=True)
+    strong_technologies = models.JSONField(default=list, blank=True)
+    exclusions = models.JSONField(default=list, blank=True)
+    freshness_hours = models.PositiveIntegerField(default=72)
+    preferences = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-version", "-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["owner_user", "version"],
+                name="sourcework_unique_opportunity_profile_version",
+            ),
+            models.UniqueConstraint(
+                fields=["owner_user"],
+                condition=models.Q(is_current=True),
+                name="sourcework_one_current_opportunity_profile",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["owner_user", "is_current"]),
+        ]
+
+    def __str__(self):
+        return f"{self.owner_user}: {self.name} v{self.version}"
 
 
 # ---------------------------------------------------------------------------
@@ -461,3 +540,59 @@ class ProvisionalDataMembership(BaseModel):
 
     def __str__(self):
         return f"{self.working_set_id}:{self.provisional_data_id}"
+
+
+class OpportunityApplicationDraftStatus(models.TextChoices):
+    DRAFT = "draft", "Draft"
+    READY = "ready", "Ready"
+
+
+class OpportunityApplicationDraft(BaseModel):
+    """Member-owned, editable application material for one opportunity."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="opportunity_application_drafts",
+    )
+    opportunity = models.ForeignKey(
+        ProvisionalData,
+        on_delete=models.CASCADE,
+        related_name="application_drafts",
+    )
+    profile = models.ForeignKey(
+        OpportunityProfile,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="application_drafts",
+    )
+    status = models.CharField(
+        max_length=24,
+        choices=OpportunityApplicationDraftStatus.choices,
+        default=OpportunityApplicationDraftStatus.DRAFT,
+        db_index=True,
+    )
+    recipient_name = models.CharField(max_length=255, blank=True, default="")
+    recipient_email = models.EmailField(blank=True, default="")
+    letter_body = models.TextField(blank=True, default="")
+    generation_context = models.JSONField(default=dict, blank=True)
+    generated_by = models.CharField(max_length=40, blank=True, default="")
+    generated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["owner_user", "opportunity"],
+                name="sourcework_one_application_draft_per_member_opportunity",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["owner_user", "status"]),
+        ]
+
+    def __str__(self):
+        title = self.opportunity.normalized_payload.get("title") or self.opportunity_id
+        return f"{self.owner_user}: {title}"
