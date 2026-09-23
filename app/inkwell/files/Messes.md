@@ -1,1 +1,0 @@
- Rather than moan and decry how the constitution of humanity is not to your liking, too many of this kind of person and too few of that. Instead see how this is simply who we are, and who we get to be grown ups around here and deal w/ the messes our forbears created. Our descendants will clean up after us so we’re equally embarrassing and small.

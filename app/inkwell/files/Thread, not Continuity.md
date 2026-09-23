@@ -1,1 +1,0 @@
-There really isn’t so called continuity in nature, but there’s abundant thread, the interconnections, the stories. Continuity connotes sameness, which is always only ever illusion.
