@@ -1,3 +1,0 @@
-After her highest marks fell in the control set that had not benefited from her pleas for divine inspiration, she concluded that ‘the only legitimate request to God is for courage’ and began treating the tiny attic laboratory as her private chapel where she could worship the beauty of nature. ‘Science is my religion’, she later told her mother. Braving the fury of her teac
-
-https://www.historytoday.com/archive/great-debates/cecilia-payne-gaposchkin-and-making-stars
