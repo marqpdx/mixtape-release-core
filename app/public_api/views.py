@@ -13,7 +13,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 from rest_framework import status as drf_status
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -38,6 +38,7 @@ from .serializers import (
     PublicGroupSerializer,
     PublicMemberSerializer,
 )
+from .writing_catalog import build_public_site_writing_catalog, browse_placements
 
 
 class PublicGroupsListView(APIView):
@@ -318,15 +319,24 @@ class PublicMemberWritingView(APIView):
             allowed_visibility.append("members")
 
         ct_group = ContentType.objects.get_for_model(Group)
-        pieces = (
+        pieces = list(
             WritingPiece.objects
             .filter(author=user_obj, status="published")
             .select_related("author", "sponsor_content_type")
             .order_by("-published_at")
         )
+        viewer = request.user if request.user.is_authenticated else None
+        placements, _ = browse_placements(
+            [piece.id for piece in pieces],
+            viewer=viewer,
+            allowed_visibilities=tuple(allowed_visibility),
+        )
 
         results = []
         for piece in pieces:
+            placement = placements.get(str(piece.id))
+            if not placement:
+                continue
             sponsor_group = None
             body_preview = _extract_plain_text(piece.body_json or {}, char_limit=400)
             if (
@@ -372,7 +382,7 @@ class PublicGroupWritingView(APIView):
 
         ct_group = ContentType.objects.get_for_model(Group)
 
-        pieces = (
+        pieces = list(
             WritingPiece.objects
             .filter(
                 sponsor_content_type=ct_group,
@@ -382,9 +392,13 @@ class PublicGroupWritingView(APIView):
             .select_related("author")
             .order_by("-published_at")
         )
+        placements, _ = browse_placements([piece.id for piece in pieces])
 
         results = []
         for piece in pieces:
+            placement = placements.get(str(piece.id))
+            if not placement:
+                continue
             author = piece.author
             author_profile = getattr(author, "profile", None) if author else None
             body_preview = _extract_plain_text(piece.body_json or {}, char_limit=400)
@@ -405,6 +419,135 @@ class PublicGroupWritingView(APIView):
             })
 
         return Response(results)
+
+
+class PublicSiteWritingView(APIView):
+    """
+    GET /api/public/sites/writing?owner={username}&groups={slug,slug}
+
+    Returns one deduplicated public writing catalog for a site owner and a
+    bounded set of group sponsors. Aggregation and visibility stay server-side.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        owner_username = (request.query_params.get("owner") or "").strip()
+        if not owner_username:
+            return Response(
+                {"detail": "The owner query parameter is required."},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        group_slugs = []
+        for value in request.query_params.getlist("group"):
+            group_slugs.extend(value.split(","))
+        group_slugs.extend((request.query_params.get("groups") or "").split(","))
+        group_slugs = list(
+            dict.fromkeys(slug.strip() for slug in group_slugs if slug.strip())
+        )
+        if len(group_slugs) > 10:
+            return Response(
+                {"detail": "A public site may aggregate at most 10 groups."},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        User = get_user_model()
+        owner = get_object_or_404(
+            User.objects.select_related("profile"),
+            username=owner_username,
+            is_active=True,
+        )
+        groups = list(
+            Group.objects.filter(
+                slug__in=group_slugs,
+                visibility="public",
+                is_active=True,
+            ).order_by("title")
+        )
+        found_slugs = {group.slug for group in groups}
+        missing_slugs = [slug for slug in group_slugs if slug not in found_slugs]
+        if missing_slugs:
+            return Response(
+                {
+                    "detail": "One or more public groups were not found.",
+                    "missing_groups": missing_slugs,
+                },
+                status=drf_status.HTTP_404_NOT_FOUND,
+            )
+
+        items, facets = build_public_site_writing_catalog(owner=owner, groups=groups)
+
+        category = request.query_params.get("category")
+        collection = request.query_params.get("collection")
+        tag = request.query_params.get("tag")
+        writing_kind = request.query_params.get("kind")
+        year_value = request.query_params.get("year")
+        if category:
+            items = [
+                item
+                for item in items
+                if category in {row["key"] for row in item["categories"]}
+            ]
+        if collection:
+            items = [
+                item
+                for item in items
+                if collection in {row["key"] for row in item["collections"]}
+            ]
+        if tag:
+            items = [
+                item
+                for item in items
+                if tag in {row["slug"] for row in item["tags"]}
+            ]
+        if writing_kind:
+            items = [item for item in items if item["writing_kind"] == writing_kind]
+        if year_value:
+            try:
+                year = int(year_value)
+            except ValueError:
+                return Response(
+                    {"detail": "The year query parameter must be an integer."},
+                    status=drf_status.HTTP_400_BAD_REQUEST,
+                )
+            items = [
+                item for item in items
+                if item["published_at"] and item["published_at"].year == year
+            ]
+
+        try:
+            limit = min(max(int(request.query_params.get("limit", 24)), 1), 100)
+            offset = max(int(request.query_params.get("offset", 0)), 0)
+        except ValueError:
+            return Response(
+                {"detail": "The limit and offset query parameters must be integers."},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        profile = getattr(owner, "profile", None)
+        count = len(items)
+        return Response({
+            "site": {
+                "owner": {
+                    "username": owner.username,
+                    "display_name": profile.display_name if profile else owner.username,
+                },
+                "groups": [
+                    {"slug": group.slug, "title": group.title}
+                    for group in groups
+                ],
+            },
+            "count": count,
+            "limit": limit,
+            "offset": offset,
+            "items": items[offset:offset + limit],
+            "facets": {
+                "categories": facets["categories"],
+                "collections": facets["collections"],
+                "tags": facets["tags"],
+                "archives": facets["archives"],
+            },
+        })
 
 
 class PublicGroupCoursesView(APIView):
