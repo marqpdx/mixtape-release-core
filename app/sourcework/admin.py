@@ -2,6 +2,8 @@ from django.contrib import admin
 
 from .models import (
     ExternalConnection,
+    OpportunityApplicationDraft,
+    OpportunityProfile,
     ProvisionalData,
     ProvisionalDataMembership,
     SourceEvidence,
@@ -12,7 +14,7 @@ from .models import (
 
 @admin.register(ExternalConnection)
 class ExternalConnectionAdmin(admin.ModelAdmin):
-    list_display = ("display_name", "provider", "group", "status", "connected_at", "created_at")
+    list_display = ("display_name", "provider", "group", "owner", "status", "connected_at", "created_at")
     list_filter = ("provider", "status", "group")
     search_fields = ("display_name", "provider_account_id", "credential_reference")
     exclude = ("credential_payload",)
@@ -40,7 +42,7 @@ class ProvisionalDataMembershipInline(admin.TabularInline):
 
 @admin.register(WorkingSet)
 class WorkingSetAdmin(admin.ModelAdmin):
-    list_display = ("title", "group", "source", "initiative", "status", "updated_at")
+    list_display = ("title", "group", "owner_user", "source", "initiative", "status", "updated_at")
     list_filter = ("status", "source", "group")
     search_fields = ("title", "purpose")
     inlines = [ProvisionalDataMembershipInline]
@@ -83,3 +85,24 @@ class ProvisionalDataAdmin(admin.ModelAdmin):
 class ProvisionalDataMembershipAdmin(admin.ModelAdmin):
     list_display = ("working_set", "provisional_data", "status", "position", "created_at")
     list_filter = ("status",)
+
+
+@admin.register(OpportunityProfile)
+class OpportunityProfileAdmin(admin.ModelAdmin):
+    list_display = ("owner_user", "name", "version", "is_current", "freshness_hours", "updated_at")
+    list_filter = ("is_current", "freshness_hours")
+    search_fields = ("owner_user__username", "owner_user__email", "name", "resume_label")
+
+
+@admin.register(OpportunityApplicationDraft)
+class OpportunityApplicationDraftAdmin(admin.ModelAdmin):
+    list_display = ("opportunity", "owner_user", "status", "generated_by", "updated_at")
+    list_filter = ("status", "generated_by")
+    search_fields = (
+        "owner_user__username",
+        "owner_user__email",
+        "recipient_name",
+        "recipient_email",
+        "opportunity__normalized_payload",
+    )
+    readonly_fields = ("generation_context", "generated_at", "created_at", "updated_at")

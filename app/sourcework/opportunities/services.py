@@ -79,6 +79,42 @@ def provision_public_opportunity_source(*, group, initiative, user, provider: st
 
 
 @transaction.atomic
+def provision_member_public_opportunity_source(*, user, initiative=None, provider: str = "dice") -> SourceGrant:
+    """Create a credentialless public-source boundary sponsored by one member."""
+
+    connection, _ = ExternalConnection.objects.update_or_create(
+        group=None,
+        owner=user,
+        provider=provider,
+        provider_account_id="public",
+        defaults={
+            "display_name": f"{provider.title()} Public Search",
+            "credential_reference": "",
+            "credential_payload": "",
+            "provider_scopes": [],
+            "status": ExternalConnectionStatus.READY,
+            "connected_at": timezone.now(),
+            "metadata": {"access_mode": "public", "credentials_required": False},
+        },
+    )
+    grant, _ = SourceGrant.objects.update_or_create(
+        connection=connection,
+        resource_kind=PUBLIC_OPPORTUNITY_RESOURCE_KIND,
+        resource_id=PUBLIC_OPPORTUNITY_RESOURCE_ID,
+        initiative=initiative,
+        defaults={
+            "display_name": f"{provider.title()} Opportunity Search",
+            "capabilities": PUBLIC_OPPORTUNITY_CAPABILITIES,
+            "status": SourceGrantStatus.ACTIVE,
+            "created_by": user,
+            "revoked_at": None,
+            "metadata": {"access_mode": "public", "submission_allowed": False},
+        },
+    )
+    return grant
+
+
+@transaction.atomic
 def ingest_opportunity_observations(
     *,
     source_grant: SourceGrant,
@@ -93,6 +129,7 @@ def ingest_opportunity_observations(
     observations = list(observations)
     working_set = WorkingSet.objects.create(
         group=source_grant.connection.group,
+        owner_user=user if source_grant.connection.group_id is None else None,
         initiative=source_grant.initiative,
         title=title or f"{adapter.provider.title()} Opportunity Search",
         purpose="Review externally observed opportunities before consequential action.",
@@ -115,6 +152,10 @@ def ingest_opportunity_observations(
 
     for position, observation in enumerate(observations):
         interpretation = adapter.interpret(observation)
+        normalized_payload = _with_preliminary_fit(
+            interpretation.normalized_payload,
+            search_profile,
+        )
         evidence, was_evidence_created = SourceEvidence.objects.update_or_create(
             source_grant=source_grant,
             provider_message_id=observation.external_id,
@@ -144,12 +185,15 @@ def ingest_opportunity_observations(
             rejected += 1
             continue
 
-        record = ProvisionalData.objects.filter(
+        record_query = ProvisionalData.objects.filter(
             group=source_grant.connection.group,
             kind="opportunity_candidate",
             source_type=adapter.provider,
             source_external_id=observation.external_id,
-        ).first()
+        )
+        if source_grant.connection.group_id is None:
+            record_query = record_query.filter(owner_user=user)
+        record = record_query.first()
         created = record is None
         if created:
             record = ProvisionalData(
@@ -165,7 +209,7 @@ def ingest_opportunity_observations(
         record.captured_at = timezone.now()
         record.observed_at = observation.observed_at or observation.retrieved_at
         record.raw_payload = observation.raw_payload
-        record.normalized_payload = interpretation.normalized_payload
+        record.normalized_payload = normalized_payload
         record.confidence = interpretation.confidence
         record.provenance = {
             "source_grant_id": str(source_grant.id),
@@ -231,3 +275,35 @@ def _source_fingerprint(observation: OpportunitySourceObservation) -> str:
 
     value = f"{observation.provider}|{observation.external_id}|{observation.canonical_url}"
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _with_preliminary_fit(payload: dict, search_profile: OpportunitySearchProfile) -> dict:
+    """Attach transparent lexical signals without pretending to be a full fit judgment."""
+
+    text = " ".join(
+        str(payload.get(field) or "")
+        for field in ("title", "description", "organization", "arrangement", "engagement_type")
+    ).lower()
+    positive_terms = tuple(
+        dict.fromkeys(
+            term.strip()
+            for term in (
+                *search_profile.seniority,
+                *search_profile.strong_domains,
+                *search_profile.strong_technologies,
+            )
+            if term.strip()
+        )
+    )
+    matched = [term for term in positive_terms if term.lower() in text]
+    concerns = [term for term in search_profile.exclusions if term.strip() and term.lower() in text]
+    label = "caution" if concerns else "promising" if len(matched) >= 2 else "review"
+    return {
+        **payload,
+        "preliminary_fit": {
+            "label": label,
+            "matched_terms": matched,
+            "concerns": concerns,
+            "method": "transparent_lexical_v1",
+        },
+    }

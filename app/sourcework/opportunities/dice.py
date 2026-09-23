@@ -9,6 +9,7 @@ from .contracts import (
     OpportunityValidation,
     OpportunityValidationStatus,
 )
+from .text import extract_email_addresses, html_to_readable_text
 
 
 class DiceOpportunityAdapter:
@@ -96,7 +97,26 @@ class DiceOpportunityAdapter:
         *,
         confidence: float,
     ) -> OpportunityInterpretation:
-        contact_email = str(raw.get("contact_email") or "").strip()
+        raw_description = str(raw.get("description") or "").strip()
+        description = html_to_readable_text(raw_description)
+        listed_emails = extract_email_addresses(description)
+        contact_email = str(raw.get("contact_email") or (listed_emails[0] if listed_emails else "")).strip()
+        easy_apply = bool(raw.get("easyApply", raw.get("easy_apply", False)))
+        application_url = str(raw.get("detailsPageUrl") or observation.canonical_url or "").strip()
+        employer_type = str(raw.get("employerType") or raw.get("employer_type") or "").strip()
+        recruiter_name = str(
+            raw.get("recruiterName")
+            or raw.get("recruiter_name")
+            or raw.get("postedBy")
+            or ""
+        ).strip()
+        application_method = (
+            "recruiter_email"
+            if contact_email
+            else "dice_easy_apply"
+            if easy_apply
+            else "external_application"
+        )
         normalized = {
             "source": self.provider,
             "source_id": observation.external_id,
@@ -105,7 +125,10 @@ class DiceOpportunityAdapter:
             "organization": str(raw.get("organization") or "").strip(),
             "staffing_organization": str(raw.get("staffing_organization") or "").strip(),
             "contact_email": contact_email,
-            "description": str(raw.get("description") or "").strip(),
+            "contact_email_status": "unverified_from_listing" if contact_email else "not_found",
+            "recruiter_name": recruiter_name,
+            "employer_type": employer_type,
+            "description": description,
             "arrangement": _clean(raw.get("arrangement")),
             "required_location": str(raw.get("required_location") or "").strip(),
             "engagement_type": _clean(raw.get("engagement_type")),
@@ -124,6 +147,9 @@ class DiceOpportunityAdapter:
             "technologies": list(raw.get("technologies") or []),
             "domains": list(raw.get("domains") or []),
             "requirements": list(raw.get("requirements") or []),
+            "application_method": application_method,
+            "application_url": application_url,
+            "easy_apply": easy_apply,
             "application_action": "outbound_email_available" if contact_email else "manual_application_required",
             "validation_status": status.value,
             "validation_findings": list(reasons),
