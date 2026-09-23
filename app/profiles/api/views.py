@@ -74,6 +74,8 @@ class MemberDetailUpdateDeleteView(generics.RetrieveUpdateDestroyAPIView):
 
     def perform_update(self, serializer):
         instance = serializer.save(updated_at=timezone.now())
+        from django.core.cache import cache
+        cache.delete(f"user_identity:{instance.user_id}")
         from profiles.producers import on_profile_updated
         on_profile_updated(profile=instance, actor_user=self.request.user)
 
