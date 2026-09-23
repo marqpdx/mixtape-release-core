@@ -100,8 +100,8 @@ def _is_member_of_target(target, user) -> bool:
     if isinstance(target, User):
         return target == user
 
-    # If target is a Library, members means any authenticated user
-    if target.__class__.__name__ == "Library":
+    # Collections replaced Libraries as the general curated-content target.
+    if target.__class__.__name__ in {"Library", "Collection"}:
         return user.is_authenticated
 
     # If target is a Group, check membership

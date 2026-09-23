@@ -5,10 +5,11 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from profiles.models import UserProfile
-from publishing.models import ContentPlacement, PublicationGroup
+from classifications.models import Category, ClassificationUsage, Tag
 from curation.models import Collection
 from groups.services.groups import GroupService
+from profiles.models import UserProfile
+from publishing.models import ContentPlacement, PublicationGroup
 from writing.models import WritingPiece, WritingVersion
 
 
@@ -385,14 +386,30 @@ class PublicGroupWritingViewTests(TestCase):
             visibility="public",
             add_creator_membership=False,
         )
+        self.public_collection = _create_collection(
+            user=self.author,
+            title="Group Writing Feed",
+        )
         self.client = APIClient()
 
     def _url(self) -> str:
         return f"/api/public/groups/{self.group.slug}/writing"
 
-    def _sponsor_with_group(self, piece: WritingPiece) -> None:
+    def _sponsor_with_group(
+        self,
+        piece: WritingPiece,
+        *,
+        visibility: str = "public",
+    ) -> None:
         piece.set_sponsor(self.group)
         piece.save()
+        _create_placement(
+            piece=piece,
+            target=self.public_collection,
+            user=self.author,
+            visibility=visibility,
+            channel="feed",
+        )
 
     def test_body_preview_is_derived_from_published_body(self):
         piece = _create_piece(
@@ -422,6 +439,226 @@ class PublicGroupWritingViewTests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data[0]["body_preview"], "Fallback excerpt sentence.")
+
+    def test_group_list_excludes_non_public_placements(self):
+        public_piece = _create_piece(author=self.author, title="Public Group Piece")
+        self._sponsor_with_group(public_piece)
+        unlisted_piece = _create_piece(author=self.author, title="Unlisted Group Piece")
+        self._sponsor_with_group(unlisted_piece, visibility="unlisted")
+        private_piece = _create_piece(author=self.author, title="Private Group Piece")
+        self._sponsor_with_group(private_piece, visibility="private")
+        no_placement = _create_piece(
+            author=self.author,
+            title="Placement-less Group Piece",
+        )
+        no_placement.set_sponsor(self.group)
+        no_placement.save()
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item["slug"] for item in response.data], [public_piece.slug])
+
+
+class PublicMemberWritingViewTests(TestCase):
+    def setUp(self):
+        self.author = User.objects.create_user(
+            username="memberauthor",
+            email="memberauthor@example.com",
+            password="testpass123",
+        )
+        _create_profile(user=self.author, display_name="Member Author")
+        self.collection = _create_collection(user=self.author, title="Member Feed")
+        self.client = APIClient()
+
+    def test_member_list_requires_public_browse_placement(self):
+        public_piece = _create_piece(author=self.author, title="Public Member Piece")
+        _create_placement(
+            piece=public_piece,
+            target=self.collection,
+            user=self.author,
+            visibility="public",
+            channel="feed",
+        )
+        unlisted_piece = _create_piece(
+            author=self.author,
+            title="Unlisted Member Piece",
+        )
+        _create_placement(
+            piece=unlisted_piece,
+            target=self.collection,
+            user=self.author,
+            visibility="unlisted",
+            channel="feed",
+        )
+        _create_piece(author=self.author, title="Placement-less Member Piece")
+
+        response = self.client.get(
+            f"/api/public/members/{self.author.username}/writing"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item["slug"] for item in response.data], [public_piece.slug])
+
+
+class PublicSiteWritingViewTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username="siteowner",
+            email="siteowner@example.com",
+            password="testpass123",
+        )
+        self.group_author = User.objects.create_user(
+            username="groupwriter",
+            email="groupwriter@example.com",
+            password="testpass123",
+        )
+        _create_profile(user=self.owner, display_name="Site Owner")
+        _create_profile(user=self.group_author, display_name="Group Writer")
+        self.group = GroupService.create_group(
+            title="Included Group",
+            group_type="community",
+            created_by=self.owner,
+            visibility="public",
+            add_creator_membership=False,
+        )
+        self.other_group = GroupService.create_group(
+            title="Excluded Group",
+            group_type="community",
+            created_by=self.owner,
+            visibility="public",
+            add_creator_membership=False,
+        )
+        self.collection = _create_collection(user=self.owner, title="Inside PTSD")
+        self.client = APIClient()
+
+    def _url(self, **params) -> str:
+        values = {
+            "owner": self.owner.username,
+            "groups": self.group.slug,
+            **params,
+        }
+        query = "&".join(f"{key}={value}" for key, value in values.items())
+        return f"/api/public/sites/writing?{query}"
+
+    def _place(self, piece: WritingPiece, *, visibility: str = "public") -> None:
+        _create_placement(
+            piece=piece,
+            target=self.collection,
+            user=self.owner,
+            visibility=visibility,
+            channel="feed",
+        )
+
+    def _sponsor(self, piece: WritingPiece, group) -> None:
+        piece.set_sponsor(group)
+        piece.save()
+
+    def test_aggregates_owner_and_group_writing_without_duplicates(self):
+        owner_and_group_piece = _create_piece(
+            author=self.owner,
+            title="Owner and Group",
+        )
+        self._sponsor(owner_and_group_piece, self.group)
+        self._place(owner_and_group_piece)
+
+        group_piece = _create_piece(author=self.group_author, title="Group Piece")
+        self._sponsor(group_piece, self.group)
+        self._place(group_piece)
+
+        excluded_piece = _create_piece(author=self.group_author, title="Excluded Piece")
+        self._sponsor(excluded_piece, self.other_group)
+        self._place(excluded_piece)
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 2)
+        returned = {item["slug"]: item for item in response.data["items"]}
+        self.assertEqual(set(returned), {owner_and_group_piece.slug, group_piece.slug})
+        self.assertEqual(
+            set(returned[owner_and_group_piece.slug]["source_keys"]),
+            {f"user:{self.owner.username}", f"group:{self.group.slug}"},
+        )
+
+    def test_excludes_unlisted_private_members_and_placementless_writing(self):
+        public_piece = _create_piece(author=self.owner, title="Public Piece")
+        self._place(public_piece)
+        for visibility in ("unlisted", "private", "members"):
+            piece = _create_piece(
+                author=self.owner,
+                title=f"{visibility.title()} Piece",
+            )
+            self._place(piece, visibility=visibility)
+        _create_piece(author=self.owner, title="No Placement")
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["items"][0]["slug"], public_piece.slug)
+
+    def test_returns_scoped_taxonomy_collection_tag_and_archive_facets(self):
+        piece = _create_piece(author=self.owner, title="Classified Piece")
+        self._place(piece)
+        piece_ct = ContentType.objects.get_for_model(WritingPiece)
+
+        category = Category(title="Reflections")
+        category.sponsor_content_type = ContentType.objects.get_for_model(User)
+        category.sponsor_object_id = self.owner.id
+        category.save()
+        tag = Tag.objects.create(title="Trauma")
+        for classification in (category, tag):
+            ClassificationUsage.objects.create(
+                classification_client_content_type=piece_ct,
+                classification_client_object_id=str(piece.id),
+                classification_content_type=ContentType.objects.get_for_model(classification.__class__),
+                classification_object_id=classification.id,
+            )
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        item = response.data["items"][0]
+        category_key = f"user:{self.owner.username}:category:{category.slug}"
+        collection_key = f"user:{self.owner.username}:collection:{self.collection.slug}"
+        self.assertEqual(item["categories"][0]["key"], category_key)
+        self.assertEqual(item["collections"][0]["key"], collection_key)
+        self.assertEqual(item["tags"][0]["slug"], tag.slug)
+        self.assertEqual(response.data["facets"]["categories"][0]["count"], 1)
+        self.assertEqual(response.data["facets"]["collections"][0]["count"], 1)
+        self.assertEqual(response.data["facets"]["tags"][0]["count"], 1)
+        self.assertEqual(
+            response.data["facets"]["archives"][0],
+            {"year": piece.published_at.year, "count": 1},
+        )
+
+    def test_filters_and_paginates_server_side(self):
+        first = _create_piece(author=self.owner, title="First Piece")
+        first.writing_kind = "article"
+        first.save(update_fields=["writing_kind", "updated_at"])
+        self._place(first)
+        second = _create_piece(author=self.owner, title="Second Piece")
+        second.writing_kind = "post"
+        second.save(update_fields=["writing_kind", "updated_at"])
+        self._place(second)
+
+        filtered = self.client.get(self._url(kind="article"))
+        paged = self.client.get(self._url(limit=1, offset=1))
+
+        self.assertEqual(filtered.status_code, status.HTTP_200_OK)
+        self.assertEqual(filtered.data["count"], 1)
+        self.assertEqual(filtered.data["items"][0]["slug"], first.slug)
+        self.assertEqual(paged.status_code, status.HTTP_200_OK)
+        self.assertEqual(paged.data["count"], 2)
+        self.assertEqual(len(paged.data["items"]), 1)
+
+    def test_requires_owner_and_rejects_missing_group(self):
+        missing_owner = self.client.get("/api/public/sites/writing")
+        missing_group = self.client.get(self._url(groups="not-a-group"))
+
+        self.assertEqual(missing_owner.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(missing_group.status_code, status.HTTP_404_NOT_FOUND)
 
 
 class PublicWritingPieceViewTests(TestCase):
