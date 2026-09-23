@@ -8,8 +8,11 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from inkwell.client import InkwellUnavailableError
+
 from folio.models import Folio, FolioInception
 from folio.services.gate1_parse import parse_gate1
+from folio.services.gate2_extract import extract_gate2
 from .serializers import FolioInceptionCreateSerializer, FolioInceptionSerializer
 
 
@@ -52,11 +55,12 @@ class FolioInceptionDetailView(APIView):
 
 class FolioInceptionAnalyzeView(APIView):
     """
-    Runs the Hildegard pipeline. Phase 1 only implements Gate 1
-    (deterministic surface parse, no LLM) — Gates 2-5 are not built yet,
-    so there is no confirmed material-candidate structure to return.
-    Debug trace (prototype spec §12) is prototype instrumentation, not
-    permanent product data — not persisted, only returned in the response.
+    Runs the Hildegard pipeline. Phase 2 implements Gate 1 (deterministic
+    surface parse, no LLM) and Gate 2 (subject/intention extraction, local
+    model via Inkwell) — Gates 3-5 are not built yet, so there is no
+    confirmed material-candidate structure to return. Debug trace
+    (prototype spec §12) is prototype instrumentation, not permanent
+    product data — not persisted, only returned in the response.
     """
 
     permission_classes = [permissions.IsAuthenticated]
@@ -70,16 +74,32 @@ class FolioInceptionAnalyzeView(APIView):
 
         start = time.monotonic()
         gate1_output = parse_gate1(inception.raw_text)
-        latency_ms = round((time.monotonic() - start) * 1000, 2)
+        gate1_latency_ms = round((time.monotonic() - start) * 1000, 2)
 
-        payload = {"inception_id": str(inception.id), "status": "gate_1_complete"}
+        gate2_output = None
+        gate2_error = None
+        gate2_latency_ms = None
+        start = time.monotonic()
+        try:
+            gate2_output = extract_gate2(inception.raw_text)
+        except InkwellUnavailableError as exc:
+            gate2_error = str(exc)
+        gate2_latency_ms = round((time.monotonic() - start) * 1000, 2)
+
+        status_value = "gate_2_complete" if gate2_output is not None else "gate_2_unavailable"
+        payload = {"inception_id": str(inception.id), "status": status_value}
 
         is_dev = request.user.is_staff or request.user.is_superuser
         if request.query_params.get("debug") == "1" and is_dev:
             payload["debug"] = {
                 "gate_1": {
                     "output": gate1_output,
-                    "latency_ms": latency_ms,
+                    "latency_ms": gate1_latency_ms,
+                },
+                "gate_2": {
+                    "output": gate2_output,
+                    "error": gate2_error,
+                    "latency_ms": gate2_latency_ms,
                 },
             }
 
