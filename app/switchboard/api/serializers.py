@@ -117,6 +117,11 @@ class AgentSynopsisLinkedInCommandSerializer(serializers.Serializer):
     surface = serializers.ChoiceField(choices=["console", "puddlejump", "writing"], default="writing")
 
 
+class AgentSynopsisPublicCommandSerializer(serializers.Serializer):
+    piece_id = serializers.UUIDField()
+    surface = serializers.ChoiceField(choices=["console", "puddlejump", "writing"], default="writing")
+
+
 class SourceGrantLatestMessagesSerializer(serializers.Serializer):
     resource_kind = serializers.CharField(max_length=64)
     resource_id = serializers.CharField(max_length=255)

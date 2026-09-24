@@ -81,16 +81,27 @@ def _persist_synopsis_linkedin(action_run):
         if synopsis is None:
             logger.error("synopsis_linkedin could not bootstrap WritingSynopsis for piece %s", piece_id)
             return
-        synopsis.linkedin_copy = result.get("hook", "")
+        synopsis.linkedin_copy = result.get("short_synopsis") or result.get("hook", "")
         synopsis.linkedin_copy_generated_by = "ai"
+        synopsis.linkedin_synopsis_confirmed = False
         synopsis.linkedin_copy_extended = {
             "hook": result.get("hook", ""),
             "short_synopsis": result.get("short_synopsis", ""),
             "one_line_takeaway": result.get("one_line_takeaway", ""),
             "alt_hook": result.get("alt_hook", ""),
+            "source_claim": result.get("source_claim", ""),
+            "human_stake": result.get("human_stake", ""),
             "action_run_id": str(action_run.id),
         }
-        synopsis.save(update_fields=["linkedin_copy", "linkedin_copy_generated_by", "linkedin_copy_extended", "updated_at"])
+        synopsis.save(
+            update_fields=[
+                "linkedin_copy",
+                "linkedin_copy_generated_by",
+                "linkedin_copy_extended",
+                "linkedin_synopsis_confirmed",
+                "updated_at",
+            ]
+        )
         logger.info("synopsis_linkedin persisted to WritingSynopsis piece=%s action_run=%s", piece_id, action_run.id)
     except Exception:
         logger.exception("synopsis_linkedin signal failed for piece=%s action_run=%s", piece_id, action_run.id)
@@ -115,7 +126,16 @@ def _persist_writing_piece_synopsis(action_run):
         synopsis.teaser = summary[:220]
         synopsis.description = summary[:500]
         synopsis.generated_by = "ai"
-        synopsis.save(update_fields=["teaser", "description", "generated_by", "updated_at"])
+        synopsis.public_synopsis_confirmed = False
+        synopsis.save(
+            update_fields=[
+                "teaser",
+                "description",
+                "generated_by",
+                "public_synopsis_confirmed",
+                "updated_at",
+            ]
+        )
         logger.info("writing.summarize persisted to WritingSynopsis piece=%s action_run=%s", piece_id, action_run.id)
     except Exception:
         logger.exception("writing.summarize signal failed for piece=%s action_run=%s", piece_id, action_run.id)

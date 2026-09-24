@@ -37,6 +37,7 @@ from switchboard.api.serializers import (
     AgentSynthesizeCommandSerializer,
     AgentSynthesizeNarrativeCommandSerializer,
     AgentSynopsisLinkedInCommandSerializer,
+    AgentSynopsisPublicCommandSerializer,
     AgentTaskCommandSerializer,
     GroupSearchSerializer,
     SourceGrantLatestMessagesSerializer,
@@ -1060,6 +1061,7 @@ def agent_synopsis_linkedin_proxy(request):
 
     from django.shortcuts import get_object_or_404
     from writing.models import WritingPiece
+    from writing.analysis_export import get_export_source_for_user
     from writing.synopsis_service import SynopsisGenerationService, _extract_plain_text
 
     user = request.user
@@ -1079,7 +1081,8 @@ def agent_synopsis_linkedin_proxy(request):
 
     title = piece.title or ""
     excerpt = piece.excerpt or ""
-    body_preview = _extract_plain_text(piece.body_json or {}, char_limit=400)
+    export_source = get_export_source_for_user(piece, request.user)
+    body_preview = _extract_plain_text(export_source["body_json"] or {}, char_limit=6000)
 
     tenant_id = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_ID", _DEFAULT_TENANT_ID))
     tenant_namespace = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", _DEFAULT_TENANT_NAMESPACE))
@@ -1127,6 +1130,90 @@ def agent_synopsis_linkedin_proxy(request):
         piece_id,
     )
 
+    return JsonResponse({"action_run_id": str(action_run.id)}, status=202)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def agent_synopsis_public_proxy(request):
+    serializer = AgentSynopsisPublicCommandSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    piece_id = str(serializer.validated_data["piece_id"])
+    surface = serializer.validated_data["surface"]
+
+    from django.shortcuts import get_object_or_404
+    from writing.analysis_export import get_export_source_for_user
+    from writing.models import WritingPiece
+    from writing.synopsis_service import SynopsisGenerationService, _extract_plain_text
+
+    user = request.user
+    piece = get_object_or_404(WritingPiece, pk=piece_id)
+    if piece.author != user and not user.is_staff:
+        return JsonResponse({"detail": "Not found."}, status=404)
+
+    synopsis = getattr(piece, "synopsis", None)
+    if synopsis is None:
+        synopsis = SynopsisGenerationService.generate_for_piece(piece)
+    if synopsis is None:
+        return JsonResponse(
+            {"detail": "Could not initialise synopsis for this piece."},
+            status=500,
+        )
+
+    export_source = get_export_source_for_user(piece, user)
+    source_text = _extract_plain_text(export_source["body_json"] or {}, char_limit=6000)
+    if len(source_text.split()) < 30:
+        return JsonResponse(
+            {"detail": "The article needs at least 30 words before generating a preview."},
+            status=400,
+        )
+
+    tenant_id = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_ID", _DEFAULT_TENANT_ID))
+    tenant_namespace = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", _DEFAULT_TENANT_NAMESPACE))
+    summarize_payload = {
+        "text": source_text,
+        "content_type": "writing.piece",
+        "words": 70,
+        "style": "neutral",
+        "summary_style": "brief",
+        "source_id": piece_id,
+    }
+    action_run = ActionRun.objects.create(
+        tool_name="writing.summarize",
+        status=ActionRunStatus.PENDING,
+        execution_mode=ActionRunExecutionMode.LOCAL,
+        tenant_id=tenant_id,
+        tenant_namespace=tenant_namespace,
+        initiator_type=ActionRunInitiatorType.HUMAN,
+        initiator_id=str(user.pk),
+        request_payload={
+            "piece_id": piece_id,
+            "title": piece.title or "",
+            "surface": surface,
+            "summary_type": "public_synopsis",
+        },
+    )
+    celery_app.send_task(
+        "switchboard.summarize_async",
+        kwargs={
+            "action_run_id": str(action_run.id),
+            "tenant_id": tenant_id,
+            "tenant_namespace": tenant_namespace,
+            "principal_user_id": str(user.pk),
+            "principal_service_token_id": None,
+            "request_payload": summarize_payload,
+            "summarize_payload": summarize_payload,
+        },
+        queue="switchboard",
+    )
+    logger.info(
+        "Enqueued public synopsis action_run=%s user=%s piece=%s source_chars=%s",
+        action_run.id,
+        user.pk,
+        piece_id,
+        len(source_text),
+    )
     return JsonResponse({"action_run_id": str(action_run.id)}, status=202)
 
 

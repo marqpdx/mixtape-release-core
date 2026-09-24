@@ -196,10 +196,12 @@ class SummariesView(APIView):
         synopsis = self._get_or_create_synopsis(piece)
 
         update_fields = []
-        for summary_type, (text_field, _) in _SUMMARY_FIELD_MAP.items():
+        for summary_type, (text_field, confirmed_field) in _SUMMARY_FIELD_MAP.items():
             if summary_type in request.data:
                 setattr(synopsis, text_field, request.data[summary_type])
+                setattr(synopsis, confirmed_field, False)
                 update_fields.append(text_field)
+                update_fields.append(confirmed_field)
 
         if not update_fields:
             return Response({"detail": "No valid summary fields provided."}, status=400)
