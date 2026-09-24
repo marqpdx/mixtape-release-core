@@ -53,3 +53,15 @@ class FolioInceptionSerializer(serializers.ModelSerializer):
 class FolioInceptionCreateSerializer(serializers.Serializer):
     raw_text = serializers.CharField(allow_blank=False, trim_whitespace=False)
     title = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class FolioTitlePatchSerializer(serializers.Serializer):
+    title = serializers.CharField(allow_blank=True, trim_whitespace=False)
+
+
+class FolioMaterialCandidatePatchSerializer(serializers.Serializer):
+    # Only display_text is writable by a human. source_text/spans are the
+    # verbatim record of what Hildegard found and stay immutable -- prototype
+    # spec section 6, "Edits to the visible interpretation must not mutate
+    # the raw inception."
+    display_text = serializers.CharField(allow_blank=False, trim_whitespace=False)

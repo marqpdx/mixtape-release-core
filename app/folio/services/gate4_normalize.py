@@ -76,3 +76,16 @@ def build_candidates(raw_text: str, gate2_output: dict | None, gate3_output: dic
             })
 
     return candidates
+
+
+def derive_title(candidates: list[dict]) -> str | None:
+    """
+    Near-verbatim short form only, per spec section 8 -- the subject
+    candidate's own display text, never generated or paraphrased. Returns
+    None when no subject was found, so callers can leave an existing
+    title untouched.
+    """
+    for candidate in candidates:
+        if candidate["candidate_type"] == "subject" and candidate["display_text"]:
+            return candidate["display_text"]
+    return None
