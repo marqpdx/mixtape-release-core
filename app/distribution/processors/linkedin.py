@@ -37,10 +37,11 @@ def _build_canonical_url(piece) -> str:
     if piece.canonical_url:
         return piece.canonical_url
 
-    # Always use the Crossroads public reader route. Authenticated app routes
-    # and group-scoped Mixtape writing routes are not suitable for LinkedIn
-    # crawlers or logged-out readers.
-    return f"{_public_crossroads_base()}/reading/{piece.slug}"
+    group = piece.group
+    if not group:
+        return ""
+
+    return f"{_public_crossroads_base()}/groups/{group.slug}/reading/{piece.slug}"
 
 
 class LinkedInProcessor:
@@ -53,7 +54,12 @@ class LinkedInProcessor:
     def process(self, piece, source, config: dict) -> dict:
         canonical_url = _build_canonical_url(piece)
         og_title = piece.title or "Untitled"
-        synopsis = getattr(piece, "excerpt", "") or ""
+        writing_synopsis = getattr(piece, "synopsis", None)
+        synopsis = (
+            writing_synopsis.description
+            if writing_synopsis and writing_synopsis.public_synopsis_confirmed
+            else getattr(piece, "excerpt", "") or ""
+        )
         og_image = ""
         post_copy = config.get("post_copy", "")
 

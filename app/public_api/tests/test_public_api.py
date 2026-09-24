@@ -10,7 +10,7 @@ from curation.models import Collection
 from groups.services.groups import GroupService
 from profiles.models import UserProfile
 from publishing.models import ContentPlacement, PublicationGroup
-from writing.models import WritingPiece, WritingVersion
+from writing.models import WritingPiece, WritingSynopsis, WritingVersion
 
 
 User = get_user_model()
@@ -65,6 +65,7 @@ def _create_piece(
     title: str,
     status_value: str = "published",
     excerpt: str = "Excerpt",
+    sponsor=None,
 ) -> WritingPiece:
     piece = WritingPiece(
         author=author,
@@ -75,7 +76,7 @@ def _create_piece(
         status=status_value,
         writing_kind="article",
     )
-    piece.set_sponsor(author)
+    piece.set_sponsor(sponsor or author)
     piece.set_submitted_by(author)
     if status_value == "published":
         piece.published_at = timezone.now()
@@ -674,6 +675,13 @@ class PublicWritingPieceViewTests(TestCase):
             password="testpass123",
         )
         _create_profile(user=self.author, display_name="Author Name")
+        self.group = GroupService.create_group(
+            title="Reader Group",
+            group_type="community",
+            created_by=self.author,
+            visibility="public",
+            add_creator_membership=False,
+        )
 
         self.library = _create_collection(
             user=self.author,
@@ -684,10 +692,13 @@ class PublicWritingPieceViewTests(TestCase):
         self.client = APIClient()
 
     def _url(self, slug: str) -> str:
-        return f"/api/public/writing/{slug}"
+        return f"/api/public/groups/{self.group.slug}/writing/{slug}"
+
+    def _piece(self, **kwargs) -> WritingPiece:
+        return _create_piece(author=self.author, sponsor=self.group, **kwargs)
 
     def test_get_piece_anonymous_public_placement(self):
-        piece = _create_piece(author=self.author, title="Readable Piece")
+        piece = self._piece(title="Readable Piece")
         _create_placement(piece=piece, target=self.library, user=self.author, visibility="public")
 
         response = self.client.get(self._url(piece.slug))
@@ -696,7 +707,7 @@ class PublicWritingPieceViewTests(TestCase):
             self.assertIn(key, response.data)
 
     def test_get_piece_no_email_in_author(self):
-        piece = _create_piece(author=self.author, title="Author Shape Piece")
+        piece = self._piece(title="Author Shape Piece")
         _create_placement(piece=piece, target=self.library, user=self.author, visibility="public")
 
         response = self.client.get(self._url(piece.slug))
@@ -704,24 +715,24 @@ class PublicWritingPieceViewTests(TestCase):
         self.assertEqual(set(response.data["author"].keys()), {"username", "display_name", "avatar_url"})
 
     def test_get_piece_draft_returns_404(self):
-        piece = _create_piece(author=self.author, title="Draft", status_value="draft")
+        piece = self._piece(title="Draft", status_value="draft")
         response = self.client.get(self._url(piece.slug))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_get_piece_no_visible_placement_returns_404(self):
-        piece = _create_piece(author=self.author, title="No Placement")
+        piece = self._piece(title="No Placement")
         response = self.client.get(self._url(piece.slug))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_get_piece_private_placement_anonymous(self):
-        piece = _create_piece(author=self.author, title="Private Piece")
+        piece = self._piece(title="Private Piece")
         _create_placement(piece=piece, target=self.library, user=self.author, visibility="private")
 
         response = self.client.get(self._url(piece.slug))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_get_piece_members_placement_authenticated(self):
-        piece = _create_piece(author=self.author, title="Members Piece")
+        piece = self._piece(title="Members Piece")
         _create_placement(piece=piece, target=self.library, user=self.author, visibility="members")
 
         self.client.force_authenticate(user=self.viewer)
@@ -733,8 +744,38 @@ class PublicWritingPieceViewTests(TestCase):
         response = self.client.get(self._url("missing-piece"))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_get_piece_rejects_piece_from_another_group(self):
+        other_group = GroupService.create_group(
+            title="Other Reader Group",
+            group_type="community",
+            created_by=self.author,
+            visibility="public",
+            add_creator_membership=False,
+        )
+        piece = _create_piece(author=self.author, sponsor=other_group, title="Other Group Piece")
+        _create_placement(piece=piece, target=self.library, user=self.author, visibility="public")
+
+        response = self.client.get(self._url(piece.slug))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_get_piece_exposes_only_confirmed_public_synopsis(self):
+        piece = self._piece(title="Preview Piece")
+        _create_placement(piece=piece, target=self.library, user=self.author, visibility="public")
+        synopsis = WritingSynopsis.objects.create(
+            piece=piece,
+            description="A deliberate preview description.",
+        )
+
+        unconfirmed = self.client.get(self._url(piece.slug))
+        self.assertEqual(unconfirmed.data["public_synopsis"], "")
+
+        synopsis.public_synopsis_confirmed = True
+        synopsis.save(update_fields=["public_synopsis_confirmed", "updated_at"])
+        confirmed = self.client.get(self._url(piece.slug))
+        self.assertEqual(confirmed.data["public_synopsis"], "A deliberate preview description.")
+
     def test_get_piece_increments_view_count(self):
-        piece = _create_piece(author=self.author, title="Counted Piece")
+        piece = self._piece(title="Counted Piece")
         _create_placement(piece=piece, target=self.library, user=self.author, visibility="public")
 
         before = piece.view_count
@@ -745,7 +786,7 @@ class PublicWritingPieceViewTests(TestCase):
         self.assertEqual(piece.view_count, before + 1)
 
     def test_get_piece_applies_overrides(self):
-        piece = _create_piece(author=self.author, title="Original Title", excerpt="Original excerpt")
+        piece = self._piece(title="Original Title", excerpt="Original excerpt")
         _create_placement(
             piece=piece,
             target=self.library,

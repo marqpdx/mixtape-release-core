@@ -68,9 +68,11 @@ def _extract_plain_text(body_json: dict, char_limit: int = 600) -> str:
 def _derive_canonical_url(piece) -> str:
     if piece.canonical_url:
         return piece.canonical_url
-    base = getattr(settings, "SITE_BASE_URL", "https://mixtape.social")
-    # Use the public route — group-scoped URLs require authentication.
-    return f"{base}/writing/{piece.slug}"
+    group = piece.group
+    if not group:
+        return ""
+    base = getattr(settings, "CROSSROADS_PUBLIC_BASE_URL", "https://www.crossroads.place").rstrip("/")
+    return f"{base}/groups/{group.slug}/reading/{piece.slug}"
 
 
 def _derive_teaser(piece) -> str:
