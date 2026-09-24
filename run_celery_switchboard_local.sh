@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # ./run_celery_switchboard_local.sh
-# Dedicated worker for the Switchboard AI task queue.
+# Compatibility wrapper. Switchboard owns and runs its Celery worker.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SWITCHBOARD_RUNNER="$SCRIPT_DIR/../mixtape-release-switchboard/run_switchboard_worker.sh"
 
-CELERY_POOL=prefork \
-CELERY_CONCURRENCY=2 \
-CELERY_QUEUES=switchboard \
-CELERY_NODE_NAME=switchboard-worker@%h \
-"$SCRIPT_DIR/run_celery_local.sh"
+if [[ ! -x "$SWITCHBOARD_RUNNER" ]]; then
+  echo "Missing Switchboard worker runner at $SWITCHBOARD_RUNNER" >&2
+  exit 1
+fi
+
+echo "[deprecated] Core no longer owns the Switchboard worker; forwarding to mixtape-release-switchboard."
+exec "$SWITCHBOARD_RUNNER"

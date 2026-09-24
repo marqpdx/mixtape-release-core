@@ -12,6 +12,8 @@ patterns=(
   "$CELERY_BIN -A mixtape.celery_app worker .* -n push-worker@"
   "$CELERY_BIN -A mixtape.celery_app worker .* -n commons-worker@"
   "$CELERY_BIN -A mixtape.celery_app worker .* -n synopsis-results-worker@"
+  # Legacy Core-owned Switchboard processes only. The standalone worker uses
+  # a different Python/Celery app command and is not matched by these patterns.
   "$CELERY_BIN -A mixtape.celery_app worker .* -n switchboard-worker@"
   "$CELERY_BIN -A mixtape.celery_app worker .* -n transcription-worker@"
   "$CELERY_BIN -A mixtape.celery_app worker .* -n ocr-worker@"
