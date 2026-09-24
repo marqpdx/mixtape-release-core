@@ -56,9 +56,9 @@ urlpatterns = [
         name="public-site-writing",
     ),
     path(
-        "writing/<slug:slug>",
+        "groups/<slug:group_slug>/writing/<slug:slug>",
         views.PublicWritingPieceView.as_view(),
-        name="public-writing-piece",
+        name="public-group-writing-piece",
     ),
     path(
         "writing/runs/<slug:slug>",

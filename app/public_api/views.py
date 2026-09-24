@@ -229,18 +229,22 @@ class PublicMemberShelvesView(APIView):
 
 class PublicWritingPieceView(APIView):
     """
-    GET /api/public/writing/{slug}
+    GET /api/public/groups/{group_slug}/writing/{slug}
 
-    Public reading endpoint for a single writing piece.
-    Resolves artifact via placements, respects visibility.
+    Group-scoped public reading endpoint for a single writing piece.
+    Resolves artifacts via placements and respects visibility.
     """
     permission_classes = [AllowAny]
 
-    def get(self, request, slug):
+    def get(self, request, group_slug, slug):
+        group = get_object_or_404(Group, slug=group_slug)
+        group_ct = ContentType.objects.get_for_model(Group)
         piece = get_object_or_404(
-            WritingPiece.objects.select_related("author", "sponsor_content_type"),
+            WritingPiece.objects.select_related("author", "sponsor_content_type", "synopsis"),
             slug=slug,
             status="published",
+            sponsor_content_type=group_ct,
+            sponsor_object_id=group.id,
         )
 
         ct_piece = ContentType.objects.get_for_model(WritingPiece)
@@ -283,6 +287,12 @@ class PublicWritingPieceView(APIView):
             "slug": piece.slug,
             "title": metadata.get("title") or piece.title,
             "excerpt": metadata.get("excerpt") or piece.excerpt,
+            "public_synopsis": (
+                piece.synopsis.description
+                if getattr(piece, "synopsis", None)
+                and piece.synopsis.public_synopsis_confirmed
+                else ""
+            ),
             "body_json": metadata.get("body_json") or piece.body_json,
             "writing_kind": piece.writing_kind,
             "published_at": piece.published_at,
