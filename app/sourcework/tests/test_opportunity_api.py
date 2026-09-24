@@ -2,9 +2,12 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 from rest_framework.test import APIClient
 
+from assets.models import Asset, ProfileAsset
+from profiles.models import UserProfile
 from sourcework.models import (
     ExternalConnection,
     OpportunityApplicationDraft,
@@ -14,7 +17,8 @@ from sourcework.models import (
     WorkingSet,
 )
 from sourcework.opportunities.contracts import OpportunitySourceObservation
-from sourcework.opportunities.dice_mcp import DiceSearchBatch, plan_dice_queries
+from sourcework.opportunities.dice_mcp import DiceSearchBatch
+from sourcework.opportunities.application import _render_cover_letter_markdown
 
 
 User = get_user_model()
@@ -71,12 +75,52 @@ class OpportunityAPIProfileTests(TestCase):
 
     def test_query_plan_maps_profile_to_dice_filters(self):
         profile = OpportunityProfile.objects.create(owner_user=self.user, **_profile_payload())
-        query = plan_dice_queries(profile)[0]
+        response = self.client.get("/api/opportunities/query-plan")
 
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["profile_id"], str(profile.id))
+        query = response.data["queries"][0]
         self.assertEqual(query["arguments"]["keyword"], "Senior Python Django FastAPI")
         self.assertEqual(query["arguments"]["posted_date"], "THREE")
         self.assertEqual(query["arguments"]["workplace_types"], ["Remote"])
         self.assertEqual(query["arguments"]["jobs_per_page"], 8)
+
+    def test_profile_selects_only_member_owned_pdf_resume_asset(self):
+        profile = UserProfile.objects.create(user=self.user, display_name="Member One")
+        other_profile = UserProfile.objects.create(user=self.other_user, display_name="Member Two")
+        resume = self._asset(profile, "resume-v4.5.pdf")
+        other_resume = self._asset(other_profile, "other-resume.pdf")
+
+        selected = self.client.put(
+            "/api/opportunities/profile",
+            {**_profile_payload(), "resume_asset_id": str(resume.id)},
+            format="json",
+        )
+
+        self.assertEqual(selected.status_code, 201)
+        self.assertEqual(selected.data["profile"]["resume_asset"]["id"], str(resume.id))
+        rejected = self.client.put(
+            "/api/opportunities/profile",
+            {**_profile_payload(), "resume_asset_id": str(other_resume.id)},
+            format="json",
+        )
+        self.assertEqual(rejected.status_code, 400)
+
+    @staticmethod
+    def _asset(profile, filename):
+        asset = Asset.objects.create(
+            type="document",
+            content_type=ContentType.objects.get_for_model(UserProfile),
+            object_id=profile.id,
+            file_path=f"profiles/{profile.id}/uploads/resumes/{filename}",
+            file_name=filename,
+            file_type="application/pdf",
+            file_size=128_000,
+            upload_status="completed",
+            privacy="admins",
+        )
+        ProfileAsset.objects.create(asset=asset, profile=profile, title=filename)
+        return asset
 
 
 class OpportunityAPISearchTests(TestCase):
@@ -134,6 +178,39 @@ class OpportunityAPISearchTests(TestCase):
         candidate = ProvisionalData.objects.get(owner_user=self.user, source_external_id="dice-member-1")
         self.assertEqual(candidate.normalized_payload["preliminary_fit"]["label"], "promising")
 
+    @patch("sourcework.api.opportunity_views.acquire_dice_ad_hoc_search")
+    def test_ad_hoc_search_preserves_exact_query(self, acquire):
+        acquire.return_value = self._batch("ad-hoc-1")
+
+        response = self.client.post(
+            "/api/opportunities/search-runs",
+            {"query": "python AND typescript AND ai"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        acquire.assert_called_once_with(self.profile, "python AND typescript AND ai")
+        metadata = response.data["run"]["execution_metadata"]
+        self.assertEqual(metadata["acquisition_mode"], "ad_hoc_query")
+        self.assertEqual(metadata["ad_hoc_query"], "python AND typescript AND ai")
+
+    @patch("sourcework.api.opportunity_views.acquire_dice_job_url")
+    def test_direct_url_import_materializes_detailed_opportunity(self, acquire):
+        acquire.return_value = self._batch("ab593dba-cb54-414a-9a39-731d62e056bd", detailed=True)
+        url = "https://www.dice.com/job-detail/ab593dba-cb54-414a-9a39-731d62e056bd"
+
+        response = self.client.post(
+            "/api/opportunities/imports/dice-url",
+            {"url": url},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        acquire.assert_called_once_with(self.profile, url)
+        self.assertEqual(response.data["run"]["execution_metadata"]["acquisition_mode"], "direct_url")
+        opportunity = response.data["run"]["opportunities"][0]["opportunity"]
+        self.assertTrue(opportunity["payload"]["detail_acquired_at"])
+
     def test_candidate_state_cannot_cross_member_boundary(self):
         other = User.objects.create_user(username="other-member", password="pass")
         record = ProvisionalData.objects.create(
@@ -182,8 +259,7 @@ class OpportunityAPISearchTests(TestCase):
         self.assertEqual(payload["contact_email"], "recruiter@example.com")
         self.assertEqual(record.raw_payload["details"], get_details.return_value)
 
-    @patch("sourcework.opportunities.application.service_generate")
-    def test_application_draft_is_editable_and_member_owned(self, service_generate):
+    def test_application_draft_is_editable_and_member_owned(self):
         record, _ = self._candidate(
             normalized_payload={
                 "title": "Senior Platform Engineer",
@@ -193,10 +269,6 @@ class OpportunityAPISearchTests(TestCase):
                 "easy_apply": True,
             },
         )
-        service_generate.return_value = {
-            "result": {"body": "I am interested in the role.\n\nMy Python background aligns with the work."}
-        }
-
         generated = self.client.post(
             f"/api/opportunities/candidates/{record.id}/application-draft",
             {},
@@ -205,23 +277,71 @@ class OpportunityAPISearchTests(TestCase):
 
         self.assertEqual(generated.status_code, 201)
         self.assertEqual(generated.data["draft"]["resume_version"], self.profile.resume_version)
+        self.assertEqual(generated.data["draft"]["opportunity_title"], "Senior Platform Engineer")
         draft = OpportunityApplicationDraft.objects.get(owner_user=self.user, opportunity=record)
-        self.assertEqual(draft.generated_by, "inkwell")
+        self.assertEqual(draft.generated_by, "member")
+        self.assertEqual(draft.letter_body_json["type"], "doc")
         self.assertEqual(draft.generation_context["opportunity"]["title"], "Senior Platform Engineer")
 
+        body_json = {
+            "type": "doc",
+            "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "A reviewed letter."}]},
+                {"type": "paragraph", "content": [{"type": "text", "text": "Second paragraph."}]},
+            ],
+        }
         edited = self.client.put(
             f"/api/opportunities/candidates/{record.id}/application-draft",
-            {"letter_body": "A reviewed and edited letter.", "status": "ready"},
+            {"letter_body_json": body_json, "status": "ready"},
             format="json",
         )
         self.assertEqual(edited.status_code, 200)
         draft.refresh_from_db()
-        self.assertEqual(draft.letter_body, "A reviewed and edited letter.")
+        self.assertEqual(draft.letter_body, "A reviewed letter. Second paragraph.")
+        self.assertEqual(draft.letter_body_json, body_json)
         self.assertEqual(draft.status, "ready")
+
+        submitted = self.client.put(
+            f"/api/opportunities/candidates/{record.id}/application-draft",
+            {"status": "submitted"},
+            format="json",
+        )
+        self.assertEqual(submitted.status_code, 200)
+        self.assertEqual(submitted.data["draft"]["status"], "submitted")
+        self.assertIsNotNone(submitted.data["draft"]["submitted_at"])
+        draft.refresh_from_db()
+        self.assertIsNotNone(draft.submitted_at)
 
         self.client.force_authenticate(self.other_user)
         hidden = self.client.get(f"/api/opportunities/candidates/{record.id}/application-draft")
         self.assertEqual(hidden.status_code, 404)
+
+    def test_application_draft_snapshots_resume_from_source_profile(self):
+        member_profile = UserProfile.objects.create(user=self.user, display_name="Search Member")
+        resume = OpportunityAPIProfileTests._asset(member_profile, "resume-v4.5.pdf")
+        self.profile.resume_asset = resume
+        self.profile.save(update_fields=["resume_asset", "updated_at"])
+        record, working_set = self._candidate(
+            normalized_payload={
+                "title": "Staff Software Engineer",
+                "organization": "Parachute Health",
+                "description": "Build reliable systems.",
+                "detail_acquired_at": "2026-09-23T20:00:00Z",
+            },
+        )
+        working_set.execution_metadata = {"profile_id": str(self.profile.id)}
+        working_set.save(update_fields=["execution_metadata", "updated_at"])
+        response = self.client.post(
+            f"/api/opportunities/candidates/{record.id}/application-draft",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["draft"]["resume_asset"]["id"], str(resume.id))
+        draft = OpportunityApplicationDraft.objects.get(owner_user=self.user, opportunity=record)
+        self.assertEqual(draft.resume_asset, resume)
+        self.assertEqual(draft.generation_context["candidate"]["resume_asset_id"], str(resume.id))
 
     @patch("sourcework.api.opportunity_views.render_cover_letter_pdf", return_value=b"%PDF-cover")
     def test_application_pdf_is_downloadable(self, render_pdf):
@@ -241,6 +361,34 @@ class OpportunityAPISearchTests(TestCase):
         self.assertEqual(response.content, b"%PDF-cover")
         self.assertEqual(response["Content-Type"], "application/pdf")
         render_pdf.assert_called_once_with(draft=draft)
+
+    def test_cover_letter_markdown_uses_ledger_and_structured_body(self):
+        record, _ = self._candidate(
+            normalized_payload={"title": "Platform Engineer", "organization": "Example Co"},
+        )
+        draft = OpportunityApplicationDraft.objects.create(
+            owner_user=self.user,
+            opportunity=record,
+            profile=self.profile,
+            opportunity_title="Principal Platform Engineer",
+            recipient_name="Hiring Team",
+            letter_body="Grounded fit.",
+            letter_body_json={
+                "type": "doc",
+                "content": [{
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": "Grounded fit.", "marks": [{"type": "bold"}]}],
+                }],
+            },
+        )
+
+        markdown = _render_cover_letter_markdown(draft)
+
+        self.assertIn("theme: Ledger", markdown)
+        self.assertIn("Application for Principal Platform Engineer at Example Co", markdown)
+        self.assertIn("Re: Principal Platform Engineer", markdown)
+        self.assertNotIn("Dear Hiring Team", markdown)
+        self.assertIn("<p><strong>Grounded fit.</strong></p>", markdown)
 
     def _candidate(self, *, raw_payload=None, normalized_payload=None):
         working_set = WorkingSet.objects.create(
@@ -263,3 +411,36 @@ class OpportunityAPISearchTests(TestCase):
         )
         ProvisionalDataMembership.objects.create(working_set=working_set, provisional_data=record)
         return record, working_set
+
+    @staticmethod
+    def _batch(external_id, *, detailed=False):
+        now = datetime(2026, 9, 22, 18, 0, tzinfo=timezone.utc)
+        return DiceSearchBatch(
+            observations=(
+                OpportunitySourceObservation(
+                    provider="dice",
+                    external_id=external_id,
+                    canonical_url=f"https://www.dice.com/job-detail/{external_id}",
+                    retrieved_at=now,
+                    observed_at=now,
+                    relevant_text="Staff Python and TypeScript role using AI tools.",
+                    raw_payload={
+                        "title": "Staff Software Engineer",
+                        "organization": "Parachute Health",
+                        "description": "Staff Python and TypeScript role using AI tools.",
+                        "arrangement": "Remote",
+                        "engagement_type": "Full Time",
+                        "listing_status": "live",
+                        "detail_acquired_at": now.isoformat() if detailed else None,
+                    },
+                ),
+            ),
+            query_results=({
+                "lane_id": "test",
+                "lane_label": "Test",
+                "arguments": {},
+                "returned": 1,
+                "available": 1,
+                "search_id": None,
+            },),
+        )

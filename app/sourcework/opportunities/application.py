@@ -2,25 +2,19 @@ from __future__ import annotations
 
 from datetime import date
 from html import escape
-import json
-import re
+from pathlib import Path
+import subprocess
+import tempfile
 
-from django.utils import timezone
-
-from inkwell.client import service_generate
+from django.conf import settings
 from sourcework.models import OpportunityApplicationDraft, OpportunityProfile, ProvisionalData
+from utils.writing.writing_utils import render_html_from_prosemirror
 
 
-LETTER_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "body": {"type": "string"},
-    },
-    "required": ["body"],
-}
+EMPTY_TIPTAP_DOCUMENT = {"type": "doc", "content": [{"type": "paragraph"}]}
 
 
-def generate_cover_letter_draft(
+def create_cover_letter_draft(
     *,
     opportunity: ProvisionalData,
     profile: OpportunityProfile,
@@ -28,77 +22,92 @@ def generate_cover_letter_draft(
 ) -> OpportunityApplicationDraft:
     payload = opportunity.normalized_payload or {}
     context = _generation_context(opportunity=opportunity, profile=profile, owner=owner)
-    result = service_generate(
-        system_prompt=(
-            "Draft a concise professional cover letter using only the supplied facts. "
-            "Do not invent employers, projects, years of experience, credentials, or outcomes. "
-            "Do not include addresses, a date, greeting, sign-off, or sender name; those are rendered separately. "
-            "Return valid JSON only."
-        ),
-        prompt=(
-            "Write three or four short paragraphs for this application. Explain the strongest grounded fit, "
-            "acknowledge the specific role, and close with interest in a conversation.\n\n"
-            f"Application facts:\n{json.dumps(context, indent=2, ensure_ascii=True)}"
-        ),
-        schema=LETTER_SCHEMA,
-        max_tokens=700,
-        temperature=0.2,
-        timeout_seconds=120,
-    )
-    body = str((result.get("result") or {}).get("body") or "").strip()
-    if not body:
-        raise ValueError("Inkwell returned an empty cover-letter draft.")
     draft, _ = OpportunityApplicationDraft.objects.update_or_create(
         owner_user=owner,
         opportunity=opportunity,
         defaults={
             "profile": profile,
+            "resume_asset": profile.resume_asset,
             "status": "draft",
+            "opportunity_title": str(payload.get("title") or ""),
             "recipient_name": str(payload.get("recruiter_name") or ""),
             "recipient_email": str(payload.get("contact_email") or ""),
-            "letter_body": body,
+            "letter_body": "",
+            "letter_body_json": EMPTY_TIPTAP_DOCUMENT,
             "generation_context": context,
-            "generated_by": "inkwell",
-            "generated_at": timezone.now(),
+            "generated_by": "member",
+            "generated_at": None,
         },
     )
     return draft
 
 
 def render_cover_letter_pdf(*, draft: OpportunityApplicationDraft) -> bytes:
-    try:
-        from weasyprint import CSS, HTML
-    except Exception as exc:  # pragma: no cover
-        raise RuntimeError("WeasyPrint is required for cover-letter PDF export.") from exc
+    markdown = _render_cover_letter_markdown(draft)
+    puddlejump_root = getattr(settings, "PUDDLEJUMP_PATH", None)
+    if not puddlejump_root:
+        raise RuntimeError("Ledger PDF export is not configured on this server.")
+    renderer = Path(str(puddlejump_root)).expanduser() / "zz" / "_ml" / "make-pdf.sh"
+    if not renderer.is_file():
+        raise RuntimeError(f"Ledger PDF renderer was not found at {renderer}.")
+
+    with tempfile.TemporaryDirectory(prefix="mixtape-cover-letter-") as temp_dir:
+        markdown_path = Path(temp_dir) / "cover-letter.md"
+        pdf_path = markdown_path.with_suffix(".pdf")
+        markdown_path.write_text(markdown, encoding="utf-8")
+        try:
+            result = subprocess.run(
+                [str(renderer), str(markdown_path)],
+                capture_output=True,
+                check=False,
+                text=True,
+                timeout=90,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise RuntimeError(f"Ledger PDF export could not start: {exc}") from exc
+        if result.returncode != 0 or not pdf_path.is_file():
+            detail = (result.stderr or result.stdout or "unknown renderer failure").strip()
+            raise RuntimeError(f"Ledger PDF export failed: {detail}")
+        return pdf_path.read_bytes()
+
+
+def _render_cover_letter_markdown(draft: OpportunityApplicationDraft) -> str:
 
     owner = draft.owner_user
     opportunity = draft.opportunity.normalized_payload or {}
     sender_name = owner.get_full_name().strip() or owner.username
     sender_email = owner.email or ""
     recipient = draft.recipient_name or "Hiring team"
-    paragraphs = "".join(
-        f"<p>{escape(paragraph.strip()).replace(chr(10), '<br>')}</p>"
-        for paragraph in re.split(r"\n\s*\n", draft.letter_body)
-        if paragraph.strip()
+    if draft.letter_body_json:
+        body = render_html_from_prosemirror(draft.letter_body_json)
+    else:
+        body = f"<p>{escape(draft.letter_body).replace(chr(10), '<br>')}</p>"
+    title = draft.opportunity_title.strip() or str(opportunity.get("title") or "Opportunity")
+    organization = str(opportunity.get("organization") or "")
+    document_title = f"Cover Letter — {title}"
+    return (
+        "---\n"
+        f'title: "{_frontmatter_value(document_title)}"\n'
+        f"date: {date.today().isoformat()}\n"
+        "theme: Ledger\n"
+        "---\n\n"
+        f"# {escape(sender_name)}\n\n"
+        f"{escape(sender_email)}  \n"
+        f"**Application for {escape(title)}"
+        f"{f' at {escape(organization)}' if organization else ''}**\n\n"
+        "---\n\n"
+        f"{date.today():%B %d, %Y}\n\n"
+        f"{escape(recipient)}  \n"
+        f"{escape(organization)}\n\n"
+        f"**Re: {escape(title)}**\n\n"
+        f"{body}\n\n"
+        "Sincerely,  \n"
+        f"{escape(sender_name)}\n"
     )
-    document = (
-        '<!doctype html><html><head><meta charset="utf-8"></head><body>'
-        f'<header><strong>{escape(sender_name)}</strong><br>{escape(sender_email)}</header>'
-        f'<p class="date">{date.today():%B %d, %Y}</p>'
-        f'<p>{escape(recipient)}<br>{escape(str(opportunity.get("organization") or ""))}</p>'
-        f'<p>Re: {escape(str(opportunity.get("title") or "Opportunity"))}</p>'
-        f'<p>Dear {escape(recipient)},</p>{paragraphs}'
-        f'<p>Sincerely,<br>{escape(sender_name)}</p>'
-        "</body></html>"
-    )
-    styles = """
-        @page { size: Letter; margin: 0.8in 0.85in; }
-        body { color: #17202a; font-family: Georgia, 'Times New Roman', serif; font-size: 11pt; line-height: 1.48; }
-        header { border-bottom: 1px solid #9aa4ad; margin-bottom: 22px; padding-bottom: 10px; }
-        p { margin: 0 0 13px; }
-        .date { margin-bottom: 20px; }
-    """
-    return HTML(string=document).write_pdf(stylesheets=[CSS(string=styles)])
+
+
+def _frontmatter_value(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
 
 
 def _generation_context(*, opportunity: ProvisionalData, profile: OpportunityProfile, owner) -> dict:
@@ -112,6 +121,8 @@ def _generation_context(*, opportunity: ProvisionalData, profile: OpportunityPro
             "strong_technologies": profile.strong_technologies,
             "resume_label": profile.resume_label,
             "resume_version": profile.resume_version,
+            "resume_asset_id": str(profile.resume_asset_id) if profile.resume_asset_id else None,
+            "resume_file_name": profile.resume_asset.file_name if profile.resume_asset_id else None,
         },
         "opportunity": {
             "title": payload.get("title"),

@@ -8,6 +8,7 @@ from .opportunity_views import (
     OpportunityProfileView,
     OpportunityQueryPlanView,
     OpportunitySearchRunListCreateView,
+    OpportunityURLImportView,
 )
 
 
@@ -15,6 +16,7 @@ urlpatterns = [
     path("profile", OpportunityProfileView.as_view(), name="opportunity-profile"),
     path("query-plan", OpportunityQueryPlanView.as_view(), name="opportunity-query-plan"),
     path("search-runs", OpportunitySearchRunListCreateView.as_view(), name="opportunity-search-runs"),
+    path("imports/dice-url", OpportunityURLImportView.as_view(), name="opportunity-import-dice-url"),
     path(
         "candidates/<uuid:data_id>/state",
         OpportunityCandidateStateView.as_view(),

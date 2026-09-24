@@ -285,6 +285,13 @@ class OpportunityProfile(BaseModel):
     name = models.CharField(max_length=120, default="Current opportunity profile")
     resume_label = models.CharField(max_length=255, blank=True, default="")
     resume_version = models.CharField(max_length=80, blank=True, default="")
+    resume_asset = models.ForeignKey(
+        "assets.Asset",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="opportunity_profiles",
+    )
     query_lanes = models.JSONField(default=list, blank=True)
     target_roles = models.JSONField(default=list, blank=True)
     geography = models.JSONField(default=list, blank=True)
@@ -545,6 +552,7 @@ class ProvisionalDataMembership(BaseModel):
 class OpportunityApplicationDraftStatus(models.TextChoices):
     DRAFT = "draft", "Draft"
     READY = "ready", "Ready"
+    SUBMITTED = "submitted", "Submitted"
 
 
 class OpportunityApplicationDraft(BaseModel):
@@ -568,18 +576,28 @@ class OpportunityApplicationDraft(BaseModel):
         blank=True,
         related_name="application_drafts",
     )
+    resume_asset = models.ForeignKey(
+        "assets.Asset",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="opportunity_application_drafts",
+    )
     status = models.CharField(
         max_length=24,
         choices=OpportunityApplicationDraftStatus.choices,
         default=OpportunityApplicationDraftStatus.DRAFT,
         db_index=True,
     )
+    opportunity_title = models.CharField(max_length=255, blank=True, default="")
     recipient_name = models.CharField(max_length=255, blank=True, default="")
     recipient_email = models.EmailField(blank=True, default="")
     letter_body = models.TextField(blank=True, default="")
+    letter_body_json = models.JSONField(default=dict, blank=True)
     generation_context = models.JSONField(default=dict, blank=True)
     generated_by = models.CharField(max_length=40, blank=True, default="")
     generated_at = models.DateTimeField(null=True, blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-updated_at"]

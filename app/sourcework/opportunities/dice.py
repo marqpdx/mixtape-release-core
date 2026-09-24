@@ -151,6 +151,7 @@ class DiceOpportunityAdapter:
             "application_url": application_url,
             "easy_apply": easy_apply,
             "application_action": "outbound_email_available" if contact_email else "manual_application_required",
+            "detail_acquired_at": raw.get("detail_acquired_at"),
             "validation_status": status.value,
             "validation_findings": list(reasons),
         }

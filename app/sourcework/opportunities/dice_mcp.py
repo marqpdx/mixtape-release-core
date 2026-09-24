@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -119,12 +120,71 @@ def plan_dice_queries(profile: OpportunityProfile) -> list[dict[str, Any]]:
 
 
 def acquire_dice_search(profile: OpportunityProfile, *, client: DiceMCPClient | None = None) -> DiceSearchBatch:
+    return acquire_dice_queries(profile, plan_dice_queries(profile), client=client)
+
+
+def acquire_dice_ad_hoc_search(
+    profile: OpportunityProfile,
+    query: str,
+    *,
+    client: DiceMCPClient | None = None,
+) -> DiceSearchBatch:
+    query = query.strip()
+    if not query:
+        raise ValueError("An ad hoc Dice query is required.")
+    arguments = _shared_query_arguments(profile)
+    return acquire_dice_queries(
+        profile,
+        [{"lane_id": "ad-hoc", "lane_label": query, "arguments": {**arguments, "keyword": query}}],
+        client=client,
+    )
+
+
+def acquire_dice_job_url(
+    profile: OpportunityProfile,
+    url: str,
+    *,
+    client: DiceMCPClient | None = None,
+) -> DiceSearchBatch:
+    job_id, canonical_url = parse_dice_job_url(url)
+    client = client or DiceMCPClient()
+    retrieved_at = datetime.now(timezone.utc)
+    details = _unwrap_job(client.get_job_details(job_id))
+    raw = _normalize_detail_result(details, job_id=job_id, canonical_url=canonical_url)
+    observation = OpportunitySourceObservation(
+        provider="dice",
+        external_id=job_id,
+        canonical_url=canonical_url,
+        retrieved_at=retrieved_at,
+        observed_at=_parse_datetime(raw.get("posted_at")),
+        relevant_text=str(raw.get("description") or ""),
+        raw_payload=raw,
+    )
+    return DiceSearchBatch(
+        (observation,),
+        ({
+            "lane_id": "direct-url",
+            "lane_label": "Added by URL",
+            "arguments": {"url": canonical_url, "job_id": job_id},
+            "returned": 1,
+            "available": 1,
+            "search_id": None,
+        },),
+    )
+
+
+def acquire_dice_queries(
+    profile: OpportunityProfile,
+    queries: list[dict[str, Any]],
+    *,
+    client: DiceMCPClient | None = None,
+) -> DiceSearchBatch:
     client = client or DiceMCPClient()
     retrieved_at = datetime.now(timezone.utc)
     observations_by_id: dict[str, OpportunitySourceObservation] = {}
     query_results: list[dict[str, Any]] = []
 
-    for query in plan_dice_queries(profile):
+    for query in queries:
         payload = client.search_jobs(query["arguments"])
         jobs = payload.get("data") or []
         metadata = payload.get("metadata") or {}
@@ -156,6 +216,18 @@ def acquire_dice_search(profile: OpportunityProfile, *, client: DiceMCPClient | 
     return DiceSearchBatch(tuple(observations_by_id.values()), tuple(query_results))
 
 
+def parse_dice_job_url(url: str) -> tuple[str, str]:
+    parsed = urlparse(url.strip())
+    hostname = (parsed.hostname or "").lower()
+    if parsed.scheme not in {"http", "https"} or hostname not in {"dice.com", "www.dice.com"}:
+        raise ValueError("Enter a Dice job-detail URL.")
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) != 2 or parts[0] != "job-detail" or not parts[1]:
+        raise ValueError("Enter a Dice URL in the form https://www.dice.com/job-detail/{id}.")
+    job_id = parts[1]
+    return job_id, f"https://www.dice.com/job-detail/{job_id}"
+
+
 def profile_contract(profile: OpportunityProfile) -> OpportunitySearchProfile:
     return OpportunitySearchProfile(
         profile_id=str(profile.id),
@@ -185,6 +257,52 @@ def _parse_mcp_response(body: str) -> dict[str, Any]:
     if not data_lines:
         raise DiceMCPError("Dice MCP returned an unsupported response envelope.")
     return json.loads(data_lines[-1])
+
+
+def _shared_query_arguments(profile: OpportunityProfile) -> dict[str, Any]:
+    planned = plan_dice_queries(profile)
+    if planned:
+        return {key: value for key, value in planned[0]["arguments"].items() if key != "keyword"}
+    posted_date = "ONE" if profile.freshness_hours <= 24 else "THREE" if profile.freshness_hours <= 72 else "SEVEN"
+    return {"posted_date": posted_date, "sort": "datePosted", "jobs_per_page": 10}
+
+
+def _unwrap_job(payload: dict[str, Any]) -> dict[str, Any]:
+    data = payload.get("data")
+    if isinstance(data, dict):
+        return data
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        return data[0]
+    return payload
+
+
+def _normalize_detail_result(details: dict[str, Any], *, job_id: str, canonical_url: str) -> dict[str, Any]:
+    workplace_types = list(details.get("workplaceTypes") or details.get("workplace_types") or [])
+    location = details.get("jobLocation") or details.get("location") or {}
+    if not isinstance(location, dict):
+        location = {"displayName": str(location)}
+    skills = details.get("skills") or []
+    skill_names = [item.get("name") if isinstance(item, dict) else str(item) for item in skills]
+    return {
+        **details,
+        "guid": details.get("guid") or details.get("id") or job_id,
+        "title": details.get("title") or details.get("jobTitle") or "",
+        "organization": details.get("companyName") or details.get("organization") or details.get("company") or "",
+        "description": html_to_readable_text(str(details.get("description") or details.get("summary") or "")),
+        "arrangement": workplace_types[0] if len(workplace_types) == 1 else ", ".join(workplace_types),
+        "required_location": location.get("displayName") or location.get("name") or "",
+        "engagement_type": details.get("employmentType") or details.get("employment_type") or "",
+        "posted_at": details.get("postedDate") or details.get("posted_at"),
+        "updated_at": details.get("modifiedDate") or details.get("updated_at"),
+        "skills": [name for name in skill_names if name],
+        "easyApply": bool(details.get("easyApply", details.get("easy_apply", False))),
+        "detailsPageUrl": details.get("detailsPageUrl") or canonical_url,
+        "listing_status": "live",
+        "detail_acquired_at": datetime.now(timezone.utc).isoformat(),
+        "query_lane_id": "direct-url",
+        "query_lane_label": "Added by URL",
+        "query_arguments": {"url": canonical_url},
+    }
 
 
 def _normalize_search_result(job: dict[str, Any], query: dict[str, Any]) -> dict[str, Any]:

@@ -16,6 +16,7 @@ class MemberSerializer(serializers.ModelSerializer):
     This is what the frontend will consume via /api/members/ endpoints.
     """
     # Fields from User (via relation)
+    profile_id = serializers.UUIDField(source="id", read_only=True)
     id = serializers.UUIDField(source="user.id", read_only=True)
     username = serializers.CharField(source="user.username", read_only=True)
     email = serializers.EmailField(source="user.email", read_only=True)
@@ -37,7 +38,7 @@ class MemberSerializer(serializers.ModelSerializer):
         model = UserProfile
         fields = [
             # From User
-            "id", "username", "email", "first_name", "last_name",
+            "id", "profile_id", "username", "email", "first_name", "last_name",
             "is_active", "date_joined", "roles",
             # From Profile
             "slug", "display_name", "quick_intro", "right_now",
