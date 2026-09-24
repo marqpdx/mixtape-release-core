@@ -13,4 +13,20 @@ urlpatterns = [
         views.FolioInceptionAnalyzeView.as_view(),
         name="folio-inception-analyze",
     ),
+    path("folios/<uuid:folio_id>", views.FolioTitleDetailView.as_view(), name="folio-title-detail"),
+    path(
+        "material-candidates/<uuid:candidate_id>",
+        views.FolioMaterialCandidateDetailView.as_view(),
+        name="folio-material-candidate-detail",
+    ),
+    path(
+        "material-candidates/<uuid:candidate_id>/confirm",
+        views.FolioMaterialCandidateConfirmView.as_view(),
+        name="folio-material-candidate-confirm",
+    ),
+    path(
+        "material-candidates/<uuid:candidate_id>/reject",
+        views.FolioMaterialCandidateRejectView.as_view(),
+        name="folio-material-candidate-reject",
+    ),
 ]

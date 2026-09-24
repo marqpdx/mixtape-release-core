@@ -14,9 +14,15 @@ from folio.models import CandidateStatus, Folio, FolioInception, FolioMaterialCa
 from folio.services.gate1_parse import parse_gate1
 from folio.services.gate2_extract import extract_gate2
 from folio.services.gate3_classify import classify_gate3
-from folio.services.gate4_normalize import build_candidates
+from folio.services.gate4_normalize import build_candidates, derive_title
 from folio.services.gate5_validate import validate_candidates
-from .serializers import FolioInceptionCreateSerializer, FolioInceptionSerializer
+from .serializers import (
+    FolioInceptionCreateSerializer,
+    FolioInceptionSerializer,
+    FolioMaterialCandidatePatchSerializer,
+    FolioMaterialCandidateSerializer,
+    FolioTitlePatchSerializer,
+)
 
 
 class FolioInceptionListCreateView(APIView):
@@ -127,6 +133,13 @@ class FolioInceptionAnalyzeView(APIView):
                 if new_candidates:
                     FolioMaterialCandidate.objects.bulk_create(new_candidates)
                 persisted_count = len(new_candidates)
+
+                # Near-verbatim short form only (spec section 8) -- never
+                # overwrites a title a human has already set.
+                if not inception.folio.title:
+                    derived_title = derive_title(validation["valid_candidates"])
+                    if derived_title:
+                        Folio.objects.filter(pk=inception.folio_id).update(title=derived_title)
             gate4_5_latency_ms = round((time.monotonic() - start) * 1000, 2)
 
         if gate3_output is not None:
@@ -164,3 +177,72 @@ class FolioInceptionAnalyzeView(APIView):
             }
 
         return Response(payload)
+
+
+class FolioTitleDetailView(APIView):
+    """Lets the writer edit the Folio title, per prototype spec section 6."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, folio_id):
+        folio = get_object_or_404(Folio, pk=folio_id, created_by=request.user)
+        serializer = FolioTitlePatchSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        folio.title = serializer.validated_data["title"]
+        folio.save(update_fields=["title", "updated_at"])
+        return Response({"id": str(folio.id), "title": folio.title})
+
+
+def _get_owned_candidate(request, candidate_id):
+    return get_object_or_404(
+        FolioMaterialCandidate,
+        pk=candidate_id,
+        inception__folio__created_by=request.user,
+    )
+
+
+class FolioMaterialCandidateDetailView(APIView):
+    """
+    Lets the writer edit a candidate's display text, per prototype spec
+    section 6 ("amend the visible intention", "edit a material item's
+    display text"). source_text and the source span are never editable —
+    they are Hildegard's verbatim record of what it found in raw_text,
+    per the build plan guardrail on preserving provenance. Editing marks
+    the candidate amended regardless of its prior status, since a human
+    has now touched it.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, candidate_id):
+        candidate = _get_owned_candidate(request, candidate_id)
+        serializer = FolioMaterialCandidatePatchSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        candidate.display_text = serializer.validated_data["display_text"]
+        candidate.status = CandidateStatus.AMENDED
+        candidate.save(update_fields=["display_text", "status", "updated_at"])
+        return Response(FolioMaterialCandidateSerializer(candidate).data)
+
+
+class FolioMaterialCandidateConfirmView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, candidate_id):
+        candidate = _get_owned_candidate(request, candidate_id)
+        candidate.status = CandidateStatus.CONFIRMED
+        candidate.save(update_fields=["status", "updated_at"])
+        return Response(FolioMaterialCandidateSerializer(candidate).data)
+
+
+class FolioMaterialCandidateRejectView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, candidate_id):
+        candidate = _get_owned_candidate(request, candidate_id)
+        candidate.status = CandidateStatus.REJECTED
+        candidate.save(update_fields=["status", "updated_at"])
+        return Response(FolioMaterialCandidateSerializer(candidate).data)
