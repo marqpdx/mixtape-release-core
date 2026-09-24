@@ -7,20 +7,23 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from inkwell.client import InkwellUnavailableError
 from sourcework.api.opportunity_serializers import (
     OpportunityApplicationDraftSerializer,
     OpportunityProfileSerializer,
+    OpportunitySearchRequestSerializer,
     OpportunityStateSerializer,
+    OpportunityURLImportSerializer,
     OpportunityWorkingSetSerializer,
 )
 from sourcework.models import OpportunityApplicationDraft, OpportunityProfile, ProvisionalData, WorkingSet
-from sourcework.opportunities.application import generate_cover_letter_draft, render_cover_letter_pdf
+from sourcework.opportunities.application import create_cover_letter_draft, render_cover_letter_pdf
 from sourcework.opportunities.dice import DiceOpportunityAdapter
 from sourcework.opportunities.dice_mcp import (
     DICE_AI_DISCLOSURE,
     DiceMCPClient,
     DiceMCPError,
+    acquire_dice_ad_hoc_search,
+    acquire_dice_job_url,
     acquire_dice_search,
     plan_dice_queries,
     profile_contract,
@@ -45,7 +48,7 @@ class OpportunityProfileView(APIView):
             owner_user=request.user,
             is_current=True,
         ).first()
-        serializer = OpportunityProfileSerializer(data=request.data)
+        serializer = OpportunityProfileSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         if current:
             current.is_current = False
@@ -56,7 +59,7 @@ class OpportunityProfileView(APIView):
             is_current=True,
         )
         return Response(
-            {"profile": OpportunityProfileSerializer(profile).data},
+            {"profile": OpportunityProfileSerializer(profile, context={"request": request}).data},
             status=status.HTTP_201_CREATED if current is None else status.HTTP_200_OK,
         )
 
@@ -65,18 +68,11 @@ class OpportunityQueryPlanView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        membership = opportunity.working_set_memberships.select_related("working_set").first()
-        source_profile_id = (
-            (membership.working_set.execution_metadata or {}).get("profile_id") if membership else None
+        profile = get_object_or_404(
+            OpportunityProfile,
+            owner_user=request.user,
+            is_current=True,
         )
-        profile = None
-        if source_profile_id:
-            profile = OpportunityProfile.objects.filter(
-                id=source_profile_id,
-                owner_user=request.user,
-            ).first()
-        if profile is None:
-            profile = get_object_or_404(OpportunityProfile, owner_user=request.user, is_current=True)
         return Response(
             {
                 "profile_id": str(profile.id),
@@ -105,10 +101,17 @@ class OpportunitySearchRunListCreateView(APIView):
         )
 
     def post(self, request):
+        request_serializer = OpportunitySearchRequestSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        ad_hoc_query = request_serializer.validated_data.get("query", "")
         profile = get_object_or_404(OpportunityProfile, owner_user=request.user, is_current=True)
         try:
-            batch = acquire_dice_search(profile)
-        except (DiceMCPError, OSError) as exc:
+            batch = (
+                acquire_dice_ad_hoc_search(profile, ad_hoc_query)
+                if ad_hoc_query
+                else acquire_dice_search(profile)
+            )
+        except (DiceMCPError, OSError, ValueError) as exc:
             return Response(
                 {"detail": f"Dice search could not be completed: {exc}"},
                 status=status.HTTP_502_BAD_GATEWAY,
@@ -121,7 +124,11 @@ class OpportunitySearchRunListCreateView(APIView):
             observations=batch.observations,
             adapter=DiceOpportunityAdapter(),
             user=request.user,
-            title=f"Dice opportunities — {timezone.localtime():%Y-%m-%d %H:%M}",
+            title=(
+                f"Dice: {ad_hoc_query} — {timezone.localtime():%Y-%m-%d %H:%M}"
+                if ad_hoc_query
+                else f"Dice opportunities — {timezone.localtime():%Y-%m-%d %H:%M}"
+            ),
         )
         working_set = WorkingSet.objects.get(id=result.working_set_id, owner_user=request.user)
         working_set.execution_metadata = {
@@ -133,6 +140,8 @@ class OpportunitySearchRunListCreateView(APIView):
             "resume_label": profile.resume_label,
             "resume_version": profile.resume_version,
             "disclosure": DICE_AI_DISCLOSURE,
+            "acquisition_mode": "ad_hoc_query" if ad_hoc_query else "profile_search",
+            "ad_hoc_query": ad_hoc_query,
         }
         working_set.save(update_fields=["execution_metadata", "updated_at"])
         working_set = WorkingSet.objects.prefetch_related(
@@ -143,6 +152,54 @@ class OpportunitySearchRunListCreateView(APIView):
                 "run": OpportunityWorkingSetSerializer(working_set).data,
                 "disclosure": DICE_AI_DISCLOSURE,
             },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class OpportunityURLImportView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = OpportunityURLImportSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        profile = get_object_or_404(OpportunityProfile, owner_user=request.user, is_current=True)
+        submitted_url = serializer.validated_data["url"]
+        try:
+            batch = acquire_dice_job_url(profile, submitted_url)
+        except (DiceMCPError, OSError, ValueError) as exc:
+            return Response(
+                {"detail": f"Dice opportunity could not be imported: {exc}"},
+                status=status.HTTP_502_BAD_GATEWAY if isinstance(exc, (DiceMCPError, OSError)) else status.HTTP_400_BAD_REQUEST,
+            )
+
+        grant = provision_member_public_opportunity_source(user=request.user)
+        result = ingest_opportunity_observations(
+            source_grant=grant,
+            search_profile=profile_contract(profile),
+            observations=batch.observations,
+            adapter=DiceOpportunityAdapter(),
+            user=request.user,
+            title=f"Saved Dice opportunity — {timezone.localtime():%Y-%m-%d %H:%M}",
+        )
+        working_set = WorkingSet.objects.get(id=result.working_set_id)
+        working_set.execution_metadata = {
+            **working_set.execution_metadata,
+            "transport": "official_dice_mcp",
+            "query_results": list(batch.query_results),
+            "profile_id": str(profile.id),
+            "profile_version": profile.version,
+            "resume_label": profile.resume_label,
+            "resume_version": profile.resume_version,
+            "disclosure": DICE_AI_DISCLOSURE,
+            "acquisition_mode": "direct_url",
+            "submitted_url": submitted_url,
+        }
+        working_set.save(update_fields=["execution_metadata", "updated_at"])
+        working_set = WorkingSet.objects.prefetch_related(
+            "provisional_data_memberships__provisional_data"
+        ).get(id=working_set.id)
+        return Response(
+            {"run": OpportunityWorkingSetSerializer(working_set).data, "disclosure": DICE_AI_DISCLOSURE},
             status=status.HTTP_201_CREATED,
         )
 
@@ -242,7 +299,7 @@ class OpportunityApplicationDraftView(APIView):
         draft = OpportunityApplicationDraft.objects.filter(
             owner_user=request.user,
             opportunity=opportunity,
-        ).select_related("profile").first()
+        ).select_related("profile", "resume_asset").first()
         return Response({"draft": OpportunityApplicationDraftSerializer(draft).data if draft else None})
 
     def post(self, request, data_id):
@@ -252,18 +309,12 @@ class OpportunityApplicationDraftView(APIView):
                 {"detail": "Retrieve the full listing before drafting application material."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        profile = get_object_or_404(OpportunityProfile, owner_user=request.user, is_current=True)
-        try:
-            draft = generate_cover_letter_draft(
-                opportunity=opportunity,
-                profile=profile,
-                owner=request.user,
-            )
-        except (InkwellUnavailableError, ValueError) as exc:
-            return Response(
-                {"detail": f"Cover-letter draft could not be generated: {exc}"},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
+        profile = self._profile_for_opportunity(request, opportunity)
+        draft = create_cover_letter_draft(
+            opportunity=opportunity,
+            profile=profile,
+            owner=request.user,
+        )
         return Response(
             {"draft": OpportunityApplicationDraftSerializer(draft).data},
             status=status.HTTP_201_CREATED,
@@ -289,6 +340,21 @@ class OpportunityApplicationDraftView(APIView):
             owner_user=request.user,
             kind="opportunity_candidate",
         )
+
+    @staticmethod
+    def _profile_for_opportunity(request, opportunity):
+        membership = opportunity.working_set_memberships.select_related("working_set").order_by("-created_at").first()
+        source_profile_id = (
+            (membership.working_set.execution_metadata or {}).get("profile_id") if membership else None
+        )
+        if source_profile_id:
+            profile = OpportunityProfile.objects.filter(
+                id=source_profile_id,
+                owner_user=request.user,
+            ).first()
+            if profile:
+                return profile
+        return get_object_or_404(OpportunityProfile, owner_user=request.user, is_current=True)
 
 
 class OpportunityApplicationDraftPDFView(APIView):
