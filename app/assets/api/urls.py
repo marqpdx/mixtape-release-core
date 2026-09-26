@@ -1,4 +1,4 @@
-# mixtape/assets/api/urls.py
+# assets/api/urls.py
 
 from django.urls import path
 

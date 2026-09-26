@@ -542,6 +542,15 @@ class PublicSiteWritingViewTests(TestCase):
         query = "&".join(f"{key}={value}" for key, value in values.items())
         return f"/api/public/sites/writing?{query}"
 
+    def _detail_url(self, piece: WritingPiece, **params) -> str:
+        values = {
+            "owner": self.owner.username,
+            "groups": self.group.slug,
+            **params,
+        }
+        query = "&".join(f"{key}={value}" for key, value in values.items())
+        return f"/api/public/sites/writing/{piece.id}?{query}"
+
     def _place(self, piece: WritingPiece, *, visibility: str = "public") -> None:
         _create_placement(
             piece=piece,
@@ -660,6 +669,41 @@ class PublicSiteWritingViewTests(TestCase):
 
         self.assertEqual(missing_owner.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(missing_group.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_detail_returns_owner_and_group_sponsored_pieces(self):
+        owner_piece = _create_piece(author=self.owner, title="Owner Detail")
+        self._place(owner_piece)
+        group_piece = _create_piece(
+            author=self.group_author,
+            title="Group Detail",
+            sponsor=self.group,
+        )
+        self._place(group_piece)
+
+        owner_response = self.client.get(self._detail_url(owner_piece))
+        group_response = self.client.get(self._detail_url(group_piece))
+
+        self.assertEqual(owner_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(owner_response.data["id"], str(owner_piece.id))
+        self.assertIsNone(owner_response.data["sponsor_group"])
+        self.assertEqual(group_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(group_response.data["sponsor_group"]["slug"], self.group.slug)
+
+    def test_detail_rejects_piece_outside_sources_or_public_placements(self):
+        excluded_piece = _create_piece(
+            author=self.group_author,
+            title="Excluded Detail",
+            sponsor=self.other_group,
+        )
+        self._place(excluded_piece)
+        unlisted_piece = _create_piece(author=self.owner, title="Unlisted Detail")
+        self._place(unlisted_piece, visibility="unlisted")
+
+        excluded_response = self.client.get(self._detail_url(excluded_piece))
+        unlisted_response = self.client.get(self._detail_url(unlisted_piece))
+
+        self.assertEqual(excluded_response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(unlisted_response.status_code, status.HTTP_404_NOT_FOUND)
 
 
 class PublicWritingPieceViewTests(TestCase):
