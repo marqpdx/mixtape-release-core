@@ -25,8 +25,8 @@ from ..models import (
     WritingAnalysisSession,
     WritingFidelityReport,
     WritingSuggestedRevision,
-    WritingRun,
-    WritingRunMembership,
+    Issue,
+    IssuePlacement,
 )
 from commons.models import Leaf
 
@@ -785,10 +785,10 @@ class WritingSynopsisSerializer(serializers.ModelSerializer):
 
 
 # ============================================================================
-# Writing Run Serializers (ADR-0054)
+# Issue Serializers (ADR-0054, renamed from Run per Phase 3 amendment)
 # ============================================================================
 
-class RunMemberSerializer(serializers.ModelSerializer):
+class IssuePlacementSerializer(serializers.ModelSerializer):
     piece_id = serializers.UUIDField(source="piece.id", read_only=True)
     piece_title = serializers.CharField(source="piece.title", read_only=True)
     piece_status = serializers.CharField(source="piece.status", read_only=True)
@@ -797,9 +797,9 @@ class RunMemberSerializer(serializers.ModelSerializer):
     word_count = serializers.SerializerMethodField()
 
     class Meta:
-        model = WritingRunMembership
+        model = IssuePlacement
         fields = [
-            "id", "order_index", "added_at",
+            "id", "order_index", "added_at", "is_lead",
             "piece_id", "piece_title", "piece_status",
             "spellcheck_clean", "signed_off", "word_count",
         ]
@@ -814,36 +814,82 @@ class RunMemberSerializer(serializers.ModelSerializer):
             return 0
 
 
-class WritingRunSerializer(serializers.ModelSerializer):
-    memberships = RunMemberSerializer(many=True, read_only=True)
+class IssueSerializer(serializers.ModelSerializer):
+    placements = IssuePlacementSerializer(many=True, read_only=True)
     member_count = serializers.SerializerMethodField()
     is_publishable = serializers.SerializerMethodField()
 
     class Meta:
-        model = WritingRun
+        model = Issue
         fields = [
-            "id", "title", "slug", "status", "published_at",
+            "id", "title", "slug", "designation", "description", "status", "published_at",
             "created_at", "updated_at",
-            "memberships", "member_count", "is_publishable",
+            "placements", "member_count", "is_publishable",
         ]
         read_only_fields = ["id", "slug", "status", "published_at", "created_at", "updated_at"]
 
     def get_member_count(self, obj):
-        return obj.memberships.count()
+        return obj.placements.count()
 
     def get_is_publishable(self, obj):
         return obj.is_publishable
 
 
-class WritingRunListSerializer(serializers.ModelSerializer):
+class IssueListSerializer(serializers.ModelSerializer):
     member_count = serializers.SerializerMethodField()
     is_publishable = serializers.SerializerMethodField()
 
     class Meta:
-        model = WritingRun
+        model = Issue
         fields = [
-            "id", "title", "slug", "status", "published_at",
+            "id", "title", "slug", "designation", "status", "published_at",
             "created_at", "updated_at", "member_count", "is_publishable",
+        ]
+        read_only_fields = fields
+
+
+# ============================================================================
+# Issue Continuous Read Serializers (Phase 3 amendment P3-4)
+# ============================================================================
+
+class IssueReadPlacementSerializer(serializers.ModelSerializer):
+    """Full-body placement view for the Continuous Read surface — editor sees
+    drafts, reader sees published only (filtered by the view, not here)."""
+    id = serializers.UUIDField(source="piece.id", read_only=True)
+    title = serializers.CharField(source="piece.title", read_only=True)
+    slug = serializers.CharField(source="piece.slug", read_only=True)
+    status = serializers.CharField(source="piece.status", read_only=True)
+    body_json = serializers.JSONField(source="piece.body_json", read_only=True)
+    excerpt = serializers.CharField(source="piece.excerpt", read_only=True)
+    author = AuthorSerializer(source="piece.author", read_only=True)
+    word_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = IssuePlacement
+        fields = [
+            "id", "order_index", "is_lead",
+            "title", "slug", "status", "body_json", "excerpt", "author", "word_count",
+        ]
+
+    def get_word_count(self, obj):
+        from utils.writing.writing_utils import count_words_in_prosemirror
+        try:
+            wc = obj.piece.working_copies.order_by("-last_saved_at").first()
+            body = wc.body_json if wc else obj.piece.body_json
+            return count_words_in_prosemirror(body) if body else 0
+        except Exception:
+            return 0
+
+
+class IssueReadSerializer(serializers.ModelSerializer):
+    """Issue metadata + full-body ordered placements for the Continuous Read view."""
+    placements = IssueReadPlacementSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Issue
+        fields = [
+            "id", "title", "slug", "designation", "description", "status", "published_at",
+            "placements",
         ]
         read_only_fields = fields
 

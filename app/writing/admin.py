@@ -1,13 +1,13 @@
 from django.contrib import admin
 
 from writing.models import (
+    Issue,
+    IssuePlacement,
     LeafComment,
     Seed,
     SeedDispatch,
     WorkingDocument,
     WritingPiece,
-    WritingRun,
-    WritingRunMembership,
     WritingSeries,
     WritingSynopsis,
 )
@@ -63,24 +63,24 @@ class LeafCommentAdmin(admin.ModelAdmin):
     list_filter = ["is_approved", "is_flagged"]
 
 
-class WritingRunMembershipInline(admin.TabularInline):
-    model = WritingRunMembership
-    fields = ["piece", "order_index", "added_at"]
+class IssuePlacementInline(admin.TabularInline):
+    model = IssuePlacement
+    fields = ["piece", "order_index", "is_lead", "added_at"]
     readonly_fields = ["added_at"]
     extra = 0
     ordering = ["order_index"]
 
 
-@admin.register(WritingRun)
-class WritingRunAdmin(admin.ModelAdmin):
-    list_display = ["id", "title", "status", "published_at", "created_at"]
+@admin.register(Issue)
+class IssueAdmin(admin.ModelAdmin):
+    list_display = ["id", "title", "designation", "status", "published_at", "created_at"]
     list_filter = ["status"]
-    search_fields = ["title", "slug"]
+    search_fields = ["title", "slug", "designation"]
     readonly_fields = ["id", "created_at", "updated_at", "published_at"]
-    inlines = [WritingRunMembershipInline]
+    inlines = [IssuePlacementInline]
 
 
-@admin.register(WritingRunMembership)
-class WritingRunMembershipAdmin(admin.ModelAdmin):
-    list_display = ["id", "run", "piece", "order_index", "added_at"]
-    raw_id_fields = ["run", "piece"]
+@admin.register(IssuePlacement)
+class IssuePlacementAdmin(admin.ModelAdmin):
+    list_display = ["id", "issue", "piece", "order_index", "is_lead", "added_at"]
+    raw_id_fields = ["issue", "piece"]
