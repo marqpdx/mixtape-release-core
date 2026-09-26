@@ -560,6 +560,102 @@ class PublicSiteWritingView(APIView):
         })
 
 
+class PublicSiteWritingPieceView(APIView):
+    """Return one public piece within a configured personal-site source set."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, piece_id):
+        owner_username = (request.query_params.get("owner") or "").strip()
+        if not owner_username:
+            return Response(
+                {"detail": "The owner query parameter is required."},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        group_slugs = []
+        for value in request.query_params.getlist("group"):
+            group_slugs.extend(value.split(","))
+        group_slugs.extend((request.query_params.get("groups") or "").split(","))
+        group_slugs = list(
+            dict.fromkeys(slug.strip() for slug in group_slugs if slug.strip())
+        )
+
+        User = get_user_model()
+        owner = get_object_or_404(User, username=owner_username, is_active=True)
+        groups = list(
+            Group.objects.filter(
+                slug__in=group_slugs,
+                visibility="public",
+                is_active=True,
+            )
+        )
+        if len(groups) != len(group_slugs):
+            return Response(
+                {"detail": "One or more public groups were not found."},
+                status=drf_status.HTTP_404_NOT_FOUND,
+            )
+
+        group_ct = ContentType.objects.get_for_model(Group)
+        piece = get_object_or_404(
+            WritingPiece.objects.filter(id=piece_id, status="published")
+            .filter(
+                Q(author=owner)
+                | Q(
+                    sponsor_content_type=group_ct,
+                    sponsor_object_id__in=[group.id for group in groups],
+                )
+            )
+            .select_related("author", "author__profile", "sponsor_content_type"),
+        )
+        placements, _ = browse_placements([piece.id])
+        placement = placements.get(str(piece.id))
+        if not placement:
+            return Response(
+                {"detail": "Not found."},
+                status=drf_status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            payload = get_display_payload(placement)
+        except Exception:
+            return Response(
+                {"detail": "Not found."},
+                status=drf_status.HTTP_404_NOT_FOUND,
+            )
+        metadata = payload.get("metadata") or {}
+        profile = getattr(piece.author, "profile", None) if piece.author else None
+        sponsor_group = None
+        if piece.sponsor_content_type_id == group_ct.id:
+            group = next(
+                (group for group in groups if group.id == piece.sponsor_object_id),
+                None,
+            )
+            if group:
+                sponsor_group = {"slug": group.slug, "title": group.title}
+
+        return Response({
+            "id": str(piece.id),
+            "slug": piece.slug,
+            "title": metadata.get("title") or piece.title,
+            "excerpt": metadata.get("excerpt") or piece.excerpt,
+            "body_json": metadata.get("body_json") or piece.body_json,
+            "writing_kind": piece.writing_kind,
+            "published_at": piece.published_at,
+            "author": {
+                "username": piece.author.username if piece.author else "",
+                "display_name": (
+                    profile.display_name
+                    if profile and profile.display_name
+                    else (piece.author.username if piece.author else piece.author_name)
+                ),
+                "avatar_url": profile.avatar_url if profile else "",
+            },
+            "placement_visibility": placement.visibility,
+            "sponsor_group": sponsor_group,
+        })
+
+
 class PublicGroupCoursesView(APIView):
     """
     GET /api/public/groups/{slug}/courses
@@ -647,30 +743,31 @@ class PublicCourseDetailView(APIView):
         })
 
 
-class PublicWritingRunView(APIView):
+class PublicIssueView(APIView):
     """
-    GET /api/public/writing/runs/{slug}
+    GET /api/public/writing/issues/{slug}
 
-    Public reader view for a published WritingRun.
-    Returns Run metadata and ordered member Doc list for the sequential reader.
-    ADR-0054 P1-10.
+    Public reader view for a published Issue.
+    Returns Issue metadata and ordered member Doc list for the sequential reader.
+    ADR-0054 P1-10, renamed from WritingRun per Phase 3 amendment.
     """
     permission_classes = [AllowAny]
 
     def get(self, request, slug):
-        from writing.models import WritingRun
-        run = get_object_or_404(WritingRun, slug=slug, status="published")
+        from writing.models import Issue
+        issue = get_object_or_404(Issue, slug=slug, status="published")
 
-        memberships = run.memberships.select_related("piece__author").order_by("order_index")
+        placements = issue.placements.select_related("piece__author").order_by("order_index")
 
         pieces = []
-        for m in memberships:
-            piece = m.piece
+        for p in placements:
+            piece = p.piece
             if piece.status != "published":
                 continue
             author_profile = getattr(piece.author, "profile", None)
             pieces.append({
-                "order_index": m.order_index,
+                "order_index": p.order_index,
+                "is_lead": p.is_lead,
                 "piece_id": str(piece.id),
                 "piece_slug": piece.slug,
                 "piece_title": piece.title,
@@ -683,11 +780,13 @@ class PublicWritingRunView(APIView):
             })
 
         return Response({
-            "id": str(run.id),
-            "slug": run.slug,
-            "title": run.title,
-            "status": run.status,
-            "published_at": run.published_at,
+            "id": str(issue.id),
+            "slug": issue.slug,
+            "title": issue.title,
+            "designation": issue.designation,
+            "description": issue.description,
+            "status": issue.status,
+            "published_at": issue.published_at,
             "piece_count": len(pieces),
             "pieces": pieces,
         })

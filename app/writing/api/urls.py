@@ -25,13 +25,14 @@ from .placement_views import (
     PlacementCommentListCreateView,
     PlacementReactionView,
 )
-from .run_views import (
-    WritingRunListCreateView,
-    WritingRunDetailView,
-    WritingRunPublishView,
-    WritingRunMembersView,
-    WritingRunMemberDetailView,
-    WritingRunMembersReorderView,
+from .issue_views import (
+    IssueListCreateView,
+    IssueDetailView,
+    IssuePublishView,
+    IssuePlacementsView,
+    IssuePlacementDetailView,
+    IssuePlacementsReorderView,
+    IssueReadView,
     WritingPieceSignOffView,
 )
 from .streams_views import StreamsView
@@ -186,13 +187,14 @@ urlpatterns = [
     # Streams (chronological feed from followed users)
     path("streams", StreamsView.as_view(), name="streams"),
 
-    # Writing Assembly — Runs (ADR-0054)
-    path("runs", WritingRunListCreateView.as_view(), name="run-list-create"),
-    path("runs/<uuid:run_id>", WritingRunDetailView.as_view(), name="run-detail"),
-    path("runs/<uuid:run_id>/publish", WritingRunPublishView.as_view(), name="run-publish"),
-    path("runs/<uuid:run_id>/members", WritingRunMembersView.as_view(), name="run-members"),
-    path("runs/<uuid:run_id>/members/<uuid:piece_id>", WritingRunMemberDetailView.as_view(), name="run-member-detail"),
-    path("runs/<uuid:run_id>/members/reorder", WritingRunMembersReorderView.as_view(), name="run-members-reorder"),
+    # Writing Assembly — Issues (ADR-0054 + Phase 3 amendment)
+    path("issues", IssueListCreateView.as_view(), name="issue-list-create"),
+    path("issues/<uuid:issue_id>", IssueDetailView.as_view(), name="issue-detail"),
+    path("issues/<uuid:issue_id>/publish", IssuePublishView.as_view(), name="issue-publish"),
+    path("issues/<uuid:issue_id>/placements", IssuePlacementsView.as_view(), name="issue-placements"),
+    path("issues/<uuid:issue_id>/placements/<uuid:piece_id>", IssuePlacementDetailView.as_view(), name="issue-placement-detail"),
+    path("issues/<uuid:issue_id>/placements/reorder", IssuePlacementsReorderView.as_view(), name="issue-placements-reorder"),
+    path("issues/<uuid:issue_id>/read", IssueReadView.as_view(), name="issue-read"),
 
     # Sign-off toggle (ADR-0054 D10)
     path("pieces/<uuid:pk>/sign-off", WritingPieceSignOffView.as_view(), name="writingpiece-sign-off"),

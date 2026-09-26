@@ -2,7 +2,7 @@
 
 from django.urls import path
 from . import views, views_commons
-from .views import PublicWritingRunView, CatalystIntakeView, PublicGroupLandingConfigView
+from .views import PublicIssueView, CatalystIntakeView, PublicGroupLandingConfigView
 
 urlpatterns = [
     path(
@@ -56,14 +56,19 @@ urlpatterns = [
         name="public-site-writing",
     ),
     path(
+        "sites/writing/<uuid:piece_id>",
+        views.PublicSiteWritingPieceView.as_view(),
+        name="public-site-writing-piece",
+    ),
+    path(
         "groups/<slug:group_slug>/writing/<slug:slug>",
         views.PublicWritingPieceView.as_view(),
         name="public-group-writing-piece",
     ),
     path(
-        "writing/runs/<slug:slug>",
-        PublicWritingRunView.as_view(),
-        name="public-writing-run",
+        "writing/issues/<slug:slug>",
+        PublicIssueView.as_view(),
+        name="public-writing-issue",
     ),
     # Group Public Landing config (Group Public Landing ADR — GP-2)
     path(

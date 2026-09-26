@@ -1290,18 +1290,31 @@ class WritingSynopsis(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Writing Assembly (ADR-0054)
+# Writing Assembly (ADR-0054; renamed WritingRun -> Issue per Phase 3 amendment,
+# adr-0054-issue-amendment.md)
 # ---------------------------------------------------------------------------
 
-class WritingRun(BaseModel):
+class Issue(BaseModel):
     """
     An ordered, mutable grouping of WritingPieces that publish together and
     are read together as one structural unit. Operational in nature — pieces
-    may be assembled differently into another Run.
+    may be assembled differently into another Issue.
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=255)
     slug = models.SlugField(max_length=255, blank=True)
+
+    designation = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text='Short structural label, e.g. "Issue #1" or "Autumn 2026". Coexists with title.',
+    )
+    description = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="TipTap/ProseMirror content — the Issue-native welcome/intro. Does not create a WritingPiece.",
+    )
 
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
@@ -1328,24 +1341,24 @@ class WritingRun(BaseModel):
     published_at = models.DateTimeField(null=True, blank=True)
 
     class Meta(BaseModel.Meta):
-        verbose_name = "Writing Run"
-        verbose_name_plural = "Writing Runs"
+        verbose_name = "Issue"
+        verbose_name_plural = "Issues"
         indexes = [
             models.Index(fields=["sponsor_content_type", "sponsor_object_id", "status"]),
             models.Index(fields=["status", "published_at"]),
         ]
 
     def __str__(self):
-        return f"[{self.status.upper()}] Run: {self.title}"
+        return f"[{self.status.upper()}] Issue: {self.title}"
 
     @property
     def is_publishable(self):
         if self.status == "published":
             return False
-        memberships = self.memberships.select_related("piece")
-        if not memberships.exists():
+        placements = self.placements.select_related("piece")
+        if not placements.exists():
             return False
-        return all(m.piece.spellcheck_clean and m.piece.signed_off for m in memberships)
+        return all(p.piece.spellcheck_clean and p.piece.signed_off for p in placements)
 
     def save(self, *args, **kwargs):
         if not self.slug and self.title:
@@ -1355,32 +1368,36 @@ class WritingRun(BaseModel):
         super().save(*args, **kwargs)
 
 
-class WritingRunMembership(BaseModel):
+class IssuePlacement(BaseModel):
     """
-    Through-model linking a WritingPiece to a WritingRun with explicit ordering.
+    Through-model linking a WritingPiece to an Issue with explicit ordering.
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    run = models.ForeignKey(
-        WritingRun,
+    issue = models.ForeignKey(
+        Issue,
         on_delete=models.CASCADE,
-        related_name="memberships",
+        related_name="placements",
     )
     piece = models.ForeignKey(
         WritingPiece,
         on_delete=models.CASCADE,
-        related_name="run_memberships",
+        related_name="issue_placements",
     )
     order_index = models.PositiveIntegerField(default=0)
     added_at = models.DateTimeField(auto_now_add=True)
+    is_lead = models.BooleanField(
+        default=False,
+        help_text="Pure metadata for this slice — no functional gating. At most one True per Issue, enforced at the API layer.",
+    )
 
     class Meta(BaseModel.Meta):
-        verbose_name = "Writing Run Membership"
-        verbose_name_plural = "Writing Run Memberships"
-        unique_together = [["run", "piece"]]
+        verbose_name = "Issue Placement"
+        verbose_name_plural = "Issue Placements"
+        unique_together = [["issue", "piece"]]
         ordering = ["order_index"]
         indexes = [
-            models.Index(fields=["run", "order_index"]),
+            models.Index(fields=["issue", "order_index"]),
         ]
 
     def __str__(self):
-        return f"Run<{self.run_id}> ← Piece<{self.piece_id}> @ {self.order_index}"
+        return f"Issue<{self.issue_id}> ← Piece<{self.piece_id}> @ {self.order_index}"
