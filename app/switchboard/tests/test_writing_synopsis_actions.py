@@ -1,10 +1,13 @@
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
+from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from groups.models.group import Group
 from initiatives.models import ActionRun
 from writing.models import WritingPiece, WritingSynopsis
 
@@ -67,6 +70,37 @@ class WritingSynopsisActionTests(TestCase):
         task_kwargs = send_task.call_args.kwargs["kwargs"]
         self.assertGreater(len(task_kwargs["summarize_payload"]["text"]), 400)
         self.assertEqual(task_kwargs["summarize_payload"]["words"], 70)
+
+    @patch("switchboard.api.views.celery_app.send_task")
+    def test_linkedin_synopsis_uses_group_sponsor_as_tenant(self, send_task):
+        permission = Permission.objects.get(codename="approve_cloud_dispatch")
+        self.author.user_permissions.add(permission)
+        group = Group.objects.create(
+            title="Mindful Brilliance",
+            slug="mindful-brilliance",
+            description="A careful practice.",
+            group_type="community",
+            decorators=[],
+            additional_permissions=[],
+            sponsor_content_type=ContentType.objects.get_for_model(User),
+            sponsor_object_id=self.author.id,
+        )
+        self.piece.set_sponsor(group)
+        self.piece.save(update_fields=["sponsor_content_type", "sponsor_object_id", "updated_at"])
+
+        response = self.client.post(
+            "/api/switchboard/agent/synopsis/linkedin",
+            {"piece_id": str(self.piece.id), "surface": "writing"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        action_run = ActionRun.objects.get(pk=response.json()["action_run_id"])
+        self.assertEqual(action_run.tenant_id, group.id)
+        self.assertEqual(action_run.tenant_namespace, "group:mindful-brilliance")
+        task_kwargs = send_task.call_args.kwargs["kwargs"]
+        self.assertEqual(task_kwargs["tenant_id"], str(group.id))
+        self.assertEqual(task_kwargs["tenant_namespace"], "group:mindful-brilliance")
 
     def test_editing_summary_revokes_prior_confirmation(self):
         synopsis, _ = WritingSynopsis.objects.get_or_create(piece=self.piece)

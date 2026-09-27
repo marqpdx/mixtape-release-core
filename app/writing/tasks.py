@@ -298,3 +298,132 @@ def enqueue_writing_piece_synopsis_task(piece_id: str):
     )
 
     logger.info("[synopsis_ai] Enqueued summarize action_run=%s for piece=%s", action_run.id, piece_id)
+
+
+@shared_task(
+    name="writing.tasks.generate_linkedin_copy_with_claude_code",
+    soft_time_limit=360,
+    time_limit=390,
+)
+def generate_linkedin_copy_with_claude_code(
+    *,
+    action_run_id: str,
+    tenant_id: str,
+    tenant_namespace: str,
+    principal_user_id: str | None,
+    principal_service_token_id: str | None,
+    request_payload: dict,
+    synopsis_payload: dict,
+):
+    """Complete a governed LinkedIn ActionRun through tenant-scoped Claude Code."""
+    from django.contrib.contenttypes.models import ContentType
+
+    from groups.models.group import Group
+    from initiatives.models import ActionRun, ActionRunStatus
+    from tenant_runtime.models import TenantClaudeRuntime
+    from writing.linkedin_copy_service import generate_linkedin_copy
+
+    try:
+        action_run = ActionRun.objects.get(pk=action_run_id)
+    except ActionRun.DoesNotExist:
+        logger.error("[linkedin-copy] ActionRun %s not found", action_run_id)
+        return {"status": "missing", "action_run_id": action_run_id}
+
+    if action_run.status in {ActionRunStatus.SUCCEEDED, ActionRunStatus.FAILED}:
+        logger.info(
+            "[linkedin-copy] ActionRun %s already terminal (%s); skipping",
+            action_run_id,
+            action_run.status,
+        )
+        return {"status": "skipped", "action_run_id": action_run_id}
+
+    try:
+        if action_run.tool_name != "writing.synopsis_linkedin":
+            raise ValueError("ActionRun tool does not match LinkedIn generation.")
+        if str(action_run.tenant_id) != str(tenant_id):
+            raise ValueError("ActionRun tenant does not match dispatched tenant.")
+        if not action_run.cloud_approved:
+            raise ValueError("LinkedIn cloud generation was not approved.")
+        if principal_user_id and action_run.initiator_id != str(principal_user_id):
+            raise ValueError("ActionRun initiator does not match dispatched principal.")
+
+        run_as_user = None
+        cwd = str(settings.BASE_DIR)
+        runtime = None
+        group = Group.objects.filter(pk=tenant_id, is_active=True).first()
+        if group:
+            group_ct = ContentType.objects.get_for_model(group)
+            runtime = TenantClaudeRuntime.objects.filter(
+                tenant_content_type=group_ct,
+                tenant_object_id=group.id,
+            ).first()
+
+        if runtime:
+            if runtime.status != TenantClaudeRuntime.STATUS_READY:
+                raise RuntimeError(f"Tenant Claude runtime is not ready ({runtime.status}).")
+            allowed_modes = set(runtime.allowed_ai_modes or [])
+            accepted_modes = {"linkedin_copy", "synopsis_linkedin", "writing.synopsis_linkedin"}
+            if allowed_modes and not allowed_modes.intersection(accepted_modes):
+                raise RuntimeError("Tenant Claude runtime does not permit LinkedIn copy generation.")
+            run_as_user = runtime.linux_user
+            cwd = runtime.home_dir
+        else:
+            logger.warning(
+                "[linkedin-copy] no TenantClaudeRuntime for tenant=%s; using server Claude login",
+                tenant_id,
+            )
+
+        result = generate_linkedin_copy(
+            action_run_id=action_run_id,
+            title=str(synopsis_payload.get("title") or ""),
+            excerpt=str(synopsis_payload.get("excerpt") or ""),
+            body_preview=str(synopsis_payload.get("body_preview") or ""),
+            cwd=cwd,
+            run_as_user=run_as_user,
+        )
+        result.update(
+            {
+                "status": "ok",
+                "tool": "switchboard.synopsis_linkedin",
+                "tenant_id": str(tenant_id),
+                "tenant_namespace": tenant_namespace,
+                "principal_user_id": principal_user_id,
+                "request_payload": request_payload,
+            }
+        )
+
+        action_run.status = ActionRunStatus.SUCCEEDED
+        action_run.result_payload = result
+        action_run.error_payload = None
+        action_run.completed_at = timezone.now()
+        action_run.save(
+            update_fields=[
+                "status",
+                "result_payload",
+                "error_payload",
+                "completed_at",
+                "updated_at",
+            ]
+        )
+        logger.info("[linkedin-copy] ActionRun %s completed through Claude Code", action_run_id)
+        return {"status": "ok", "action_run_id": action_run_id}
+    except Exception as exc:
+        logger.exception("[linkedin-copy] ActionRun %s failed", action_run_id)
+        action_run.status = ActionRunStatus.FAILED
+        action_run.result_payload = None
+        action_run.error_payload = {
+            "error": exc.__class__.__name__,
+            "message": str(exc),
+            "backend": "anthropic-claude-code",
+        }
+        action_run.completed_at = timezone.now()
+        action_run.save(
+            update_fields=[
+                "status",
+                "result_payload",
+                "error_payload",
+                "completed_at",
+                "updated_at",
+            ]
+        )
+        raise
