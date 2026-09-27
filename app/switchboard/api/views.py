@@ -1084,8 +1084,15 @@ def agent_synopsis_linkedin_proxy(request):
     export_source = get_export_source_for_user(piece, request.user)
     body_preview = _extract_plain_text(export_source["body_json"] or {}, char_limit=6000)
 
-    tenant_id = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_ID", _DEFAULT_TENANT_ID))
-    tenant_namespace = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", _DEFAULT_TENANT_NAMESPACE))
+    sponsor_group = piece.group
+    if sponsor_group:
+        tenant_id = str(sponsor_group.id)
+        tenant_namespace = f"group:{sponsor_group.slug}"
+    else:
+        tenant_id = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_ID", _DEFAULT_TENANT_ID))
+        tenant_namespace = str(
+            getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", _DEFAULT_TENANT_NAMESPACE)
+        )
 
     synopsis_payload = {
         "title": title,

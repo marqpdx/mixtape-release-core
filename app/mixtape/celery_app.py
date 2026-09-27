@@ -329,6 +329,9 @@ app.conf.task_routes = {
     "catalyst.tasks.materialize_register_entities": {
         "queue": "catalyst", "routing_key": "catalyst"
     },
+    "writing.tasks.generate_linkedin_copy_with_claude_code": {
+        "queue": "catalyst", "routing_key": "catalyst"
+    },
     "atrium.tasks.keeper_compact_task": {
         "queue": "catalyst", "routing_key": "catalyst"
     },
