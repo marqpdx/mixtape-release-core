@@ -11,8 +11,12 @@ class PublicMediaStorage(S3Boto3Storage):
     signs every URL), this issues stable, unsigned URLs so next/image can
     fully optimize them and pages can cache them without a TTL race.
 
-    Requires a bucket/MinIO policy granting anonymous GetObject on the
-    `public/` location — see
+    Requires a scoped "anonymous" identity in SeaweedFS's s3.json granting
+    Read:mixtape-assets/public/* (SeaweedFS implements neither
+    PutBucketPolicy nor object/bucket ACLs, despite the look-alike
+    `127.0.0.1:9000` convention suggesting MinIO). Already applied in dev
+    and on Cassiopeia-A as of 2026-09-28 — see
+    reference/patterns/image-handling-cheatsheet.md and
     features/image-handling/image-handling-build-plan.md (puddlejump).
 
     Do not use this for anything access-controlled. See
