@@ -140,13 +140,20 @@ def submit_finding(
     finding_type: str,
     suggested_clio_signal: str,
     finding_body: dict | None = None,
+    sponsor_content_type_id: int | None = None,
+    sponsor_object_id=None,
 ) -> KeeperFinding:
     """
-    AD-12 proactive finding submission — store-and-defer scope (K-3).
+    AD-12 proactive finding submission. As of CLIO-1b (2026-09-28), findings
+    with a resolvable sponsor now surface through ClioState's signal-salience
+    model (see studio/views.py's _build_clio_prompt and
+    get_keeper_signal_for_profile below). sponsor_content_type_id/
+    sponsor_object_id are optional — a Keeper that cannot resolve an owner
+    (or a caller not yet updated) submits with sponsor=None, which stores
+    and defers exactly as before K-3 always did.
+
     Raises ValueError if keeper_id has no active registration; unregistered
-    Keepers cannot submit findings. Does not surface the finding anywhere —
-    see KeeperFinding's docstring for why (ClioState integration is a
-    separate, deliberately deferred follow-up).
+    Keepers cannot submit findings.
     """
     is_registered = KeeperRegistration.objects.filter(
         keeper_id=keeper_id, status=KeeperRegistrationStatus.ACTIVE
@@ -159,4 +166,55 @@ def submit_finding(
         finding_type=finding_type,
         finding_body=finding_body or {},
         suggested_clio_signal=suggested_clio_signal,
+        sponsor_content_type_id=sponsor_content_type_id,
+        sponsor_object_id=sponsor_object_id,
     )
+
+
+def get_keeper_signal_for_profile(profile, *, signals: list[str], after=None) -> KeeperFinding | None:
+    """
+    CLIO-1b: the oldest unsurfaced KeeperFinding sponsored by `profile`
+    personally, by any Group they're an active member of, or by the
+    platform default group (settings.MIXTAPE_DEFAULT_GROUP_SLUG — a
+    genuinely site-wide finding), matching one of `signals`
+    (suggested_clio_signal values).
+
+    `after` mirrors ClioState.last_surfaced_at: only findings submitted
+    after this cutoff are eligible — the same convention Signal 1
+    (ApertureLog) already uses in studio/views.py. There is no separate
+    "surfaced" flag on KeeperFinding by design (see its docstring).
+    """
+    from django.conf import settings
+    from django.contrib.auth import get_user_model
+    from django.contrib.contenttypes.models import ContentType
+    from django.db.models import Q
+
+    from groups.models import Group, GroupMembership
+
+    User = get_user_model()
+    profile_ct = ContentType.objects.get_for_model(type(profile))
+    group_ct = ContentType.objects.get_for_model(Group)
+    user_ct = ContentType.objects.get_for_model(User)
+
+    group_ids = list(
+        GroupMembership.objects.filter(
+            member_content_type=user_ct,
+            member_object_id=profile.user_id,
+            is_active=True,
+        ).values_list("group_id", flat=True)
+    )
+
+    default_slug = getattr(settings, "MIXTAPE_DEFAULT_GROUP_SLUG", "crossroads")
+    default_group_id = Group.objects.filter(slug=default_slug).values_list("pk", flat=True).first()
+    if default_group_id and default_group_id not in group_ids:
+        group_ids.append(default_group_id)
+
+    qs = KeeperFinding.objects.filter(
+        Q(sponsor_content_type=profile_ct, sponsor_object_id=profile.pk)
+        | Q(sponsor_content_type=group_ct, sponsor_object_id__in=group_ids)
+    ).filter(suggested_clio_signal__in=signals)
+
+    if after:
+        qs = qs.filter(submitted_at__gt=after)
+
+    return qs.order_by("submitted_at").first()

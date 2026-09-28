@@ -56,7 +56,12 @@ def ensure_and_check_raw_scrap_pile(content_type_id: int, owner_object_id) -> No
             nag_message=RAW_SCRAP_NAG_MESSAGE,  # kept as a template; {count} filled in at surface time
         )
         count = _raw_scrap_count(content_type_id, owner_object_id)
-        check_and_submit_nag(keeper_id=keeper_id, current_count=count)
+        check_and_submit_nag(
+            keeper_id=keeper_id,
+            current_count=count,
+            sponsor_content_type_id=content_type_id,
+            sponsor_object_id=owner_object_id,
+        )
     except Exception as exc:
         logger.warning("[count-nag-keeper] raw scrap pile check failed for %s: %s", keeper_id, exc)
 

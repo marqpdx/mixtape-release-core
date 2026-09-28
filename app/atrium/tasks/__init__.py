@@ -80,17 +80,26 @@ def keeper_compact_task(self, session_id: str) -> None:
         log.save(update_fields=["compact_summary", "compact_at"])
         logger.info("[keeper] compact summary updated for session %s (%d chars)", session_id, len(summary))
 
-        # K-4: submit a proactive finding to Clio's registry (store-and-defer,
-        # see keeper-adr-status.md — not surfaced anywhere yet, but this gives
-        # K-3's storage its first real production caller).
+        # K-4: submit a proactive finding to Clio's registry. As of CLIO-1b
+        # (2026-09-28), sponsored by the session's member, so it can surface
+        # through that member's ClioState feed (notice tier).
         try:
+            from django.contrib.contenttypes.models import ContentType
+
             from clio import services as clio_services
 
+            profile_ct_id = ContentType.objects.get_for_model(type(session.member)).id
             clio_services.submit_finding(
                 keeper_id=f"continuous-keeper.{session_id}",
                 finding_type="compact_summary_updated",
-                finding_body={"session_id": session_id, "summary_chars": len(summary)},
+                finding_body={
+                    "session_id": session_id,
+                    "summary_chars": len(summary),
+                    "message": "Your Atrium session summary was updated.",
+                },
                 suggested_clio_signal="notice",
+                sponsor_content_type_id=profile_ct_id,
+                sponsor_object_id=session.member_id,
             )
         except Exception as exc:
             logger.warning("[keeper] Clio finding submission failed for session %s: %s", session_id, exc)
