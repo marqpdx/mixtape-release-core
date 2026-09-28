@@ -10,7 +10,7 @@ from profiles.models import (
     KNOWN_SECTION_IDS, DEFAULT_SECTION_LAYOUT,
     ThemeChoices,
 )
-from utils.storage.storage_utils import key_to_url
+from utils.storage.storage_utils import key_to_url, public_key_to_url
 
 User = get_user_model()
 
@@ -157,13 +157,15 @@ class PublicProfileSerializer(serializers.ModelSerializer):
         return [s.strip() for s in obj.work_areas.split(',') if s.strip()]
 
     def get_avatarUrl(self, obj):
+        # profile_image is genuinely public (visible to anyone who can see
+        # the profile) -- see reference/patterns/image-handling-cheatsheet.md
         if obj.profile_image:
-            return key_to_url(obj.profile_image)
+            return public_key_to_url(obj.profile_image)
         return obj.avatar_url or None
 
     def get_backgroundImageUrl(self, obj):
         if obj.background_image:
-            return key_to_url(obj.background_image)
+            return public_key_to_url(obj.background_image)
         return None
 
     def get_introVoiceUrl(self, obj):

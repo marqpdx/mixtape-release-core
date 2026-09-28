@@ -47,24 +47,28 @@ class Group(LayoutParent, BaseContent):
     @property
     def profile_image_url(self) -> str | None:
         """
-        Generate presigned URL for profile image on-demand.
+        Generate a stable, unsigned URL for the group's profile image.
+        Genuinely public content -- anyone who can see the group page can
+        already see this image. See
+        reference/patterns/image-handling-cheatsheet.md (puddlejump).
         Returns None if no image path is set.
         """
         if not self.profile_image_path:
             return None
-        from django.core.files.storage import default_storage
-        return default_storage.url(self.profile_image_path)
+        from utils.storage.storage_utils import public_key_to_url
+        return public_key_to_url(self.profile_image_path)
 
     @property
     def background_image_url(self) -> str | None:
         """
-        Generate presigned URL for background image on-demand.
+        Generate a stable, unsigned URL for the group's background image.
+        See profile_image_url above.
         Returns None if no image path is set.
         """
         if not self.background_image_path:
             return None
-        from django.core.files.storage import default_storage
-        return default_storage.url(self.background_image_path)
+        from utils.storage.storage_utils import public_key_to_url
+        return public_key_to_url(self.background_image_path)
 
     # ============================================================================
     # PHASE 3: Identity Integration (Deferred)
