@@ -1,3 +1,30 @@
+# mixtape/storage_backends.py
+
+from storages.backends.s3boto3 import S3Boto3Storage
+
+
+class PublicMediaStorage(S3Boto3Storage):
+    """
+    Storage for content that is genuinely public — visible to anyone who
+    can already see the page it's attached to (profile avatars/backgrounds,
+    group banners, sponsor images). Unlike the default storage (which
+    signs every URL), this issues stable, unsigned URLs so next/image can
+    fully optimize them and pages can cache them without a TTL race.
+
+    Requires a bucket/MinIO policy granting anonymous GetObject on the
+    `public/` location — see
+    features/image-handling/image-handling-build-plan.md (puddlejump).
+
+    Do not use this for anything access-controlled. See
+    reference/patterns/image-handling-cheatsheet.md (puddlejump) for the
+    public vs. access-controlled decision this class assumes has already
+    been made for whatever field uses it.
+    """
+
+    querystring_auth = False
+    location = "public"
+
+
 # # mixtape/storage_backends.py
 # from django.core.files.storage import Storage
 # from django.core.files.base import ContentFile
