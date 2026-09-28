@@ -26,6 +26,8 @@ from assets.api.serializers import (
 from assets.models import Asset, GroupAsset, ProfileAsset
 from assets.tasks import upload_group_asset_task
 from groups.models import Group
+from mixtape.storage_backends import PublicMediaStorage
+from utils.storage.storage_utils import public_key_to_url
 
 
 logger = logging.getLogger(__name__)
@@ -340,10 +342,14 @@ class SponsorImageUploadView(APIView):
                     len(payload), img.format)
 
         # 7) Save to storage (this is the ONLY side effect - no DB changes)
+        # Every role this endpoint accepts (profile_image, background_image,
+        # avatar) is genuinely public content -- see
+        # puddlejump/reference/patterns/image-handling-cheatsheet.md -- so
+        # this always writes through PublicMediaStorage, not default_storage.
         start = time.time()
         try:
-            saved_key = default_storage.save(s3_key, ContentFile(payload))
-            public_url = default_storage.url(saved_key)
+            saved_key = PublicMediaStorage().save(s3_key, ContentFile(payload))
+            public_url = public_key_to_url(saved_key)
             took = time.time() - start
 
             logger.info("[upload] Image uploaded: key=%s, bytes=%d, elapsed=%.3fs",
@@ -466,9 +472,11 @@ class CommitImageView(APIView):
             delete_image_async.delay(old_key)
             logger.info("[commit] Scheduled deletion of old image: %s", old_key)
 
-        # Return new URL for confirmation
+        # Return new URL for confirmation. This key was written by
+        # SponsorImageUploadView above, which now always saves through
+        # PublicMediaStorage -- resolve the URL the same way.
         try:
-            public_url = default_storage.url(new_key)
+            public_url = public_key_to_url(new_key)
         except Exception as e:
             logger.warning("[commit] Could not generate URL for %s: %s", new_key, e)
             public_url = None
