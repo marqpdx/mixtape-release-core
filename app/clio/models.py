@@ -1,6 +1,8 @@
 # clio/models.py
 import uuid
 
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import RegexValidator
 from django.db import models
@@ -170,6 +172,16 @@ class KeeperFinding(BaseModel):
 
     keeper_id is a plain string, not an FK to KeeperRegistration: a finding
     must remain queryable after its Keeper is later archived or dropped.
+
+    CLIO-1b (2026-09-28): sponsor is who this finding is *for*, per the
+    platform's Sponsor-Agnostic Pattern — a UserProfile for a personal
+    finding, or a Group (including the platform default group, for a
+    genuinely site-wide finding) for a group-scoped one. Nullable: a
+    finding submitted before this field existed, or one a Keeper never
+    resolves an owner for, simply never surfaces through ClioState — a
+    valid state, not an error. "Surfaced" reuses ClioState.last_surfaced_at
+    as the cutoff (submitted_at > last_surfaced_at), the same convention
+    Signal 1 (ApertureLog) already uses — no separate surfaced_at flag.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -181,14 +193,29 @@ class KeeperFinding(BaseModel):
     finding_body = models.JSONField(
         default=dict,
         blank=True,
-        help_text="Keeper-specific payload. Opaque beyond logging/storage.",
+        help_text=(
+            "Keeper-specific payload. Opaque beyond logging/storage, with one "
+            "light convention: an optional 'message' key, a human-readable "
+            "string used verbatim if this finding is surfaced through Clio."
+        ),
     )
     suggested_clio_signal = models.CharField(max_length=16, choices=KeeperFindingSignal.choices)
     submitted_at = models.DateTimeField(auto_now_add=True)
 
+    sponsor_content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    sponsor_object_id = models.UUIDField(null=True, blank=True)
+    sponsor = GenericForeignKey("sponsor_content_type", "sponsor_object_id")
+
     class Meta(BaseModel.Meta):
         indexes = [
             models.Index(fields=["keeper_id", "submitted_at"]),
+            models.Index(fields=["sponsor_content_type", "sponsor_object_id", "submitted_at"]),
         ]
 
     def __str__(self):

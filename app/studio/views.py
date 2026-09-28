@@ -71,11 +71,32 @@ def _action_runs_for_group(group):
     return ActionRun.objects.filter(tenant_id=group.pk)
 
 
+def _serialize_keeper_finding_prompt(finding):
+    """
+    CLIO-1b: render a KeeperFinding as a ClioPrompt dict. finding_body's
+    'message' convention (see KeeperFinding's docstring) is used verbatim
+    when present; otherwise a generic fallback names the Keeper.
+    """
+    body = finding.finding_body or {}
+    message = body.get("message") or f"New finding from {finding.keeper_id}."
+    return {
+        "message": message,
+        "action_label": "Review",
+        "action_context": f"signal:keeper_finding:{finding.keeper_id}:{finding.id}",
+        "dismissible": True,
+    }
+
+
 def _build_clio_prompt(user):
     """
-    Return a ClioPrompt dict if Signal 1 conditions are met, else None.
-    Signal 1: 2+ raw Scrap records older than 4h, created after last_surfaced_at.
+    Return a ClioPrompt dict for the highest-salience signal, else None.
     Degrades gracefully if clio or scrap apps are not yet installed.
+
+    Signal ranking (CTO decision, 2026-09-28, ADR-0055 §4):
+      1. Keeper finding, suggested_clio_signal="nag"
+      2. Signal 1 — 2+ raw Scrap records older than 4h
+      3. Keeper finding, suggested_clio_signal in ("notice", "suggest")
+      (Signal 2, neglected in-progress content, is not yet implemented.)
     """
     try:
         from profiles.models import UserProfile
@@ -106,6 +127,18 @@ def _build_clio_prompt(user):
         ):
             return None
 
+    keeper_cutoff = clio_state.last_surfaced_at if clio_state else None
+
+    try:
+        from clio import services as clio_services
+        nag_finding = clio_services.get_keeper_signal_for_profile(
+            profile, signals=["nag"], after=keeper_cutoff
+        )
+        if nag_finding:
+            return _serialize_keeper_finding_prompt(nag_finding)
+    except Exception:
+        pass
+
     try:
         from scrap.models import Scrap
         from django.contrib.contenttypes.models import ContentType as CT
@@ -122,17 +155,27 @@ def _build_clio_prompt(user):
             qs = qs.filter(created_at__gt=clio_state.last_surfaced_at)
         count = qs.count()
     except Exception:
-        return None
+        count = 0
 
-    if count < 2:
-        return None
+    if count >= 2:
+        return {
+            "message": f"You have {count} unreviewed captures waiting.",
+            "action_label": "Review now",
+            "action_context": f"signal:aperture_log:count:{count}",
+            "dismissible": True,
+        }
 
-    return {
-        "message": f"You have {count} unreviewed captures waiting.",
-        "action_label": "Review now",
-        "action_context": f"signal:aperture_log:count:{count}",
-        "dismissible": True,
-    }
+    try:
+        from clio import services as clio_services
+        notice_finding = clio_services.get_keeper_signal_for_profile(
+            profile, signals=["notice", "suggest"], after=keeper_cutoff
+        )
+        if notice_finding:
+            return _serialize_keeper_finding_prompt(notice_finding)
+    except Exception:
+        pass
+
+    return None
 
 
 # ---------------------------------------------------------------------------

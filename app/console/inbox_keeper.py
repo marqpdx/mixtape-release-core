@@ -120,6 +120,23 @@ def check_and_submit_guess(capture) -> None:
 
         ensure_inbox_keeper_registered()
         guess = guess_capture_type(capture.body)
+
+        # CLIO-1b (2026-09-28): sponsor by the capture owner's UserProfile,
+        # so the guess can surface through that member's ClioState feed.
+        # Missing profile (shouldn't happen for a real user) degrades to
+        # sponsor=None — stores and defers, same as before CLIO-1b.
+        sponsor_content_type_id = None
+        sponsor_object_id = None
+        try:
+            from django.contrib.contenttypes.models import ContentType
+            from profiles.models import UserProfile
+
+            owner_profile = UserProfile.objects.get(user=capture.owner)
+            sponsor_content_type_id = ContentType.objects.get_for_model(UserProfile).id
+            sponsor_object_id = owner_profile.pk
+        except UserProfile.DoesNotExist:
+            pass
+
         clio_services.submit_finding(
             keeper_id=KEEPER_ID,
             finding_type="inbox_type_guess",
@@ -128,8 +145,11 @@ def check_and_submit_guess(capture) -> None:
                 "guessed_type": guess["guessed_type"],
                 "confidence": guess["confidence"],
                 "body_snippet": (capture.body or "")[:80],
+                "message": f"Guessed capture type: {guess['guessed_type']}.",
             },
             suggested_clio_signal="suggest",
+            sponsor_content_type_id=sponsor_content_type_id,
+            sponsor_object_id=sponsor_object_id,
         )
     except Exception as exc:
         logger.warning("[inbox-keeper] guess submission failed for capture %s: %s", capture.id, exc)

@@ -90,16 +90,27 @@ def build_threshold_answer(*, keeper_id: str, intent: str, current_count: int) -
     }
 
 
-def check_and_submit_nag(*, keeper_id: str, current_count: int) -> None:
+def check_and_submit_nag(
+    *,
+    keeper_id: str,
+    current_count: int,
+    sponsor_content_type_id: int | None = None,
+    sponsor_object_id=None,
+) -> None:
     """
     AD-8's proactive half: if current_count has reached the instance's
-    registered threshold, submit a K-3 store-and-defer finding.
+    registered threshold, submit a K-3 finding.
+
+    sponsor_content_type_id/sponsor_object_id (CLIO-1b, 2026-09-28) identify
+    who this nag is for — pass through the same owner (content_type_id,
+    owner_object_id) the caller already counts rows for, so the finding
+    reaches that owner's ClioState feed. Optional: omitted, the finding
+    still stores (store-and-defer) but never surfaces.
 
     No dedup against repeat crossings — matches K-4's Continuous Keeper
     precedent, which also submits one finding per qualifying event with
     no suppression. A resolved/unresolved model for findings is out of
-    scope until the deliberately deferred ClioState signal-salience
-    integration lands (see keeper-adr-status.md).
+    scope for this pass.
     """
     from clio.models import KeeperRegistration, KeeperRegistrationStatus
 
@@ -116,15 +127,24 @@ def check_and_submit_nag(*, keeper_id: str, current_count: int) -> None:
     try:
         from clio import services as clio_services
 
+        nag_message = params.get("nag_message", "")
+        try:
+            rendered_message = nag_message.format(count=current_count)
+        except (KeyError, IndexError):
+            rendered_message = nag_message
+
         clio_services.submit_finding(
             keeper_id=keeper_id,
             finding_type="count_threshold_crossed",
             finding_body={
                 "current_count": current_count,
                 "threshold": threshold,
-                "nag_message": params.get("nag_message", ""),
+                "nag_message": nag_message,
+                "message": rendered_message,
             },
             suggested_clio_signal=params.get("clio_signal", "nag"),
+            sponsor_content_type_id=sponsor_content_type_id,
+            sponsor_object_id=sponsor_object_id,
         )
     except Exception as exc:
         logger.warning("[count-nag-keeper] finding submission failed for %s: %s", keeper_id, exc)
