@@ -73,6 +73,30 @@ class IssueAmendmentTests(TestCase):
         self.assertEqual(issue.designation, "Issue #1")
         self.assertIsNotNone(issue.description)
 
+    def test_list_issues_includes_placement_count_and_publishability(self):
+        created = self.client.post(
+            "/api/writing/issues", {"title": "The Resourcefulness Issue"}, format="json"
+        )
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+        issue_id = created.data["id"]
+
+        empty_list = self.client.get("/api/writing/issues")
+        self.assertEqual(empty_list.status_code, status.HTTP_200_OK)
+        self.assertEqual(empty_list.data[0]["member_count"], 0)
+        self.assertFalse(empty_list.data[0]["is_publishable"])
+
+        added = self.client.post(
+            f"/api/writing/issues/{issue_id}/placements",
+            {"piece_id": str(self.pieces[0].id)},
+            format="json",
+        )
+        self.assertEqual(added.status_code, status.HTTP_201_CREATED)
+
+        issue_list = self.client.get("/api/writing/issues")
+        self.assertEqual(issue_list.status_code, status.HTTP_200_OK)
+        self.assertEqual(issue_list.data[0]["member_count"], 1)
+        self.assertTrue(issue_list.data[0]["is_publishable"])
+
     def test_order_mark_lead_preview_and_publish(self):
         issue = Issue.objects.create(title="Issue #1", designation="Issue #1")
         from django.contrib.contenttypes.models import ContentType

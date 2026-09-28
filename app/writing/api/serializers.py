@@ -847,6 +847,12 @@ class IssueListSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+    def get_member_count(self, obj):
+        return obj.placements.count()
+
+    def get_is_publishable(self, obj):
+        return obj.is_publishable
+
 
 # ============================================================================
 # Issue Continuous Read Serializers (Phase 3 amendment P3-4)
