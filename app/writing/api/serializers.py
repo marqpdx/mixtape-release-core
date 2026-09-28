@@ -538,24 +538,19 @@ class WorkingDocumentSerializer(serializers.ModelSerializer):
 
 
 class WorkingDocumentListSerializer(WorkingDocumentSerializer):
-    """List serializer that excludes body_json, adds a short body_preview instead."""
+    """List serializer with bounded previews instead of the full body_json."""
 
     body_preview = serializers.SerializerMethodField()
+    preview_paragraphs = serializers.SerializerMethodField()
 
-    def get_body_preview(self, obj):
-        """Extract first 300 chars of plain text from body_json for list previews.
+    def _preview_body(self, obj):
+        """Use the richest available body for draft previews.
 
         For collaborative docs, the dispatch PATCH handler keeps wc.body_json in sync
         with content_snapshot, so wc.body_json is always current here.
         For solo docs that have never been autosaved (auto_save_count == 0), fall back
         to piece.body_json (e.g. imported content that pre-dates the WC row).
-
-        Leading heading/image/codeBlock/horizontalRule blocks are skipped before
-        extraction starts (see writing.synopsis_service._extract_plain_text),
-        so a piece that opens with a heading or image doesn't preview as empty
-        or as a duplicate of its own title."""
-        from writing.synopsis_service import _extract_plain_text
-
+        """
         body = obj.body_json
 
         if obj.auto_save_count == 0:
@@ -567,13 +562,50 @@ class WorkingDocumentListSerializer(WorkingDocumentSerializer):
                 if wc_nodes < piece_nodes:
                     body = piece_body
 
-        return _extract_plain_text(body or {}, char_limit=300)
+        return body or {}
+
+    def get_body_preview(self, obj):
+        from writing.synopsis_service import _extract_plain_text
+
+        return _extract_plain_text(self._preview_body(obj), char_limit=300)
+
+    def get_preview_paragraphs(self, obj):
+        body = self._preview_body(obj)
+        if not isinstance(body, dict):
+            return []
+
+        def inline_text(node):
+            if not isinstance(node, dict):
+                return ""
+            if node.get("type") == "text":
+                return node.get("text", "")
+            if node.get("type") == "hardBreak":
+                return "\n"
+            return "".join(inline_text(child) for child in node.get("content", []))
+
+        paragraphs = []
+
+        def visit(node):
+            if len(paragraphs) == 2 or not isinstance(node, dict):
+                return
+            if node.get("type") == "paragraph":
+                paragraph = inline_text(node).strip()
+                if paragraph:
+                    paragraphs.append(paragraph[:900] + ("..." if len(paragraph) > 900 else ""))
+                return
+            for child in node.get("content", []):
+                visit(child)
+                if len(paragraphs) == 2:
+                    break
+
+        visit(body)
+        return paragraphs
 
     class Meta(WorkingDocumentSerializer.Meta):
         fields = [
             f for f in WorkingDocumentSerializer.Meta.fields
             if f != "body_json"
-        ] + ["body_preview"]
+        ] + ["body_preview", "preview_paragraphs"]
 
 
 # ============================================================================
