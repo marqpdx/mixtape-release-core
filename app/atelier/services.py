@@ -125,6 +125,55 @@ def detect_and_sync_markers(piece) -> list:
     )
 
 
+CRAFT_DIMENSIONS = ("tags", "category", "summaries", "series", "relations")
+SUMMARY_FIELDS = ("public_synopsis", "linkedin_synopsis", "internal_abstract")
+CRAFT_IGNORABLE_DIMENSIONS = CRAFT_DIMENSIONS + tuple(
+    f"summaries.{field}" for field in SUMMARY_FIELDS
+)
+
+
+def _summary_states(synopsis, ignored):
+    values = {
+        "public_synopsis": "description",
+        "linkedin_synopsis": "linkedin_copy",
+        "internal_abstract": "internal_abstract",
+    }
+    states = {}
+    for field, text_attr in values.items():
+        if "summaries" in ignored or f"summaries.{field}" in ignored:
+            states[field] = "confirmed"
+        elif synopsis and (getattr(synopsis, text_attr) or "").strip():
+            states[field] = "confirmed"
+        else:
+            states[field] = "untouched"
+    if all(state == "confirmed" for state in states.values()):
+        overall = "confirmed"
+    elif any(state != "untouched" for state in states.values()):
+        overall = "partial"
+    else:
+        overall = "untouched"
+    return overall, states
+
+
+def _readiness_result(states, ignored, summary_fields):
+    for dimension in ignored:
+        if dimension in states:
+            states[dimension] = "confirmed"
+    active = list(states.values())
+    if all(state == "confirmed" for state in active):
+        overall = "confirmed"
+    elif any(state in ("confirmed", "partial") for state in active):
+        overall = "partial"
+    else:
+        overall = "untouched"
+    return {
+        **states,
+        "overall": overall,
+        "ignored": sorted(ignored),
+        "summary_fields": summary_fields,
+    }
+
+
 def compute_craft_readiness(writing_piece) -> dict:
     """
     Computes readiness state for five Atelier dimensions.
@@ -163,42 +212,71 @@ def compute_craft_readiness(writing_piece) -> dict:
     else:
         relations = "partial"
 
-    if synopsis is None:
-        summaries = "untouched"
-    else:
-        confirmed = any([
-            synopsis.public_synopsis_confirmed,
-            synopsis.linkedin_synopsis_confirmed,
-            synopsis.internal_abstract_confirmed,
-        ])
-        has_text = any([
-            bool(synopsis.description),
-            bool(synopsis.linkedin_copy),
-            bool(synopsis.internal_abstract),
-        ])
-        if confirmed:
-            summaries = "confirmed"
-        elif has_text:
-            summaries = "partial"
-        else:
-            summaries = "untouched"
+    ignored = set(writing_piece.craft_ignored_dimensions or []) & set(CRAFT_IGNORABLE_DIMENSIONS)
+    summaries, summary_fields = _summary_states(synopsis, ignored)
 
-    active = [tags, category, summaries, series, relations]
-    if all(s == "confirmed" for s in active):
-        overall = "confirmed"
-    elif any(s in ("confirmed", "partial") for s in active):
-        overall = "partial"
-    else:
-        overall = "untouched"
-
-    return {
+    return _readiness_result({
         "tags": tags,
         "category": category,
         "summaries": summaries,
         "series": series,
         "relations": relations,
-        "overall": overall,
+    }, ignored, summary_fields)
+
+
+def compute_craft_readiness_batch(pieces) -> dict:
+    """Compute list readiness with bounded queries, regardless of list length."""
+    from collections import defaultdict
+
+    from relations.models import Relationship
+    from writing.models import WritingPiece, WritingSynopsis
+
+    pieces = list(pieces)
+    if not pieces:
+        return {}
+    ids = [piece.pk for piece in pieces]
+    piece_ct = ContentType.objects.get_for_model(WritingPiece)
+    tag_ct = ContentType.objects.get_for_model(Tag)
+    cat_ct = ContentType.objects.get_for_model(Category)
+    classified = defaultdict(set)
+    for piece_id, classification_ct in ClassificationUsage.objects.filter(
+        classification_client_content_type=piece_ct,
+        classification_client_object_id__in=[str(pk) for pk in ids],
+        classification_content_type__in=[tag_ct, cat_ct],
+    ).values_list("classification_client_object_id", "classification_content_type_id"):
+        classified[str(piece_id)].add(classification_ct)
+
+    synopses = {
+        synopsis.piece_id: synopsis
+        for synopsis in WritingSynopsis.objects.filter(piece_id__in=ids)
     }
+    relations = defaultdict(list)
+    for piece_id, lifecycle in Relationship.objects.filter(
+        source_content_type=piece_ct,
+        source_object_id__in=ids,
+        status=Relationship.STATUS_ACTIVE,
+        relationship_type__domain="editorial",
+    ).values_list("source_object_id", "lifecycle"):
+        relations[str(piece_id)].append(lifecycle)
+
+    results = {}
+    for piece in pieces:
+        key = str(piece.pk)
+        synopsis = synopses.get(piece.pk)
+        ignored = set(piece.craft_ignored_dimensions or []) & set(CRAFT_IGNORABLE_DIMENSIONS)
+        summaries, summary_fields = _summary_states(synopsis, ignored)
+        states = {
+            "tags": "confirmed" if tag_ct.pk in classified[key] else "untouched",
+            "category": "confirmed" if cat_ct.pk in classified[key] else "untouched",
+            "summaries": summaries,
+            "series": "confirmed" if piece.series_id else "untouched",
+            "relations": (
+                "confirmed" if any(lifecycle in ("acknowledged", "mutual") for lifecycle in relations[key])
+                else "partial" if relations[key] else "untouched"
+            ),
+        }
+        results[key] = _readiness_result(states, ignored, summary_fields)
+    return results
 
 
 def get_readiness_warnings(writing_piece) -> list[str]:

@@ -13,6 +13,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from writing.models import WritingPiece, Issue, IssuePlacement
+from writing.permissions import can_edit_others_group_writing
+from writing.services import WorkingCopyConflict, get_editing_document
 from groups.models import Group, GroupMembership
 from writing.api.serializers import (
     IssuePlacementSerializer,
@@ -74,6 +76,35 @@ def _resolve_sponsor(request):
     if not _can_manage_group(group.pk, request.user):
         raise PermissionDenied("You cannot manage this group's Issues.")
     return group_ct, group.pk
+
+
+def _reviewed_piece(request, pk):
+    piece = get_object_or_404(WritingPiece.objects.select_for_update(), id=pk)
+    if piece.author_id != request.user.id and not can_edit_others_group_writing(request.user, piece):
+        raise PermissionDenied("You cannot review this piece.")
+    if piece.status == "published":
+        raise ValidationError("Published pieces cannot be reviewed as drafts.")
+    try:
+        draft = get_editing_document(piece, request.user, create=True, lock=True)
+    except WorkingCopyConflict as exc:
+        return piece, None, Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+
+    expected = request.data.get("expected_auto_save_count")
+    if expected is None or str(draft.auto_save_count) != str(expected):
+        return piece, None, Response(
+            {"detail": "Draft changed or its revision is missing. Reload before approving."},
+            status=status.HTTP_409_CONFLICT,
+        )
+    if draft.body_json != piece.body_json:
+        piece.body_json = draft.body_json
+        piece.spellcheck_clean = False
+        piece.signed_off = False
+        piece.signed_off_by = None
+        piece.save(update_fields=[
+            "body_json", "is_empty", "reading_time", "spellcheck_clean",
+            "signed_off", "signed_off_by", "updated_at",
+        ])
+    return piece, draft, None
 
 
 # ---------------------------------------------------------------------------
@@ -139,36 +170,49 @@ class IssuePublishView(APIView):
     """
     permission_classes = [IsAuthenticated]
 
+    @transaction.atomic
     def post(self, request, issue_id):
         issue = _get_issue_for_user(issue_id, request.user)
+        issue = Issue.objects.select_for_update().get(pk=issue.pk)
 
         if issue.status == "published":
             return Response({"detail": "Issue is already published."}, status=status.HTTP_400_BAD_REQUEST)
 
-        placements = list(issue.placements.select_related("piece").order_by("order_index"))
+        placements = list(issue.placements.order_by("order_index"))
         if not placements:
             return Response({"detail": "Cannot publish an empty Issue."}, status=status.HTTP_400_BAD_REQUEST)
 
-        not_ready = [p.piece.title or str(p.piece.id) for p in placements
-                     if not (p.piece.spellcheck_clean and p.piece.signed_off)]
+        pieces = {
+            piece.pk: piece for piece in WritingPiece.objects.select_for_update().filter(
+                pk__in=[placement.piece_id for placement in placements]
+            ).order_by("pk")
+        }
+        not_ready = []
+        for placement in placements:
+            piece = pieces[placement.piece_id]
+            try:
+                draft = get_editing_document(piece, piece.author, lock=True)
+            except WorkingCopyConflict:
+                not_ready.append(piece.title or str(piece.pk))
+                continue
+            if (draft and draft.body_json != piece.body_json) or not (piece.spellcheck_clean and piece.signed_off):
+                not_ready.append(piece.title or str(piece.pk))
         if not_ready:
             return Response(
-                {"detail": "All Docs must be spellcheck-clean and signed off before publishing.",
+                {"detail": "All Docs must match their approved draft, have spelling reviewed, and be signed off before publishing.",
                  "not_ready": not_ready},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        with transaction.atomic():
-            now = timezone.now()
-            pieces = [p.piece for p in placements]
-            for piece in pieces:
-                if piece.status != "published":
-                    piece.status = "published"
-                    piece.published_at = now
-                    piece.save(update_fields=["status", "published_at", "updated_at"])
-            issue.status = "published"
-            issue.published_at = now
-            issue.save(update_fields=["status", "published_at", "updated_at"])
+        now = timezone.now()
+        for piece in pieces.values():
+            if piece.status != "published":
+                piece.status = "published"
+                piece.published_at = now
+                piece.save(update_fields=["status", "published_at", "updated_at"])
+        issue.status = "published"
+        issue.published_at = now
+        issue.save(update_fields=["status", "published_at", "updated_at"])
 
         return Response(IssueSerializer(issue).data)
 
@@ -318,13 +362,29 @@ class IssueReadView(APIView):
 # ---------------------------------------------------------------------------
 
 class WritingPieceSignOffView(APIView):
-    """POST to set signed_off=True on a piece. Cleared automatically on next body edit."""
+    """Approve the exact draft revision reviewed by its author or group steward."""
     permission_classes = [IsAuthenticated]
 
+    @transaction.atomic
     def post(self, request, pk):
-        piece = get_object_or_404(WritingPiece, id=pk)
-        if piece.author != request.user:
-            return Response(status=status.HTTP_403_FORBIDDEN)
+        piece, draft, conflict = _reviewed_piece(request, pk)
+        if conflict is not None:
+            return conflict
         piece.signed_off = True
-        piece.save(update_fields=["signed_off", "updated_at"])
-        return Response({"signed_off": True, "piece_id": str(piece.id)})
+        piece.signed_off_by = request.user
+        piece.save(update_fields=["signed_off", "signed_off_by", "updated_at"])
+        return Response({"signed_off": True, "signed_off_by": str(request.user.pk), "piece_id": str(piece.id), "auto_save_count": draft.auto_save_count})
+
+
+class WritingPieceSpellingReviewView(APIView):
+    """Manual spelling review of the exact saved draft revision."""
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, pk):
+        piece, draft, conflict = _reviewed_piece(request, pk)
+        if conflict is not None:
+            return conflict
+        piece.spellcheck_clean = True
+        piece.save(update_fields=["spellcheck_clean", "updated_at"])
+        return Response({"spellcheck_clean": True, "piece_id": str(piece.id), "auto_save_count": draft.auto_save_count})

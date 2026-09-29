@@ -1061,13 +1061,14 @@ def agent_synopsis_linkedin_proxy(request):
 
     from django.shortcuts import get_object_or_404
     from writing.models import WritingPiece
+    from writing.permissions import can_edit_others_group_writing
     from writing.analysis_export import get_export_source_for_user
     from writing.synopsis_service import SynopsisGenerationService, _extract_plain_text
 
     user = request.user
     piece = get_object_or_404(WritingPiece, pk=piece_id)
 
-    if piece.author != user and not user.is_staff:
+    if piece.author_id != user.id and not user.is_staff and not can_edit_others_group_writing(user, piece):
         return JsonResponse({"detail": "Not found."}, status=404)
 
     synopsis = getattr(piece, "synopsis", None)
@@ -1152,11 +1153,12 @@ def agent_synopsis_public_proxy(request):
     from django.shortcuts import get_object_or_404
     from writing.analysis_export import get_export_source_for_user
     from writing.models import WritingPiece
+    from writing.permissions import can_edit_others_group_writing
     from writing.synopsis_service import SynopsisGenerationService, _extract_plain_text
 
     user = request.user
     piece = get_object_or_404(WritingPiece, pk=piece_id)
-    if piece.author != user and not user.is_staff:
+    if piece.author_id != user.id and not user.is_staff and not can_edit_others_group_writing(user, piece):
         return JsonResponse({"detail": "Not found."}, status=404)
 
     synopsis = getattr(piece, "synopsis", None)

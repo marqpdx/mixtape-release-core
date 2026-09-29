@@ -154,6 +154,7 @@ class WritingPiece(BaseContent, PublishableContentMixin):
     # Optional metadata
     canonical_url = models.URLField(blank=True, null=True)
     excerpt = models.TextField(blank=True)
+    craft_ignored_dimensions = models.JSONField(default=list, blank=True)
     reading_time = models.PositiveIntegerField(null=True, blank=True)
     addressed_to = models.CharField(
         max_length=32,
@@ -213,6 +214,13 @@ class WritingPiece(BaseContent, PublishableContentMixin):
         default=False,
         db_index=True,
         help_text="Set by manual author action; cleared on next body edit.",
+    )
+    signed_off_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="signed_off_writing_pieces",
     )
 
     # Manager
@@ -532,8 +540,9 @@ class WorkingDocument(BaseModel):
             piece.body_json = self.body_json
             changed_fields.append("body_json")
             piece.signed_off = False
+            piece.signed_off_by = None
             piece.spellcheck_clean = False
-            changed_fields.extend(["signed_off", "spellcheck_clean"])
+            changed_fields.extend(["signed_off", "signed_off_by", "spellcheck_clean"])
 
         if changed_fields:
             # You might recalc reading time here

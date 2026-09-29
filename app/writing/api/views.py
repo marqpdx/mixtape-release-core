@@ -61,7 +61,12 @@ MAX_INLINE_IMAGE_BYTES = 10 * 1024 * 1024  # 10MB
 ALLOWED_INLINE_IMAGE_MIME = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
 from ..models import WritingPiece, is_provisional_slug
-from ..permissions import CanEditWritingPiece, CanPublishWritingPiece
+from ..permissions import (
+    CanEditWritingPiece,
+    CanEditWritingPieceDetails,
+    CanPublishWritingPiece,
+    can_edit_others_group_writing,
+)
 from .serializers import (
     SeedSerializer,
     SeedUpdateSerializer,
@@ -94,29 +99,11 @@ class WorkingDocumentUpsertView(generics.GenericAPIView):
 
     def get(self, request, pk=None):
         piece = self.get_piece(pk)
-
-        # First try to find user's own working copy
-        wc = WorkingDocument.objects.filter(piece=piece, user=request.user).first()
-
-        # If not found and piece is collaborative, find the author's working copy
-        # (collaborators work on the same shared document via Yjs)
-        if not wc and piece.author_id != request.user.id:
-            wc = WorkingDocument.objects.filter(piece=piece, user=piece.author).first()
-
-        if not wc:
-            # No working copy exists yet. If the piece has canonical content
-            # (e.g. imported doc), create the WC inline so the editor gets a
-            # full WC-shaped response and downstream consumers don't crash on
-            # missing piece fields. The PUT on first autosave will update it.
-            if piece.body_json and isinstance(piece.body_json, dict) and piece.body_json.get("content"):
-                wc = WorkingDocument.objects.create(
-                    piece=piece,
-                    user=request.user,
-                    body_json=piece.body_json,
-                    bootstrapped_at=timezone.now(),
-                )
-            else:
-                return Response(status=status.HTTP_204_NO_CONTENT)
+        from writing.services import WorkingCopyConflict, get_editing_document
+        try:
+            wc = get_editing_document(piece, request.user, create=True)
+        except WorkingCopyConflict as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
 
         data = self.get_serializer(wc).data
 
@@ -124,7 +111,16 @@ class WorkingDocumentUpsertView(generics.GenericAPIView):
         # For solo docs where piece.body_json is richer (e.g. imported pieces where WC
         # was never edited), bootstrap once and set the flag so this never repeats.
         # bootstrapped_at is set: skip — either already bootstrapped, or user-edited.
-        if wc.bootstrapped_at is None:
+        if wc.bootstrapped_at is None and piece.sponsor_content_type and piece.sponsor_content_type.model == "group":
+            if not (wc.body_json or {}).get("content") and (piece.body_json or {}).get("content"):
+                data["body_json"] = piece.body_json
+                WorkingDocument.objects.filter(pk=wc.pk).update(
+                    body_json=piece.body_json,
+                    bootstrapped_at=timezone.now(),
+                )
+            else:
+                WorkingDocument.objects.filter(pk=wc.pk).update(bootstrapped_at=timezone.now())
+        elif wc.bootstrapped_at is None:
             piece_has_content = (
                 piece.body_json
                 and isinstance(piece.body_json, dict)
@@ -147,29 +143,42 @@ class WorkingDocumentUpsertView(generics.GenericAPIView):
 
         return Response(data)
 
+    @transaction.atomic
     def put(self, request, pk=None):
         piece = self.get_piece(pk)
+        piece = WritingPiece.objects.select_for_update().get(pk=piece.pk)
+        from writing.services import WorkingCopyConflict, get_editing_document
+        try:
+            wc = get_editing_document(piece, request.user, create=True, lock=True)
+        except WorkingCopyConflict as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
 
-        # Try to find existing working copy for this user
-        wc = WorkingDocument.objects.filter(piece=piece, user=request.user).first()
+        shared_group_draft = (
+            piece.sponsor_content_type and piece.sponsor_content_type.model == "group"
+            and wc.dispatch_content_id is None
+        )
+        expected = request.data.get("expected_auto_save_count")
+        if shared_group_draft and expected is None:
+            return Response({"detail": "Draft revision is required. Reload before editing."}, status=status.HTTP_409_CONFLICT)
+        if expected is not None and str(wc.auto_save_count) != str(expected):
+            return Response({"detail": "This draft changed elsewhere. Reload before saving."}, status=status.HTTP_409_CONFLICT)
 
-        # If not found and user is not the author, they're a collaborator
-        # Collaborators should update the author's working copy (shared document)
-        if not wc and piece.author_id != request.user.id:
-            wc = WorkingDocument.objects.filter(piece=piece, user=piece.author).first()
-
-        # If still no working copy exists, create one
-        if not wc:
-            wc = WorkingDocument.objects.create(piece=piece, user=request.user)
-
-        ser = self.get_serializer(instance=wc, data=request.data, partial=True)
+        payload = request.data.copy()
+        payload.pop("expected_auto_save_count", None)
+        ser = self.get_serializer(instance=wc, data=payload, partial=True)
         ser.is_valid(raise_exception=True)
+        body_changed = "body_json" in ser.validated_data and ser.validated_data["body_json"] != wc.body_json
         wc = ser.save()
         WorkingDocument.objects.filter(pk=wc.pk).update(
             auto_save_count=F("auto_save_count") + 1,
             bootstrapped_at=timezone.now(),
         )
         wc.refresh_from_db()
+        if body_changed:
+            piece.spellcheck_clean = False
+            piece.signed_off = False
+            piece.signed_off_by = None
+            piece.save(update_fields=["spellcheck_clean", "signed_off", "signed_off_by", "updated_at"])
 
         # Suggested excerpt: only fills in while the field is blank, so it
         # never overwrites anything the user has typed. Recomputed on every
@@ -305,11 +314,18 @@ class WorkingDocumentApplyView(generics.GenericAPIView):
     serializer_class = WritingPieceSerializer
     permission_classes = [permissions.IsAuthenticated, CanEditWritingPiece]
 
+    @transaction.atomic
     def post(self, request, pk=None):
-        piece = get_object_or_404(WritingPiece, pk=pk, author=request.user)
+        piece = get_object_or_404(WritingPiece.objects.select_for_update(), pk=pk)
         self.check_object_permissions(request, piece)
 
-        wc = get_object_or_404(WorkingDocument, piece=piece, user=request.user)
+        from writing.services import WorkingCopyConflict, get_editing_document
+        try:
+            wc = get_editing_document(piece, request.user, lock=True)
+        except WorkingCopyConflict as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        if wc is None:
+            return Response({"detail": "No working copy exists."}, status=status.HTTP_404_NOT_FOUND)
         changed = wc.apply_to_piece(piece)
         if changed and piece.is_published:
             piece.create_version(content_changed=True)
@@ -511,11 +527,11 @@ class WritingPieceListCreateView(generics.ListCreateAPIView):
 
 class WritingPieceRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = WritingPieceSerializer
-    permission_classes = [permissions.IsAuthenticated, CanEditWritingPiece]
+    permission_classes = [permissions.IsAuthenticated, CanEditWritingPieceDetails]
     lookup_field = "pk"
 
     def get_queryset(self):
-        return WritingPiece.objects.filter(author=self.request.user)
+        return WritingPiece.objects.all()
 
 
 class WritingPiecePublicView(generics.RetrieveAPIView):
@@ -1375,8 +1391,10 @@ class WritingPieceTagsView(generics.GenericAPIView):
             pk=pk
         )
 
-        # Check permissions (author or staff)
-        if not (request.user.is_staff or piece.author == request.user):
+        if not (
+            request.user.is_staff or piece.author_id == request.user.id
+            or can_edit_others_group_writing(request.user, piece)
+        ):
             return Response(
                 {"error": "Not authorized to edit tags"},
                 status=status.HTTP_403_FORBIDDEN
@@ -1469,8 +1487,10 @@ class WritingPieceCategoriesView(generics.GenericAPIView):
             pk=pk
         )
 
-        # Check permissions (author or staff)
-        if not (request.user.is_staff or piece.author == request.user):
+        if not (
+            request.user.is_staff or piece.author_id == request.user.id
+            or can_edit_others_group_writing(request.user, piece)
+        ):
             return Response(
                 {"error": "Not authorized to edit categories"},
                 status=status.HTTP_403_FORBIDDEN

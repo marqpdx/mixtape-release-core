@@ -34,6 +34,7 @@ from .issue_views import (
     IssuePlacementsReorderView,
     IssueReadView,
     WritingPieceSignOffView,
+    WritingPieceSpellingReviewView,
 )
 from .streams_views import StreamsView
 from .views import (
@@ -198,5 +199,6 @@ urlpatterns = [
 
     # Sign-off toggle (ADR-0054 D10)
     path("pieces/<uuid:pk>/sign-off", WritingPieceSignOffView.as_view(), name="writingpiece-sign-off"),
+    path("pieces/<uuid:pk>/spelling-review", WritingPieceSpellingReviewView.as_view(), name="writingpiece-spelling-review"),
 
 ]
