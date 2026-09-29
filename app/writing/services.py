@@ -2,7 +2,7 @@
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Seed, WritingPiece
+from .models import Seed, WritingPiece, WorkingDocument
 from .utils import first_line_as_title, plaintext_to_tiptap_json
 from utils.shared.contenttypes import resolve_content_type
 from utils.writing.writing_utils import generate_excerpt, generate_excerpt_from_prosemirror
@@ -10,6 +10,47 @@ from utils.writing.writing_utils import generate_excerpt, generate_excerpt_from_
 
 class PromotionError(Exception):
     pass
+
+
+class WorkingCopyConflict(Exception):
+    pass
+
+
+def get_editing_document(piece, user, *, create=False, lock=False):
+    """Use one author-owned draft for group pieces; preserve personal and Dispatch drafts."""
+    copies = WorkingDocument.objects.filter(piece=piece)
+    if lock:
+        copies = copies.select_for_update()
+
+    own_copy = copies.filter(user=user).first()
+    author_copy = copies.filter(user=piece.author).first()
+    collaborative = copies.filter(dispatch_content__isnull=False).exists()
+    if piece.sponsor_content_type and piece.sponsor_content_type.model == "group" and not collaborative:
+        if author_copy:
+            newer_alternative = copies.exclude(pk=author_copy.pk).filter(
+                last_saved_at__gt=author_copy.last_saved_at
+            ).order_by("-last_saved_at").first()
+            if newer_alternative and newer_alternative.body_json != author_copy.body_json:
+                raise WorkingCopyConflict("A newer, separate working copy exists. Review it before editing this group draft.")
+            return author_copy
+        if copies.exclude(user=piece.author).exists():
+            raise WorkingCopyConflict("A separate working copy exists. Review it before creating the shared group draft.")
+        owner = piece.author
+    else:
+        if own_copy or (user.pk != piece.author_id and author_copy):
+            return own_copy or author_copy
+        owner = user
+
+    if not create:
+        return None
+    return WorkingDocument.objects.create(
+        piece=piece,
+        user=owner,
+        title=piece.title or "",
+        excerpt=piece.excerpt or "",
+        body_json=piece.body_json or {},
+        bootstrapped_at=timezone.now(),
+    )
 
 
 @transaction.atomic

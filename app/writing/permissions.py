@@ -4,6 +4,26 @@ from rest_framework.permissions import BasePermission
 from groups.services.permissions import PermissionService
 
 
+def can_edit_others_group_writing(user, piece):
+    if not user or not user.is_authenticated:
+        return False
+    if not piece.sponsor_content_type or piece.sponsor_content_type.model != "group":
+        return False
+
+    from groups.models import Group
+
+    try:
+        sponsor = Group.objects.get(id=piece.sponsor_object_id, is_active=True)
+    except Group.DoesNotExist:
+        return False
+    return (
+        PermissionService.can_user_perform_action(user, "edit_writing", group_slug=sponsor.slug)
+        and PermissionService.can_user_perform_action(
+            user, "edit_others_writing", group_slug=sponsor.slug
+        )
+    )
+
+
 class IsOwner(BasePermission):
     def has_object_permission(self, request, view, obj):
         # WritingDraft has .author
@@ -12,8 +32,8 @@ class IsOwner(BasePermission):
 
 class CanEditWritingPiece(BasePermission):
     """
-    Author, dispatch collaborator, OR has edit_writing permission in the piece's
-    sponsor group.
+    Author, dispatch collaborator, or a group member with both edit_writing and
+    edit_others_writing. Editing another author's piece does not grant deletion.
     Uses PermissionService for consistent permission checking.
     """
     def has_object_permission(self, request, view, obj):
@@ -24,6 +44,9 @@ class CanEditWritingPiece(BasePermission):
         # Author can always edit their own content
         if obj.author_id == user.id:
             return True
+
+        if request.method == "DELETE":
+            return False
 
         # Collaborative dispatch documents are edited through the author's shared
         # working document. Once a user is an assigned collaborator, they should
@@ -36,21 +59,18 @@ class CanEditWritingPiece(BasePermission):
         ).exists():
             return True
 
-        # Check group permissions if sponsored by a group
-        if obj.sponsor_content_type and obj.sponsor_content_type.model == "group":
-            # Fetch sponsor object manually since GenericForeignKey isn't auto-fetched
-            from groups.models import Group
-            try:
-                sponsor = Group.objects.get(id=obj.sponsor_object_id, is_active=True)
-                return PermissionService.can_user_perform_action(
-                    user,
-                    "edit_writing",
-                    group_slug=sponsor.slug
-                )
-            except Group.DoesNotExist:
-                return False
+        return can_edit_others_group_writing(user, obj)
 
-        return False
+
+class CanEditWritingPieceDetails(BasePermission):
+    """Detail edits require authorship or group-scoped cross-author authority."""
+
+    def has_object_permission(self, request, view, obj):
+        if obj.author_id == getattr(request.user, "id", None):
+            return True
+        if request.method == "DELETE":
+            return False
+        return can_edit_others_group_writing(request.user, obj)
 
 
 class CanPublishWritingPiece(BasePermission):

@@ -7,6 +7,7 @@ from .views import (
     MarkerListView,
     PieceSearchView,
     ReadinessView,
+    ReadinessBatchView,
     RelationAcknowledgeView,
     RelationDeleteView,
     RelationDismissView,
@@ -25,6 +26,7 @@ urlpatterns = [
     path("tags/search/", TagSearchView.as_view()),
     path("pieces/search/", PieceSearchView.as_view()),
     path("markers/", MarkerIndexView.as_view()),
+    path("readiness/batch/", ReadinessBatchView.as_view()),
 
     path("<slug:piece_slug>/readiness/", ReadinessView.as_view()),
     path("<slug:piece_slug>/tags/", TagListCreateView.as_view()),

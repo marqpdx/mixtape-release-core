@@ -88,6 +88,10 @@ class WritingPieceSerializer(serializers.ModelSerializer):
             "view_count",
             "comment_count",
             "published_at",
+            "craft_ignored_dimensions",
+            "signed_off_by",
+            "signed_off",
+            "spellcheck_clean",
         )
 
     def validate(self, attrs):
@@ -901,6 +905,9 @@ class IssueReadPlacementSerializer(serializers.ModelSerializer):
     title = serializers.CharField(source="piece.title", read_only=True)
     slug = serializers.CharField(source="piece.slug", read_only=True)
     status = serializers.CharField(source="piece.status", read_only=True)
+    spellcheck_clean = serializers.BooleanField(source="piece.spellcheck_clean", read_only=True)
+    signed_off = serializers.BooleanField(source="piece.signed_off", read_only=True)
+    signed_off_by = serializers.UUIDField(source="piece.signed_off_by_id", read_only=True, allow_null=True)
     body_json = serializers.JSONField(source="piece.body_json", read_only=True)
     excerpt = serializers.CharField(source="piece.excerpt", read_only=True)
     author = AuthorSerializer(source="piece.author", read_only=True)
@@ -910,7 +917,8 @@ class IssueReadPlacementSerializer(serializers.ModelSerializer):
         model = IssuePlacement
         fields = [
             "id", "order_index", "is_lead",
-            "title", "slug", "status", "body_json", "excerpt", "author", "word_count",
+            "title", "slug", "status", "spellcheck_clean", "signed_off", "signed_off_by",
+            "body_json", "excerpt", "author", "word_count",
         ]
 
     def get_word_count(self, obj):

@@ -14,7 +14,12 @@ from relations.models import RelationshipType
 from relations.service import RelationshipService
 
 from ..models import WritingMarkerOccurrence
-from ..services import compute_craft_readiness, detect_and_sync_markers
+from ..services import (
+    CRAFT_IGNORABLE_DIMENSIONS,
+    compute_craft_readiness,
+    compute_craft_readiness_batch,
+    detect_and_sync_markers,
+)
 from .serializers import CategorySerializer, TagSerializer
 
 
@@ -25,14 +30,61 @@ def _get_piece_for_author(slug, user):
     return piece, None
 
 
+def _get_piece_for_summary_editor(slug, user):
+    from writing.permissions import can_edit_others_group_writing
+
+    piece = get_object_or_404(WritingPiece, slug=slug)
+    if piece.author_id != user.id and not can_edit_others_group_writing(user, piece):
+        return None, Response({"detail": "Not found."}, status=404)
+    return piece, None
+
+
 class ReadinessView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, piece_slug):
-        piece, err = _get_piece_for_author(piece_slug, request.user)
+        piece, err = _get_piece_for_summary_editor(piece_slug, request.user)
         if err:
             return err
         return Response(compute_craft_readiness(piece))
+
+    def patch(self, request, piece_slug):
+        piece, err = _get_piece_for_summary_editor(piece_slug, request.user)
+        if err:
+            return err
+        dimension = request.data.get("dimension")
+        ignored = request.data.get("ignored")
+        if dimension not in CRAFT_IGNORABLE_DIMENSIONS or not isinstance(ignored, bool):
+            return Response({"detail": "A valid dimension and ignored boolean are required."}, status=400)
+        dimensions = set(piece.craft_ignored_dimensions or []) & set(CRAFT_IGNORABLE_DIMENSIONS)
+        if ignored:
+            dimensions.add(dimension)
+        else:
+            dimensions.discard(dimension)
+        piece.craft_ignored_dimensions = sorted(dimensions)
+        piece.save(update_fields=["craft_ignored_dimensions"])
+        return Response(compute_craft_readiness(piece))
+
+
+class ReadinessBatchView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        from writing.permissions import CanEditWritingPiece
+
+        raw_ids = request.query_params.get("ids", "")
+        try:
+            ids = [uuid.UUID(value) for value in raw_ids.split(",") if value]
+        except ValueError:
+            return Response({"detail": "Invalid piece id."}, status=400)
+        if not ids or len(ids) > 100:
+            return Response({"detail": "Provide 1 to 100 piece ids."}, status=400)
+        access = CanEditWritingPiece()
+        pieces = [
+            piece for piece in WritingPiece.objects.filter(pk__in=ids).select_related("sponsor_content_type")
+            if access.has_object_permission(request, self, piece)
+        ]
+        return Response(compute_craft_readiness_batch(pieces))
 
 
 # ---------------------------------------------------------------------------
@@ -183,14 +235,14 @@ class SummariesView(APIView):
         return synopsis
 
     def get(self, request, piece_slug):
-        piece, err = _get_piece_for_author(piece_slug, request.user)
+        piece, err = _get_piece_for_summary_editor(piece_slug, request.user)
         if err:
             return err
         synopsis = self._get_or_create_synopsis(piece)
         return Response(_synopsis_response(synopsis, piece=piece))
 
     def patch(self, request, piece_slug):
-        piece, err = _get_piece_for_author(piece_slug, request.user)
+        piece, err = _get_piece_for_summary_editor(piece_slug, request.user)
         if err:
             return err
         synopsis = self._get_or_create_synopsis(piece)
@@ -276,7 +328,7 @@ class SummariesConfirmView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, piece_slug):
-        piece, err = _get_piece_for_author(piece_slug, request.user)
+        piece, err = _get_piece_for_summary_editor(piece_slug, request.user)
         if err:
             return err
 
