@@ -4,10 +4,15 @@
 # preview via Continuous Read, cascade-publish.
 
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import TestCase
+from io import StringIO
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from groups.services.groups import GroupService
+from groups.services.memberships import ensure_user_membership
 from writing.models import Issue, IssuePlacement, WritingPiece
 
 User = get_user_model()
@@ -22,7 +27,7 @@ def _body_json(text: str) -> dict:
     }
 
 
-def _create_piece(*, author, title, slug, clean=True):
+def _create_piece(*, author, title, slug, clean=True, sponsor=None):
     piece = WritingPiece(
         author=author,
         author_name=author.get_full_name() or author.username,
@@ -33,7 +38,7 @@ def _create_piece(*, author, title, slug, clean=True):
         spellcheck_clean=clean,
         signed_off=clean,
     )
-    piece.set_sponsor(author)
+    piece.set_sponsor(sponsor or author)
     piece.slug = slug
     piece.set_submitted_by(author)
     piece.save()
@@ -96,6 +101,7 @@ class IssueAmendmentTests(TestCase):
         self.assertEqual(issue_list.status_code, status.HTTP_200_OK)
         self.assertEqual(issue_list.data[0]["member_count"], 1)
         self.assertTrue(issue_list.data[0]["is_publishable"])
+        self.assertEqual(issue_list.data[0]["piece_ids"], [str(self.pieces[0].id)])
 
     def test_order_mark_lead_preview_and_publish(self):
         issue = Issue.objects.create(title="Issue #1", designation="Issue #1")
@@ -175,3 +181,94 @@ class IssueAmendmentTests(TestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp.data["designation"], "Issue #1")
         self.assertEqual(resp.data["piece_count"], 5)
+
+    def test_group_issue_accepts_group_piece_and_isolated_from_member_issues(self):
+        group = GroupService.create_group(
+            title="Editorial Group", group_type="community", created_by=self.user,
+            visibility="private",
+        )
+        ensure_user_membership(group, self.user, role="admin")
+        group_piece = _create_piece(
+            author=self.user, title="Group Article", slug="group-article", sponsor=group,
+        )
+        created = self.client.post(
+            "/api/writing/issues",
+            {"title": "Group Issue", "sponsor_type": "group", "sponsor_slug": group.slug},
+            format="json",
+        )
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+        issue_id = created.data["id"]
+
+        self.assertEqual(len(self.client.get("/api/writing/issues").data), 0)
+        group_list = self.client.get(
+            "/api/writing/issues", {"sponsor_type": "group", "sponsor_slug": group.slug}
+        )
+        self.assertEqual([item["id"] for item in group_list.data], [issue_id])
+
+        added = self.client.post(
+            f"/api/writing/issues/{issue_id}/placements",
+            {"piece_id": str(group_piece.id)}, format="json",
+        )
+        self.assertEqual(added.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(IssuePlacement.objects.filter(issue_id=issue_id).count(), 1)
+        refreshed_list = self.client.get(
+            "/api/writing/issues", {"sponsor_type": "group", "sponsor_slug": group.slug}
+        )
+        self.assertEqual(refreshed_list.data[0]["piece_ids"], [str(group_piece.id)])
+        cross_sponsor = self.client.post(
+            f"/api/writing/issues/{issue_id}/placements",
+            {"piece_id": str(self.pieces[0].id)}, format="json",
+        )
+        self.assertEqual(cross_sponsor.status_code, status.HTTP_403_FORBIDDEN)
+
+        preview = self.client.get(f"/api/writing/issues/{issue_id}/read")
+        self.assertTrue(preview.data["is_editor"])
+        self.assertEqual(len(preview.data["placements"]), 1)
+
+        outsider = User.objects.create_user(username="outsider", email="outsider@example.com")
+        self.client.force_authenticate(user=outsider)
+        self.assertEqual(
+            self.client.get(
+                "/api/writing/issues", {"sponsor_type": "group", "sponsor_slug": group.slug}
+            ).status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+        self.assertEqual(
+            self.client.post(
+                f"/api/writing/issues/{issue_id}/placements",
+                {"piece_id": str(group_piece.id)}, format="json",
+            ).status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+        outsider_preview = self.client.get(f"/api/writing/issues/{issue_id}/read")
+        self.assertEqual(outsider_preview.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_reassign_issue_sponsor_requires_execute_and_matching_pieces(self):
+        group = GroupService.create_group(
+            title="Transfer Group", group_type="community", created_by=self.user,
+            visibility="private",
+        )
+        created = self.client.post("/api/writing/issues", {"title": "Transfer Me"}, format="json")
+        issue = Issue.objects.get(pk=created.data["id"])
+        kwargs = {
+            "issue_id": str(issue.pk),
+            "from_member": self.user.username,
+            "group_slug": group.slug,
+        }
+        call_command("reassign_issue_sponsor", stdout=StringIO(), **kwargs)
+        issue.refresh_from_db()
+        self.assertEqual(issue.sponsor_object_id, self.user.pk)
+
+        IssuePlacement.objects.create(issue=issue, piece=self.pieces[0], order_index=0)
+        with self.assertRaises(CommandError):
+            call_command("reassign_issue_sponsor", execute=True, stdout=StringIO(), **kwargs)
+        issue.placements.all().delete()
+
+        group_piece = _create_piece(
+            author=self.user, title="Group Transfer", slug="group-transfer", sponsor=group,
+        )
+        IssuePlacement.objects.create(issue=issue, piece=group_piece, order_index=0)
+        call_command("reassign_issue_sponsor", execute=True, stdout=StringIO(), **kwargs)
+        issue.refresh_from_db()
+        self.assertEqual(issue.sponsor_object_id, group.pk)
+        self.assertEqual(issue.placements.count(), 1)

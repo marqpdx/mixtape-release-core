@@ -3,14 +3,17 @@
 
 from django.db import transaction
 from django.db.models import Max
+from django.contrib.contenttypes.models import ContentType
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from writing.models import WritingPiece, Issue, IssuePlacement
+from groups.models import Group, GroupMembership
 from writing.api.serializers import (
     IssuePlacementSerializer,
     IssueSerializer,
@@ -24,21 +27,53 @@ from writing.api.serializers import (
 # ---------------------------------------------------------------------------
 
 def _get_issue_for_user(issue_id, user):
-    """Fetch an Issue owned by the given user (member sponsor)."""
-    from django.contrib.contenttypes.models import ContentType
+    issue = get_object_or_404(Issue, id=issue_id)
+    if not _can_manage_issue(issue, user):
+        raise PermissionDenied("You cannot manage this Issue.")
+    return issue
+
+
+def _can_manage_issue(issue, user):
     user_ct = ContentType.objects.get_for_model(user)
-    return get_object_or_404(
-        Issue,
-        id=issue_id,
-        sponsor_content_type=user_ct,
-        sponsor_object_id=str(user.pk),
-    )
+    if issue.sponsor_content_type_id == user_ct.id:
+        return str(issue.sponsor_object_id) == str(user.pk)
+    group_ct = ContentType.objects.get_for_model(Group)
+    if issue.sponsor_content_type_id != group_ct.id:
+        return False
+    return _can_manage_group(issue.sponsor_object_id, user)
 
 
-def _get_sponsor_ct_and_id(user):
-    from django.contrib.contenttypes.models import ContentType
-    ct = ContentType.objects.get_for_model(user)
-    return ct, str(user.pk)
+def _can_manage_group(group_id, user):
+    if user.is_superuser:
+        return True
+    user_ct = ContentType.objects.get_for_model(user)
+    membership = GroupMembership.objects.filter(
+        group_id=group_id,
+        member_content_type=user_ct,
+        member_object_id=user.pk,
+        is_active=True,
+        is_pending=False,
+        is_banned=False,
+        is_evicted=False,
+    ).first()
+    return bool(membership and (membership.is_admin() or membership.is_owner()))
+
+
+def _resolve_sponsor(request):
+    source = request.data if request.method == "POST" else request.query_params
+    sponsor_type = source.get("sponsor_type", "member")
+    if sponsor_type == "member":
+        return ContentType.objects.get_for_model(request.user), request.user.pk
+    if sponsor_type != "group":
+        raise ValidationError({"sponsor_type": "Expected member or group."})
+    group_slug = source.get("sponsor_slug")
+    if not group_slug:
+        raise ValidationError({"sponsor_slug": "Required for group Issues."})
+    group = get_object_or_404(Group, slug=group_slug)
+    group_ct = ContentType.objects.get_for_model(Group)
+    if not _can_manage_group(group.pk, request.user):
+        raise PermissionDenied("You cannot manage this group's Issues.")
+    return group_ct, group.pk
 
 
 # ---------------------------------------------------------------------------
@@ -49,18 +84,18 @@ class IssueListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        ct, obj_id = _get_sponsor_ct_and_id(request.user)
+        ct, obj_id = _resolve_sponsor(request)
         issues = Issue.objects.filter(
             sponsor_content_type=ct,
             sponsor_object_id=obj_id,
-        ).order_by("-updated_at")
+        ).prefetch_related("placements__piece").order_by("-updated_at")
         return Response(IssueListSerializer(issues, many=True).data)
 
     def post(self, request):
         title = (request.data.get("title") or "").strip()
         if not title:
             return Response({"title": "Title is required."}, status=status.HTTP_400_BAD_REQUEST)
-        ct, obj_id = _get_sponsor_ct_and_id(request.user)
+        ct, obj_id = _resolve_sponsor(request)
         issue = Issue.objects.create(
             title=title,
             sponsor_content_type=ct,
@@ -158,11 +193,9 @@ class IssuePlacementsView(APIView):
 
         piece = get_object_or_404(WritingPiece, id=piece_id)
 
-        # Verify the piece belongs to the same sponsor
-        from django.contrib.contenttypes.models import ContentType
-        user_ct = ContentType.objects.get_for_model(request.user)
-        if piece.sponsor_content_type != user_ct or str(piece.sponsor_object_id) != str(request.user.pk):
-            return Response({"detail": "Piece does not belong to your writing."}, status=status.HTTP_403_FORBIDDEN)
+        if (piece.sponsor_content_type_id != issue.sponsor_content_type_id
+                or str(piece.sponsor_object_id) != str(issue.sponsor_object_id)):
+            return Response({"detail": "Piece and Issue must have the same sponsor."}, status=status.HTTP_403_FORBIDDEN)
 
         if IssuePlacement.objects.filter(issue=issue, piece=piece).exists():
             return Response({"detail": "Piece is already in this Issue."}, status=status.HTTP_400_BAD_REQUEST)
@@ -267,13 +300,11 @@ class IssueReadView(APIView):
     def get(self, request, issue_id):
         issue = get_object_or_404(Issue, id=issue_id)
 
-        from django.contrib.contenttypes.models import ContentType
-        user_ct = ContentType.objects.get_for_model(request.user)
-        is_owner = (
-            issue.sponsor_content_type_id == user_ct.pk
-            and str(issue.sponsor_object_id) == str(request.user.pk)
-        )
-        is_editor = is_owner or request.user.is_superuser
+        is_editor = request.user.is_superuser or _can_manage_issue(issue, request.user)
+        group_ct = ContentType.objects.get_for_model(Group)
+        if (issue.sponsor_content_type_id == group_ct.pk
+                and issue.status != "published" and not is_editor):
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
         data = IssueReadSerializer(issue).data
         if not is_editor:
