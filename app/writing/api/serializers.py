@@ -870,12 +870,13 @@ class IssueSerializer(serializers.ModelSerializer):
 class IssueListSerializer(serializers.ModelSerializer):
     member_count = serializers.SerializerMethodField()
     is_publishable = serializers.SerializerMethodField()
+    piece_ids = serializers.SerializerMethodField()
 
     class Meta:
         model = Issue
         fields = [
             "id", "title", "slug", "designation", "status", "published_at",
-            "created_at", "updated_at", "member_count", "is_publishable",
+            "created_at", "updated_at", "member_count", "is_publishable", "piece_ids",
         ]
         read_only_fields = fields
 
@@ -884,6 +885,9 @@ class IssueListSerializer(serializers.ModelSerializer):
 
     def get_is_publishable(self, obj):
         return obj.is_publishable
+
+    def get_piece_ids(self, obj):
+        return [str(placement.piece_id) for placement in obj.placements.all()]
 
 
 # ============================================================================
