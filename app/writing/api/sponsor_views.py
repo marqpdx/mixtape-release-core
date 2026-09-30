@@ -193,6 +193,11 @@ class SponsorDraftsListView(generics.ListAPIView):
             "dispatch_content__collaborator_assignments__user"
         )
 
+        if sponsor_type == "group":
+            from dispatch.access import active_group_ids
+            if not active_group_ids(user).filter(group_id=sponsor.pk).exists():
+                base_qs = base_qs.filter(dispatch_content__isnull=True)
+
         if filter_type == "my":
             # Only show user's own solo drafts (exclude collaborative)
             qs = base_qs.filter(user=user, dispatch_content__isnull=True)

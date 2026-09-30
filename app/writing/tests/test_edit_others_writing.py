@@ -72,6 +72,31 @@ class EditOthersWritingTests(TestCase):
         ))
         self.assertNotIn("edit_others_writing", DECORATOR_PERMISSIONS["can__ManageWriting"])
 
+    def test_view_others_drafts_is_group_scoped_and_not_in_manage_writing_decorator(self):
+        self._role("steward")
+        membership = GroupMembership.objects.get(group=self.group, member_object_id=self.editor.id)
+
+        for role in ("steward", "admin", "owner"):
+            with self.subTest(role=role):
+                membership.roles = [role]
+                membership.save(update_fields=["roles"])
+                self.assertTrue(PermissionService.can_user_perform_action(
+                    self.editor, "view_others_writing_drafts", group_slug=self.group.slug
+                ))
+                self.assertFalse(PermissionService.can_user_perform_action(
+                    self.editor, "view_others_writing_drafts", group_slug=self.other_group.slug
+                ))
+
+        for role in ("coordinator", "member"):
+            with self.subTest(role=role):
+                membership.roles = [role]
+                membership.save(update_fields=["roles"])
+                self.assertFalse(PermissionService.can_user_perform_action(
+                    self.editor, "view_others_writing_drafts", group_slug=self.group.slug
+                ))
+
+        self.assertNotIn("view_others_writing_drafts", DECORATOR_PERMISSIONS["can__ManageWriting"])
+
     def test_steward_can_edit_another_authors_group_piece_but_not_delete_it(self):
         self._role("steward")
         url = f"/api/writing/pieces/{self.piece.id}"

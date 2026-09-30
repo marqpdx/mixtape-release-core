@@ -1,7 +1,11 @@
 # dispatch/api/views.py
 
 import base64
+import binascii
+import hashlib
+import hmac
 import requests as http_requests
+import jwt
 from rest_framework import generics
 from rest_framework import permissions
 from rest_framework import viewsets
@@ -34,6 +38,11 @@ from dispatch.models import (
     DispatchOutlineNode,
     Post,
 )
+from dispatch.access import (
+    accessible_dispatch_content,
+    can_access_dispatch_content,
+    can_access_group_dispatch_piece,
+)
 from django.contrib.auth import get_user_model
 from livewire.auth import ServiceJWTAuthentication
 from livewire.permissions import HasDispatchWriteScope
@@ -45,18 +54,24 @@ User = get_user_model()
 def _is_dispatch_collaborator(user, piece) -> bool:
     if not user or not user.is_authenticated:
         return False
-    return DispatchContent.objects.filter(
+    return accessible_dispatch_content(user).filter(
         working_documents__piece=piece,
-        collaborators=user,
     ).exists()
 
 
 def _can_view_outline(user, piece) -> bool:
+    if not can_access_group_dispatch_piece(user, piece):
+        return False
     return piece.author_id == user.id or _is_dispatch_collaborator(user, piece)
 
 
 def _can_edit_outline(user, piece) -> bool:
-    return _can_view_outline(user, piece)
+    if not can_access_group_dispatch_piece(user, piece):
+        return False
+    content = DispatchContent.objects.filter(working_documents__piece=piece).first()
+    if content:
+        return can_access_dispatch_content(user, content, write=True)
+    return piece.author_id == user.id
 
 
 def _build_outline_tree(nodes):
@@ -118,10 +133,9 @@ class DispatchContentListCreateView(generics.ListCreateAPIView):
 
         # Base queryset: content where user is a collaborator
         qs = (
-            DispatchContent.objects.prefetch_related(
+            accessible_dispatch_content(user).prefetch_related(
                 Prefetch("collaborators", queryset=User.objects.select_related("profile"))
             )
-            .filter(collaborators=user)
         )
 
         return qs
@@ -137,8 +151,9 @@ class DispatchContentDetailView(generics.RetrieveUpdateAPIView):
     lookup_field = "id"  # UUID lookup
 
     def get_queryset(self):
-        user = self.request.user
-        return DispatchContent.objects.filter(collaborators=user)
+        return accessible_dispatch_content(
+            self.request.user, write=self.request.method not in permissions.SAFE_METHODS
+        )
 
     def partial_update(self, request, *args, **kwargs):
         """
@@ -252,11 +267,37 @@ class DispatchContentYjsStateView(generics.RetrieveUpdateAPIView):
     authentication_classes = [ServiceJWTAuthentication, JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated]
 
+    def _signed_livewire_flush(self):
+        token = self.request.headers.get("X-Livewire-Persist", "")
+        scopes = set((getattr(self.request, "auth_payload", {}) or {}).get("scopes", []))
+        if not token or "dispatch:write" not in scopes:
+            return None
+        try:
+            claims = jwt.decode(
+                token, settings.LIVEWIRE_JWT_SECRET, algorithms=["HS256"],
+                issuer="livewire-persist", audience="django-dispatch",
+                options={"require": ["exp", "iat"]},
+            )
+            state = base64.b64decode(self.request.data.get("yjs_state", ""), validate=True)
+            digest = hashlib.sha256(state).hexdigest()
+            if not hmac.compare_digest(digest, claims.get("state_sha256", "")):
+                return None
+            if claims.get("scope") != "dispatch:persist":
+                return None
+            return claims
+        except (jwt.PyJWTError, ValueError, TypeError, binascii.Error):
+            return None
+
     def get_queryset(self):
-        user = self.request.user
-        if not user.is_authenticated:
-            return DispatchContent.objects.none()
-        return DispatchContent.objects.filter(collaborators=user)
+        if self.request.method == "PATCH":
+            claims = self._signed_livewire_flush()
+            if claims and str(claims.get("content_id")) == str(self.kwargs["id"]):
+                return DispatchContent.objects.filter(
+                    pk=self.kwargs["id"], yjs_document_id=claims.get("document_id")
+                )
+        return accessible_dispatch_content(
+            self.request.user, write=self.request.method not in permissions.SAFE_METHODS
+        )
 
     def retrieve(self, request, *args, **kwargs):
         content = self.get_object()
@@ -304,6 +345,25 @@ class DispatchContentYjsStateView(generics.RetrieveUpdateAPIView):
         return Response({"error": "No yjs_state provided"}, status=400)
 
 
+class DispatchRoomAuthorizationView(APIView):
+    """Authorize one user-bound Livewire room action against current Core state."""
+
+    authentication_classes = [ServiceJWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated, HasDispatchWriteScope]
+
+    def post(self, request, id):
+        content = get_object_or_404(DispatchContent, pk=id)
+        action = request.data.get("action")
+        document_id = request.data.get("document_id")
+        if action not in {"read", "write"} or not document_id:
+            return Response({"detail": "action and document_id are required"}, status=400)
+        if str(content.yjs_document_id) != str(document_id):
+            return Response({"detail": "Document not found"}, status=404)
+        if not can_access_dispatch_content(request.user, content, write=action == "write"):
+            return Response({"detail": "Access denied"}, status=403)
+        return Response({"allowed": True})
+
+
 class DispatchContentCollaboratorsView(generics.GenericAPIView):
     """
     Manage collaborators for dispatch content.
@@ -319,8 +379,9 @@ class DispatchContentCollaboratorsView(generics.GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        user = self.request.user
-        return DispatchContent.objects.filter(collaborators=user)
+        return accessible_dispatch_content(
+            self.request.user, write=self.request.method not in permissions.SAFE_METHODS
+        )
 
     def get(self, request, *args, **kwargs):
         """List current collaborators"""
@@ -403,6 +464,7 @@ class DispatchContentPresenceView(generics.GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, id):
+        get_object_or_404(accessible_dispatch_content(request.user), pk=id)
         livewire_url = getattr(settings, "LIVEWIRE_INTERNAL_URL", "http://127.0.0.1:5001")
         try:
             resp = http_requests.get(
@@ -417,14 +479,34 @@ class DispatchContentPresenceView(generics.GenericAPIView):
 
 # DispatchContentVersion
 class DispatchContentVersionListCreateView(generics.ListCreateAPIView):
-    queryset = DispatchContentVersion.objects.all()
     serializer_class = DispatchContentVersionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return DispatchContentVersion.objects.filter(
+            content__in=accessible_dispatch_content(self.request.user)
+        )
+
+    def perform_create(self, serializer):
+        if not can_access_dispatch_content(self.request.user, serializer.validated_data["content"], write=True):
+            raise PermissionDenied
+        serializer.save(created_by=self.request.user)
 
 
 # DispatchEditSession
 class DispatchEditSessionListCreateView(generics.ListCreateAPIView):
-    queryset = DispatchEditSession.objects.all()
     serializer_class = DispatchEditSessionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return DispatchEditSession.objects.filter(
+            content__in=accessible_dispatch_content(self.request.user)
+        )
+
+    def perform_create(self, serializer):
+        if not can_access_dispatch_content(self.request.user, serializer.validated_data["content"], write=True):
+            raise PermissionDenied
+        serializer.save(user=self.request.user)
 
 
 class DispatchOutlineListView(generics.GenericAPIView):
@@ -512,19 +594,23 @@ def _get_dispatch_content_for_piece(piece):
 def _can_comment_on_piece(user, piece):
     if not user or not user.is_authenticated:
         return False
+    if not can_access_group_dispatch_piece(user, piece):
+        return False
     if piece.author_id == user.id:
         return True
     dc = _get_dispatch_content_for_piece(piece)
-    return dc is not None and dc.can_comment(user)
+    return dc is not None and can_access_dispatch_content(user, dc)
 
 
 def _can_resolve_on_piece(user, piece):
     if not user or not user.is_authenticated:
         return False
+    if not can_access_group_dispatch_piece(user, piece):
+        return False
     if piece.author_id == user.id:
         return True
     dc = _get_dispatch_content_for_piece(piece)
-    return dc is not None and dc.can_edit(user)
+    return dc is not None and can_access_dispatch_content(user, dc, write=True)
 
 
 class DispatchCommentCreateView(APIView):
@@ -581,7 +667,7 @@ class DispatchCommentByIdView(APIView):
 
     def patch(self, request, id):
         comment = get_object_or_404(DispatchComment, id=id, deleted_at__isnull=True)
-        if comment.author_id != request.user.id:
+        if comment.author_id != request.user.id or not _can_comment_on_piece(request.user, comment.writing_piece):
             raise PermissionDenied("Only the comment author can edit.")
         body = request.data.get("body", "").strip()
         if not body:
@@ -592,7 +678,7 @@ class DispatchCommentByIdView(APIView):
 
     def delete(self, request, id):
         comment = get_object_or_404(DispatchComment, id=id, deleted_at__isnull=True)
-        is_author = comment.author_id == request.user.id
+        is_author = comment.author_id == request.user.id and _can_comment_on_piece(request.user, comment.writing_piece)
         is_editor = _can_resolve_on_piece(request.user, comment.writing_piece)
         if not (is_author or is_editor):
             raise PermissionDenied
@@ -626,6 +712,3 @@ class DispatchCommentUnresolveView(APIView):
         comment.resolved_by = None
         comment.save(update_fields=["resolved_at", "resolved_by", "updated_at"])
         return Response(DispatchCommentSerializer(comment, context={"request": request}).data)
-
-
-
