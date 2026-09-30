@@ -180,6 +180,32 @@ class WorkingDocumentUpsertView(generics.GenericAPIView):
             piece.signed_off_by = None
             piece.save(update_fields=["spellcheck_clean", "signed_off", "signed_off_by", "updated_at"])
 
+            # Sync is_empty from the working copy's content, not the piece's
+            # own (stale) body_json -- autosave never touches piece.body_json
+            # directly, so without this a freshly-typed-into draft stays
+            # is_empty=True (its pre-creation default) and gets silently
+            # excluded from every drafts list that filters on it, until the
+            # working copy is eventually applied/published. Found via FCW-1
+            # testing (decisions/focus-centered-writing-adr/) but affects the
+            # classic drafts list identically -- same filter, same gap.
+            # .update() bypasses save()'s own is_empty recalculation (which
+            # would otherwise read the piece's stale body_json and clobber
+            # this), matching the existing precedent for the same problem
+            # lower in this file (WritingSplitSuggestion accept -- "Use
+            # update() to bypass the save() method which auto-recalculates
+            # is_empty").
+            # Always write (not conditioned on comparing against piece.is_empty
+            # in memory) -- the piece.save() call directly above this already
+            # silently recomputed self.is_empty as a side effect of its own
+            # save() override (reading the piece's stale body_json), even
+            # though update_fields kept it out of that SQL write. Comparing
+            # against that clobbered in-memory value is unreliable; writing
+            # unconditionally is cheap and correct.
+            from writing.models import body_json_has_content
+            new_is_empty = not body_json_has_content(wc.body_json)
+            WritingPiece.objects.filter(pk=piece.pk).update(is_empty=new_is_empty)
+            piece.is_empty = new_is_empty
+
         # Suggested excerpt: only fills in while the field is blank, so it
         # never overwrites anything the user has typed. Recomputed on every
         # autosave until the user provides their own excerpt (or clears it,
