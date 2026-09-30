@@ -4,6 +4,8 @@ import uuid
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.search import SearchVectorField
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
@@ -504,6 +506,7 @@ class WorkingDocument(BaseModel):
         """Check if this draft is in collaborative editing mode"""
         return self.dispatch_content is not None
 
+
     # Future workflow state helpers:
     # @property
     # def is_in_review(self):
@@ -552,6 +555,52 @@ class WorkingDocument(BaseModel):
             piece.save(update_fields=changed_fields + ["updated_at"])
             return True
         return False
+
+
+class WritingSearchDocument(BaseModel):
+    """Indexed text for one published snapshot or saved working draft."""
+
+    class Variant(models.TextChoices):
+        PUBLISHED = "published", "Published"
+        DRAFT = "draft", "Draft"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    piece = models.ForeignKey(
+        "WritingPiece", related_name="search_documents", on_delete=models.CASCADE
+    )
+    variant = models.CharField(max_length=12, choices=Variant.choices)
+    working_document = models.OneToOneField(
+        "WorkingDocument", related_name="search_document", null=True, blank=True,
+        on_delete=models.CASCADE,
+    )
+    title = models.CharField(max_length=255, blank=True)
+    excerpt = models.TextField(blank=True)
+    body_text = models.TextField(blank=True)
+    search_vector = SearchVectorField(null=True, editable=False)
+    source_updated_at = models.DateTimeField()
+    source_hash = models.CharField(max_length=64)
+
+    class Meta(BaseModel.Meta):
+        constraints = [
+            models.CheckConstraint(
+                name="write_search_variant_wc_valid",
+                condition=(
+                    Q(variant="published", working_document__isnull=True)
+                    | Q(variant="draft", working_document__isnull=False)
+                ),
+            ),
+            models.UniqueConstraint(
+                fields=["piece"], condition=Q(variant="published"),
+                name="uniq_write_search_published",
+            ),
+        ]
+        indexes = [
+            GinIndex(fields=["search_vector"], name="write_search_vector_gin"),
+            models.Index(
+                fields=["variant", "source_updated_at"],
+                name="write_search_variant_updated",
+            ),
+        ]
 
 
 class WritingVersion(BaseVersion):
