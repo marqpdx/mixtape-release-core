@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from django.contrib.contenttypes.models import ContentType
 from rest_framework.views import APIView
 
+from accounts.api.permissions import IsSuperUser
 from writing.models import WorkingDocument
 from .serializers import WorkingDocumentSerializer, WorkingDocumentListSerializer, RecentDraftSerializer
 from publishing.models import ContentPlacement
@@ -231,9 +232,15 @@ class RecentDraftsListView(generics.ListAPIView):
     show "everything this person has touched, anywhere" without a
     sponsor-selection prompt (that would violate the ADR's zero-prompt
     capture constraint).
+
+    Superuser-gated (2026-09-30): no Phase 1 route consumes this endpoint
+    yet (FCW-1 is still pending). IsSuperUser is a deliberate temporary
+    gate for this pre-release window, not a permanent access model — widen
+    to IsAuthenticated (matching the sibling SponsorDraftsListView) once
+    FCW-1 actually ships the Gate route that calls it.
     """
     serializer_class = RecentDraftSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsSuperUser]
     pagination_class = None
 
     def get_queryset(self):
