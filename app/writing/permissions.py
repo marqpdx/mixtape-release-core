@@ -2,6 +2,7 @@
 from rest_framework.permissions import BasePermission
 
 from groups.services.permissions import PermissionService
+from dispatch.access import can_access_group_dispatch_piece, accessible_dispatch_content
 
 
 def can_edit_others_group_writing(user, piece):
@@ -41,8 +42,17 @@ class CanEditWritingPiece(BasePermission):
         if not user or not user.is_authenticated:
             return False
 
-        # Author can always edit their own content
+        if not can_access_group_dispatch_piece(user, obj):
+            return False
+
+        # Authorship does not override a read-only Dispatch assignment.
         if obj.author_id == user.id:
+            from writing.models import WorkingDocument
+            linked = WorkingDocument.objects.filter(piece=obj, dispatch_content__isnull=False)
+            if linked.exists():
+                return linked.filter(
+                    dispatch_content__in=accessible_dispatch_content(user, write=True)
+                ).exists()
             return True
 
         if request.method == "DELETE":
@@ -55,7 +65,7 @@ class CanEditWritingPiece(BasePermission):
 
         if WorkingDocument.objects.filter(
             piece=obj,
-            dispatch_content__collaborators=user,
+            dispatch_content__in=accessible_dispatch_content(user, write=True),
         ).exists():
             return True
 
@@ -66,7 +76,15 @@ class CanEditWritingPieceDetails(BasePermission):
     """Detail edits require authorship or group-scoped cross-author authority."""
 
     def has_object_permission(self, request, view, obj):
+        if not can_access_group_dispatch_piece(request.user, obj):
+            return False
         if obj.author_id == getattr(request.user, "id", None):
+            from writing.models import WorkingDocument
+            linked = WorkingDocument.objects.filter(piece=obj, dispatch_content__isnull=False)
+            if linked.exists():
+                return linked.filter(
+                    dispatch_content__in=accessible_dispatch_content(request.user, write=True)
+                ).exists()
             return True
         if request.method == "DELETE":
             return False
@@ -81,6 +99,9 @@ class CanPublishWritingPiece(BasePermission):
     def has_object_permission(self, request, view, obj):
         user = request.user
         if not user or not user.is_authenticated:
+            return False
+
+        if not can_access_group_dispatch_piece(user, obj):
             return False
 
         # Author can always publish their own content

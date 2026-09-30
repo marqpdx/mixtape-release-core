@@ -471,6 +471,16 @@ class WritingPieceListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         qs = WritingPiece.objects.filter(author=self.request.user)
 
+        from dispatch.access import active_group_ids
+        from groups.models import Group
+        group_type = ContentType.objects.get_for_model(Group)
+        revoked_dispatch_drafts = WritingPiece.objects.filter(
+            status="draft",
+            sponsor_content_type=group_type,
+            working_copies__dispatch_content__isnull=False,
+        ).exclude(sponsor_object_id__in=active_group_ids(self.request.user)).values("pk")
+        qs = qs.exclude(pk__in=revoked_dispatch_drafts)
+
         status_param = self.request.query_params.get("status")
         if status_param in {"draft", "published", "scheduled", "archived"}:
             qs = qs.filter(status=status_param)
