@@ -4,6 +4,7 @@
 from django.urls import path
 
 from .sponsor_views import (
+    RecentDraftsListView,
     SponsorCategoriesView,
     SponsorDraftDeleteView,
     SponsorDraftsListView,
@@ -95,6 +96,7 @@ urlpatterns = [
     path("placements/<uuid:placement_id>/reactions", PlacementReactionView.as_view(), name="placement-reactions"),
     path("placement-comments/<uuid:pk>", PlacementCommentDetailView.as_view(), name="placement-comment-detail"),
     path("drafts", SponsorDraftsListView.as_view(), name="sponsor-drafts-list"),
+    path("drafts/recent", RecentDraftsListView.as_view(), name="writing-recent-drafts"),
     path("drafts/<uuid:pk>", SponsorDraftDeleteView.as_view(), name="sponsor-drafts-delete"),
 
     # Pieces

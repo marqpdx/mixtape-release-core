@@ -65,6 +65,66 @@ def _extract_plain_text(body_json: dict, char_limit: int = 600) -> str:
     return " ".join(parts)[:char_limit].strip()
 
 
+def _pm_node_size(node: dict) -> int:
+    """ProseMirror's own nodeSize rule: text nodes = text length; nodes with
+    content = 2 (open/close tokens) + children's sizes; leaf/atom nodes = 1.
+    Needed to map a client-reported cursor position (a PM doc position, not
+    a plain-text char offset) back onto the plain text this function emits.
+    """
+    if not isinstance(node, dict):
+        return 0
+    if node.get("type") == "text":
+        return len(node.get("text", ""))
+    content = node.get("content")
+    if isinstance(content, list):
+        return 2 + sum(_pm_node_size(c) for c in content)
+    return 1
+
+
+def extract_plain_text_near_position(
+    body_json: dict, position: int, before: int = 150, after: int = 150
+) -> str:
+    """Walk the doc tracking both PM position and emitted plain text, and
+    return a window of plain text centered on `position`. Falls back to a
+    from-the-start excerpt if `position` is 0/unset or out of range —
+    callers with no real cursor position should prefer `_extract_plain_text`
+    directly instead of passing position=0 here.
+    """
+    if not body_json or not isinstance(body_json, dict) or position <= 0:
+        return _extract_plain_text(body_json, before + after)
+
+    parts: list[str] = []
+    offset_in_plain_text: int | None = None
+    pm_pos = 0
+
+    def walk(node):
+        nonlocal pm_pos, offset_in_plain_text
+        node_type = node.get("type", "")
+        if node_type == "text":
+            text = node.get("text", "")
+            if offset_in_plain_text is None and pm_pos + len(text) >= position:
+                offset_in_plain_text = sum(len(p) for p in parts) + max(0, position - pm_pos)
+            parts.append(text)
+            pm_pos += len(text)
+            return
+        pm_pos += 1  # opening token for non-text nodes
+        for child in node.get("content", []) or []:
+            walk(child)
+        pm_pos += 1  # closing token
+
+    walk(body_json)
+    plain_text = " ".join(parts).strip()
+
+    if offset_in_plain_text is None:
+        # Cursor position fell past the end of the walked text (stale/edited
+        # doc) — fall back to the tail of the document rather than guessing.
+        return plain_text[-(before + after):].strip()
+
+    start = max(0, offset_in_plain_text - before)
+    end = min(len(plain_text), offset_in_plain_text + after)
+    return plain_text[start:end].strip()
+
+
 def _derive_canonical_url(piece) -> str:
     if piece.canonical_url:
         return piece.canonical_url

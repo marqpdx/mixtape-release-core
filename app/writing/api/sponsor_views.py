@@ -15,7 +15,7 @@ from django.contrib.contenttypes.models import ContentType
 from rest_framework.views import APIView
 
 from writing.models import WorkingDocument
-from .serializers import WorkingDocumentSerializer, WorkingDocumentListSerializer
+from .serializers import WorkingDocumentSerializer, WorkingDocumentListSerializer, RecentDraftSerializer
 from publishing.models import ContentPlacement
 from publishing.services.content_access import can_view_placement
 from publishing.services.content_display import get_display_payload
@@ -213,6 +213,53 @@ class SponsorDraftsListView(generics.ListAPIView):
             qs = base_qs.filter(user=user)
 
         return qs.order_by("-last_saved_at")
+
+
+class RecentDraftsListView(generics.ListAPIView):
+    """
+    Cross-sponsor recent drafts for the logged-in user — every non-empty
+    solo or collaborative draft they own or collaborate on, across every
+    Group/Member sponsor context, ordered by last edit.
+
+    URL pattern: /api/writing/drafts/recent
+    Query params:
+      - limit: max rows to return (default 20)
+
+    Built for the Focus-Centered Writing Gate (`decisions/
+    focus-centered-writing-adr/`, ADR §6) — the existing SponsorDraftsListView
+    is scoped to one sponsor at a time, which doesn't fit a Gate meant to
+    show "everything this person has touched, anywhere" without a
+    sponsor-selection prompt (that would violate the ADR's zero-prompt
+    capture constraint).
+    """
+    serializer_class = RecentDraftSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    pagination_class = None
+
+    def get_queryset(self):
+        user = self.request.user
+        limit = int(self.request.query_params.get("limit", 20))
+
+        qs = WorkingDocument.objects.filter(
+            piece__status="draft",
+        ).exclude(
+            piece__is_empty=True
+        ).filter(
+            models.Q(user=user) |
+            models.Q(dispatch_content__collaborators=user)
+        ).distinct().select_related(
+            "piece",
+            "piece__author",
+            "piece__series",
+            "piece__sponsor_content_type",
+            "user",
+            "user__profile",
+            "dispatch_content",
+        ).prefetch_related(
+            "dispatch_content__collaborator_assignments__user"
+        ).order_by("-last_saved_at")
+
+        return qs[:limit]
 
 
 class SponsorDraftDeleteView(generics.DestroyAPIView):

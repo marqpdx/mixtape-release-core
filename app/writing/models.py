@@ -449,6 +449,14 @@ class WorkingDocument(BaseModel):
     last_saved_at = models.DateTimeField(auto_now=True)
     auto_save_count = models.PositiveIntegerField(default=0)
     client_session_id = models.CharField(max_length=64, blank=True)
+
+    # Cursor/scroll resume state — a ProseMirror doc position (not a plain-
+    # text char offset) and a pixel scroll offset, sent by the client on
+    # every autosave. Server-side so Resume works across devices/sessions,
+    # not just the browser that last edited (Focus-Centered Writing ADR §5,
+    # §8 [verify] items).
+    cursor_position = models.PositiveIntegerField(default=0)
+    scroll_position = models.PositiveIntegerField(default=0)
     # Set once when piece.body_json is bootstrapped into this WC on first GET.
     # Null means the bootstrap check has not yet run for this WC row.
     bootstrapped_at = models.DateTimeField(null=True, blank=True)

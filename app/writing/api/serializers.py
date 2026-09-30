@@ -304,7 +304,8 @@ class WorkingDocumentLightSerializer(serializers.ModelSerializer):
     class Meta:
         model = WorkingDocument
         fields = ["id", "piece", "body_json", "title", "excerpt",
-                "last_saved_at", "auto_save_count", "client_session_id"]
+                "last_saved_at", "auto_save_count", "client_session_id",
+                "cursor_position", "scroll_position"]
         read_only_fields = ["last_saved_at", "auto_save_count"]
 
 
@@ -610,6 +611,42 @@ class WorkingDocumentListSerializer(WorkingDocumentSerializer):
             f for f in WorkingDocumentSerializer.Meta.fields
             if f != "body_json"
         ] + ["body_preview", "preview_paragraphs"]
+
+
+class RecentDraftSerializer(WorkingDocumentListSerializer):
+    """Cross-sponsor recent-docs list for the Focus-Centered Writing Gate
+    (ADR `decisions/focus-centered-writing-adr/`, §6). Same shape as
+    WorkingDocumentListSerializer, except body_preview is anchored to the
+    stored cursor position instead of the start of the document — classic
+    surfaces keep using the parent class's start-of-doc preview unchanged.
+    """
+    sponsor_type = serializers.SerializerMethodField()
+    sponsor_label = serializers.SerializerMethodField()
+
+    def get_sponsor_type(self, obj):
+        ct = obj.piece.sponsor_content_type if obj.piece_id else None
+        return ct.model if ct else None
+
+    def get_sponsor_label(self, obj):
+        if not obj.piece_id or not obj.piece.sponsor_content_type:
+            return None
+        if obj.piece.sponsor_content_type.model == "group":
+            group = obj.piece.group
+            return group.slug if group else None
+        sponsor = obj.piece.sponsor
+        return getattr(sponsor, "username", None)
+
+    def get_body_preview(self, obj):
+        from writing.synopsis_service import extract_plain_text_near_position
+
+        return extract_plain_text_near_position(
+            self._preview_body(obj), obj.cursor_position, before=150, after=150
+        )
+
+    class Meta(WorkingDocumentListSerializer.Meta):
+        fields = WorkingDocumentListSerializer.Meta.fields + [
+            "cursor_position", "scroll_position", "sponsor_type", "sponsor_label",
+        ]
 
 
 # ============================================================================
