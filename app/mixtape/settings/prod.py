@@ -178,10 +178,14 @@ ALLOWED_HOSTS = [
     "crossroads.place",
     ".crossroads.place",
     ".go.crossroads.place",      # public landing subdomains ({slug}.go.crossroads.place)
-    "70.34.212.85",
     "localhost",
     "127.0.0.1",
 ]
+# Server IP is set via env, not hardcoded, so it doesn't leak as infra recon
+# info in a public repo. Set EXTRA_ALLOWED_HOST on the production server.
+_extra_allowed_host = os.getenv("EXTRA_ALLOWED_HOST")
+if _extra_allowed_host:
+    ALLOWED_HOSTS.append(_extra_allowed_host)
 
 # Logging
 LOGGING = {
