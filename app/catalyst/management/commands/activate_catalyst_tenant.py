@@ -7,8 +7,8 @@ Step 1 (IR namespace) and Step 8 (activation email) are not yet wired and are
 noted in the output.
 
 Usage:
-    python manage.py activate_catalyst_tenant --slug=mindful-brilliance
-    python manage.py activate_catalyst_tenant --slug=mindful-brilliance --dry-run
+    python manage.py activate_catalyst_tenant --slug=example-tenant
+    python manage.py activate_catalyst_tenant --slug=example-tenant --dry-run
 """
 
 from django.core.management.base import BaseCommand, CommandError

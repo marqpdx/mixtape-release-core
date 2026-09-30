@@ -256,7 +256,7 @@ OPS_BACKUP_MONITORS = {
 SOURCEWORK_LANTERNMAIL_TEST_EMAILS = [
     {"email": "marq@streetyoga.org", "name": "Renata Solberg"},
     {"email": "marq@noticedesign.net", "name": "Darian Foss"},
-    {"email": "info@mindfulbrilliance.com", "name": "Cleo Wainwright"},
+    {"email": "info@example-test-tenant.com", "name": "Cleo Wainwright"},
 ]
 
 

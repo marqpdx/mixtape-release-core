@@ -2,8 +2,8 @@
 Seed the Recruiter AI Literacy pilot course for a group.
 
 Usage:
-    python manage.py seed_recruiter_ai_literacy mindful-brilliance
-    python manage.py seed_recruiter_ai_literacy mindful-brilliance --username admin
+    python manage.py seed_recruiter_ai_literacy example-tenant
+    python manage.py seed_recruiter_ai_literacy example-tenant --username admin
 """
 
 from django.contrib.auth import get_user_model
