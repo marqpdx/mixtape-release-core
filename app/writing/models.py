@@ -25,6 +25,26 @@ def is_provisional_slug(slug: str | None) -> bool:
     return bool(slug and slug.startswith(PROVISIONAL_SLUG_PREFIX))
 
 
+def body_json_has_content(body_json: dict | None) -> bool:
+    """True if a ProseMirror/TipTap doc has any real text or non-paragraph
+    content (images, etc.), not just empty structure. Shared between
+    WritingPiece.save()'s is_empty auto-management and anything else that
+    needs to judge emptiness from a body_json blob directly (e.g. a
+    WorkingDocument's own body_json, which is not the same object as the
+    piece's and can go stale relative to it between autosaves)."""
+    if not body_json:
+        return False
+    content = body_json.get("content", [])
+    for node in content:
+        if node.get("content"):
+            for child in node.get("content", []):
+                if child.get("type") == "text" and (child.get("text") or "").strip():
+                    return True
+        elif node.get("type") not in ["paragraph", "doc"]:
+            return True
+    return False
+
+
     # Add a mixin for publishable content
 
 class PublishableContentMixin(models.Model):
@@ -376,32 +396,7 @@ class WritingPiece(BaseContent, PublishableContentMixin):
             self.slug = None  # triggers BaseContent slug generation
 
         # Auto-manage is_empty flag based on content
-        # A piece is empty if it has no body_json content or only whitespace
-        if not self.body_json:
-            self.is_empty = True
-        else:
-            # Check if body_json has actual content (not just empty structure)
-            # TipTap typically creates: {"type": "doc", "content": [{"type": "paragraph"}]}
-            content = self.body_json.get("content", [])
-            has_content = False
-
-            for node in content:
-                # Check if any node has text content
-                if node.get("content"):
-                    # Has nested content - check for actual text
-                    for child in node.get("content", []):
-                        if child.get("type") == "text" and (child.get("text") or "").strip():
-                            has_content = True
-                            break
-                elif node.get("type") not in ["paragraph", "doc"]:
-                    # Has non-paragraph content (images, etc.)
-                    has_content = True
-                    break
-
-                if has_content:
-                    break
-
-            self.is_empty = not has_content
+        self.is_empty = not body_json_has_content(self.body_json)
 
         # Reading time
         if self.body_json:
