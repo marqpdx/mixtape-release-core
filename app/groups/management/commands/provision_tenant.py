@@ -6,8 +6,8 @@ Group record with the correct tenant flags and reports the result. Does not
 create memberships, public pages, or Catalyst Codex — those are separate steps.
 
 Usage:
-    python manage.py provision_tenant --slug=mindful-brilliance \\
-        --title="Mindful Brilliance" \\
+    python manage.py provision_tenant --slug=example-tenant \\
+        --title="Example Tenant" \\
         --catalyst-enabled
 
 Options:

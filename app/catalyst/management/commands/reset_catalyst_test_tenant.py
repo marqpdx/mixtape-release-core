@@ -6,13 +6,13 @@ Codex directory from the filesystem. Safe to run repeatedly. Never run
 against production — the command aborts if DEBUG=False.
 
 The slug argument may be specified multiple times. For each slug the command
-also sweeps integer-suffix variants (mindful-brilliance-1, -2, etc.). Non-
-integer suffixes (mindful-brilliance-test) must be named explicitly.
+also sweeps integer-suffix variants (example-test-tenant-1, -2, etc.). Non-
+integer suffixes (example-test-tenant-test) must be named explicitly.
 
 Usage:
     python manage.py reset_catalyst_test_tenant
-    python manage.py reset_catalyst_test_tenant --slug=mindful-brilliance --slug=mindful-brilliance-test
-    python manage.py reset_catalyst_test_tenant --email=info@mindfulbrilliance.com --dry-run
+    python manage.py reset_catalyst_test_tenant --slug=example-test-tenant --slug=example-test-tenant-test
+    python manage.py reset_catalyst_test_tenant --email=info@example-test-tenant.com --dry-run
 """
 
 import shutil
@@ -21,8 +21,8 @@ from pathlib import Path
 from django.core.management.base import BaseCommand, CommandError
 
 
-SLUG_DEFAULT = "mindful-brilliance"
-EMAIL_DEFAULT = "info@mindfulbrilliance.com"
+SLUG_DEFAULT = "example-test-tenant"
+EMAIL_DEFAULT = "info@example-test-tenant.com"
 
 
 class Command(BaseCommand):
@@ -30,7 +30,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--slug", action="append", dest="slugs", metavar="SLUG",
-                            help="Tenant slug to reset (repeatable). Defaults to mindful-brilliance.")
+                            help="Tenant slug to reset (repeatable). Defaults to example-test-tenant.")
         parser.add_argument("--email", default=EMAIL_DEFAULT)
         parser.add_argument("--dry-run", action="store_true", default=False)
 

@@ -42,7 +42,7 @@ class GroupPublicConfig(models.Model):
     hero_eyebrow = models.CharField(
         max_length=200,
         blank=True,
-        help_text='Orientation label, e.g. "Mindful Brilliance · Crossroads"',
+        help_text='Orientation label, e.g. "Example Tenant · Crossroads"',
     )
     hero_headline = models.CharField(
         max_length=500,

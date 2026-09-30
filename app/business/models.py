@@ -200,7 +200,7 @@ class FixItem(BaseModel):
 
 class Client(BaseModel):
     """
-    A Mindful Brilliance client — an organisation we have a direct relationship
+    An example client — an organisation we have a direct relationship
     with, invoice, and do knowledge-building work for.
 
     Always linked to a Group (the operational unit) and optionally to the

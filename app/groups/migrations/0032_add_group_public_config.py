@@ -20,7 +20,7 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
                 ('is_active', models.BooleanField(default=False, help_text='When True, the public landing page is reachable by anonymous visitors.')),
-                ('hero_eyebrow', models.CharField(blank=True, help_text='Orientation label, e.g. "Mindful Brilliance · Crossroads"', max_length=200)),
+                ('hero_eyebrow', models.CharField(blank=True, help_text='Orientation label, e.g. "Example Tenant · Crossroads"', max_length=200)),
                 ('hero_headline', models.CharField(blank=True, help_text='Point-of-view thesis — not a description', max_length=500)),
                 ('hero_body', models.TextField(blank=True, help_text='2–3 sentences of context below the headline')),
                 ('hero_primary_cta_label', models.CharField(blank=True, max_length=100)),

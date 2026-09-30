@@ -76,8 +76,8 @@ class WritingSynopsisActionTests(TestCase):
         permission = Permission.objects.get(codename="approve_cloud_dispatch")
         self.author.user_permissions.add(permission)
         group = Group.objects.create(
-            title="Mindful Brilliance",
-            slug="mindful-brilliance",
+            title="Example Tenant",
+            slug="example-tenant",
             description="A careful practice.",
             group_type="community",
             decorators=[],
@@ -97,10 +97,10 @@ class WritingSynopsisActionTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         action_run = ActionRun.objects.get(pk=response.json()["action_run_id"])
         self.assertEqual(action_run.tenant_id, group.id)
-        self.assertEqual(action_run.tenant_namespace, "group:mindful-brilliance")
+        self.assertEqual(action_run.tenant_namespace, "group:example-tenant")
         task_kwargs = send_task.call_args.kwargs["kwargs"]
         self.assertEqual(task_kwargs["tenant_id"], str(group.id))
-        self.assertEqual(task_kwargs["tenant_namespace"], "group:mindful-brilliance")
+        self.assertEqual(task_kwargs["tenant_namespace"], "group:example-tenant")
 
     def test_editing_summary_revokes_prior_confirmation(self):
         synopsis, _ = WritingSynopsis.objects.get_or_create(piece=self.piece)
