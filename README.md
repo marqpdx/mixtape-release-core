@@ -2,7 +2,7 @@
 
 Production Django backend for Mixtape, Crossroads, Catalyst, and related AI-native collaboration services.
 
-This repository is private technical proof for a live production system. Mixtape has been live since April 2026 with over 99.99% uptime. The codebase has over 500 commits and is operated as part of a larger release constellation that includes frontend, realtime, ingestion, semantic memory, research, and governance repositories.
+This is the public Django backend for a live production system, shared for technical review. Mixtape has been live since April 2026 with over 99.99% uptime. The codebase has 685 commits and is operated as part of a larger release constellation that includes frontend, realtime, ingestion, semantic memory, research, and governance repositories.
 
 ## What This System Does
 
@@ -80,6 +80,6 @@ Legacy requirements files have been renamed:
 - `zz_requirements.txt`
 - `app/zz_requirements.txt`
 
-## Privacy And Access
+## About This Repository
 
-This repository is private because it contains the full implementation of a production platform. Access is granted selectively for technical review, hiring evaluation, or trusted collaboration. Sensitive secrets are not committed to the repository.
+This repository is public for technical review, hiring evaluation, and portfolio purposes. It reflects the full implementation of a production platform. No license is granted for reuse, modification, or redistribution of this code; all rights are reserved. Sensitive secrets are not committed to the repository.
