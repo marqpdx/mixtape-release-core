@@ -192,13 +192,14 @@ def summarize_async_proxy(request):
         },
     )
 
+    # SummarizePayload (mixtape-release-switchboard, app/core/inkwell_models.py)
+    # only accepts text/words/style and has extra="forbid" -- content_type/
+    # summary_style/source_id are already captured above in request_payload
+    # for traceability; they don't belong on the payload forwarded to the task.
     summarize_payload = {
         "text": text,
-        "content_type": content_type,
         "words": words,
         "style": style,
-        "summary_style": summary_style,
-        "source_id": source_id,
     }
 
     celery_app.send_task(
@@ -1180,13 +1181,14 @@ def agent_synopsis_public_proxy(request):
 
     tenant_id = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_ID", _DEFAULT_TENANT_ID))
     tenant_namespace = str(getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", _DEFAULT_TENANT_NAMESPACE))
+    # SummarizePayload (mixtape-release-switchboard, app/core/inkwell_models.py)
+    # only accepts text/words/style and has extra="forbid" -- content_type/
+    # summary_style/source_id belong on the ActionRun's request_payload for
+    # traceability, not on the payload forwarded to the task.
     summarize_payload = {
         "text": source_text,
-        "content_type": "writing.piece",
         "words": 70,
         "style": "neutral",
-        "summary_style": "brief",
-        "source_id": piece_id,
     }
     action_run = ActionRun.objects.create(
         tool_name="writing.summarize",
