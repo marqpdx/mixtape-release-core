@@ -200,8 +200,8 @@ class CategoryView(APIView):
 
 _SUMMARY_FIELD_MAP = {
     "public_synopsis": ("description", "public_synopsis_confirmed"),
-    "linkedin_synopsis": ("linkedin_copy", "linkedin_synopsis_confirmed"),
-    "internal_abstract": ("internal_abstract", "internal_abstract_confirmed"),
+    "linkedin_introduction": ("linkedin_copy", "linkedin_synopsis_confirmed"),
+    "internal_notes": ("internal_abstract", "internal_abstract_confirmed"),
 }
 
 _VALID_TYPES = set(_SUMMARY_FIELD_MAP.keys())
@@ -213,11 +213,12 @@ def _synopsis_response(synopsis, piece=None) -> dict:
             "text": synopsis.description,
             "confirmed": synopsis.public_synopsis_confirmed,
         },
-        "linkedin_synopsis": {
+        "linkedin_introduction": {
             "text": synopsis.linkedin_copy,
             "confirmed": synopsis.linkedin_synopsis_confirmed,
+            "extended": synopsis.linkedin_copy_extended,
         },
-        "internal_abstract": {
+        "internal_notes": {
             "text": synopsis.internal_abstract,
             "confirmed": synopsis.internal_abstract_confirmed,
         },
