@@ -126,7 +126,7 @@ def detect_and_sync_markers(piece) -> list:
 
 
 CRAFT_DIMENSIONS = ("tags", "category", "summaries", "series", "relations")
-SUMMARY_FIELDS = ("public_synopsis", "linkedin_synopsis", "internal_abstract")
+SUMMARY_FIELDS = ("public_synopsis", "linkedin_introduction", "internal_notes")
 CRAFT_IGNORABLE_DIMENSIONS = CRAFT_DIMENSIONS + tuple(
     f"summaries.{field}" for field in SUMMARY_FIELDS
 )
@@ -135,8 +135,8 @@ CRAFT_IGNORABLE_DIMENSIONS = CRAFT_DIMENSIONS + tuple(
 def _summary_states(synopsis, ignored):
     values = {
         "public_synopsis": "description",
-        "linkedin_synopsis": "linkedin_copy",
-        "internal_abstract": "internal_abstract",
+        "linkedin_introduction": "linkedin_copy",
+        "internal_notes": "internal_abstract",
     }
     states = {}
     for field, text_attr in values.items():
