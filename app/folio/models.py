@@ -195,6 +195,24 @@ class FolioNote(BaseModel):
 
     source = models.CharField(max_length=32, blank=True, default="")  # "mobile", "web", ...
 
+    # Tending output (build plan §22–§23) — model-derived metadata that
+    # augments the note, never replaces it. Produced via Switchboard →
+    # Inkwell `folio_note_tend`; the ActionRun is the full request/response
+    # record, these fields are the projection the surfaces read.
+    summary = models.TextField(blank=True, default="")
+    mentions = models.JSONField(default=list, blank=True)  # [{"surface", "kind"}], grounded in the note text
+    tending_action_run = models.ForeignKey(
+        "initiatives.ActionRun",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="tended_folio_notes",
+    )
+    tended_at = models.DateTimeField(null=True, blank=True)
+    tending_model = models.CharField(max_length=128, blank=True, default="")
+    tending_prompt_version = models.CharField(max_length=64, blank=True, default="")
+    tending_error = models.TextField(blank=True, default="")
+
     class Meta(BaseModel.Meta):
         indexes = [
             models.Index(fields=["folio", "created_at"]),

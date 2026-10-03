@@ -212,6 +212,12 @@ app.conf.task_routes = {
     "folio.tasks.transcribe_folio_note_task": {
         "queue": "transcription", "routing_key": "transcription"
     },
+    "folio.tasks.tend_folio_note_task": {
+        "queue": "commons", "routing_key": "commons"
+    },
+    "folio.tasks.apply_folio_note_tending": {
+        "queue": "commons", "routing_key": "commons"
+    },
     "threadworks.tasks.apply_memory_value_decay_task": {
         "queue": "polling", "routing_key": "polling"
     },
