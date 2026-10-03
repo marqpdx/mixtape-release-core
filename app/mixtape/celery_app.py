@@ -209,6 +209,9 @@ app.conf.task_routes = {
     "initiatives.tasks.transcribe_initiatives_job": {
         "queue": "transcription", "routing_key": "transcription"
     },
+    "folio.tasks.transcribe_folio_note_task": {
+        "queue": "transcription", "routing_key": "transcription"
+    },
     "threadworks.tasks.apply_memory_value_decay_task": {
         "queue": "polling", "routing_key": "polling"
     },

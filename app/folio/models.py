@@ -15,6 +15,8 @@ from django.db import models
 
 from fundamentals.bases import BaseModel
 
+from folio.shapes import Shape, effective_shape
+
 User = get_user_model()
 
 
@@ -121,3 +123,90 @@ class FolioMaterialCandidate(BaseModel):
 
     def __str__(self):
         return f"{self.candidate_type}:{self.status} [{self.source_span_start}:{self.source_span_end}]"
+
+
+# ---------------------------------------------------------------------------
+# Folio Notes PoC (puddlejump/decisions/folio/folio-notes-poc-build-plan.md,
+# folio-notes-poc-mobile-handoff.md). A different capture mode for the same
+# Folio — structurally distinct from FolioInception/FolioMaterialCandidate
+# and from Field Notes (build plan §3.2–3.3). Status/transcription fields
+# mirror writing.Seed's voice pipeline.
+# ---------------------------------------------------------------------------
+
+
+class FolioNoteSource(models.TextChoices):
+    VOICE = "voice", "Voice"
+    TEXT = "text", "Text"
+
+
+class FolioNoteStatus(models.TextChoices):
+    PROCESSING = "processing", "Processing"
+    READY = "ready", "Ready"
+    FAILED = "failed", "Failed"
+
+
+class FolioNote(BaseModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    folio = models.ForeignKey(Folio, on_delete=models.CASCADE, related_name="notes")
+
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_folio_notes",
+    )
+
+    source_type = models.CharField(max_length=16, choices=FolioNoteSource.choices)
+
+    # Exact typed input for text notes. Voice notes keep their words in
+    # transcript_text instead — raw Material is canonical (build plan §4.3),
+    # so neither is ever overwritten by model output.
+    raw_text = models.TextField(blank=True, default="")
+
+    # Source audio is retained (build plan §19) so transcription mistakes can
+    # be inspected and a failed transcription can be retried.
+    audio_file = models.ForeignKey(
+        "files.StoredFile",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="folio_notes",
+    )
+
+    transcript_text = models.TextField(blank=True, default="")
+    transcript_model = models.CharField(max_length=64, blank=True, default="")
+    transcript_backend = models.CharField(max_length=32, blank=True, default="")
+    transcript_created_at = models.DateTimeField(null=True, blank=True)
+    transcript_error = models.TextField(blank=True, default="")
+
+    status = models.CharField(
+        max_length=16,
+        choices=FolioNoteStatus.choices,
+        default=FolioNoteStatus.READY,
+    )
+
+    # Plain strings validated against folio.shapes.Shape — kept separate so
+    # model inference and human judgment never collapse (build plan §12).
+    suggested_shape = models.CharField(max_length=32, choices=Shape.choices, blank=True, default="")
+    shape_confidence = models.FloatField(null=True, blank=True)
+    confirmed_shape = models.CharField(max_length=32, choices=Shape.choices, blank=True, default="")
+
+    source = models.CharField(max_length=32, blank=True, default="")  # "mobile", "web", ...
+
+    class Meta(BaseModel.Meta):
+        indexes = [
+            models.Index(fields=["folio", "created_at"]),
+        ]
+
+    @property
+    def text(self) -> str:
+        return self.raw_text if self.source_type == FolioNoteSource.TEXT else self.transcript_text
+
+    @property
+    def shape(self) -> str:
+        return effective_shape(self.suggested_shape, self.confirmed_shape)
+
+    def __str__(self):
+        return f"FolioNote<{self.id}> {self.source_type}:{self.status}"
