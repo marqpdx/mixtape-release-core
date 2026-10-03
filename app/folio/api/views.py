@@ -1,28 +1,51 @@
 # folio/api/views.py
 
 import time
+import uuid
 
+from django.core.files.storage import default_storage
 from django.db import transaction
 from django.shortcuts import get_object_or_404
+from django.utils.text import get_valid_filename
 from rest_framework import permissions, status
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from files.models import StoredFile
 from inkwell.client import InkwellUnavailableError
 
-from folio.models import CandidateStatus, Folio, FolioInception, FolioMaterialCandidate
+from folio.models import (
+    CandidateStatus,
+    Folio,
+    FolioInception,
+    FolioMaterialCandidate,
+    FolioNote,
+    FolioNoteSource,
+    FolioNoteStatus,
+)
 from folio.services.gate1_parse import parse_gate1
 from folio.services.gate2_extract import extract_gate2
 from folio.services.gate3_classify import classify_gate3
 from folio.services.gate4_normalize import build_candidates, derive_title
 from folio.services.gate5_validate import validate_candidates
+from folio.tasks import transcribe_folio_note_task
 from .serializers import (
+    FolioCreateSerializer,
     FolioInceptionCreateSerializer,
     FolioInceptionSerializer,
     FolioMaterialCandidatePatchSerializer,
     FolioMaterialCandidateSerializer,
+    FolioNoteSerializer,
+    FolioNoteTextCreateSerializer,
+    FolioSerializer,
     FolioTitlePatchSerializer,
 )
+
+# Same limits as Notebook voice Seeds (writing.api.views).
+MAX_FOLIO_NOTE_AUDIO_BYTES = 20 * 1024 * 1024  # 20MB
+ALLOWED_AUDIO_PREFIXES = ("audio/",)
+ALLOWED_AUDIO_MIME = ("video/webm",)
 
 
 class FolioInceptionListCreateView(APIView):
@@ -246,3 +269,115 @@ class FolioMaterialCandidateRejectView(APIView):
         candidate.status = CandidateStatus.REJECTED
         candidate.save(update_fields=["status", "updated_at"])
         return Response(FolioMaterialCandidateSerializer(candidate).data)
+
+
+# ---------------------------------------------------------------------------
+# Folio Notes PoC (puddlejump/decisions/folio/folio-notes-poc-mobile-handoff.md)
+# ---------------------------------------------------------------------------
+
+
+class FolioListCreateView(APIView):
+    """
+    GET  /folios -> the writer's Folios, for Folio selection on the Notes surface.
+    POST /folios -> a bare Folio (title only), so Notes capture doesn't require
+                    going through an Inception first.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        folios = Folio.objects.filter(created_by=request.user).order_by("-updated_at")
+        return Response(FolioSerializer(folios, many=True).data)
+
+    def post(self, request):
+        serializer = FolioCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        folio = Folio.objects.create(title=serializer.validated_data["title"], created_by=request.user)
+        return Response(FolioSerializer(folio).data, status=status.HTTP_201_CREATED)
+
+
+class FolioNoteListCreateView(APIView):
+    """
+    GET  /folios/<id>/notes -> recent FolioNotes, newest first.
+    POST /folios/<id>/notes -> capture. Multipart with `audio_file` for voice,
+         or JSON/form `raw_text` for text. Persists immediately and returns
+         without waiting on any model work (build plan §4.2, §45): voice notes
+         come back `processing` with transcription enqueued; text notes come
+         back `ready`.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
+
+    def get(self, request, folio_id):
+        folio = get_object_or_404(Folio, pk=folio_id, created_by=request.user)
+        try:
+            limit = max(1, min(int(request.query_params.get("limit", 50)), 200))
+        except ValueError:
+            limit = 50
+        notes = folio.notes.order_by("-created_at")[:limit]
+        return Response(FolioNoteSerializer(notes, many=True).data)
+
+    def post(self, request, folio_id):
+        folio = get_object_or_404(Folio, pk=folio_id, created_by=request.user)
+        audio_file = request.FILES.get("audio_file")
+        if audio_file:
+            return self._create_voice_note(request, folio, audio_file)
+
+        serializer = FolioNoteTextCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        note = FolioNote.objects.create(
+            folio=folio,
+            created_by=request.user,
+            source_type=FolioNoteSource.TEXT,
+            raw_text=serializer.validated_data["raw_text"],
+            status=FolioNoteStatus.READY,
+            source=serializer.validated_data["source"],
+        )
+        return Response(FolioNoteSerializer(note).data, status=status.HTTP_201_CREATED)
+
+    def _create_voice_note(self, request, folio, audio_file):
+        if audio_file.size > MAX_FOLIO_NOTE_AUDIO_BYTES:
+            return Response(
+                {"detail": f"Audio file too large (max {MAX_FOLIO_NOTE_AUDIO_BYTES // (1024 * 1024)}MB)."},
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+
+        content_type = (audio_file.content_type or "").lower()
+        if not (content_type.startswith(ALLOWED_AUDIO_PREFIXES) or content_type in ALLOWED_AUDIO_MIME):
+            return Response(
+                {"detail": f"Unsupported audio type: {content_type or 'unknown'}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        base = get_valid_filename(audio_file.name or "")
+        ext = base.rsplit(".", 1)[-1].lower() if "." in base else ""
+        unique = f"{uuid.uuid4()}.{ext}" if ext else str(uuid.uuid4())
+        s3_key = f"folio/notes/audio/{request.user.id}/{unique}"
+
+        audio_file.seek(0)
+        saved_key = default_storage.save(s3_key, audio_file)
+        source = (request.data.get("source") or "")[:32]
+
+        with transaction.atomic():
+            stored = StoredFile.objects.create(
+                file_path=saved_key,
+                file_name=audio_file.name or "",
+                file_type=audio_file.content_type or "",
+                file_size=audio_file.size or 0,
+                uploaded_by=request.user,
+                source=source or "web",
+            )
+            note = FolioNote.objects.create(
+                folio=folio,
+                created_by=request.user,
+                source_type=FolioNoteSource.VOICE,
+                audio_file=stored,
+                status=FolioNoteStatus.PROCESSING,
+                source=source,
+            )
+
+        transcribe_folio_note_task.delay(str(note.id))
+        return Response(FolioNoteSerializer(note).data, status=status.HTTP_201_CREATED)

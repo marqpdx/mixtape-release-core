@@ -13,7 +13,9 @@ urlpatterns = [
         views.FolioInceptionAnalyzeView.as_view(),
         name="folio-inception-analyze",
     ),
+    path("folios", views.FolioListCreateView.as_view(), name="folio-list-create"),
     path("folios/<uuid:folio_id>", views.FolioTitleDetailView.as_view(), name="folio-title-detail"),
+    path("folios/<uuid:folio_id>/notes", views.FolioNoteListCreateView.as_view(), name="folio-note-list-create"),
     path(
         "material-candidates/<uuid:candidate_id>",
         views.FolioMaterialCandidateDetailView.as_view(),

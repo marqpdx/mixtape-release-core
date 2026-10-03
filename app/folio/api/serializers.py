@@ -2,7 +2,7 @@
 
 from rest_framework import serializers
 
-from folio.models import Folio, FolioInception, FolioMaterialCandidate
+from folio.models import Folio, FolioInception, FolioMaterialCandidate, FolioNote
 
 
 class FolioSerializer(serializers.ModelSerializer):
@@ -65,3 +65,46 @@ class FolioMaterialCandidatePatchSerializer(serializers.Serializer):
     # spec section 6, "Edits to the visible interpretation must not mutate
     # the raw inception."
     display_text = serializers.CharField(allow_blank=False, trim_whitespace=False)
+
+
+class FolioCreateSerializer(serializers.Serializer):
+    title = serializers.CharField(allow_blank=True, required=False, default="", max_length=255)
+
+
+class FolioNoteSerializer(serializers.ModelSerializer):
+    # `text` and `shape` are the resolved projections the capture surface
+    # shows; the underlying raw/transcript and suggested/confirmed fields
+    # stay exposed for provenance (build plan §38).
+    text = serializers.CharField(read_only=True)
+    shape = serializers.CharField(read_only=True)
+    has_audio = serializers.SerializerMethodField()
+
+    class Meta:
+        model = FolioNote
+        fields = [
+            "id",
+            "folio",
+            "source_type",
+            "status",
+            "text",
+            "raw_text",
+            "transcript_text",
+            "transcript_error",
+            "has_audio",
+            "shape",
+            "suggested_shape",
+            "shape_confidence",
+            "confirmed_shape",
+            "source",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+    def get_has_audio(self, obj):
+        return obj.audio_file_id is not None
+
+
+class FolioNoteTextCreateSerializer(serializers.Serializer):
+    raw_text = serializers.CharField(allow_blank=False, trim_whitespace=False)
+    source = serializers.CharField(required=False, allow_blank=True, default="", max_length=32)
