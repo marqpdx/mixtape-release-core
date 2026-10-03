@@ -38,7 +38,7 @@ Total: ~120 test cases
 ### Run All Almanac Tests
 
 ```bash
-cd REDACTED-LOCAL-PATH/mixtape-release-core/app
+cd mixtape-release-core/app
 python manage.py test almanac.tests
 ```
 
@@ -268,7 +268,7 @@ python manage.py migrate
 
 ```bash
 # Make sure you're in the right directory
-cd REDACTED-LOCAL-PATH/mixtape-release-core/app
+cd mixtape-release-core/app
 
 # Verify DJANGO_SETTINGS_MODULE
 export DJANGO_SETTINGS_MODULE=mixtape.settings.dev

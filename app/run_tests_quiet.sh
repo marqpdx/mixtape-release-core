@@ -13,7 +13,7 @@ if [ -f ".env.test" ]; then
 fi
 
 export DJANGO_SETTINGS_MODULE=mixtape.settings.test
-PYTHON="REDACTED-LOCAL-PATH/mixtape-release-core/env/bin/python"
+PYTHON="${SCRIPT_DIR}/../env/bin/python"
 
 LOG_DIR="$(mktemp -d -t mixtape-tests)"
 echo "logs: ${LOG_DIR}"

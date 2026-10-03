@@ -68,3 +68,7 @@ app/catalyst_codex/
 # Local Codex CLI session-resume scripts — contain a session UUID, local-dev-only
 resume_codex*.sh
 **/resume_codex*.sh
+
+# Local test-DB credentials and internal scratch bug tracker — not for public repo
+app/.env.test
+_issues.md

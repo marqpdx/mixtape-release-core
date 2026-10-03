@@ -169,9 +169,10 @@ DATABASES = {
 FRONTEND_URL = "http://localhost:3011"
 
 # Local-only project status tooling for /api/ops/project-status.
+# Sibling-repo convention matches CATALYST_SEED_PATH above.
 PUDDLEJUMP_PATH = os.getenv(
     "PUDDLEJUMP_PATH",
-    "REDACTED-LOCAL-PATH/puddlejump",
+    str(Path(__file__).resolve().parent.parent.parent.parent.parent / "puddlejump"),
 )
 
 OPS_APPLICATION_SURFACES = {
