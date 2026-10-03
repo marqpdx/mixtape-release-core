@@ -29,7 +29,7 @@ from folio.services.gate2_extract import extract_gate2
 from folio.services.gate3_classify import classify_gate3
 from folio.services.gate4_normalize import build_candidates, derive_title
 from folio.services.gate5_validate import validate_candidates
-from folio.tasks import transcribe_folio_note_task
+from folio.tasks import tend_folio_note_task, transcribe_folio_note_task
 from .serializers import (
     FolioCreateSerializer,
     FolioInceptionCreateSerializer,
@@ -336,6 +336,7 @@ class FolioNoteListCreateView(APIView):
             status=FolioNoteStatus.READY,
             source=serializer.validated_data["source"],
         )
+        tend_folio_note_task.delay(str(note.id))
         return Response(FolioNoteSerializer(note).data, status=status.HTTP_201_CREATED)
 
     def _create_voice_note(self, request, folio, audio_file):

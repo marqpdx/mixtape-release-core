@@ -28,3 +28,14 @@ def effective_shape(suggested_shape: str, confirmed_shape: str) -> str:
     """Human confirmation wins over model suggestion; absent both, Unplaced
     (build plan §4.5 — Unplaced is curated provisionality, not an error)."""
     return confirmed_shape or suggested_shape or Shape.UNPLACED
+
+
+def allowed_shapes() -> list[str]:
+    """The vocabulary sent to tending (Switchboard → Inkwell folio_note_tend),
+    so Inkwell never hard-codes a Contour's Shapes."""
+    return list(Shape.values)
+
+
+def coerce_shape(value) -> str:
+    """Validate a model-suggested Shape; anything unrecognized is Unplaced."""
+    return value if value in Shape.values else Shape.UNPLACED
