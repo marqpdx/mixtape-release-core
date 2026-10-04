@@ -10,6 +10,7 @@ from rest_framework.test import APIClient
 from groups.models.group import Group
 from initiatives.models import ActionRun
 from writing.models import WritingPiece, WritingSynopsis
+from writing.tasks import enqueue_writing_piece_synopsis_task
 
 
 User = get_user_model()
@@ -53,6 +54,19 @@ class WritingSynopsisActionTests(TestCase):
         self.piece.save()
         self.client = APIClient()
         self.client.force_authenticate(self.author)
+
+    @patch("mixtape.celery_app.app.send_task")
+    def test_published_piece_synopsis_sends_only_supported_fields(self, send_task):
+        enqueue_writing_piece_synopsis_task.run(str(self.piece.id))
+
+        action_run = ActionRun.objects.get(tool_name="writing.summarize")
+        self.assertEqual(action_run.request_payload["piece_id"], str(self.piece.id))
+        task_kwargs = send_task.call_args.kwargs["kwargs"]
+        self.assertEqual(
+            set(task_kwargs["summarize_payload"]),
+            {"text", "words", "style"},
+        )
+        self.assertEqual(task_kwargs["summarize_payload"]["words"], 120)
 
     @patch("switchboard.api.views.celery_app.send_task")
     def test_public_synopsis_creates_governed_action_with_article_body(self, send_task):

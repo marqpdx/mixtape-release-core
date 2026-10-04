@@ -265,11 +265,8 @@ def enqueue_writing_piece_synopsis_task(piece_id: str):
 
     summarize_payload = {
         "text": text,
-        "content_type": "writing.piece",
         "words": 120,
         "style": "neutral",
-        "summary_style": "standard",
-        "source_id": str(piece_id),
     }
 
     action_run = ActionRun.objects.create(
