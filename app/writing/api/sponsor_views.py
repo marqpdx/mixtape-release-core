@@ -15,7 +15,7 @@ from django.contrib.contenttypes.models import ContentType
 from rest_framework.views import APIView
 
 from accounts.api.permissions import IsSuperUser
-from writing.models import WorkingDocument
+from writing.models import WorkingDocument, body_json_has_content
 from .serializers import WorkingDocumentSerializer, WorkingDocumentListSerializer, RecentDraftSerializer
 from publishing.models import ContentPlacement
 from publishing.services.content_access import can_view_placement
@@ -135,6 +135,18 @@ class SponsorPlacementsListView(APIView):
         return Response(results, status=status.HTTP_200_OK)
 
 
+def _has_visible_draft_content(draft):
+    if draft.title.strip() or draft.excerpt.strip() or body_json_has_content(draft.body_json):
+        return True
+    if draft.auto_save_count == 0:
+        piece = draft.piece
+        return bool(
+            piece.title.strip() or piece.excerpt.strip()
+            or body_json_has_content(piece.body_json)
+        )
+    return False
+
+
 class SponsorDraftsListView(generics.ListAPIView):
     """
     List all drafts (WorkingCopies) for a given sponsor.
@@ -216,7 +228,7 @@ class SponsorDraftsListView(generics.ListAPIView):
             # Default to 'my'
             qs = base_qs.filter(user=user)
 
-        return qs.order_by("-last_saved_at")
+        return [draft for draft in qs.order_by("-last_saved_at") if _has_visible_draft_content(draft)]
 
 
 class RecentDraftsListView(generics.ListAPIView):
@@ -267,7 +279,15 @@ class RecentDraftsListView(generics.ListAPIView):
             "dispatch_content__collaborator_assignments__user"
         ).order_by("-last_saved_at")
 
-        return qs[:limit]
+        if limit <= 0:
+            return []
+        visible = []
+        for draft in qs.iterator(chunk_size=100):
+            if _has_visible_draft_content(draft):
+                visible.append(draft)
+                if len(visible) == limit:
+                    break
+        return visible
 
 
 class SponsorDraftDeleteView(generics.DestroyAPIView):

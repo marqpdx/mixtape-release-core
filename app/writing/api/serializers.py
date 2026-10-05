@@ -20,6 +20,7 @@ from ..models import (
     WritingSeries,
     WritingVersion,
     WorkingDocument,
+    body_json_has_content,
     WritingSynopsis,
     SplitSuggestion,
     WritingAnalysisSession,
@@ -547,6 +548,10 @@ class WorkingDocumentListSerializer(WorkingDocumentSerializer):
 
     body_preview = serializers.SerializerMethodField()
     preview_paragraphs = serializers.SerializerMethodField()
+    draft_content_mismatch = serializers.SerializerMethodField()
+
+    def get_draft_content_mismatch(self, obj):
+        return bool(obj.piece.is_empty and body_json_has_content(obj.body_json))
 
     def _preview_body(self, obj):
         """Use the richest available body for draft previews.
@@ -610,7 +615,7 @@ class WorkingDocumentListSerializer(WorkingDocumentSerializer):
         fields = [
             f for f in WorkingDocumentSerializer.Meta.fields
             if f != "body_json"
-        ] + ["body_preview", "preview_paragraphs"]
+        ] + ["body_preview", "preview_paragraphs", "draft_content_mismatch"]
 
 
 class RecentDraftSerializer(WorkingDocumentListSerializer):
