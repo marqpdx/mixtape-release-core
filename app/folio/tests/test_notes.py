@@ -91,6 +91,31 @@ class FolioNoteCaptureTests(TestCase):
         response = self.client.post(self._notes_url(theirs), {"raw_text": "hello"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_patch_sets_confirmed_shape_without_touching_suggestion(self):
+        note = FolioNote.objects.create(
+            folio=self.folio, created_by=self.user, source_type=FolioNoteSource.TEXT,
+            raw_text="Plot.", suggested_shape=Shape.PLOT,
+        )
+        url = f"{self._notes_url()}/{note.id}"
+        response = self.client.patch(url, {"confirmed_shape": "character"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["shape"], "character")
+        self.assertEqual(response.data["suggested_shape"], "plot")
+
+        response = self.client.patch(url, {"confirmed_shape": ""}, format="json")
+        self.assertEqual(response.data["shape"], "plot")
+
+        self.assertEqual(
+            self.client.patch(url, {"confirmed_shape": "theme"}, format="json").status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+    def test_cannot_patch_another_writers_note(self):
+        theirs = Folio.objects.create(title="Theirs", created_by=self.other)
+        note = FolioNote.objects.create(folio=theirs, created_by=self.other, source_type=FolioNoteSource.TEXT, raw_text="x")
+        response = self.client.patch(f"{self._notes_url(theirs)}/{note.id}", {"confirmed_shape": "meta"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_list_returns_newest_first(self):
         for text in ("first", "second"):
             self.client.post(self._notes_url(), {"raw_text": text}, format="json")
