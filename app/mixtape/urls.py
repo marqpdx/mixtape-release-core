@@ -71,6 +71,9 @@ urlpatterns = [
     # Folio — Inception + Hildegard materiality prototype (Phase 0)
     path("api/folio/", include("folio.api.urls")),
 
+    # Storyboard — shared arrangement layer (Storyboard/StoryboardItem), Fiction first consumer
+    path("api/storyboard/", include("storyboard.api.urls")),
+
     # WorkTable group-scoped buckets (reminders, tasks)
     path("api/worktable/groups/", include(worktable_group_patterns)),
 
