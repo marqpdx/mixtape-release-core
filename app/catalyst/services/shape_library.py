@@ -23,7 +23,10 @@ def _release_root() -> Path:
 
 
 def _shape_root() -> Path:
-    return _release_root() / "puddlejump" / "reference" / "shapes"
+    # Contour was renamed from reference/shapes/ to reference/contour/ on
+    # 2026-09-09 (puddlejump/reference/contour/README.md); reference/shapes/
+    # now holds only the unrelated Puddlejump doc-type schemas.
+    return _release_root() / "puddlejump" / "reference" / "contour"
 
 
 def _resolve_library_path(path_value: str | None) -> Path | None:
