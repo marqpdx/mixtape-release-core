@@ -176,6 +176,7 @@ INSTALLED_APPS = [
     "tenant_runtime",  # TenantRuntime — shared per-tenant AI subprocess service layer
     "sourcework",      # Sourcework - SourceGrant, provisional things, and Working Sets
     "folio",           # Folio — Inception + Hildegard materiality prototype (Phase 0)
+    "storyboard",      # Storyboard — shared arrangement layer (Storyboard/StoryboardItem), Fiction first consumer
 ]
 
 if OCR_SPIKE_ENABLED:

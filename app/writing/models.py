@@ -159,6 +159,7 @@ class WritingPiece(BaseContent, PublishableContentMixin):
             ("announcement", "Announcement"),
             ("almanac", "Almanac"),
             ("page", "Page"),
+            ("scene", "Scene"),
             ("other", "Other"),
         ],
         default="post",
