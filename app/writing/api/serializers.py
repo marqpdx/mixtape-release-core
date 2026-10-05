@@ -861,9 +861,19 @@ class WritingSynopsisSerializer(serializers.ModelSerializer):
 # Issue Serializers (ADR-0054, renamed from Run per Phase 3 amendment)
 # ============================================================================
 
+def _issue_draft(placement):
+    if placement.piece.status != ContentStatus.DRAFT:
+        return None
+    if not hasattr(placement, "_current_issue_draft"):
+        placement._current_issue_draft = (
+            placement.piece.working_copies.order_by("-last_saved_at", "-pk").first()
+        )
+    return placement._current_issue_draft
+
+
 class IssuePlacementSerializer(serializers.ModelSerializer):
     piece_id = serializers.UUIDField(source="piece.id", read_only=True)
-    piece_title = serializers.CharField(source="piece.title", read_only=True)
+    piece_title = serializers.SerializerMethodField()
     piece_status = serializers.CharField(source="piece.status", read_only=True)
     spellcheck_clean = serializers.BooleanField(source="piece.spellcheck_clean", read_only=True)
     signed_off = serializers.BooleanField(source="piece.signed_off", read_only=True)
@@ -877,10 +887,14 @@ class IssuePlacementSerializer(serializers.ModelSerializer):
             "spellcheck_clean", "signed_off", "word_count",
         ]
 
+    def get_piece_title(self, obj):
+        draft = _issue_draft(obj)
+        return draft.title if draft else obj.piece.title
+
     def get_word_count(self, obj):
         from utils.writing.writing_utils import count_words_in_prosemirror
         try:
-            wc = obj.piece.working_copies.order_by("-last_saved_at").first()
+            wc = _issue_draft(obj)
             body = wc.body_json if wc else obj.piece.body_json
             return count_words_in_prosemirror(body) if body else 0
         except Exception:
@@ -939,14 +953,14 @@ class IssueReadPlacementSerializer(serializers.ModelSerializer):
     """Full-body placement view for the Continuous Read surface — editor sees
     drafts, reader sees published only (filtered by the view, not here)."""
     id = serializers.UUIDField(source="piece.id", read_only=True)
-    title = serializers.CharField(source="piece.title", read_only=True)
+    title = serializers.SerializerMethodField()
     slug = serializers.CharField(source="piece.slug", read_only=True)
     status = serializers.CharField(source="piece.status", read_only=True)
     spellcheck_clean = serializers.BooleanField(source="piece.spellcheck_clean", read_only=True)
     signed_off = serializers.BooleanField(source="piece.signed_off", read_only=True)
     signed_off_by = serializers.UUIDField(source="piece.signed_off_by_id", read_only=True, allow_null=True)
-    body_json = serializers.JSONField(source="piece.body_json", read_only=True)
-    excerpt = serializers.CharField(source="piece.excerpt", read_only=True)
+    body_json = serializers.SerializerMethodField()
+    excerpt = serializers.SerializerMethodField()
     author = AuthorSerializer(source="piece.author", read_only=True)
     word_count = serializers.SerializerMethodField()
 
@@ -958,10 +972,22 @@ class IssueReadPlacementSerializer(serializers.ModelSerializer):
             "body_json", "excerpt", "author", "word_count",
         ]
 
+    def get_title(self, obj):
+        draft = _issue_draft(obj)
+        return draft.title if draft else obj.piece.title
+
+    def get_body_json(self, obj):
+        draft = _issue_draft(obj)
+        return draft.body_json if draft else obj.piece.body_json
+
+    def get_excerpt(self, obj):
+        draft = _issue_draft(obj)
+        return draft.excerpt if draft else obj.piece.excerpt
+
     def get_word_count(self, obj):
         from utils.writing.writing_utils import count_words_in_prosemirror
         try:
-            wc = obj.piece.working_copies.order_by("-last_saved_at").first()
+            wc = _issue_draft(obj)
             body = wc.body_json if wc else obj.piece.body_json
             return count_words_in_prosemirror(body) if body else 0
         except Exception:

@@ -1,10 +1,12 @@
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.test import TestCase
 from rest_framework.test import APIClient
+from io import StringIO
 
 from groups.services.groups import GroupService
 from groups.services.memberships import ensure_user_membership
-from writing.models import Issue, WorkingDocument, WritingPiece
+from writing.models import Issue, WorkingDocument, WritingPiece, body_json_has_content
 
 
 User = get_user_model()
@@ -108,3 +110,147 @@ class IssueSharedDraftTests(TestCase):
         self.assertFalse(self.piece.signed_off)
         self.assertIsNone(self.piece.signed_off_by)
         self.assertEqual(self.piece.body_json, body("Original"))
+
+    def test_draft_title_and_body_remain_visible_when_piece_is_empty(self):
+        self.piece.title = ""
+        self.piece.body_json = {"type": "doc", "content": []}
+        self.piece.save(update_fields=["title", "body_json", "is_empty"])
+        self.draft.title = "Resourcefulness"
+        self.draft.body_json = body("Saved draft content")
+        self.draft.auto_save_count = 1
+        self.draft.save()
+
+        self.client.force_authenticate(user=self.author)
+        created = self.client.post("/api/writing/issues", {
+            "title": "Issue 1", "sponsor_type": "group", "sponsor_slug": self.group.slug,
+        }, format="json")
+        issue = Issue.objects.get(pk=created.data["id"])
+        self.client.post(f"/api/writing/issues/{issue.pk}/placements", {
+            "piece_id": str(self.piece.pk),
+        }, format="json")
+
+        listed = self.client.get("/api/writing/drafts", {
+            "sponsor_type": "group", "sponsor_slug": self.group.slug,
+        })
+        self.assertEqual(listed.status_code, 200)
+        self.assertIn(str(self.draft.pk), [str(item["id"]) for item in listed.data])
+
+        detail = self.client.get(f"/api/writing/issues/{issue.pk}")
+        self.assertEqual(detail.data["placements"][0]["piece_title"], "Resourcefulness")
+        read = self.client.get(f"/api/writing/issues/{issue.pk}/read")
+        self.assertEqual(read.data["placements"][0]["title"], "Resourcefulness")
+        self.assertEqual(read.data["placements"][0]["body_json"], body("Saved draft content"))
+
+        reconciled = self.client.put(f"/api/writing/pieces/{self.piece.pk}/working-copy", {
+            "title": "Resourcefulness Revised", "expected_auto_save_count": 1,
+        }, format="json")
+        self.assertEqual(reconciled.status_code, 200)
+        self.piece.refresh_from_db()
+        self.assertFalse(self.piece.is_empty)
+        self.assertEqual(self.piece.title, "Resourcefulness Revised")
+        self.assertEqual(self.piece.body_json, {"type": "doc", "content": []})
+        self.piece.save()
+        self.piece.refresh_from_db()
+        self.assertFalse(self.piece.is_empty)
+
+    def test_title_edit_requires_new_review_and_promotes_with_body(self):
+        edited = self.client.put(f"/api/writing/pieces/{self.piece.pk}/working-copy", {
+            "title": "Resourcefulness", "body_json": body("Reviewed version"),
+            "expected_auto_save_count": 0,
+        }, format="json")
+        self.assertEqual(edited.status_code, 200)
+        review = self.client.post(f"/api/writing/pieces/{self.piece.pk}/spelling-review", {
+            "expected_auto_save_count": 1,
+        }, format="json")
+        self.assertEqual(review.status_code, 200)
+        signoff = self.client.post(f"/api/writing/pieces/{self.piece.pk}/sign-off", {
+            "expected_auto_save_count": 1,
+        }, format="json")
+        self.assertEqual(signoff.status_code, 200)
+        self.piece.refresh_from_db()
+        self.assertEqual(self.piece.title, "Resourcefulness")
+        self.assertEqual(self.piece.body_json, body("Reviewed version"))
+
+        changed = self.client.put(f"/api/writing/pieces/{self.piece.pk}/working-copy", {
+            "title": "Resourcefulness Revised", "expected_auto_save_count": 1,
+        }, format="json")
+        self.assertEqual(changed.status_code, 200)
+        self.piece.refresh_from_db()
+        self.assertFalse(self.piece.spellcheck_clean)
+        self.assertFalse(self.piece.signed_off)
+
+    def test_reconcile_command_only_repairs_empty_flag_when_executed(self):
+        self.piece.body_json = {"type": "doc", "content": []}
+        self.piece.save(update_fields=["body_json", "is_empty"])
+        self.draft.title = "Resourcefulness"
+        self.draft.body_json = body("Saved draft content")
+        self.draft.auto_save_count = 1
+        self.draft.save()
+        issue = Issue.objects.create(title="Issue 1")
+        from writing.models import IssuePlacement
+        IssuePlacement.objects.create(issue=issue, piece=self.piece)
+
+        output = StringIO()
+        call_command("reconcile_issue_draft", working_document_id=str(self.draft.pk), stdout=output)
+        self.piece.refresh_from_db()
+        self.assertTrue(self.piece.is_empty)
+        self.assertIn("Dry run only", output.getvalue())
+
+        call_command("reconcile_issue_draft", working_document_id=str(self.draft.pk), execute=True, stdout=StringIO())
+        self.piece.refresh_from_db()
+        self.assertFalse(self.piece.is_empty)
+        self.assertEqual(self.piece.title, "Resourcefulness")
+        self.assertEqual(self.piece.body_json, {"type": "doc", "content": []})
+
+    def test_issue_publish_rejects_title_changed_after_signoff(self):
+        self.client.put(f"/api/writing/pieces/{self.piece.pk}/working-copy", {
+            "title": "Resourcefulness", "body_json": body("Reviewed version"),
+            "expected_auto_save_count": 0,
+        }, format="json")
+        self.client.post(f"/api/writing/pieces/{self.piece.pk}/spelling-review", {
+            "expected_auto_save_count": 1,
+        }, format="json")
+        self.client.post(f"/api/writing/pieces/{self.piece.pk}/sign-off", {
+            "expected_auto_save_count": 1,
+        }, format="json")
+        self.client.force_authenticate(user=self.author)
+        created = self.client.post("/api/writing/issues", {
+            "title": "Issue 1", "sponsor_type": "group", "sponsor_slug": self.group.slug,
+        }, format="json")
+        issue = Issue.objects.get(pk=created.data["id"])
+        self.client.post(f"/api/writing/issues/{issue.pk}/placements", {
+            "piece_id": str(self.piece.pk),
+        }, format="json")
+
+        WorkingDocument.objects.filter(pk=self.draft.pk).update(title="Unapproved title")
+        rejected = self.client.post(f"/api/writing/issues/{issue.pk}/publish")
+        self.assertEqual(rejected.status_code, 400)
+        self.piece.refresh_from_db()
+        self.assertEqual(self.piece.status, "draft")
+
+        WorkingDocument.objects.filter(pk=self.draft.pk).update(title="Resourcefulness")
+        published = self.client.post(f"/api/writing/issues/{issue.pk}/publish")
+        self.assertEqual(published.status_code, 200)
+        self.piece.refresh_from_db()
+        self.assertEqual(self.piece.title, "Resourcefulness")
+        self.assertEqual(self.piece.status, "published")
+        self.assertEqual(self.piece.versions.count(), 1)
+        version = self.piece.versions.first()
+        self.assertEqual(version.title, "Resourcefulness")
+        self.assertEqual(version.body_json, body("Reviewed version"))
+        self.assertEqual(self.piece.current_version_no, version.sequence_no)
+        WorkingDocument.objects.filter(pk=self.draft.pk).update(
+            title="Later draft title", body_json=body("Later draft body"),
+        )
+        read = self.client.get(f"/api/writing/issues/{issue.pk}/read")
+        self.assertEqual(read.data["placements"][0]["title"], "Resourcefulness")
+        self.assertEqual(read.data["placements"][0]["body_json"], body("Reviewed version"))
+
+    def test_nested_draft_content_is_not_empty(self):
+        nested = {
+            "type": "doc",
+            "content": [{"type": "bulletList", "content": [
+                {"type": "listItem", "content": [body("Nested text")["content"][0]]},
+            ]}],
+        }
+        self.assertTrue(body_json_has_content(nested))

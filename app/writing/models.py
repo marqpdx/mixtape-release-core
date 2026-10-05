@@ -36,15 +36,21 @@ def body_json_has_content(body_json: dict | None) -> bool:
     piece's and can go stale relative to it between autosaves)."""
     if not body_json:
         return False
-    content = body_json.get("content", [])
-    for node in content:
-        if node.get("content"):
-            for child in node.get("content", []):
-                if child.get("type") == "text" and (child.get("text") or "").strip():
-                    return True
-        elif node.get("type") not in ["paragraph", "doc"]:
+    def has_content(node):
+        if not isinstance(node, dict):
+            return False
+        if node.get("type") == "text":
+            return bool((node.get("text") or "").strip())
+        children = node.get("content") or []
+        if any(has_content(child) for child in children):
             return True
-    return False
+        return not children and node.get("type") not in {
+            "doc", "paragraph", "heading", "blockquote", "bulletList",
+            "orderedList", "listItem", "taskList", "taskItem", "table",
+            "tableRow", "tableCell", "tableHeader", "codeBlock",
+        }
+
+    return any(has_content(node) for node in body_json.get("content", []))
 
 
     # Add a mixin for publishable content
@@ -398,8 +404,14 @@ class WritingPiece(BaseContent, PublishableContentMixin):
         if (self.title or "").strip() and is_provisional_slug(self.slug):
             self.slug = None  # triggers BaseContent slug generation
 
-        # Auto-manage is_empty flag based on content
-        self.is_empty = not body_json_has_content(self.body_json)
+        # A saved draft's working document is authoritative until publication.
+        update_fields = kwargs.get("update_fields")
+        if update_fields is None or "is_empty" in update_fields:
+            draft = None
+            if self.status == ContentStatus.DRAFT and not self._state.adding:
+                draft = self.working_copies.order_by("-last_saved_at").first()
+            body = draft.body_json if draft and draft.auto_save_count else self.body_json
+            self.is_empty = not body_json_has_content(body)
 
         # Reading time
         if self.body_json:
