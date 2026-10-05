@@ -37,6 +37,7 @@ from .serializers import (
     FolioMaterialCandidatePatchSerializer,
     FolioMaterialCandidateSerializer,
     FolioNoteSerializer,
+    FolioNoteShapePatchSerializer,
     FolioNoteTextCreateSerializer,
     FolioSerializer,
     FolioTitlePatchSerializer,
@@ -382,3 +383,22 @@ class FolioNoteListCreateView(APIView):
 
         transcribe_folio_note_task.delay(str(note.id))
         return Response(FolioNoteSerializer(note).data, status=status.HTTP_201_CREATED)
+
+
+class FolioNoteDetailView(APIView):
+    """
+    PATCH /folios/<id>/notes/<note_id> -> one-tap Shape correction. Sets only
+    confirmed_shape; the model's suggested_shape is kept for provenance and
+    correction-rate evaluation (build plan §12, §40).
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, folio_id, note_id):
+        note = get_object_or_404(FolioNote, pk=note_id, folio_id=folio_id, folio__created_by=request.user)
+        serializer = FolioNoteShapePatchSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        note.confirmed_shape = serializer.validated_data["confirmed_shape"]
+        note.save(update_fields=["confirmed_shape", "updated_at"])
+        return Response(FolioNoteSerializer(note).data)

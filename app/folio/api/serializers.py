@@ -3,6 +3,7 @@
 from rest_framework import serializers
 
 from folio.models import Folio, FolioInception, FolioMaterialCandidate, FolioNote
+from folio.shapes import Shape
 
 
 class FolioSerializer(serializers.ModelSerializer):
@@ -108,6 +109,12 @@ class FolioNoteSerializer(serializers.ModelSerializer):
 
     def get_has_audio(self, obj):
         return obj.audio_file_id is not None
+
+
+class FolioNoteShapePatchSerializer(serializers.Serializer):
+    # The writer's own choice (build plan §4.6). Blank clears it, falling back
+    # to the model's suggestion; suggested_shape is never writable here.
+    confirmed_shape = serializers.ChoiceField(choices=Shape.choices, allow_blank=True)
 
 
 class FolioNoteTextCreateSerializer(serializers.Serializer):

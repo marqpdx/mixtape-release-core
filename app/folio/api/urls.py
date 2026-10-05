@@ -17,6 +17,11 @@ urlpatterns = [
     path("folios/<uuid:folio_id>", views.FolioTitleDetailView.as_view(), name="folio-title-detail"),
     path("folios/<uuid:folio_id>/notes", views.FolioNoteListCreateView.as_view(), name="folio-note-list-create"),
     path(
+        "folios/<uuid:folio_id>/notes/<uuid:note_id>",
+        views.FolioNoteDetailView.as_view(),
+        name="folio-note-detail",
+    ),
+    path(
         "material-candidates/<uuid:candidate_id>",
         views.FolioMaterialCandidateDetailView.as_view(),
         name="folio-material-candidate-detail",
