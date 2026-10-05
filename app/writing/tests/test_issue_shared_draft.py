@@ -134,6 +134,8 @@ class IssueSharedDraftTests(TestCase):
         })
         self.assertEqual(listed.status_code, 200)
         self.assertIn(str(self.draft.pk), [str(item["id"]) for item in listed.data])
+        restored = next(item for item in listed.data if str(item["id"]) == str(self.draft.pk))
+        self.assertTrue(restored["draft_content_mismatch"])
 
         detail = self.client.get(f"/api/writing/issues/{issue.pk}")
         self.assertEqual(detail.data["placements"][0]["piece_title"], "Resourcefulness")
@@ -254,3 +256,34 @@ class IssueSharedDraftTests(TestCase):
             ]}],
         }
         self.assertTrue(body_json_has_content(nested))
+
+    def test_draft_lists_hide_empty_placeholders_but_keep_titled_drafts(self):
+        titled_piece = WritingPiece(author=self.author, title="", body_json={}, status="draft")
+        titled_piece.set_sponsor(self.group)
+        titled_piece.set_submitted_by(self.author)
+        titled_piece.save()
+        titled = WorkingDocument.objects.create(
+            piece=titled_piece, user=self.author, title="Outline to write", body_json={},
+        )
+        empty_piece = WritingPiece(author=self.author, title="", body_json={}, status="draft")
+        empty_piece.set_sponsor(self.group)
+        empty_piece.set_submitted_by(self.author)
+        empty_piece.save()
+        empty = WorkingDocument.objects.create(
+            piece=empty_piece, user=self.author, title="",
+            body_json={"type": "doc", "content": [{"type": "paragraph"}]},
+        )
+
+        self.client.force_authenticate(user=self.author)
+        listed = self.client.get("/api/writing/drafts", {
+            "sponsor_type": "group", "sponsor_slug": self.group.slug,
+        })
+        ids = {str(item["id"]) for item in listed.data}
+        self.assertIn(str(titled.pk), ids)
+        self.assertNotIn(str(empty.pk), ids)
+
+        self.author.is_superuser = True
+        self.author.save(update_fields=["is_superuser"])
+        recent = self.client.get("/api/writing/drafts/recent", {"limit": 1})
+        self.assertEqual(recent.status_code, 200)
+        self.assertEqual([str(item["id"]) for item in recent.data], [str(titled.pk)])
