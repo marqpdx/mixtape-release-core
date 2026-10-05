@@ -78,7 +78,7 @@ def _resolve_sponsor(request):
     return group_ct, group.pk
 
 
-def _reviewed_piece(request, pk):
+def _reviewed_piece(request, pk, *, require_title=False):
     piece = get_object_or_404(WritingPiece.objects.select_for_update(), id=pk)
     if piece.author_id != request.user.id and not can_edit_others_group_writing(request.user, piece):
         raise PermissionDenied("You cannot review this piece.")
@@ -95,14 +95,26 @@ def _reviewed_piece(request, pk):
             {"detail": "Draft changed or its revision is missing. Reload before approving."},
             status=status.HTTP_409_CONFLICT,
         )
-    if draft.body_json != piece.body_json:
+    if require_title and not draft.title.strip():
+        return piece, draft, Response(
+            {"detail": "Add a title before signing off."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if len(draft.title) > WritingPiece._meta.get_field("title").max_length:
+        return piece, draft, Response(
+            {"detail": "Draft title is too long for a WritingPiece."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if draft.body_json != piece.body_json or draft.title != piece.title:
+        piece.title = draft.title
         piece.body_json = draft.body_json
         piece.spellcheck_clean = False
         piece.signed_off = False
         piece.signed_off_by = None
         piece.save(update_fields=[
-            "body_json", "is_empty", "reading_time", "spellcheck_clean",
-            "signed_off", "signed_off_by", "updated_at",
+            "title", "body_json", "is_empty", "reading_time", "slug",
+            "slug_history", "spellcheck_clean", "signed_off", "signed_off_by",
+            "updated_at",
         ])
     return piece, draft, None
 
@@ -195,7 +207,11 @@ class IssuePublishView(APIView):
             except WorkingCopyConflict:
                 not_ready.append(piece.title or str(piece.pk))
                 continue
-            if (draft and draft.body_json != piece.body_json) or not (piece.spellcheck_clean and piece.signed_off):
+            if (
+                (draft and (draft.body_json != piece.body_json or draft.title != piece.title))
+                or not piece.title.strip()
+                or not (piece.spellcheck_clean and piece.signed_off)
+            ):
                 not_ready.append(piece.title or str(piece.pk))
         if not_ready:
             return Response(
@@ -206,10 +222,15 @@ class IssuePublishView(APIView):
 
         now = timezone.now()
         for piece in pieces.values():
-            if piece.status != "published":
+            newly_published = piece.status != "published"
+            if newly_published:
                 piece.status = "published"
                 piece.published_at = now
-                piece.save(update_fields=["status", "published_at", "updated_at"])
+                piece.save(update_fields=["status", "published_at", "slug", "slug_history", "updated_at"])
+            if newly_published or not piece.versions.exists():
+                version = piece.create_version(content_changed=True)
+                piece.current_version_no = version.sequence_no
+                piece.save(update_fields=["current_version_no", "updated_at"])
         issue.status = "published"
         issue.published_at = now
         issue.save(update_fields=["status", "published_at", "updated_at"])
@@ -367,7 +388,7 @@ class WritingPieceSignOffView(APIView):
 
     @transaction.atomic
     def post(self, request, pk):
-        piece, draft, conflict = _reviewed_piece(request, pk)
+        piece, draft, conflict = _reviewed_piece(request, pk, require_title=True)
         if conflict is not None:
             return conflict
         piece.signed_off = True

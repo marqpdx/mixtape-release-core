@@ -180,8 +180,6 @@ class SponsorDraftsListView(generics.ListAPIView):
             piece__sponsor_content_type=content_type,
             piece__sponsor_object_id=sponsor.id,
             piece__status="draft",
-        ).exclude(
-            piece__is_empty=True
         ).select_related(
             "piece",
             "piece__author",
@@ -223,7 +221,7 @@ class SponsorDraftsListView(generics.ListAPIView):
 
 class RecentDraftsListView(generics.ListAPIView):
     """
-    Cross-sponsor recent drafts for the logged-in user — every non-empty
+    Cross-sponsor recent drafts for the logged-in user — every
     solo or collaborative draft they own or collaborate on, across every
     Group/Member sponsor context, ordered by last edit.
 
@@ -254,8 +252,6 @@ class RecentDraftsListView(generics.ListAPIView):
 
         qs = WorkingDocument.objects.filter(
             piece__status="draft",
-        ).exclude(
-            piece__is_empty=True
         ).filter(
             models.Q(user=user) |
             models.Q(dispatch_content__collaborators=user)

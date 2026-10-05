@@ -111,7 +111,8 @@ class EditOthersWritingTests(TestCase):
         self.assertEqual(self.client.get(working_copy_url).status_code, 200)
         self.assertEqual(self.client.put(
             working_copy_url,
-            {"title": "Reviewed Draft", "body_json": {"type": "doc", "content": [{"type": "paragraph"}]}},
+            {"title": "Reviewed Draft", "body_json": {"type": "doc", "content": [{"type": "paragraph"}]},
+             "expected_auto_save_count": 0},
             format="json",
         ).status_code, 200)
         self.assertEqual(self.client.put(f"{url}/tags", {"tag_ids": []}, format="json").status_code, 200)
