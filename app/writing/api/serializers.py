@@ -911,13 +911,15 @@ class IssueSerializer(serializers.ModelSerializer):
     placements = IssuePlacementSerializer(many=True, read_only=True)
     member_count = serializers.SerializerMethodField()
     is_publishable = serializers.SerializerMethodField()
+    sponsor_type = serializers.SerializerMethodField()
+    sponsor_slug = serializers.SerializerMethodField()
 
     class Meta:
         model = Issue
         fields = [
             "id", "title", "slug", "designation", "description", "status", "published_at",
             "created_at", "updated_at",
-            "placements", "member_count", "is_publishable",
+            "placements", "member_count", "is_publishable", "sponsor_type", "sponsor_slug",
         ]
         read_only_fields = ["id", "slug", "status", "published_at", "created_at", "updated_at"]
 
@@ -926,6 +928,21 @@ class IssueSerializer(serializers.ModelSerializer):
 
     def get_is_publishable(self, obj):
         return obj.is_publishable
+
+    def get_sponsor_type(self, obj):
+        # Needed by the Focus view's unassigned-docs candidate panel
+        # (Focus-Centered Writing ADR §4 Phase 2) to know which sponsor's
+        # drafts to offer -- mirrors RecentDraftSerializer's sponsor_type/
+        # sponsor_label pattern.
+        return obj.sponsor_content_type.model if obj.sponsor_content_type_id else None
+
+    def get_sponsor_slug(self, obj):
+        if not obj.sponsor_content_type_id:
+            return None
+        sponsor = obj.sponsor
+        if sponsor is None:
+            return None
+        return getattr(sponsor, "slug", None) or getattr(sponsor, "username", None)
 
 
 class IssueListSerializer(serializers.ModelSerializer):
