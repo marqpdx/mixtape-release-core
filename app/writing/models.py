@@ -1475,3 +1475,73 @@ class IssuePlacement(BaseModel):
 
     def __str__(self):
         return f"Issue<{self.issue_id}> ← Piece<{self.piece_id}> @ {self.order_index}"
+
+
+class Focus(BaseModel):
+    """
+    A verb + object that organizes a person's attention until resolved
+    (e.g. "publish" + an Issue) — Focus-Centered Writing ADR
+    (puddlejump decisions/focus-centered-writing-adr/), §6. Server-side so
+    it survives across devices/sessions.
+
+    Phase 2 (FCW-5) ships exactly one verb/target pair: publishing an Issue.
+    Whether this grammar generalizes beyond Writing (Living Book, Seed
+    reconciliation, Course, Initiative) is an explicit open question (ADR
+    §11.5) — deliberately not attempted here. Lives in `writing` rather
+    than its own app for that reason: a second real Focus type outside
+    Writing is the concrete uplift trigger that would justify promoting
+    this to shared infrastructure (Spike Reconnaissance Protocol) — not
+    speculated on in advance.
+    """
+
+    class Verb(models.TextChoices):
+        PUBLISH = "publish", "Publish"
+
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Active"
+        RESOLVED = "resolved", "Resolved"
+        ABANDONED = "abandoned", "Abandoned"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="focuses",
+    )
+    verb = models.CharField(max_length=20, choices=Verb.choices, default=Verb.PUBLISH)
+
+    # Polymorphic target (an Issue today; GFK so the grammar isn't
+    # artificially narrowed to Issue in the schema while Phase 3's
+    # generalization question remains open).
+    target_content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE,
+        related_name="+",
+    )
+    target_object_id = models.UUIDField()
+    target = GenericForeignKey("target_content_type", "target_object_id")
+
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.ACTIVE,
+        db_index=True,
+    )
+    state = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Last selection (piece id) and open tool, for exact resume.",
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(BaseModel.Meta):
+        verbose_name = "Focus"
+        verbose_name_plural = "Focuses"
+        ordering = ["-updated_at"]
+        indexes = [
+            models.Index(fields=["user", "status", "-updated_at"]),
+            models.Index(fields=["target_content_type", "target_object_id"]),
+        ]
+
+    def __str__(self):
+        return f"Focus<{self.user_id}:{self.verb}:{self.target_content_type_id}:{self.target_object_id}> [{self.status}]"
