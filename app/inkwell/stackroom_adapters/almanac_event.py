@@ -3,7 +3,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from almanac.models import Event
-from inkwell.stackroom_http_client import get_or_create_group_library, get_or_create_user_library
+from stackroom_client import get_or_create_group_library, get_or_create_user_library
 
 from .base import BaseStackroomAdapter
 

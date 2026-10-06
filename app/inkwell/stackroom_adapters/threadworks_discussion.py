@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from inkwell.stackroom_http_client import get_or_create_group_library
+from stackroom_client import get_or_create_group_library
 from threadworks.models import Discussion
 
 from .base import BaseStackroomAdapter

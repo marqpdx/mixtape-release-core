@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from inkwell.stackroom_http_client import get_or_create_user_library
+from stackroom_client import get_or_create_user_library
 from profiles.models import UserProfile
 
 from .base import BaseStackroomAdapter

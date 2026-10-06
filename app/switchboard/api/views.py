@@ -1473,7 +1473,7 @@ def group_search_proxy(request):
     from groups.models import Group
     from initiatives.services.agent_stackroom import AgentStackroomError, retrieve_from_stackroom
     from inkwell.client import InkwellUnavailableError, service_generate
-    from inkwell.stackroom_http_client import get_or_create_group_library
+    from stackroom_client import get_or_create_group_library
     from switchboard.prompts.group_search_v1 import format_system_prompt, format_user_prompt
 
     try:

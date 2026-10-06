@@ -13,7 +13,7 @@ from django.utils import timezone
 
 from inkwell.models import StackroomSyncState
 from inkwell.stackroom_adapters import get_adapter
-from inkwell.stackroom_http_client import StackroomClientError, delete_source_file, ingest_text
+from stackroom_client import StackroomClientError, delete_source_file, ingest_text
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,7 @@ def ingest_object(obj, *, reason: str, force: bool = False) -> StackroomSyncStat
             source_path=adapter.get_source_path(obj),
             filename=adapter.get_filename(obj),
             text=text,
+            artifact_type=adapter.artifact_type,
         )
 
         sync_state.status = StackroomSyncState.STATUS_SYNCED
