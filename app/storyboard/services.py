@@ -10,7 +10,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from .grammars import get_grammar
-from .models import Storyboard, StoryboardItem
+from .models import Entity, Participation, Storyboard, StoryboardItem, StoryboardItemLink
 
 
 def _ancestor_ids(item: StoryboardItem) -> set:
@@ -155,3 +155,56 @@ def create_scene(
         reference=piece,
         rank=rank,
     )
+
+
+def match_entity_alias(*, sponsor_content_type, sponsor_object_id, kind: str, surface: str):
+    """Return a unique exact name/alias match; ambiguity stays unconfirmed."""
+    needle = surface.strip().casefold()
+    if not needle:
+        return None
+    matches = []
+    for entity in Entity.objects.filter(
+        sponsor_content_type=sponsor_content_type,
+        sponsor_object_id=sponsor_object_id,
+        kind=kind,
+    ):
+        names = [entity.name, *(entity.aliases or [])]
+        if any(isinstance(name, str) and name.strip().casefold() == needle for name in names):
+            matches.append(entity)
+            if len(matches) > 1:
+                return None
+    return matches[0] if matches else None
+
+
+@transaction.atomic
+def add_participation(*, item: StoryboardItem, kind: str, user, entity=None, name: str = ""):
+    grammar = get_grammar(item.storyboard.grammar)
+    if kind not in grammar.participation_kinds:
+        raise ValidationError(f"{kind!r} is not a participation kind in this Storyboard.")
+    if entity is None:
+        if not name.strip():
+            raise ValidationError("A new Entity needs a name.")
+        entity = Entity.objects.create(
+            kind=kind, name=name.strip(), created_by=user,
+            sponsor_content_type=item.storyboard.sponsor_content_type,
+            sponsor_object_id=item.storyboard.sponsor_object_id,
+        )
+    elif (entity.sponsor_content_type_id != item.storyboard.sponsor_content_type_id
+          or entity.sponsor_object_id != item.storyboard.sponsor_object_id
+          or entity.kind not in grammar.participation_kinds):
+        raise ValidationError("Entity is not available to this Storyboard grammar and sponsor.")
+    participation, _ = Participation.objects.get_or_create(item=item, entity=entity, kind=kind)
+    return participation
+
+
+def add_note_link(*, item: StoryboardItem, note, user):
+    from django.contrib.contenttypes.models import ContentType
+
+    if not item.storyboard.folios.filter(pk=note.folio_id).exists():
+        raise ValidationError("This FolioNote is not from a Folio linked to the Storyboard.")
+    content_type = ContentType.objects.get_for_model(note)
+    link, _ = StoryboardItemLink.objects.get_or_create(
+        item=item, target_content_type=content_type, target_object_id=note.id,
+        kind="note", defaults={"created_by": user},
+    )
+    return link

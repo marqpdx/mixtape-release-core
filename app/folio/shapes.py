@@ -18,7 +18,7 @@ class Shape(models.TextChoices):
     CHARACTER = "character", "Character"
     SCENE = "scene", "Scene"
     PLOT = "plot", "Plot"
-    PLACE = "place", "Place"
+    SETTING = "setting", "Setting"
     WORLD = "world", "World"
     META = "meta", "Meta"
     UNPLACED = "unplaced", "Unplaced"

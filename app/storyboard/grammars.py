@@ -37,8 +37,7 @@ FICTION_V1 = Grammar(
         "chapter": ["part", None],
         "scene": ["chapter"],
     },
-    # Character satellites are Phase 7 -- not needed for the Phase 5 spine.
-    participation_kinds=[],
+    participation_kinds=["character", "setting"],
 )
 
 GRAMMARS: dict[str, Grammar] = {

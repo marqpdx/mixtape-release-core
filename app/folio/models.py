@@ -200,7 +200,7 @@ class FolioNote(BaseModel):
     # Inkwell `folio_note_tend`; the ActionRun is the full request/response
     # record, these fields are the projection the surfaces read.
     summary = models.TextField(blank=True, default="")
-    mentions = models.JSONField(default=list, blank=True)  # [{"surface", "kind"}], grounded in the note text
+    mentions = models.JSONField(default=list, blank=True)  # grounded, confirmable candidates; human links stay distinct
     tending_action_run = models.ForeignKey(
         "initiatives.ActionRun",
         null=True,
