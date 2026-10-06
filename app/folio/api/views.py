@@ -29,7 +29,11 @@ from folio.services.gate2_extract import extract_gate2
 from folio.services.gate3_classify import classify_gate3
 from folio.services.gate4_normalize import build_candidates, derive_title
 from folio.services.gate5_validate import validate_candidates
+from folio.services.note_search import search_folio_notes
+from folio.shapes import Shape
 from folio.tasks import tend_folio_note_task, transcribe_folio_note_task
+from inkwell.stackroom_enqueue import enqueue_stackroom_ingest
+from stackroom_client import StackroomClientError
 from .serializers import (
     FolioCreateSerializer,
     FolioInceptionCreateSerializer,
@@ -338,6 +342,7 @@ class FolioNoteListCreateView(APIView):
             source=serializer.validated_data["source"],
         )
         tend_folio_note_task.delay(str(note.id))
+        enqueue_stackroom_ingest(note, reason="folio_note_captured")
         return Response(FolioNoteSerializer(note).data, status=status.HTTP_201_CREATED)
 
     def _create_voice_note(self, request, folio, audio_file):
@@ -383,6 +388,54 @@ class FolioNoteListCreateView(APIView):
 
         transcribe_folio_note_task.delay(str(note.id))
         return Response(FolioNoteSerializer(note).data, status=status.HTTP_201_CREATED)
+
+
+class FolioNoteSearchView(APIView):
+    """
+    GET /folios/<id>/notes/search -> Folio Notes retrieval (PoC Phase 4).
+        q       semantic query via Stackroom; omitted -> most recent first
+        shape   effective Shape (confirmed, else suggested, else unplaced)
+        entity  a writer-confirmed Entity id among the note's mentions
+        limit   1-100, default 20
+    Each result is a FolioNote plus `score` (null when not semantic).
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, folio_id):
+        folio = get_object_or_404(Folio, pk=folio_id, created_by=request.user)
+        params = request.query_params
+        query = (params.get("q") or "").strip()
+        shape = params.get("shape") or None
+        if shape and shape not in Shape.values:
+            return Response({"shape": [f"Unknown Shape: {shape}"]}, status=status.HTTP_400_BAD_REQUEST)
+        entity_id = params.get("entity") or None
+        if entity_id:
+            try:
+                entity_id = str(uuid.UUID(entity_id))
+            except ValueError:
+                return Response({"entity": ["Must be a UUID."]}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            limit = max(1, min(int(params.get("limit", 20)), 100))
+        except ValueError:
+            limit = 20
+
+        try:
+            hits = search_folio_notes(
+                folio, user=request.user, query=query, shape=shape, entity_id=entity_id, limit=limit
+            )
+        except StackroomClientError as exc:
+            return Response(
+                {"detail": "Search is unavailable right now.", "error": exc.detail},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        results = []
+        for hit in hits:
+            data = FolioNoteSerializer(hit.note).data
+            data["score"] = hit.score
+            results.append(data)
+        return Response({"mode": "semantic" if query else "recent", "results": results})
 
 
 class FolioNoteDetailView(APIView):
