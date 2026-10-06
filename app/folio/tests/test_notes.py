@@ -234,7 +234,7 @@ class FolioNoteTendingTests(TestCase):
                 "shape": "character",
                 "shape_confidence": 0.82,
                 "summary": "Jode's motive.",
-                "mentions": [{"surface": "Jode", "kind": "character"}],
+                "mentions": [{"surface": "Jode", "kind": "character", "confidence": 0.9}],
                 "provenance": {"model": "Phi-3.5-mini-instruct-Q4_K_M", "prompt_version": "folio_note_tending_v1"},
             },
         )
@@ -246,7 +246,7 @@ class FolioNoteTendingTests(TestCase):
         self.assertEqual(self.note.shape, Shape.META)
         self.assertEqual(self.note.tending_model, "Phi-3.5-mini-instruct-Q4_K_M")
         self.assertEqual(self.note.tending_prompt_version, "folio_note_tending_v1")
-        self.assertEqual(self.note.mentions, [{"surface": "Jode", "kind": "character"}])
+        self.assertEqual(self.note.mentions, [{"surface": "Jode", "kind": "character", "confidence": 0.9, "existing_entity_id": None}])
         self.assertIsNotNone(self.note.tended_at)
         self.assertEqual(self.note.raw_text, "Character Jode. His grandmother could not care for herself.")
         self.assertEqual(notify_mock.call_args.kwargs["json"]["event"], "folio_note:tended")

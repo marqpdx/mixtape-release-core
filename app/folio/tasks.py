@@ -193,7 +193,41 @@ def apply_folio_note_tending(action_run_id: str):
     note.suggested_shape = coerce_shape(result.get("shape"))
     note.shape_confidence = confidence
     note.summary = (result.get("summary") or "").strip()
-    note.mentions = [m for m in result.get("mentions") or [] if isinstance(m, dict) and m.get("surface")]
+    from django.contrib.contenttypes.models import ContentType
+    from storyboard.services import match_entity_alias
+
+    previous = {
+        (m.get("surface", "").casefold(), m.get("kind")): m
+        for m in note.mentions if isinstance(m, dict) and m.get("confirmed_entity_id")
+    }
+    candidates = []
+    for mention in result.get("mentions") or []:
+        if not isinstance(mention, dict) or not mention.get("surface"):
+            continue
+        surface = str(mention["surface"]).strip()
+        kind = "setting" if mention.get("kind") == "place" else mention.get("kind")
+        if kind not in {"character", "setting", "thing", "concept"} or surface.casefold() not in note.text.casefold():
+            continue
+        try:
+            mention_confidence = max(0.0, min(1.0, float(mention.get("confidence", 0))))
+        except (TypeError, ValueError):
+            mention_confidence = 0.0
+        match = None
+        if note.created_by_id:
+            match = match_entity_alias(
+                sponsor_content_type=ContentType.objects.get_for_model(note.created_by),
+                sponsor_object_id=note.created_by_id,
+                kind=kind,
+                surface=surface,
+            )
+        candidate = {"surface": surface, "kind": kind, "confidence": mention_confidence,
+                     "existing_entity_id": str(match.id) if match else None}
+        prior = previous.get((surface.casefold(), kind))
+        if prior:
+            candidate["confirmed_entity_id"] = prior["confirmed_entity_id"]
+            candidate["confirmed_kind"] = prior.get("confirmed_kind", kind)
+        candidates.append(candidate)
+    note.mentions = candidates
     note.tending_model = str(provenance.get("model") or "")[:128]
     note.tending_prompt_version = str(provenance.get("prompt_version") or "")[:64]
     note.tended_at = timezone.now()

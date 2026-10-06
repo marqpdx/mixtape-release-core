@@ -9,6 +9,8 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from storyboard.models import Storyboard, StoryboardItem
+from folio.models import Folio, FolioNote, FolioNoteSource, FolioNoteStatus
+from storyboard.models import Entity, Participation, StoryboardItemLink
 
 User = get_user_model()
 
@@ -38,6 +40,26 @@ class StoryboardAPITestCase(TestCase):
         response = self.client.post(
             "/api/storyboard/storyboards",
             {"grammar": "not_a_real_grammar"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_storyboard_can_draw_from_multiple_owned_folios(self):
+        folios = [Folio.objects.create(title=title, created_by=self.user) for title in ("Book", "World")]
+        response = self.client.post(
+            "/api/storyboard/storyboards",
+            {"grammar": "fiction_v1", "folio_ids": [str(folio.id) for folio in folios]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(set(response.data["folio_ids"]), {str(folio.id) for folio in folios})
+        self.assertEqual(Storyboard.objects.get(pk=response.data["id"]).folios.count(), 2)
+
+    def test_storyboard_rejects_another_users_folio(self):
+        folio = Folio.objects.create(title="Private", created_by=self.other_user)
+        response = self.client.post(
+            "/api/storyboard/storyboards",
+            {"grammar": "fiction_v1", "folio_ids": [str(folio.id)]},
             format="json",
         )
         self.assertEqual(response.status_code, 400)
@@ -127,6 +149,83 @@ class StoryboardAPITestCase(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["title"], "Part One")
+
+    def test_surface_movement_does_not_change_rank_and_reset_preserves_size(self):
+        storyboard_id = self.client.post(
+            "/api/storyboard/storyboards", {"grammar": "fiction_v1"}, format="json"
+        ).data["id"]
+        item_id = self.client.post(
+            f"/api/storyboard/storyboards/{storyboard_id}/items",
+            {"level": "chapter", "title": "First"}, format="json",
+        ).data["id"]
+        url = f"/api/storyboard/storyboards/{storyboard_id}/items/{item_id}/surface"
+        response = self.client.patch(url, {"x": 413, "y": 92, "size": "large", "expanded": True}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(StoryboardItem.objects.get(pk=item_id).rank, 0)
+        self.assertEqual(self.client.get(f"/api/storyboard/storyboards/{storyboard_id}").data["surface_states"][0]["x"], 413)
+        reset = self.client.post(f"/api/storyboard/storyboards/{storyboard_id}/surface/reset")
+        self.assertEqual(reset.status_code, 200)
+        state = self.client.get(f"/api/storyboard/storyboards/{storyboard_id}").data["surface_states"][0]
+        self.assertIsNone(state["x"])
+        self.assertEqual(state["size"], "large")
+
+    def test_participation_reuses_sponsor_entity_and_rejects_foreign_sponsor(self):
+        storyboard_id = self.client.post("/api/storyboard/storyboards", {"grammar": "fiction_v1"}, format="json").data["id"]
+        item_id = self.client.post(
+            f"/api/storyboard/storyboards/{storyboard_id}/items",
+            {"level": "chapter", "title": "One"}, format="json",
+        ).data["id"]
+        url = f"/api/storyboard/storyboards/{storyboard_id}/items/{item_id}/participations"
+        created = self.client.post(url, {"kind": "character", "name": "Leo"}, format="json")
+        self.assertEqual(created.status_code, 201)
+        entity_id = created.data["entity_id"]
+        second = self.client.post(url, {"kind": "character", "entity_id": entity_id}, format="json")
+        self.assertEqual(second.status_code, 201)
+        self.assertEqual(Participation.objects.filter(item_id=item_id).count(), 1)
+        self.assertEqual(Entity.objects.get(pk=entity_id).sponsor_object_id, self.user.id)
+        self.assertEqual(self.client.post(url, {"kind": "claim", "name": "Wrong grammar"}, format="json").status_code, 400)
+
+        other = self.client.post("/api/storyboard/storyboards", {"grammar": "fiction_v1"}, format="json").data["id"]
+        other_item = self.client.post(
+            f"/api/storyboard/storyboards/{other}/items", {"level": "chapter"}, format="json"
+        ).data["id"]
+        reused = self.client.post(
+            f"/api/storyboard/storyboards/{other}/items/{other_item}/participations",
+            {"kind": "character", "entity_id": entity_id}, format="json",
+        )
+        self.assertEqual(reused.status_code, 201)
+
+    def test_note_link_preserves_scene_reference_and_mention_requires_confirmation(self):
+        folio = Folio.objects.create(title="Notes", created_by=self.user)
+        note = FolioNote.objects.create(
+            folio=folio, created_by=self.user, source_type=FolioNoteSource.TEXT,
+            raw_text="Leo enters the room.", status=FolioNoteStatus.READY,
+            mentions=[{"surface": "Leo", "kind": "character", "confidence": 0.9, "existing_entity_id": None}],
+        )
+        storyboard_id = self.client.post(
+            "/api/storyboard/storyboards", {"grammar": "fiction_v1", "folio_ids": [str(folio.id)]}, format="json"
+        ).data["id"]
+        chapter = self.client.post(
+            f"/api/storyboard/storyboards/{storyboard_id}/items", {"level": "chapter"}, format="json"
+        ).data["id"]
+        scene = self.client.post(
+            f"/api/storyboard/storyboards/{storyboard_id}/items",
+            {"level": "scene", "parent_id": chapter}, format="json",
+        ).data
+        item_url = f"/api/storyboard/storyboards/{storyboard_id}/items/{scene['id']}"
+        linked = self.client.post(f"{item_url}/links", {"note_id": str(note.id)}, format="json")
+        self.assertEqual(linked.status_code, 201)
+        self.assertEqual(StoryboardItemLink.objects.filter(item_id=scene["id"]).count(), 1)
+        detail = self.client.get(f"/api/storyboard/storyboards/{storyboard_id}").data
+        self.assertEqual(next(item for item in detail["items"] if str(item["id"]) == str(scene["id"]))["reference"], scene["reference"])
+        self.assertEqual(Participation.objects.filter(item_id=scene["id"]).count(), 0)
+        confirmed = self.client.post(
+            f"{item_url}/participations",
+            {"kind": "character", "note_id": str(note.id), "mention_index": 0, "name": "Leo"}, format="json",
+        )
+        self.assertEqual(confirmed.status_code, 201)
+        note.refresh_from_db()
+        self.assertEqual(note.mentions[0]["confirmed_entity_id"], confirmed.data["entity_id"])
 
     def test_another_user_cannot_see_or_edit_the_storyboard(self):
         storyboard_id = self.client.post(

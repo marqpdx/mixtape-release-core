@@ -5,9 +5,8 @@
 # in its tree. Fiction is the first real consumer (fiction_v1 grammar,
 # storyboard/grammars.py); Issue is the next after this proves out.
 #
-# Deliberately NOT built here yet (later phases, see
-# decisions/folio/folio-storyboard-build-handoff.md §4):
-# Participation (Phase 7), Seam (no phase assigned), SurfaceState (Phase 6).
+# Participation and Seam are later work (see
+# decisions/folio/folio-storyboard-build-handoff-02.md).
 
 import uuid
 
@@ -44,14 +43,7 @@ class Storyboard(BaseModel):
         help_text="Optional rich body (TipTap/ProseMirror) describing the whole Storyboard.",
     )
 
-    folio = models.ForeignKey(
-        "folio.Folio",
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="storyboards",
-        help_text="Optional -- this Storyboard draws from that Folio's FolioNotes, doesn't own them.",
-    )
+    folios = models.ManyToManyField("folio.Folio", through="StoryboardFolio", related_name="storyboards", blank=True)
 
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -135,3 +127,69 @@ class StoryboardItem(BaseModel):
 
     def __str__(self):
         return f"StoryboardItem<{self.level}> {self.title or self.id} (Storyboard {self.storyboard_id})"
+
+
+class StoryboardFolio(BaseModel):
+    storyboard = models.ForeignKey(Storyboard, on_delete=models.CASCADE)
+    folio = models.ForeignKey("folio.Folio", on_delete=models.CASCADE)
+
+    class Meta(BaseModel.Meta):
+        constraints = [models.UniqueConstraint(fields=["storyboard", "folio"], name="unique_storyboard_folio")]
+
+
+class Entity(BaseModel):
+    """Sponsor-scoped identity reusable across Storyboards."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    kind = models.CharField(max_length=40)
+    name = models.CharField(max_length=255)
+    aliases = models.JSONField(default=list, blank=True)
+    body = models.JSONField(default=dict, blank=True)
+    sponsor_content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, related_name="+")
+    sponsor_object_id = models.UUIDField()
+    sponsor = GenericForeignKey("sponsor_content_type", "sponsor_object_id")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+
+    class Meta(BaseModel.Meta):
+        indexes = [models.Index(fields=["sponsor_content_type", "sponsor_object_id"])]
+
+
+class Participation(BaseModel):
+    item = models.ForeignKey(StoryboardItem, on_delete=models.CASCADE, related_name="participations")
+    entity = models.ForeignKey(Entity, on_delete=models.CASCADE, related_name="participations")
+    kind = models.CharField(max_length=40)
+
+    class Meta(BaseModel.Meta):
+        constraints = [models.UniqueConstraint(fields=["item", "entity", "kind"], name="unique_item_entity_kind")]
+
+
+class StoryboardItemLink(BaseModel):
+    """Supporting material linked to an item; its canonical reference stays singular."""
+
+    item = models.ForeignKey(StoryboardItem, on_delete=models.CASCADE, related_name="links")
+    target_content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, related_name="+")
+    target_object_id = models.UUIDField()
+    target = GenericForeignKey("target_content_type", "target_object_id")
+    kind = models.CharField(max_length=40)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+
+    class Meta(BaseModel.Meta):
+        constraints = [models.UniqueConstraint(
+            fields=["item", "target_content_type", "target_object_id", "kind"],
+            name="unique_storyboard_item_link",
+        )]
+        indexes = [models.Index(fields=["target_content_type", "target_object_id"])]
+
+
+class SurfaceState(BaseModel):
+    """A writer's arrangement of an item; it never affects authored rank."""
+
+    item = models.ForeignKey(StoryboardItem, on_delete=models.CASCADE, related_name="surface_states")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    x = models.FloatField(null=True, blank=True)
+    y = models.FloatField(null=True, blank=True)
+    size = models.CharField(max_length=10, default="normal")
+    expanded = models.BooleanField(default=False)
+
+    class Meta(BaseModel.Meta):
+        constraints = [models.UniqueConstraint(fields=["item", "user"], name="unique_item_user_surface")]
