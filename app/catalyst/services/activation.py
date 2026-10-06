@@ -162,7 +162,7 @@ class CatalystActivationService:
     # -------------------------------------------------------------------------
 
     def seed_ir(self):
-        from inkwell.stackroom_http_client import get_or_create_group_library, ingest_text, StackroomClientError
+        from stackroom_client import get_or_create_group_library, ingest_text, StackroomClientError
 
         group = self.prospect.converted_to_group
         if not group:

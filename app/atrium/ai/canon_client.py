@@ -1,45 +1,25 @@
 # atrium/ai/canon_client.py
 #
 # Django -> Stackroom HTTP client for the Atrium read-only bridge (Stage 1).
-# Same service-JWT auth pattern as inkwell/stackroom_http_client.py, scoped
+# Uses the shared stackroom_client for base URL and service JWT, scoped
 # to the read-only canon-bundles endpoints (query_canon, get_document).
 
 from __future__ import annotations
 
 import json
 import logging
-import time
 
-import jwt
 import requests
 from django.conf import settings
+
+from stackroom_client import base_url, service_headers
 
 logger = logging.getLogger(__name__)
 
 
-def _base_url() -> str:
-    return getattr(settings, "STACKROOM_BASE_URL", "http://127.0.0.1:8012").rstrip("/")
-
-
-def _mint_service_token() -> str:
-    now = int(time.time())
-    ttl = int(getattr(settings, "SERVICE_JWT_TTL_SECONDS", 600))
-    return jwt.encode(
-        {
-            "sub": "django",
-            "iat": now,
-            "nbf": now,
-            "exp": now + ttl,
-            "iss": getattr(settings, "SERVICE_JWT_ISS", "mixtape"),
-            "aud": getattr(settings, "SERVICE_JWT_AUD_IR", "django-ir"),
-        },
-        settings.SERVICE_JWT_SECRET,
-        algorithm=getattr(settings, "SERVICE_JWT_ALG", "HS256"),
-    )
-
-
-def _headers() -> dict[str, str]:
-    return {"X-Service-Token": _mint_service_token()}
+# Base URL and service-JWT minting come from the shared Stackroom client.
+_base_url = base_url
+_headers = service_headers
 
 
 def _canon_user_id() -> str:

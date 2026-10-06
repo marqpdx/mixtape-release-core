@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from inkwell.stackroom_http_client import get_or_create_user_library
+from stackroom_client import get_or_create_user_library
 from utils.writing.writing_utils import extract_text_from_prosemirror
 from writing.models import WorkingDocument
 

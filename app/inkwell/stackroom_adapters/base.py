@@ -7,6 +7,9 @@ from uuid import UUID
 
 class BaseStackroomAdapter(ABC):
     adapter_name: str = ""
+    # Stackroom Artifact type for ingested text. None keeps Stackroom's default
+    # ("extracted_text"); set it when retrieve needs to tell this content apart.
+    artifact_type: str | None = None
 
     @abstractmethod
     def supports(self, obj) -> bool: ...

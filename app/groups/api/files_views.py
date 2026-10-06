@@ -15,7 +15,7 @@ class GroupFilesListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, slug):
-        from inkwell.stackroom_http_client import (
+        from stackroom_client import (
             get_or_create_group_library,
             get_library_source_files,
             StackroomClientError,
@@ -55,7 +55,7 @@ class GroupFileUploadView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, slug):
-        from inkwell.stackroom_http_client import (
+        from stackroom_client import (
             get_or_create_group_library,
             upload_library_file,
             StackroomClientError,
@@ -116,7 +116,7 @@ class GroupFileDeleteView(APIView):
     permission_classes = [IsAuthenticated]
 
     def delete(self, request, slug, source_file_id):
-        from inkwell.stackroom_http_client import (
+        from stackroom_client import (
             delete_source_file,
             StackroomClientError,
         )
@@ -154,7 +154,7 @@ class GroupFileDownloadView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, slug, source_file_id):
-        from inkwell.stackroom_http_client import (
+        from stackroom_client import (
             download_source_file,
             StackroomClientError,
         )
@@ -182,7 +182,7 @@ class GroupFilePreviewView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, slug, source_file_id):
-        from inkwell.stackroom_http_client import (
+        from stackroom_client import (
             preview_source_file_pdf,
             StackroomClientError,
         )
@@ -210,7 +210,7 @@ class MeFilesListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from inkwell.stackroom_http_client import (
+        from stackroom_client import (
             get_or_create_user_library,
             get_library_source_files,
             StackroomClientError,
@@ -245,7 +245,7 @@ class MeFileDeleteView(APIView):
     permission_classes = [IsAuthenticated]
 
     def delete(self, request, source_file_id):
-        from inkwell.stackroom_http_client import (
+        from stackroom_client import (
             get_or_create_user_library,
             get_library_source_files,
             delete_source_file,

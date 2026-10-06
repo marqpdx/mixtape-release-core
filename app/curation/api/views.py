@@ -265,7 +265,7 @@ class CollectionDetailView(APIView):
 def _resolve_sponsor_library(collection):
     """Return the Stackroom library UUID for a collection's sponsor, provisioning it if needed."""
     from django.contrib.auth import get_user_model
-    from inkwell.stackroom_http_client import get_or_create_group_library, get_or_create_user_library
+    from stackroom_client import get_or_create_group_library, get_or_create_user_library
 
     User = get_user_model()
     sponsor_model = collection.sponsor_content_type.model_class()
@@ -283,7 +283,7 @@ class CollectionAvailableFilesView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, collection_id):
-        from inkwell.stackroom_http_client import get_library_source_files, StackroomClientError
+        from stackroom_client import get_library_source_files, StackroomClientError
 
         collection = get_object_or_404(Collection, id=collection_id)
         _check_read(request.user, collection)
@@ -326,7 +326,7 @@ class CollectionUploadView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, collection_id):
-        from inkwell.stackroom_http_client import upload_library_file, StackroomClientError
+        from stackroom_client import upload_library_file, StackroomClientError
 
         collection = get_object_or_404(Collection, id=collection_id)
         _check_write(request.user, collection)

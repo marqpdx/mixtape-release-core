@@ -136,7 +136,7 @@ def ingest_library_item(self, library_item_id: str, triggered_by_id: str | None 
     from django.core.files.storage import default_storage
 
     from initiatives.models import ActionRun, ActionRunExecutionMode, ActionRunInitiatorType, ActionRunStatus
-    from inkwell.stackroom_http_client import ingest_text
+    from stackroom_client import ingest_text
     from puddlejump.models import LibraryItem
 
     try:

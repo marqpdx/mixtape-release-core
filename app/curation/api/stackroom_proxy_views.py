@@ -11,7 +11,7 @@ from rest_framework.views import APIView
 
 from curation.api.views import _check_read, _get_group_membership
 from curation.models import Collection
-from inkwell.stackroom_http_client import (
+from stackroom_client import (
     StackroomClientError,
     download_source_file,
     get_source_file_metadata,
