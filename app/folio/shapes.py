@@ -39,3 +39,16 @@ def allowed_shapes() -> list[str]:
 def coerce_shape(value) -> str:
     """Validate a model-suggested Shape; anything unrecognized is Unplaced."""
     return value if value in Shape.values else Shape.UNPLACED
+
+
+def effective_shape_q(shape: str):
+    """Queryset filter matching effective_shape() — confirmed wins, else the
+    suggestion, else Unplaced — so Shape filtering in SQL agrees with the
+    `shape` the serializer shows."""
+    from django.db.models import Q
+
+    if shape == Shape.UNPLACED:
+        return Q(confirmed_shape=Shape.UNPLACED) | (
+            Q(confirmed_shape="") & Q(suggested_shape__in=["", Shape.UNPLACED])
+        )
+    return Q(confirmed_shape=shape) | (Q(confirmed_shape="") & Q(suggested_shape=shape))

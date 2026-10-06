@@ -23,6 +23,7 @@ from django.utils import timezone
 from concord.services.whisper import transcribe_audio
 from folio.models import FolioNote, FolioNoteSource, FolioNoteStatus
 from folio.shapes import allowed_shapes, coerce_shape
+from inkwell.stackroom_enqueue import enqueue_stackroom_ingest
 from initiatives.models import ActionRun, ActionRunExecutionMode, ActionRunInitiatorType, ActionRunStatus
 from mixtape.celery_app import app as celery_app
 
@@ -94,6 +95,7 @@ def transcribe_folio_note_task(self, note_id: str):
         _notify(note, "folio_note:transcribed")
         if note.transcript_text:
             tend_folio_note_task.delay(str(note.id))
+            enqueue_stackroom_ingest(note, reason="folio_note_transcribed")
         return {"status": "ok", "chars": len(note.transcript_text)}
     except Exception as exc:
         # The audio stays on the note — a failed transcription is a

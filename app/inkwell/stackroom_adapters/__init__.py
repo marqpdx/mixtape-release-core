@@ -7,6 +7,7 @@ from .threadworks_discussion import ThreadworksDiscussionAdapter
 from .almanac_event import AlmanacEventAdapter
 from .drop import DropAdapter
 from .transcript import TranscriptAdapter
+from .folio_note import FolioNoteAdapter
 
 ADAPTER_REGISTRY = [
     SeedAdapter(),
@@ -18,6 +19,7 @@ ADAPTER_REGISTRY = [
     AlmanacEventAdapter(),
     DropAdapter(),
     TranscriptAdapter(),
+    FolioNoteAdapter(),
 ]
 
 
