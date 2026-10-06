@@ -7,3 +7,4 @@ class WritingConfig(AppConfig):
 
     def ready(self):
         import writing.stackroom_signals  # noqa: F401
+        import writing.focus_signals  # noqa: F401

@@ -10,6 +10,7 @@ from utils.shared.contenttypes import resolve_content_type
 from writing.choices import ContentStatus
 
 from ..models import (
+    Focus,
     LeafComment,
     LeafPlacement,
     LeafPlacementReaction,
@@ -1016,3 +1017,51 @@ class IssueReadSerializer(serializers.ModelSerializer):
 
     def get_is_publishable(self, obj):
         return obj.is_publishable
+
+
+# ---------------------------------------------------------------------------
+# Focus — Focus-Centered Writing ADR, Phase 2 (FCW-5)
+# ---------------------------------------------------------------------------
+
+# Token -> dotted model label for `object_type` in Focus create payloads.
+# Mirrors the token-mapping pattern used for sponsor_type elsewhere
+# (utils.shared.contenttypes.resolve_content_type). Only "issue" exists in
+# Phase 2 — add to this mapping, not a new resolver, if a second Focus
+# target type is ever built.
+FOCUS_TARGET_TYPES = {
+    "issue": "writing.Issue",
+}
+
+
+class FocusSerializer(serializers.ModelSerializer):
+    object_type = serializers.SerializerMethodField()
+    object_id = serializers.UUIDField(source="target_object_id", read_only=True)
+
+    class Meta:
+        model = Focus
+        fields = [
+            "id", "verb", "object_type", "object_id", "status", "state",
+            "created_at", "updated_at", "resolved_at",
+        ]
+        read_only_fields = ["id", "status", "created_at", "updated_at", "resolved_at"]
+
+    def get_object_type(self, obj):
+        return obj.target_content_type.model
+
+
+class FocusCreateSerializer(serializers.Serializer):
+    verb = serializers.ChoiceField(choices=Focus.Verb.choices, default=Focus.Verb.PUBLISH)
+    object_type = serializers.ChoiceField(choices=list(FOCUS_TARGET_TYPES.keys()))
+    object_id = serializers.UUIDField()
+
+    def validate(self, attrs):
+        from utils.shared.contenttypes import resolve_content_type
+        attrs["target_content_type"] = resolve_content_type(
+            attrs.pop("object_type"), mapping=FOCUS_TARGET_TYPES,
+        )
+        attrs["target_object_id"] = attrs.pop("object_id")
+        return attrs
+
+
+class FocusStateUpdateSerializer(serializers.Serializer):
+    state = serializers.JSONField()

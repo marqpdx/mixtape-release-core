@@ -38,6 +38,12 @@ from .issue_views import (
     WritingPieceSpellingReviewView,
 )
 from .streams_views import StreamsView
+from .focus_views import (
+    FocusDetailView,
+    FocusListCreateView,
+    FocusResolveView,
+    FocusStateUpdateView,
+)
 from .views import (
     DocumentImportBatchConfirmView,
     DocumentImportBatchPreviewView,
@@ -202,5 +208,11 @@ urlpatterns = [
     # Sign-off toggle (ADR-0054 D10)
     path("pieces/<uuid:pk>/sign-off", WritingPieceSignOffView.as_view(), name="writingpiece-sign-off"),
     path("pieces/<uuid:pk>/spelling-review", WritingPieceSpellingReviewView.as_view(), name="writingpiece-spelling-review"),
+
+    # Focus — Focus-Centered Writing ADR, Phase 2 (FCW-5)
+    path("focuses", FocusListCreateView.as_view(), name="focus-list-create"),
+    path("focuses/<uuid:pk>", FocusDetailView.as_view(), name="focus-detail"),
+    path("focuses/<uuid:pk>/state", FocusStateUpdateView.as_view(), name="focus-state-update"),
+    path("focuses/<uuid:pk>/resolve", FocusResolveView.as_view(), name="focus-resolve"),
 
 ]
