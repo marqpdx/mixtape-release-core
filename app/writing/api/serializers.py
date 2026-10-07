@@ -879,6 +879,7 @@ def _issue_draft(placement):
 
 class IssuePlacementSerializer(serializers.ModelSerializer):
     piece_id = serializers.UUIDField(source="piece.id", read_only=True)
+    piece_slug = serializers.CharField(source="piece.slug", read_only=True)
     piece_title = serializers.SerializerMethodField()
     piece_status = serializers.CharField(source="piece.status", read_only=True)
     spellcheck_clean = serializers.BooleanField(source="piece.spellcheck_clean", read_only=True)
@@ -889,7 +890,7 @@ class IssuePlacementSerializer(serializers.ModelSerializer):
         model = IssuePlacement
         fields = [
             "id", "order_index", "added_at", "is_lead",
-            "piece_id", "piece_title", "piece_status",
+            "piece_id", "piece_slug", "piece_title", "piece_status",
             "spellcheck_clean", "signed_off", "word_count",
         ]
 
