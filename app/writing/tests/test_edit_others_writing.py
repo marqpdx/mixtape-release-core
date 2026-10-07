@@ -141,6 +141,30 @@ class EditOthersWritingTests(TestCase):
         self.assertEqual(self.client.get(url).status_code, 200)
         self.assertEqual(self.client.patch(url, {"title": "Author Edit"}, format="json").status_code, 200)
 
+    def test_atelier_editor_routes_use_piece_id_after_provisional_slug_changes(self):
+        draft = self._piece(self.group, "")
+        provisional_slug = draft.slug
+        draft.title = "Renamed Draft"
+        draft.save()
+        self.assertNotEqual(draft.slug, provisional_slug)
+
+        self.client.force_authenticate(user=self.author)
+        base = f"/api/atelier/{draft.id}"
+        self.assertEqual(self.client.get(f"{base}/readiness/").status_code, 200)
+        self.assertEqual(self.client.get(f"{base}/summaries/").status_code, 200)
+        self.assertEqual(self.client.get(f"{base}/tags/").status_code, 200)
+        self.assertEqual(self.client.patch(
+            f"{base}/readiness/", {"dimension": "category", "ignored": True}, format="json"
+        ).status_code, 200)
+        self.assertEqual(self.client.get(f"/api/atelier/{draft.slug}/readiness/").status_code, 200)
+        self.assertEqual(self.client.get(f"/api/atelier/{provisional_slug}/readiness/").status_code, 404)
+
+    def test_atelier_piece_id_keeps_group_editor_scope(self):
+        self._role("steward")
+        self.assertEqual(self.client.get(f"/api/atelier/{self.piece.id}/readiness/").status_code, 200)
+        self.assertEqual(self.client.get(f"/api/atelier/{self.other_piece.id}/readiness/").status_code, 404)
+        self.assertEqual(self.client.get(f"/api/atelier/{self.piece.id}/tags/").status_code, 404)
+
     @patch("switchboard.api.views.celery_app.send_task")
     def test_steward_can_generate_and_confirm_summaries(self, send_task):
         self._role("steward")
