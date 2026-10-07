@@ -23,8 +23,16 @@ from ..services import (
 from .serializers import CategorySerializer, TagSerializer
 
 
+def _get_editor_piece(identifier):
+    try:
+        piece_id = uuid.UUID(identifier)
+    except ValueError:
+        return get_object_or_404(WritingPiece, slug=identifier)
+    return get_object_or_404(WritingPiece, pk=piece_id)
+
+
 def _get_piece_for_author(slug, user):
-    piece = get_object_or_404(WritingPiece, slug=slug)
+    piece = _get_editor_piece(slug)
     if piece.author_id != user.id:
         return None, Response({"detail": "Not found."}, status=404)
     return piece, None
@@ -33,7 +41,7 @@ def _get_piece_for_author(slug, user):
 def _get_piece_for_summary_editor(slug, user):
     from writing.permissions import can_edit_others_group_writing
 
-    piece = get_object_or_404(WritingPiece, slug=slug)
+    piece = _get_editor_piece(slug)
     if piece.author_id != user.id and not can_edit_others_group_writing(user, piece):
         return None, Response({"detail": "Not found."}, status=404)
     return piece, None
