@@ -2,7 +2,7 @@
 # ADR-0054 (+ Phase 3 amendment): Issue Board and Publish Cascade
 
 from django.db import transaction
-from django.db.models import Max
+from django.db.models import Max, Q
 from django.contrib.contenttypes.models import ContentType
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -12,10 +12,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from writing.models import WritingPiece, Issue, IssuePlacement
+from writing.models import WritingPiece, WorkingDocument, Issue, IssuePlacement
 from writing.permissions import can_edit_others_group_writing
 from writing.services import WorkingCopyConflict, get_editing_document
+from dispatch.access import active_group_ids
 from groups.models import Group, GroupMembership
+from publishing.models import ContentPlacement
+from publishing.services.content_access import can_view_placement
 from writing.api.serializers import (
     IssuePlacementSerializer,
     IssueSerializer,
@@ -145,6 +148,117 @@ class IssueListCreateView(APIView):
             sponsor_object_id=obj_id,
         )
         return Response(IssueSerializer(issue).data, status=status.HTTP_201_CREATED)
+
+
+class IssueGroupingView(APIView):
+    """Issue order and membership for pieces visible in a Writing work area."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        sponsor_type = request.query_params.get("sponsor_type")
+        sponsor_slug = request.query_params.get("sponsor_slug")
+        group_ct = ContentType.objects.get_for_model(Group)
+        user_ct = ContentType.objects.get_for_model(request.user)
+        piece_ct = ContentType.objects.get_for_model(WritingPiece)
+
+        if sponsor_type == "group":
+            group = get_object_or_404(Group, slug=sponsor_slug)
+            if not request.user.is_superuser and not active_group_ids(request.user).filter(group_id=group.pk).exists():
+                raise PermissionDenied("You cannot view this group's Issues.")
+            placements = IssuePlacement.objects.filter(
+                issue__sponsor_content_type=group_ct,
+                issue__sponsor_object_id=group.pk,
+                piece__sponsor_content_type=group_ct,
+                piece__sponsor_object_id=group.pk,
+            )
+            if not _can_manage_group(group.pk, request.user):
+                placements = placements.filter(issue__status="published")
+        elif sponsor_type == "member":
+            if sponsor_slug != request.user.username:
+                raise PermissionDenied("You cannot view another member's Issues.")
+            placements = IssuePlacement.objects.filter(
+                Q(issue__sponsor_content_type=user_ct, issue__sponsor_object_id=request.user.pk)
+                | Q(issue__sponsor_content_type=group_ct,
+                    issue__sponsor_object_id__in=active_group_ids(request.user)),
+            )
+        else:
+            return Response({"detail": "Expected a group or member sponsor."}, status=status.HTTP_400_BAD_REQUEST)
+
+        placements = list(placements.select_related("issue", "piece").order_by(
+            "-issue__updated_at", "issue_id", "order_index", "added_at", "pk"
+        ))
+        if sponsor_type == "member":
+            manageable_groups = {}
+            visible_placements = []
+            for placement in placements:
+                issue = placement.issue
+                if issue.sponsor_content_type_id == group_ct.id and issue.status != "published":
+                    group_id = issue.sponsor_object_id
+                    if group_id not in manageable_groups:
+                        manageable_groups[group_id] = _can_manage_group(group_id, request.user)
+                    if not manageable_groups[group_id]:
+                        continue
+                visible_placements.append(placement)
+            placements = visible_placements
+        if not placements:
+            return Response([])
+
+        candidate_ids = {placement.piece_id for placement in placements}
+        if sponsor_type == "group":
+            published_ids = {placement.piece_id for placement in placements if placement.piece.status == "published"}
+            visible_published = {
+                placement.source_object_id
+                for placement in ContentPlacement.objects.filter(
+                    target_content_type=group_ct,
+                    target_object_id=group.pk,
+                    source_content_type=piece_ct,
+                    source_object_id__in=published_ids,
+                    channel="feed",
+                )
+                if can_view_placement(placement, request.user)
+            }
+            draft_ids = set(WorkingDocument.objects.filter(
+                piece_id__in=candidate_ids,
+                piece__status="draft",
+            ).filter(Q(user=request.user) | Q(dispatch_content__collaborators=request.user))
+                .values_list("piece_id", flat=True).distinct())
+            visible_ids = visible_published | draft_ids
+        else:
+            visible_published = set(WritingPiece.objects.filter(
+                pk__in=candidate_ids, author=request.user, status="published", is_empty=False,
+            ).values_list("pk", flat=True))
+            draft_ids = set(WorkingDocument.objects.filter(
+                piece_id__in=candidate_ids,
+                piece__status="draft",
+                piece__sponsor_content_type=user_ct,
+                piece__sponsor_object_id=request.user.pk,
+            ).filter(Q(user=request.user) | Q(dispatch_content__collaborators=request.user))
+                .values_list("piece_id", flat=True).distinct())
+            visible_ids = visible_published | draft_ids
+
+        group_ids = {
+            placement.issue.sponsor_object_id for placement in placements
+            if placement.piece_id in visible_ids and placement.issue.sponsor_content_type_id == group_ct.id
+        }
+        group_names = dict(Group.objects.filter(pk__in=group_ids).values_list("pk", "title"))
+        groups = {}
+        for placement in placements:
+            if placement.piece_id not in visible_ids:
+                continue
+            issue = placement.issue
+            key = str(issue.pk)
+            if key not in groups:
+                groups[key] = {
+                    "id": key,
+                    "title": issue.title,
+                    "designation": issue.designation,
+                    "status": issue.status,
+                    "sponsor_label": group_names.get(issue.sponsor_object_id, "Group")
+                    if issue.sponsor_content_type_id == group_ct.id else "Personal",
+                    "piece_ids": [],
+                }
+            groups[key]["piece_ids"].append(str(placement.piece_id))
+        return Response(list(groups.values()))
 
 
 class IssueDetailView(APIView):
