@@ -28,6 +28,7 @@ from .placement_views import (
 )
 from .issue_views import (
     IssueListCreateView,
+    IssueGroupingView,
     IssueDetailView,
     IssuePublishView,
     IssuePlacementsView,
@@ -198,6 +199,7 @@ urlpatterns = [
 
     # Writing Assembly — Issues (ADR-0054 + Phase 3 amendment)
     path("issues", IssueListCreateView.as_view(), name="issue-list-create"),
+    path("issues/grouping", IssueGroupingView.as_view(), name="issue-grouping"),
     path("issues/<uuid:issue_id>", IssueDetailView.as_view(), name="issue-detail"),
     path("issues/<uuid:issue_id>/publish", IssuePublishView.as_view(), name="issue-publish"),
     path("issues/<uuid:issue_id>/placements", IssuePlacementsView.as_view(), name="issue-placements"),
