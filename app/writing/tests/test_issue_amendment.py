@@ -4,6 +4,7 @@
 # preview via Continuous Read, cascade-publish.
 
 from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase
@@ -13,6 +14,8 @@ from rest_framework.test import APIClient
 
 from groups.services.groups import GroupService
 from groups.services.memberships import ensure_user_membership
+from publishing.models import ContentPlacement
+from writing.publish_service import ensure_published_feed_placement
 from writing.models import Issue, IssuePlacement, WritingPiece
 
 User = get_user_model()
@@ -242,6 +245,99 @@ class IssueAmendmentTests(TestCase):
         )
         outsider_preview = self.client.get(f"/api/writing/issues/{issue_id}/read")
         self.assertEqual(outsider_preview.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_group_issue_publish_places_all_pieces_and_retracts_to_drafts(self):
+        group = GroupService.create_group(
+            title="Public Editorial Group", group_type="community", created_by=self.user,
+            visibility="public",
+        )
+        ensure_user_membership(group, self.user, role="admin")
+        pieces = [
+            _create_piece(author=self.user, title=f"Group Article {i}", slug=f"group-article-{i}", sponsor=group)
+            for i in range(3)
+        ]
+        created = self.client.post("/api/writing/issues", {
+            "title": "Public Group Issue", "sponsor_type": "group", "sponsor_slug": group.slug,
+        }, format="json")
+        issue = Issue.objects.get(pk=created.data["id"])
+        for piece in pieces:
+            self.assertEqual(self.client.post(f"/api/writing/issues/{issue.pk}/placements", {
+                "piece_id": str(piece.pk),
+            }, format="json").status_code, 201)
+
+        pieces[0].publish()
+        existing = ensure_published_feed_placement(pieces[0], self.user, group)
+        pieces[1].publish()
+        original_versions = [pieces[0].versions.count(), pieces[1].versions.count()]
+
+        published = self.client.post(f"/api/writing/issues/{issue.pk}/publish")
+        self.assertEqual(published.status_code, 200, published.data)
+        piece_ct = ContentType.objects.get_for_model(WritingPiece)
+        group_ct = ContentType.objects.get_for_model(group)
+        for piece in pieces:
+            piece.refresh_from_db()
+            self.assertEqual(piece.status, "published")
+            placement = ContentPlacement.objects.get(
+                source_content_type=piece_ct, source_object_id=piece.pk,
+                target_content_type=group_ct, target_object_id=group.pk, channel="feed",
+            )
+            self.assertEqual(placement.visibility, "public")
+            self.assertEqual(placement.locked_artifact_object_id, piece.versions.latest("sequence_no").pk)
+            if piece.pk == pieces[0].pk:
+                self.assertEqual(placement.pk, existing.pk)
+        self.assertEqual([pieces[0].versions.count(), pieces[1].versions.count()], original_versions)
+
+        feed = self.client.get("/api/writing/placements", {
+            "sponsor_type": "group", "sponsor_slug": group.slug,
+        })
+        self.assertEqual(len(feed.data), 3)
+        reader = APIClient()
+        for piece in pieces:
+            self.assertEqual(reader.get(f"/api/groups/{group.slug}/writing/{piece.slug}").status_code, 200)
+
+        issue_only = self.client.post(f"/api/writing/issues/{issue.pk}/unpublish", {
+            "cascade": False,
+        }, format="json")
+        self.assertEqual(issue_only.status_code, 200)
+        issue.refresh_from_db()
+        self.assertEqual(issue.status, "draft")
+        self.assertTrue(all(WritingPiece.objects.get(pk=p.pk).status == "published" for p in pieces))
+
+        cascade = self.client.post(f"/api/writing/issues/{issue.pk}/unpublish", {
+            "cascade": True,
+        }, format="json")
+        self.assertEqual(cascade.status_code, 200)
+        self.assertTrue(all(WritingPiece.objects.get(pk=p.pk).status == "draft" for p in pieces))
+        self.assertEqual(len(self.client.get("/api/writing/placements", {
+            "sponsor_type": "group", "sponsor_slug": group.slug,
+        }).data), 0)
+        for piece in pieces:
+            self.assertEqual(reader.get(f"/api/groups/{group.slug}/writing/{piece.slug}").status_code, 404)
+
+    def test_cascade_refuses_piece_in_another_published_issue(self):
+        piece = self.pieces[0]
+        issue = Issue.objects.create(
+            title="First Issue", sponsor_content_type=ContentType.objects.get_for_model(self.user),
+            sponsor_object_id=self.user.pk, status="published",
+        )
+        other = Issue.objects.create(
+            title="Other Issue", sponsor_content_type=issue.sponsor_content_type,
+            sponsor_object_id=self.user.pk, status="published",
+        )
+        IssuePlacement.objects.create(issue=issue, piece=piece)
+        IssuePlacement.objects.create(issue=other, piece=piece)
+        piece.status = "published"
+        piece.published_at = issue.created_at
+        piece.save(update_fields=["status", "published_at"])
+
+        response = self.client.post(f"/api/writing/issues/{issue.pk}/unpublish", {
+            "cascade": True,
+        }, format="json")
+        self.assertEqual(response.status_code, 409)
+        issue.refresh_from_db()
+        piece.refresh_from_db()
+        self.assertEqual(issue.status, "published")
+        self.assertEqual(piece.status, "published")
 
     def test_reassign_issue_sponsor_requires_execute_and_matching_pieces(self):
         group = GroupService.create_group(
