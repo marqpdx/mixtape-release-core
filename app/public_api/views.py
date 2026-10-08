@@ -22,7 +22,7 @@ from publishing.models import ContentPlacement
 from publishing.services.content_access import can_view_placement
 from publishing.services.content_display import get_display_payload
 from curation.models import Collection
-from writing.models import WritingPiece
+from writing.models import Issue, WritingPiece
 from writing.synopsis_service import _extract_plain_text
 from earthlab.models import Course, CourseItem
 
@@ -431,6 +431,92 @@ class PublicGroupWritingView(APIView):
         return Response(results)
 
 
+def _public_group_issue(issue, group, *, include_body=False):
+    """Resolve only pieces with a public feed placement in this group."""
+    group_ct = ContentType.objects.get_for_model(Group)
+    piece_ct = ContentType.objects.get_for_model(WritingPiece)
+    pieces = []
+    for item in issue.placements.select_related("piece__author").order_by("order_index"):
+        piece = item.piece
+        if (piece.status != "published" or piece.sponsor_content_type_id != group_ct.pk
+                or piece.sponsor_object_id != group.pk):
+            continue
+        placement = ContentPlacement.objects.filter(
+            source_content_type=piece_ct,
+            source_object_id=piece.pk,
+            target_content_type=group_ct,
+            target_object_id=group.pk,
+            channel="feed",
+            visibility="public",
+        ).order_by("-created_at").first()
+        if not placement or not can_view_placement(placement, None):
+            continue
+        try:
+            metadata = get_display_payload(placement).get("metadata") or {}
+        except Exception:
+            continue
+        profile = getattr(piece.author, "profile", None)
+        entry = {
+            "id": str(piece.pk),
+            "slug": piece.slug,
+            "title": metadata.get("title") or piece.title,
+            "excerpt": metadata.get("excerpt") or piece.excerpt,
+            "published_at": piece.published_at,
+            "order_index": item.order_index,
+            "is_lead": item.is_lead,
+            "author": profile.display_name if profile and profile.display_name else piece.author.username,
+        }
+        if include_body:
+            entry["body_json"] = metadata.get("body_json") or piece.body_json
+        pieces.append(entry)
+    return {
+        "id": str(issue.pk),
+        "slug": issue.slug,
+        "title": issue.title,
+        "designation": issue.designation,
+        "description": issue.description,
+        "published_at": issue.published_at,
+        "piece_count": len(pieces),
+        "pieces": pieces,
+    }
+
+
+class PublicGroupIssuesView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, group_slug):
+        group = get_object_or_404(Group, slug=group_slug, is_active=True, visibility="public")
+        group_ct = ContentType.objects.get_for_model(Group)
+        issues = Issue.objects.filter(
+            sponsor_content_type=group_ct,
+            sponsor_object_id=group.pk,
+            status="published",
+        ).order_by("-published_at", "-created_at")
+        return Response([
+            payload for issue in issues
+            if (payload := _public_group_issue(issue, group))["piece_count"]
+        ])
+
+
+class PublicGroupIssueView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, group_slug, issue_slug):
+        group = get_object_or_404(Group, slug=group_slug, is_active=True, visibility="public")
+        group_ct = ContentType.objects.get_for_model(Group)
+        issue = get_object_or_404(
+            Issue,
+            sponsor_content_type=group_ct,
+            sponsor_object_id=group.pk,
+            slug=issue_slug,
+            status="published",
+        )
+        payload = _public_group_issue(issue, group, include_body=True)
+        if not payload["piece_count"]:
+            return Response({"detail": "Not found."}, status=drf_status.HTTP_404_NOT_FOUND)
+        return Response(payload)
+
+
 class PublicSiteWritingView(APIView):
     """
     GET /api/public/sites/writing?owner={username}&groups={slug,slug}
@@ -754,15 +840,30 @@ class PublicIssueView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request, slug):
-        from writing.models import Issue
         issue = get_object_or_404(Issue, slug=slug, status="published")
-
         placements = issue.placements.select_related("piece__author").order_by("order_index")
+        group_ct = ContentType.objects.get_for_model(Group)
+        if issue.sponsor_content_type_id == group_ct.pk:
+            group = get_object_or_404(
+                Group, pk=issue.sponsor_object_id, is_active=True, visibility="public",
+            )
+            visible_ids = {
+                piece["id"] for piece in _public_group_issue(issue, group)["pieces"]
+            }
+        elif issue.sponsor_content_type_id == ContentType.objects.get_for_model(get_user_model()).pk:
+            public_placements, _ = browse_placements(
+                [placement.piece_id for placement in placements], viewer=None,
+            )
+            visible_ids = set(public_placements)
+        else:
+            return Response({"detail": "Not found."}, status=drf_status.HTTP_404_NOT_FOUND)
 
         pieces = []
         for p in placements:
             piece = p.piece
-            if piece.status != "published":
+            if (piece.status != "published" or str(piece.pk) not in visible_ids
+                    or piece.sponsor_content_type_id != issue.sponsor_content_type_id
+                    or piece.sponsor_object_id != issue.sponsor_object_id):
                 continue
             author_profile = getattr(piece.author, "profile", None)
             pieces.append({
@@ -778,6 +879,9 @@ class PublicIssueView(APIView):
                     "display_name": author_profile.display_name if author_profile else piece.author.username,
                 },
             })
+
+        if not pieces:
+            return Response({"detail": "Not found."}, status=drf_status.HTTP_404_NOT_FOUND)
 
         return Response({
             "id": str(issue.id),

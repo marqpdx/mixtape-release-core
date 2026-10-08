@@ -10,7 +10,7 @@ from curation.models import Collection
 from groups.services.groups import GroupService
 from profiles.models import UserProfile
 from publishing.models import ContentPlacement, PublicationGroup
-from writing.models import WritingPiece, WritingSynopsis, WritingVersion
+from writing.models import Issue, IssuePlacement, WritingPiece, WritingSynopsis, WritingVersion
 
 
 User = get_user_model()
@@ -459,6 +459,68 @@ class PublicGroupWritingViewTests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([item["slug"] for item in response.data], [public_piece.slug])
+
+
+class PublicGroupIssueViewTests(TestCase):
+    def setUp(self):
+        self.author = User.objects.create_user(username="issueauthor", password="testpass123")
+        _create_profile(user=self.author, display_name="Issue Author")
+        self.group = GroupService.create_group(
+            title="Issue Group", group_type="community", created_by=self.author,
+            visibility="public", add_creator_membership=False,
+        )
+        group_ct = ContentType.objects.get_for_model(self.group)
+        self.issue = Issue.objects.create(
+            title="First Issue", status="published", published_at=timezone.now(),
+            sponsor_content_type=group_ct, sponsor_object_id=self.group.pk,
+            description=_body_json("Welcome to the issue."),
+        )
+        self.client = APIClient()
+
+    def _add_piece(self, title, order, *, visibility="public", place=True, status_value="published"):
+        piece = _create_piece(
+            author=self.author, title=title, sponsor=self.group, status_value=status_value,
+        )
+        IssuePlacement.objects.create(issue=self.issue, piece=piece, order_index=order)
+        if place:
+            _create_placement(
+                piece=piece, target=self.group, user=self.author,
+                visibility=visibility, channel="feed",
+            )
+        return piece
+
+    def test_lists_only_publicly_placed_pieces_in_issue_order(self):
+        second = self._add_piece("Second", 2)
+        first = self._add_piece("First", 1)
+        self._add_piece("Private", 3, visibility="private")
+        self._add_piece("Unplaced", 4, place=False)
+        self._add_piece("Draft", 5, status_value="draft")
+
+        url = f"/api/public/groups/{self.group.slug}/writing/issues"
+        listing = self.client.get(url)
+        detail = self.client.get(f"{url}/{self.issue.slug}")
+
+        self.assertEqual(listing.status_code, status.HTTP_200_OK)
+        self.assertEqual([p["id"] for p in listing.data[0]["pieces"]], [str(first.pk), str(second.pk)])
+        self.assertNotIn("body_json", listing.data[0]["pieces"][0])
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail.data["pieces"][0]["body_json"], first.body_json)
+
+    def test_draft_issue_and_private_group_are_not_public(self):
+        self._add_piece("Visible", 0)
+        url = f"/api/public/groups/{self.group.slug}/writing/issues"
+        self.issue.status = "draft"
+        self.issue.save(update_fields=["status"])
+        self.assertEqual(self.client.get(url).data, [])
+        self.assertEqual(self.client.get(f"{url}/{self.issue.slug}").status_code, 404)
+
+        self.issue.status = "published"
+        self.issue.save(update_fields=["status"])
+        self.group.visibility = "private"
+        self.group.save(update_fields=["visibility"])
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.assertEqual(self.client.get(f"{url}/{self.issue.slug}").status_code, 404)
+        self.assertEqual(self.client.get(f"/api/public/writing/issues/{self.issue.slug}").status_code, 404)
 
 
 class PublicMemberWritingViewTests(TestCase):
