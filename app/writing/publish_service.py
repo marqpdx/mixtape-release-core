@@ -141,8 +141,41 @@ def publish_and_place(piece: WritingPiece, user, data: dict) -> dict:
         wc.apply_to_piece(piece)
 
     # Tags
-    if hasattr(piece, "tags") and isinstance(data.get("tags"), (list, tuple)):
-        piece.tags.set(data["tags"])
+    # NOTE: piece.tags is a GenericRelation onto ClassificationUsage that is
+    # NOT scoped by classification type — it resolves the exact same queryset
+    # as piece.categories (both filter only on the client content_type/object_id,
+    # per Django's GenericRelation semantics). A bare `.set()` here would
+    # `.clear()` every ClassificationUsage row for this piece — tags AND
+    # categories — then try to `.add()` raw strings, which aren't
+    # ClassificationUsage instances. Go through the same Tag-scoped
+    # add/remove helpers WritingPieceTagsView uses instead.
+    if isinstance(data.get("tags"), (list, tuple)):
+        from classifications.models import Tag, ClassificationUsage
+
+        tag_ct = ContentType.objects.get_for_model(Tag)
+        piece_ct = ContentType.objects.get_for_model(WritingPiece)
+
+        incoming_titles = [t.strip() for t in data["tags"] if isinstance(t, str) and t.strip()]
+        tags = []
+        for title in incoming_titles:
+            tag, _ = Tag.objects.get_or_create(title__iexact=title, defaults={"title": title})
+            tags.append(tag)
+
+        existing_usage = ClassificationUsage.objects.filter(
+            classification_client_content_type=piece_ct,
+            classification_client_object_id=str(piece.id),
+            classification_content_type=tag_ct,
+        )
+        existing_tag_ids = set(existing_usage.values_list("classification_object_id", flat=True))
+        incoming_tag_ids = {tag.id for tag in tags}
+
+        for tag in tags:
+            if tag.id not in existing_tag_ids:
+                piece.add_classification(tag)
+        for tag_id in existing_tag_ids - incoming_tag_ids:
+            removed_tag = Tag.objects.filter(id=tag_id).first()
+            if removed_tag:
+                piece.remove_classification(removed_tag)
 
     # addressed_to default
     if not piece.addressed_to:
