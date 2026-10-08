@@ -30,6 +30,49 @@ def _coerce_bool(v, default=False):
     return default
 
 
+def ensure_published_feed_placement(piece, user, target, *, visibility="public"):
+    """Place an already-published piece without creating another release version."""
+    if piece.status != "published":
+        raise ValidationError("Only published pieces can be placed in a feed.")
+
+    source_type = ContentType.objects.get_for_model(WritingPiece)
+    target_type = ContentType.objects.get_for_model(target)
+    existing = ContentPlacement.objects.filter(
+        source_content_type=source_type,
+        source_object_id=piece.id,
+        target_content_type=target_type,
+        target_object_id=target.pk,
+        channel="feed",
+    ).first()
+    if existing:
+        return existing
+
+    version = piece.versions.filter(kind="release").order_by("-sequence_no").first()
+    if version is None:
+        version = piece.create_version(content_changed=True)
+        piece.current_version_no = version.sequence_no
+        piece.save(update_fields=["current_version_no", "updated_at"])
+
+    publication_group = PublicationGroup.objects.create(
+        created_by=user,
+        source_content_type=source_type,
+        source_object_id=piece.id,
+    )
+    return ContentPlacement.objects.create(
+        publication_group=publication_group,
+        placed_by=user,
+        source_content_type=source_type,
+        source_object_id=piece.id,
+        target_content_type=target_type,
+        target_object_id=target.pk,
+        channel="feed",
+        visibility=visibility,
+        follow_updates=False,
+        locked_artifact_content_type=ContentType.objects.get_for_model(version),
+        locked_artifact_object_id=version.pk,
+    )
+
+
 @transaction.atomic
 def publish_and_place(piece: WritingPiece, user, data: dict) -> dict:
     """
@@ -148,11 +191,14 @@ def publish_and_place(piece: WritingPiece, user, data: dict) -> dict:
             SynopsisGenerationService.generate_for_piece(piece)
         except Exception:
             logger.exception("Synopsis generation failed for piece %s — skipping", piece.id)
-        try:
-            from writing.tasks import enqueue_writing_piece_synopsis_task
-            enqueue_writing_piece_synopsis_task.delay(str(piece.id))
-        except Exception:
-            logger.exception("AI synopsis enqueue failed for piece %s — skipping", piece.id)
+        def enqueue_synopsis():
+            try:
+                from writing.tasks import enqueue_writing_piece_synopsis_task
+                enqueue_writing_piece_synopsis_task.delay(str(piece.id))
+            except Exception:
+                logger.exception("AI synopsis enqueue failed for piece %s — skipping", piece.id)
+
+        transaction.on_commit(enqueue_synopsis)
 
     # --- Placement creation ---
     ct_piece = ContentType.objects.get_for_model(WritingPiece)

@@ -14,6 +14,7 @@ from rest_framework.views import APIView
 
 from writing.models import WritingPiece, WorkingDocument, Issue, IssuePlacement
 from writing.permissions import can_edit_others_group_writing
+from writing.publish_service import ensure_published_feed_placement, publish_and_place
 from writing.services import WorkingCopyConflict, get_editing_document
 from dispatch.access import active_group_ids
 from groups.models import Group, GroupMembership
@@ -334,21 +335,68 @@ class IssuePublishView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        group_ct = ContentType.objects.get_for_model(Group)
+        if issue.sponsor_content_type_id == group_ct.id:
+            destination = get_object_or_404(Group, pk=issue.sponsor_object_id)
+            destinations = {"groups": [destination.slug]}
+            visibility = "members" if destination.visibility == "private" else destination.visibility
+        else:
+            destination = request.user
+            destinations = {"personal": True}
+            visibility = "public"
+
+        for placement in placements:
+            piece = pieces[placement.piece_id]
+            if piece.status == "published":
+                ensure_published_feed_placement(piece, request.user, destination, visibility=visibility)
+            else:
+                result = publish_and_place(piece, request.user, {
+                    "destinations": destinations,
+                    "placement_options": {"visibility": visibility},
+                })
+                if not result["placements"]:
+                    raise PermissionDenied("You cannot publish to this Issue's sponsor.")
+
         now = timezone.now()
-        for piece in pieces.values():
-            newly_published = piece.status != "published"
-            if newly_published:
-                piece.status = "published"
-                piece.published_at = now
-                piece.save(update_fields=["status", "published_at", "slug", "slug_history", "updated_at"])
-            if newly_published or not piece.versions.exists():
-                version = piece.create_version(content_changed=True)
-                piece.current_version_no = version.sequence_no
-                piece.save(update_fields=["current_version_no", "updated_at"])
         issue.status = "published"
         issue.published_at = now
         issue.save(update_fields=["status", "published_at", "updated_at"])
 
+        return Response(IssueSerializer(issue).data)
+
+
+class IssueUnpublishView(APIView):
+    """Return an Issue to draft, optionally returning all of its pieces to drafts."""
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, issue_id):
+        issue = _get_issue_for_user(issue_id, request.user)
+        issue = Issue.objects.select_for_update().get(pk=issue.pk)
+        cascade = request.data.get("cascade") is True
+
+        if not cascade and issue.status != "published":
+            return Response({"detail": "Issue is already a draft."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if cascade:
+            pieces = list(WritingPiece.objects.select_for_update().filter(
+                pk__in=issue.placements.values("piece_id")
+            ).order_by("pk"))
+            shared = list(IssuePlacement.objects.filter(
+                piece_id__in=[piece.pk for piece in pieces], issue__status="published"
+            ).exclude(issue=issue).select_related("piece").values_list("piece__title", flat=True).distinct())
+            if shared:
+                return Response(
+                    {"detail": "Some pieces belong to another published Issue.", "shared_pieces": shared},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            for piece in pieces:
+                if piece.status == "published":
+                    piece.unpublish()
+
+        issue.status = "draft"
+        issue.published_at = None
+        issue.save(update_fields=["status", "published_at", "updated_at"])
         return Response(IssueSerializer(issue).data)
 
 
