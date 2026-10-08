@@ -2,7 +2,7 @@
 # ADR-0054 (+ Phase 3 amendment): Issue Board and Publish Cascade
 
 from django.db import transaction
-from django.db.models import Max, Q
+from django.db.models import Q
 from django.contrib.contenttypes.models import ContentType
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -424,19 +424,33 @@ class IssuePlacementsView(APIView):
                 or str(piece.sponsor_object_id) != str(issue.sponsor_object_id)):
             return Response({"detail": "Piece and Issue must have the same sponsor."}, status=status.HTTP_403_FORBIDDEN)
 
-        if IssuePlacement.objects.filter(issue=issue, piece=piece).exists():
-            return Response({"detail": "Piece is already in this Issue."}, status=status.HTTP_400_BAD_REQUEST)
+        before_piece_id = request.data.get("before_piece_id")
+        with transaction.atomic():
+            issue = Issue.objects.select_for_update().get(pk=issue.pk)
+            placements = list(issue.placements.order_by("order_index", "added_at", "id"))
+            if any(existing.piece_id == piece.id for existing in placements):
+                return Response({"detail": "Piece is already in this Issue."}, status=status.HTTP_400_BAD_REQUEST)
 
-        max_index = issue.placements.aggregate(m=Max("order_index"))["m"]
-        order_index = (max_index or -1) + 1
+            insert_at = len(placements)
+            if before_piece_id is not None:
+                insert_at = next(
+                    (index for index, existing in enumerate(placements) if str(existing.piece_id) == str(before_piece_id)),
+                    -1,
+                )
+                if insert_at < 0:
+                    return Response({"before_piece_id": "Piece is not in this Issue."}, status=status.HTTP_400_BAD_REQUEST)
 
-        placement = IssuePlacement.objects.create(issue=issue, piece=piece, order_index=order_index)
+            placement = IssuePlacement.objects.create(issue=issue, piece=piece, order_index=len(placements))
+            placements.insert(insert_at, placement)
+            for index, existing in enumerate(placements):
+                existing.order_index = index
+            IssuePlacement.objects.bulk_update(placements, ["order_index"])
 
-        # Adding a piece reverts a published Issue to draft
-        if issue.status == "published":
-            issue.status = "draft"
-            issue.published_at = None
-            issue.save(update_fields=["status", "published_at", "updated_at"])
+            # Adding a piece reverts a published Issue to draft.
+            if issue.status == "published":
+                issue.status = "draft"
+                issue.published_at = None
+                issue.save(update_fields=["status", "published_at", "updated_at"])
 
         return Response(IssuePlacementSerializer(placement).data, status=status.HTTP_201_CREATED)
 

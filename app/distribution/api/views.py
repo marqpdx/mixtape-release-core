@@ -13,7 +13,7 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from distribution.models import PublishEvent, PublishEventStatus, Source
+from distribution.models import PublishEvent, Source
 from distribution.services import (
     cancel_publish_event,
     create_publish_event,
@@ -21,6 +21,7 @@ from distribution.services import (
     schedule_publish_event,
 )
 from writing.models import WritingPiece
+from writing.permissions import CanPublishWritingPiece
 
 from .serializers import (
     DistributeRequestSerializer,
@@ -69,14 +70,14 @@ class DistributeView(APIView):
       "scheduled_at": null   // or ISO datetime for deferred execution
     }
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, CanPublishWritingPiece]
 
     def post(self, request, piece_id=None):
         piece = get_object_or_404(
             WritingPiece.objects.select_related("sponsor_content_type"),
             pk=piece_id,
-            author=request.user,
         )
+        self.check_object_permissions(request, piece)
 
         if piece.status not in ("published", "scheduled"):
             return Response(

@@ -106,6 +106,38 @@ class IssueAmendmentTests(TestCase):
         self.assertTrue(issue_list.data[0]["is_publishable"])
         self.assertEqual(issue_list.data[0]["piece_ids"], [str(self.pieces[0].id)])
 
+    def test_add_placement_at_position_and_append_after_first(self):
+        created = self.client.post("/api/writing/issues", {"title": "Ordered Issue"}, format="json")
+        issue_id = created.data["id"]
+        url = f"/api/writing/issues/{issue_id}/placements"
+
+        for piece in (self.pieces[0], self.pieces[2]):
+            response = self.client.post(url, {"piece_id": str(piece.id)}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            list(IssuePlacement.objects.filter(issue_id=issue_id).order_by("order_index").values_list("order_index", flat=True)),
+            [0, 1],
+        )
+
+        inserted = self.client.post(
+            url,
+            {"piece_id": str(self.pieces[1].id), "before_piece_id": str(self.pieces[2].id)},
+            format="json",
+        )
+        self.assertEqual(inserted.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            list(IssuePlacement.objects.filter(issue_id=issue_id).order_by("order_index").values_list("piece_id", flat=True)),
+            [piece.id for piece in self.pieces[:3]],
+        )
+
+        invalid = self.client.post(
+            url,
+            {"piece_id": str(self.pieces[3].id), "before_piece_id": str(self.pieces[4].id)},
+            format="json",
+        )
+        self.assertEqual(invalid.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(IssuePlacement.objects.filter(issue_id=issue_id, piece=self.pieces[3]).exists())
+
     def test_order_mark_lead_preview_and_publish(self):
         issue = Issue.objects.create(title="Issue #1", designation="Issue #1")
         from django.contrib.contenttypes.models import ContentType
@@ -338,6 +370,24 @@ class IssueAmendmentTests(TestCase):
         piece.refresh_from_db()
         self.assertEqual(issue.status, "published")
         self.assertEqual(piece.status, "published")
+
+    def test_group_publisher_can_prepare_distribution_for_another_authors_piece(self):
+        author = User.objects.create_user(username="guest_writer", password="testpass123")
+        outsider = User.objects.create_user(username="outsider_writer", password="testpass123")
+        group = GroupService.create_group(
+            title="Publisher Group", group_type="community", created_by=self.user,
+            visibility="public",
+        )
+        ensure_user_membership(group, self.user, role="admin")
+        piece = _create_piece(author=author, title="Guest Article", slug="guest-article", sponsor=group)
+        piece.publish()
+        url = f"/api/distribution/pieces/{piece.pk}/distribute"
+
+        # Invalid payload reaches validation for the group publisher, but not for an outsider.
+        self.assertEqual(self.client.post(url, {}, format="json").status_code, 400)
+        other_client = APIClient()
+        other_client.force_authenticate(user=outsider)
+        self.assertEqual(other_client.post(url, {}, format="json").status_code, 403)
 
     def test_reassign_issue_sponsor_requires_execute_and_matching_pieces(self):
         group = GroupService.create_group(

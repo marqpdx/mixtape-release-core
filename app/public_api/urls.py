@@ -51,6 +51,16 @@ urlpatterns = [
         name="public-group-writing",
     ),
     path(
+        "groups/<slug:group_slug>/writing/issues",
+        views.PublicGroupIssuesView.as_view(),
+        name="public-group-issues",
+    ),
+    path(
+        "groups/<slug:group_slug>/writing/issues/<slug:issue_slug>",
+        views.PublicGroupIssueView.as_view(),
+        name="public-group-issue",
+    ),
+    path(
         "sites/writing",
         views.PublicSiteWritingView.as_view(),
         name="public-site-writing",
