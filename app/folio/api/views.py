@@ -3,6 +3,7 @@
 import time
 import uuid
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.storage import default_storage
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -30,6 +31,7 @@ from folio.services.gate3_classify import classify_gate3
 from folio.services.gate4_normalize import build_candidates, derive_title
 from folio.services.gate5_validate import validate_candidates
 from folio.services.note_search import search_folio_notes
+from folio.services.workbench import confirm_mention, folio_facets, related_notes, unlink_mention, writer_entities
 from folio.shapes import Shape
 from folio.tasks import tend_folio_note_task, transcribe_folio_note_task
 from inkwell.stackroom_enqueue import enqueue_stackroom_ingest
@@ -41,7 +43,8 @@ from .serializers import (
     FolioMaterialCandidatePatchSerializer,
     FolioMaterialCandidateSerializer,
     FolioNoteSerializer,
-    FolioNoteShapePatchSerializer,
+    FolioNoteMentionConfirmSerializer,
+    FolioNotePatchSerializer,
     FolioNoteTextCreateSerializer,
     FolioSerializer,
     FolioTitlePatchSerializer,
@@ -393,7 +396,9 @@ class FolioNoteListCreateView(APIView):
 class FolioNoteSearchView(APIView):
     """
     GET /folios/<id>/notes/search -> Folio Notes retrieval (PoC Phase 4).
-        q       semantic query via Stackroom; omitted -> most recent first
+        q       query; omitted -> most recent first
+        mode    "literal" for a substring match over text + summary; default
+                semantic via Stackroom
         shape   effective Shape (confirmed, else suggested, else unplaced)
         entity  a writer-confirmed Entity id among the note's mentions
         limit   1-100, default 20
@@ -406,6 +411,7 @@ class FolioNoteSearchView(APIView):
         folio = get_object_or_404(Folio, pk=folio_id, created_by=request.user)
         params = request.query_params
         query = (params.get("q") or "").strip()
+        literal = params.get("mode") == "literal"
         shape = params.get("shape") or None
         if shape and shape not in Shape.values:
             return Response({"shape": [f"Unknown Shape: {shape}"]}, status=status.HTTP_400_BAD_REQUEST)
@@ -422,7 +428,8 @@ class FolioNoteSearchView(APIView):
 
         try:
             hits = search_folio_notes(
-                folio, user=request.user, query=query, shape=shape, entity_id=entity_id, limit=limit
+                folio, user=request.user, query=query, shape=shape, entity_id=entity_id, limit=limit,
+                literal=literal,
             )
         except StackroomClientError as exc:
             return Response(
@@ -435,23 +442,117 @@ class FolioNoteSearchView(APIView):
             data = FolioNoteSerializer(hit.note).data
             data["score"] = hit.score
             results.append(data)
-        return Response({"mode": "semantic" if query else "recent", "results": results})
+        mode = ("literal" if literal else "semantic") if query else "recent"
+        return Response({"mode": mode, "results": results})
 
 
 class FolioNoteDetailView(APIView):
     """
-    PATCH /folios/<id>/notes/<note_id> -> one-tap Shape correction. Sets only
-    confirmed_shape; the model's suggested_shape is kept for provenance and
-    correction-rate evaluation (build plan §12, §40).
+    PATCH /folios/<id>/notes/<note_id> -> writer corrections.
+        confirmed_shape  one-tap Shape correction; the model's suggested_shape
+                         is kept for provenance and correction-rate
+                         evaluation (build plan §12, §40).
+        folio            move the note to another of the writer's Folios
+                         (Workbench light rearrangement, §55).
     """
 
     permission_classes = [permissions.IsAuthenticated]
 
     def patch(self, request, folio_id, note_id):
         note = get_object_or_404(FolioNote, pk=note_id, folio_id=folio_id, folio__created_by=request.user)
-        serializer = FolioNoteShapePatchSerializer(data=request.data)
+        serializer = FolioNotePatchSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        note.confirmed_shape = serializer.validated_data["confirmed_shape"]
-        note.save(update_fields=["confirmed_shape", "updated_at"])
+        data = serializer.validated_data
+        fields = ["updated_at"]
+        if "confirmed_shape" in data:
+            note.confirmed_shape = data["confirmed_shape"]
+            fields.append("confirmed_shape")
+        if "folio" in data:
+            note.folio = get_object_or_404(Folio, pk=data["folio"], created_by=request.user)
+            fields.append("folio")
+        note.save(update_fields=fields)
         return Response(FolioNoteSerializer(note).data)
+
+
+class FolioNoteFacetsView(APIView):
+    """GET /folios/<id>/notes/facets -> Workbench left column: note count per
+    effective Shape (all Shapes, zeros included) and confirmed Entities."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, folio_id):
+        folio = get_object_or_404(Folio, pk=folio_id, created_by=request.user)
+        return Response(folio_facets(folio))
+
+
+class FolioNoteRelatedView(APIView):
+    """GET /folios/<id>/notes/<note_id>/related -> nearest notes in the same
+    Folio via Stackroom. A retrieval affordance, not a stored relationship
+    (build plan §29)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, folio_id, note_id):
+        note = get_object_or_404(FolioNote, pk=note_id, folio_id=folio_id, folio__created_by=request.user)
+        try:
+            hits = related_notes(note, user=request.user)
+        except StackroomClientError as exc:
+            return Response(
+                {"detail": "Related notes are unavailable right now.", "error": exc.detail},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        results = []
+        for hit in hits:
+            data = FolioNoteSerializer(hit.note).data
+            data["score"] = hit.score
+            results.append(data)
+        return Response({"results": results})
+
+
+class FolioNoteMentionView(APIView):
+    """
+    POST   /folios/<id>/notes/<note_id>/mentions/<index> -> confirm what a
+           tended mention refers to: {entity_id} for an existing Entity, or
+           {name, kind?} for a new one. Same shared Entity rows Storyboard
+           participants use.
+    DELETE /folios/<id>/notes/<note_id>/mentions/<index> -> unlink it again.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, folio_id, note_id, index):
+        note = get_object_or_404(FolioNote, pk=note_id, folio_id=folio_id, folio__created_by=request.user)
+        serializer = FolioNoteMentionConfirmSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        data = serializer.validated_data
+        try:
+            note, _entity = confirm_mention(
+                note, index, user=request.user,
+                entity_id=data.get("entity_id"), name=data.get("name", ""), kind=data.get("kind"),
+            )
+        except DjangoValidationError as exc:
+            return Response({"detail": exc.messages[0]}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(FolioNoteSerializer(note).data)
+
+    def delete(self, request, folio_id, note_id, index):
+        note = get_object_or_404(FolioNote, pk=note_id, folio_id=folio_id, folio__created_by=request.user)
+        try:
+            note = unlink_mention(note, index)
+        except DjangoValidationError as exc:
+            return Response({"detail": exc.messages[0]}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(FolioNoteSerializer(note).data)
+
+
+class WriterEntityListView(APIView):
+    """GET /entities -> the writer's own Entities (shared with Storyboard), for
+    the Workbench's "link to existing" picker."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        entities = writer_entities(request.user).order_by("name")
+        return Response([
+            {"id": str(e.id), "kind": e.kind, "name": e.name, "aliases": e.aliases} for e in entities
+        ])
