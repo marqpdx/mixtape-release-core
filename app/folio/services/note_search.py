@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from django.contrib.contenttypes.models import ContentType
+from django.db.models import Q
 
 from folio.models import Folio, FolioNote
 from folio.shapes import effective_shape_q
@@ -49,12 +50,20 @@ def search_folio_notes(
     shape: str | None = None,
     entity_id: str | None = None,
     limit: int = 20,
+    literal: bool = False,
 ) -> list[NoteHit]:
-    """Semantic search when `query` is given, else most recent first. Raises
-    stackroom_client.StackroomClientError if Stackroom can't be reached."""
+    """Semantic search when `query` is given, else most recent first. With
+    literal=True the query is a plain substring match over the writer's words
+    and the summary (build plan §37) — no Stackroom involved. Semantic search
+    raises stackroom_client.StackroomClientError if Stackroom can't be reached."""
     qs = _filtered(folio, shape=shape, entity_id=entity_id)
     query = (query or "").strip()
     if not query:
+        return [NoteHit(note) for note in qs.order_by("-created_at")[:limit]]
+    if literal:
+        qs = qs.filter(
+            Q(raw_text__icontains=query) | Q(transcript_text__icontains=query) | Q(summary__icontains=query)
+        )
         return [NoteHit(note) for note in qs.order_by("-created_at")[:limit]]
 
     library_id = getattr(user, "stackroom_library_id", None)

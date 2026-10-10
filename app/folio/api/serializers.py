@@ -111,10 +111,33 @@ class FolioNoteSerializer(serializers.ModelSerializer):
         return obj.audio_file_id is not None
 
 
-class FolioNoteShapePatchSerializer(serializers.Serializer):
-    # The writer's own choice (build plan §4.6). Blank clears it, falling back
-    # to the model's suggestion; suggested_shape is never writable here.
-    confirmed_shape = serializers.ChoiceField(choices=Shape.choices, allow_blank=True)
+class FolioNotePatchSerializer(serializers.Serializer):
+    # confirmed_shape: the writer's own choice (build plan §4.6). Blank clears
+    # it, falling back to the model's suggestion; suggested_shape is never
+    # writable here. folio: move the note to another of the writer's Folios
+    # (Workbench light rearrangement, §55). At least one is required.
+    confirmed_shape = serializers.ChoiceField(choices=Shape.choices, allow_blank=True, required=False)
+    folio = serializers.UUIDField(required=False)
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError("Provide confirmed_shape and/or folio.")
+        return attrs
+
+
+FolioNoteShapePatchSerializer = FolioNotePatchSerializer
+
+
+class FolioNoteMentionConfirmSerializer(serializers.Serializer):
+    # Link a tended mention to an existing Entity, or name a new one.
+    entity_id = serializers.UUIDField(required=False)
+    name = serializers.CharField(required=False, allow_blank=False, max_length=255)
+    kind = serializers.ChoiceField(choices=["character", "setting", "thing", "concept"], required=False)
+
+    def validate(self, attrs):
+        if not attrs.get("entity_id") and not (attrs.get("name") or "").strip():
+            raise serializers.ValidationError("Choose an existing Entity or name a new one.")
+        return attrs
 
 
 class FolioNoteTextCreateSerializer(serializers.Serializer):
