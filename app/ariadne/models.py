@@ -1,13 +1,25 @@
 """
-Ariadne — core schema (build spec §3, Phase P4).
+Ariadne — core schema (build spec §3, Phases P4 and minimal P5).
 
-Scope is deliberately narrow: only the "Source and processing" and
-"Conceptual records" table groups from the build spec. Lens/Run/Curation
-(DiscoveryRun, RunCandidate, EvidencePacket, CurationDecision, ...) is
-P5/P6, not here. Likeness/anchor/accession/shadow-log (the addendum
-vocabulary) is a separate, still-held-back concern -- none of it appears
-in this file; the CTO's "don't build Likeness schema yet" instruction is
-about that vocabulary, not about these source/conceptual tables.
+P4 (Source and processing, Conceptual records) and P5-minimal (Lens +
+Discovery Run mechanics only, enough to run and review one real
+Discovery Run) live here. Likeness/anchor/accession/branch/honing-ratio/
+shadow-log (the addendum vocabulary, ariadne-addendum-likeness.md §11)
+is still deliberately NOT modeled -- the CTO's 2026-10-12 decision was to
+build only the minimum P5 needs, and to let Likeness/branch/accession
+schema co-emerge after seeing a real Run's output rather than be
+designed now. CandidateSuppression (time-limited Drop without erasure)
+is also skipped for the same reason -- RunCandidate.disposition="drop"
+is enough for a first Run's review step.
+
+The tending-spike §4 fork (where shadow proposals live) is resolved:
+Stackroom's `Proposal` model (mixtape-release-stackroom/app/stackroom/
+models/proposal.py), not an Ariadne-local table -- decided 2026-10-12 to
+avoid building a second proposal-review system. Not wired up here: no
+Tending logic exists yet to produce a shadow proposal, so extending
+Stackroom's model with run_id/action_kind/etc. now would add unused
+columns ahead of a real caller. That extension happens when Tending's
+shadow-log producer is actually built.
 
 Tables live in the dedicated `ariadne` Postgres schema reserved by P2
 (`ariadne_create_schema` management command), not the public schema most
@@ -281,4 +293,149 @@ class ConceptArtifactLink(BaseModel):
 
     class Meta:
         db_table = _table("concept_artifact_link")
+        ordering = ["-created_at"]
+
+
+# ---------------------------------------------------------------------------
+# Discovery and curation (P5, minimal) -- enough to run and review one real
+# Discovery Run. No Likeness/branch/accession/anchor/honing-ratio/shadow-log
+# here; see module docstring.
+# ---------------------------------------------------------------------------
+
+class Lens(BaseModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=256)
+    description = models.TextField(blank=True)
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    active_version = models.ForeignKey(
+        "LensVersion", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="active_for_lens",
+    )
+
+    class Meta:
+        db_table = _table("lens")
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class LensVersion(BaseModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    lens = models.ForeignKey(Lens, on_delete=models.CASCADE, related_name="versions")
+    version = models.PositiveIntegerField()
+    config = models.JSONField(default=dict, blank=True, help_text="Source weights, time window, filters, ranking -- immutable once created")
+    config_hash = models.CharField(max_length=128)
+
+    class Meta:
+        db_table = _table("lens_version")
+        ordering = ["lens", "-version"]
+        constraints = [
+            models.UniqueConstraint(fields=["lens", "version"], name="ariadne_lensversion_unique_version"),
+        ]
+
+
+class CorpusSnapshot(BaseModel):
+    """Immutable manifest of source revisions eligible for a Run, so an
+    identical Lens + snapshot rerun can be linked to the earlier result
+    rather than counted as an independent discovery (build spec §3)."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    manifest_hash = models.CharField(max_length=128)
+    source_revision_ids = models.JSONField(default=list, help_text="List of SourceRevision UUIDs eligible for this snapshot")
+    captured_at = models.DateTimeField()
+
+    class Meta:
+        db_table = _table("corpus_snapshot")
+        ordering = ["-captured_at"]
+
+
+class DiscoveryRun(BaseModel):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        RUNNING = "running", "Running"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    lens_version = models.ForeignKey(LensVersion, on_delete=models.PROTECT, related_name="discovery_runs")
+    corpus_snapshot = models.ForeignKey(CorpusSnapshot, on_delete=models.PROTECT, related_name="discovery_runs")
+    extractor_versions = models.JSONField(default=dict, blank=True)
+    model_versions = models.JSONField(default=dict, blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    target_concept_count = models.PositiveIntegerField(null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = _table("discovery_run")
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Run {self.id} ({self.status})"
+
+
+class RunCandidate(BaseModel):
+    class Disposition(models.TextChoices):
+        PENDING = "pending", "Pending"
+        ACCEPT = "accept", "Accept"
+        DECLINE = "decline", "Decline"
+        DEFER = "defer", "Defer"
+        DROP = "drop", "Drop"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    run = models.ForeignKey(DiscoveryRun, on_delete=models.CASCADE, related_name="candidates")
+    concept_or_phrase_key = models.CharField(max_length=256)
+    rank = models.PositiveIntegerField()
+    score = models.FloatField()
+    score_components = models.JSONField(default=dict, blank=True)
+    summary = models.TextField(blank=True)
+    appearance_key = models.CharField(max_length=256, blank=True, help_text="Dedup key stable across reruns of the same branch")
+    disposition = models.CharField(max_length=16, choices=Disposition.choices, default=Disposition.PENDING)
+    disposition_reason = models.TextField(blank=True)
+    disposition_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = _table("run_candidate")
+        ordering = ["run", "rank"]
+
+
+class EvidencePacket(BaseModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    run = models.ForeignKey(DiscoveryRun, on_delete=models.CASCADE, related_name="evidence_packets")
+    candidate_key = models.CharField(max_length=256)
+    retrieval_config_hash = models.CharField(max_length=128, blank=True)
+    source_revision_ids = models.JSONField(default=list, blank=True)
+    passage_ids = models.JSONField(default=list, blank=True)
+    packet_version = models.PositiveIntegerField(default=1)
+    summary = models.TextField(blank=True)
+    status = models.CharField(max_length=32, default="draft")
+
+    class Meta:
+        db_table = _table("evidence_packet")
+        ordering = ["run", "candidate_key", "-packet_version"]
+
+
+class CurationDecision(BaseModel):
+    """Append-only by convention (no update path is provided anywhere in
+    this codebase for this model) -- a later decision supersedes an
+    earlier one via `supersedes`, never by editing it in place."""
+
+    class Action(models.TextChoices):
+        ACCEPT = "accept", "Accept"
+        DECLINE = "decline", "Decline"
+        DEFER = "defer", "Defer"
+        DROP = "drop", "Drop"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    run = models.ForeignKey(DiscoveryRun, on_delete=models.CASCADE, related_name="curation_decisions")
+    candidate_key = models.CharField(max_length=256)
+    action = models.CharField(max_length=16, choices=Action.choices)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    actor_label = models.CharField(max_length=128, blank=True, help_text="Set when the actor is an agent, not a Django user")
+    reason = models.TextField(blank=True)
+    supersedes = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="superseded_by")
+
+    class Meta:
+        db_table = _table("curation_decision")
         ordering = ["-created_at"]
