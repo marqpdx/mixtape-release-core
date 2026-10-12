@@ -83,6 +83,14 @@ OCR_SPIKE_PDFTOPPM_CMD = os.getenv("OCR_SPIKE_PDFTOPPM_CMD", "pdftoppm")
 OCR_SPIKE_PDF_DPI = int(os.getenv("OCR_SPIKE_PDF_DPI", "220"))
 OCR_SPIKE_MAX_PDF_PAGES = int(os.getenv("OCR_SPIKE_MAX_PDF_PAGES", "20"))
 OCR_SPIKE_PDF_RENDER_TIMEOUT_SECONDS = int(os.getenv("OCR_SPIKE_PDF_RENDER_TIMEOUT_SECONDS", "180"))
+
+# Ariadne — direct filesystem read of the Puddlejump repo, decided 2026-10-09
+# (decisions/ariadne/ariadne-build-spec.md §2). Not through Stackroom's
+# canon-bundle-replica MCP path.
+ARIADNE_PUDDLEJUMP_PATH = os.getenv(
+    "ARIADNE_PUDDLEJUMP_PATH",
+    str((BASE_DIR / ".." / "puddlejump").resolve()),
+)
 CLIO_KEEPER_ROUTE_TIMEOUT_SECONDS = int(os.getenv("CLIO_KEEPER_ROUTE_TIMEOUT_SECONDS", "15"))
 
 # Application definition
