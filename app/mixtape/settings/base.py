@@ -64,6 +64,15 @@ ALLOWED_HOSTS = []
 # ============================================================================
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 
+# Ariadne's dedicated Qdrant collection, decided 2026-10-09 (build spec §2),
+# isolated from Stackroom's member-facing collection(s). Name reserved here;
+# NOT created yet -- Qdrant collections are vector-size-bound at creation
+# (see mixtape-release-stackroom/app/stackroom/qdrant/client.py), and the
+# embedding model/dimension choice is still open (build spec §17.3). Create
+# it only once that's decided, to avoid a premature collection needing a
+# teardown/recreate.
+ARIADNE_QDRANT_COLLECTION = os.getenv("ARIADNE_QDRANT_COLLECTION", "ariadne_corpus")
+
 INKWELL_BASE_URL = os.getenv(
     "INKWELL_BASE_URL",
     "https://inkwell.crossroads.place",  # default if not set
@@ -189,6 +198,10 @@ INSTALLED_APPS = [
 
 if OCR_SPIKE_ENABLED:
     INSTALLED_APPS.append("ocr_spike")  # OCR Spike — isolated local-first recognition pilot
+
+ARIADNE_ENABLED = env.bool("ARIADNE_ENABLED", default=False)
+if ARIADNE_ENABLED:
+    INSTALLED_APPS.append("ariadne")  # Ariadne — Puddlejump concept-discovery PoC (decisions/ariadne/), no models yet (P4)
 
 INSTALLED_APPS += ["rest_framework_simplejwt.token_blacklist"]
 
