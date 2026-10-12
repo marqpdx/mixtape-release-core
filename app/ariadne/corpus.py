@@ -22,12 +22,13 @@ does not depend on it (checked 2026-10-11), so the `ariadne` package name
 is free here — but don't `pip install ariadne` (the GraphQL one) into
 this project without renaming this package first.
 
-Known gap, not yet addressed here: `stakes_tier`/`never-drift` only
-exists in YAML frontmatter today. Blockquote-style docs (most ratified
-ADRs) have no equivalent field — see the frontmatter coherence spike's
-"Stakes signaling" section. This connector surfaces `is_adr` and raw
-frontmatter but does not yet derive a stakes level; that's blocked on
-the CTO's frontmatter-normalization decision, not on anything in here.
+Frontmatter migration completed and verified 2026-10-12 (Puddlejump
+session, puddlejump-frontmatter-vocabulary-proposal.md "Ariadne corpus
+scope and the end of the legacy parser"). The blockquote parser has been
+removed per CTO instruction ("no legacy parser") — every in-scope
+document now carries YAML frontmatter except CLAUDE.md and README.md,
+which have no header and are read as plain text (frontmatter_style
+"none" for those, same as before).
 """
 
 from __future__ import annotations
@@ -59,18 +60,47 @@ def get_corpus_root() -> Path:
 # Decided 2026-10-11 (CTO, off the back of the P0 spike): Ariadne's indexed
 # corpus excludes append-only log directories by default. These are
 # post-hoc logs, not conceptual documents. See ariadne-handoff.md.
+# Widened 2026-10-12 per the Puddlejump session's migration-complete note
+# (puddlejump-frontmatter-vocabulary-proposal.md, "Ariadne corpus scope
+# and the end of the legacy parser"): help/zz/_temp content, CTO-review
+# proposal inboxes, and _mb-codex/ (pending a separate CTO decision) are
+# all out of scope the same way the log-inbox directories are.
 EXCLUDED_DIRS = {
     ".git", ".claude",
     "build-log-inbox", "atrium-handoff-inbox", "file-catalog-inbox",
+    "help", "zz", "_temp",
+    "proposals-inbox", "proposals-reviewed",
+    "_mb-codex",
 }
 
-HEADER_BLOCK_RE = re.compile(r'^>\s+\*\*([^*]+)\*\*[:\s]+(.+)$')
+# Specific root-level append-only/log files, excluded alongside the
+# directories above (same 2026-10-12 note).
+EXCLUDED_ROOT_FILES = {
+    "build-log.md", "00-puddlejump-audit-log.md",
+    "HELP_FIDELITY.md", "MEMORY_FIDELITY.md", "file-catalog.md",
+}
+
+# reference/contour/ templates and extraction examples aren't conceptual
+# documents either — they're the forms other documents are filled out
+# from, not canon content themselves.
+CONTOUR_TEMPLATE_RE = re.compile(r"^reference/contour/.*\.(template|extraction)\.md$")
+
 YAML_FRONTMATTER_RE = re.compile(r"^---\n(.*?\n)---\n", re.DOTALL)
 CODE_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
 INLINE_CODE_RE = re.compile(r"`[^`]*`")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
 
 ADR_PATH_HINT_RE = re.compile(r"-adr/|/decisions/argus/audit-blocks/", re.IGNORECASE)
+
+
+def _is_excluded(rel_path: str, rel_parts: tuple[str, ...]) -> bool:
+    if any(part in EXCLUDED_DIRS for part in rel_parts):
+        return True
+    if len(rel_parts) == 1 and rel_parts[0] in EXCLUDED_ROOT_FILES:
+        return True
+    if CONTOUR_TEMPLATE_RE.match(rel_path):
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -83,25 +113,11 @@ class Document:
     rel_path: str
     raw_text: str
     stripped_text: str  # code fences removed; for lexical analysis, not retrieval
-    frontmatter_style: str  # "blockquote" | "yaml" | "none" | "yaml_parse_error"
+    frontmatter_style: str  # "yaml" | "none" | "yaml_parse_error"
     frontmatter: dict
     headings: list[tuple[int, str]]
     is_adr: bool
     content_hash: str  # revision fingerprint, build spec §4
-
-
-def _parse_blockquote_frontmatter(text: str) -> dict:
-    headers: dict[str, str] = {}
-    for line in text.splitlines():
-        line = line.strip()
-        if not line.startswith(">"):
-            if headers:
-                break
-            continue
-        m = HEADER_BLOCK_RE.match(line)
-        if m:
-            headers[m.group(1).strip().rstrip(":")] = m.group(2).strip()
-    return headers
 
 
 def _parse_yaml_frontmatter(text: str) -> dict | None:
@@ -116,31 +132,25 @@ def _parse_yaml_frontmatter(text: str) -> dict | None:
 
 
 def _classify_frontmatter(text: str) -> tuple[str, dict]:
-    if text.startswith("---\n"):
-        data = _parse_yaml_frontmatter(text)
-        if data is None:
-            return "yaml_parse_error", {}
-        return "yaml", data
-    headers = _parse_blockquote_frontmatter(text)
-    if headers:
-        return "blockquote", headers
-    return "none", {}
+    """YAML-only, per the 2026-10-12 migration-complete note. CLAUDE.md
+    and README.md have no header at all and correctly classify as
+    "none" — everything else in scope now has YAML."""
+    if not text.startswith("---\n"):
+        return "none", {}
+    data = _parse_yaml_frontmatter(text)
+    if data is None:
+        return "yaml_parse_error", {}
+    return "yaml", data
 
 
-def _classify_adr(rel_path: str, frontmatter: dict, style: str) -> bool:
+def _classify_adr(rel_path: str, frontmatter: dict) -> bool:
     """Path/header metadata first, confirmed against the real corpus by the
     P0 spike — no title-heuristic fallback has been needed so far
     (ariadne-handoff.md, decided 2026-10-11)."""
-    if style == "blockquote":
-        if "ADR" in frontmatter:
-            return True
-        if "adr" in frontmatter.get("Class", "").lower():
-            return True
-    elif style == "yaml":
-        if "adr" in str(frontmatter.get("kind", "")).lower():
-            return True
-        if "adr" in str(frontmatter.get("class", "")).lower():
-            return True
+    if "adr" in str(frontmatter.get("kind", "")).lower():
+        return True
+    if "adr" in str(frontmatter.get("class", "")).lower():
+        return True
     if ADR_PATH_HINT_RE.search(rel_path):
         return True
     return False
@@ -157,7 +167,7 @@ def load_document(path: Path, corpus_root: Path) -> Document:
 
     style, frontmatter = _classify_frontmatter(raw_text)
     headings = [(len(h), t.strip()) for h, t in HEADING_RE.findall(raw_text)]
-    is_adr = _classify_adr(rel_path, frontmatter, style)
+    is_adr = _classify_adr(rel_path, frontmatter)
 
     # Code blocks excluded from lexical analysis by default, retained in
     # raw_text for retrieval (build spec §4).
@@ -173,12 +183,15 @@ def load_document(path: Path, corpus_root: Path) -> Document:
 
 def enumerate_documents(corpus_root: Path | None = None) -> list[Document]:
     """Enumerate eligible Markdown documents under the corpus root,
-    excluding append-only log directories by default (EXCLUDED_DIRS)."""
+    excluding append-only log/inbox directories, review-proposal
+    inboxes, contour templates, and specific root log files
+    (see _is_excluded)."""
     root = corpus_root or get_corpus_root()
     docs = []
     for path in sorted(root.rglob("*.md")):
         rel_parts = path.relative_to(root).parts
-        if any(part in EXCLUDED_DIRS for part in rel_parts):
+        rel_path = "/".join(rel_parts)
+        if _is_excluded(rel_path, rel_parts):
             continue
         docs.append(load_document(path, root))
     return docs
