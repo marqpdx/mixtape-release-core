@@ -146,3 +146,83 @@ class ProjectStatusTests(TestCase):
         self.assertEqual(timeline_by_commit["xyz9876"]["commit_message"], "Add unswept example")
         self.assertEqual(timeline_by_commit["def5678"]["repo"], "mixtape-release-frontend")
         self.assertEqual(timeline_by_commit["fed4321"]["repo"], "mixtape-release-frontend")
+
+    def test_project_status_reads_yaml_frontmatter_and_quoted_inbox_commit(self):
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            decisions_dir = root / "decisions" / "yaml-adr"
+            decisions_dir.mkdir(parents=True)
+            (decisions_dir / "yaml-adr.md").write_text(
+                "\n".join(
+                    [
+                        "---",
+                        "title: YAML ADR",
+                        "status: canon",
+                        "class: adr",
+                        "library: decisions/yaml-adr/",
+                        "created: 2026-10-01",
+                        "last_updated: 2026-10-11",
+                        "related_to:",
+                        "  - decisions/other.md",
+                        "---",
+                        "",
+                        "# YAML ADR",
+                        "",
+                        "> **Headnote (2026-10-11):** A note about this document.",
+                        "",
+                        "| # | Name | Status |",
+                        "|---|------|--------|",
+                        "| Y-1 | Only step | ✅ |",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (decisions_dir / "closed-block.md").write_text(
+                "\n".join(
+                    [
+                        "---",
+                        "title: Closed Block",
+                        "status: canon",
+                        "class: spec",
+                        "block_state: closed",
+                        "---",
+                        "",
+                        "# Closed Block",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            inbox_dir = root / "build-log-inbox"
+            inbox_dir.mkdir()
+            (inbox_dir / "2026-10-11-example-q1w2e3r.md").write_text(
+                "\n".join(
+                    [
+                        "---",
+                        "repo: mixtape-release-core",
+                        'commit: "q1w2e3r — feat(ops): read: YAML #frontmatter"',
+                        "date: 2026-10-11",
+                        "work_effort: Example ADR",
+                        "---",
+                        "",
+                        "Quoted commit field, per the current inbox template.",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with override_settings(PUDDLEJUMP_PATH=str(root)):
+                self.client.force_authenticate(user=self.superuser)
+                response = self.client.get("/api/ops/project-status")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        decisions = {row["name"]: row for row in response.data["decisions"]}
+        self.assertEqual(decisions["YAML ADR"]["status"], "canon")
+        self.assertEqual(decisions["YAML ADR"]["class"], "adr")
+        self.assertEqual(decisions["YAML ADR"]["library"], "decisions/yaml-adr/")
+        self.assertEqual(decisions["YAML ADR"]["last_updated"], "2026-10-11")
+        self.assertEqual(decisions["YAML ADR"]["queue_state"], "complete")
+        self.assertEqual(decisions["Closed Block"]["queue_state"], "complete")
+
+        timeline_by_commit = {entry["commit_hash"]: entry for entry in response.data["timeline"]}
+        self.assertIn("q1w2e3r", timeline_by_commit)
+        self.assertEqual(timeline_by_commit["q1w2e3r"]["commit_message"], "feat(ops): read: YAML #frontmatter")

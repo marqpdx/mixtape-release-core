@@ -6,6 +6,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+import yaml
 from django.conf import settings
 from django.utils import timezone
 
@@ -81,18 +82,27 @@ def read_decision_documents(puddlejump_root: Path) -> list[dict[str, Any]]:
             continue
         relative_path = file_path.relative_to(puddlejump_root).as_posix()
         text = _read_text(file_path)
-        header = _parse_blockquote_header(text)
-        checkpoints = read_checkpoint_counts(text)
+        # Puddlejump documents carry YAML frontmatter (2026-10-11 migration);
+        # the legacy blockquote header is still read for unconverted files.
+        yaml_header, body = _parse_yaml_header(text)
+        header = yaml_header if yaml_header is not None else _parse_blockquote_header(text)
+        checkpoints = read_checkpoint_counts(body)
         status = header.get("status", "")
-        queue_state = _derive_queue_state(status, checkpoints)
+        state_text = " ".join(
+            value for value in (status, header.get("work_state", ""), header.get("block_state", "")) if value
+        )
+        queue_state = _derive_queue_state(state_text, checkpoints)
         rows.append(
             {
                 "path": relative_path,
-                "name": _extract_title(text, file_path.stem),
+                "name": header.get("title") or _extract_title(body, file_path.stem),
                 "class": header.get("class", ""),
                 "status": status,
                 "library": header.get("library", ""),
-                "last_updated": header.get("last updated") or header.get("last-updated") or "",
+                "last_updated": header.get("last_updated")
+                or header.get("last updated")
+                or header.get("last-updated")
+                or "",
                 "checkpoint_counts": checkpoints,
                 "queue_state": queue_state,
             }
@@ -271,6 +281,28 @@ def _timeline_entry_key(entry: dict[str, Any]) -> tuple[str, str]:
     return (entry.get("repo", ""), entry.get("commit_hash", ""))
 
 
+def _parse_yaml_header(text: str) -> tuple[dict[str, str] | None, str]:
+    """Return (header, body) for a document with YAML frontmatter, else (None, text)."""
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != FRONTMATTER_DELIMITER:
+        return None, text
+    for index, line in enumerate(lines[1:], start=1):
+        if line.strip() == FRONTMATTER_DELIMITER:
+            try:
+                data = yaml.safe_load("\n".join(lines[1:index]))
+            except yaml.YAMLError:
+                return None, text
+            if not isinstance(data, dict):
+                return None, text
+            header = {
+                str(key).lower(): str(value)
+                for key, value in data.items()
+                if value is not None and not isinstance(value, (dict, list))
+            }
+            return header, "\n".join(lines[index + 1 :])
+    return None, text
+
+
 def _parse_blockquote_header(text: str) -> dict[str, str]:
     header: dict[str, str] = {}
     for line in text.splitlines():
@@ -341,9 +373,17 @@ def _split_frontmatter(raw_text: str) -> tuple[dict[str, str], str]:
         if ":" not in stripped_line:
             raise ValueError(f"Malformed frontmatter line: {line}")
         key, value = stripped_line.split(":", 1)
-        metadata[key.strip()] = value.strip()
+        metadata[key.strip()] = _unquote(value.strip())
 
     return metadata, "\n".join(lines[closing_index + 1 :]).strip()
+
+
+def _unquote(value: str) -> str:
+    # The inbox template quotes `commit:` (its subject may contain ": " or "#").
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        inner = value[1:-1]
+        return inner.replace('\\"', '"') if value[0] == '"' else inner.replace("''", "'")
+    return value
 
 
 def _parse_commit(commit_value: str) -> tuple[str, str]:
