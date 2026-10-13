@@ -2,6 +2,7 @@
 
 
 from django.urls import path
+from .attic_views import AtticEntryListCreateView
 
 from .sponsor_views import (
     RecentDraftsListView,
@@ -115,6 +116,7 @@ urlpatterns = [
 
     # Working copy (autosave buffer)
     path("pieces/<uuid:pk>/working-copy", WorkingDocumentUpsertView.as_view(), name="writingpiece-working-document"),
+    path("pieces/<uuid:pk>/attic", AtticEntryListCreateView.as_view(), name="writingpiece-attic"),
     path("pieces/<uuid:pk>/apply-working-copy", WorkingDocumentApplyView.as_view(), name="writingpiece-apply-working-document"),
     path("pieces/<uuid:pk>/export/pdf", WritingPiecePdfExportView.as_view(), name="writingpiece-export-pdf"),
     path("pieces/<uuid:pk>/analysis/export", WritingPieceAnalysisExportView.as_view(), name="writingpiece-analysis-export"),
