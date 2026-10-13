@@ -1432,7 +1432,7 @@ class Issue(BaseModel):
         placements = self.placements.select_related("piece")
         if not placements.exists():
             return False
-        return all(p.piece.spellcheck_clean and p.piece.signed_off for p in placements)
+        return all(p.piece.status == "published" for p in placements)
 
     def save(self, *args, **kwargs):
         if not self.slug and self.title:

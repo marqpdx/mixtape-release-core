@@ -59,22 +59,31 @@
 </head>
 <body>
     <div class="header">
-        <h1>Your article is live</h1>
+        <h1>Your article is live on Crossroads</h1>
     </div>
 
     <div class="content">
         <p><strong>{{ piece_title }}</strong> just published.</p>
+        <p>Your LinkedIn post still needs to be completed by you. The share link supplies the article preview; it does not fill in your introduction or publish to LinkedIn.</p>
 
         {% if post_copy %}
-        <p style="color: #6b7280; font-size: 14px; margin-bottom: 4px;">Your LinkedIn post copy:</p>
+        <p style="color: #6b7280; font-size: 14px; margin-bottom: 4px;">Your LinkedIn introduction — copy and paste this into LinkedIn:</p>
         <div class="post-copy-box">{{ post_copy }}</div>
         {% endif %}
 
+        <ol>
+            <li>{% if post_copy %}Copy the introduction above.{% else %}Write an introduction in LinkedIn if you would like to add one.{% endif %}</li>
+            <li>Open LinkedIn using the button below.</li>
+            <li>Paste your introduction above the article preview, then click <strong>Post</strong> in LinkedIn.</li>
+        </ol>
+
         <div style="text-align: center; margin: 28px 0 16px;">
             <a href="{{ linkedin_share_url }}" class="button">
-                Share on LinkedIn →
+                Open LinkedIn to finish your post →
             </a>
         </div>
+
+        <p>Already posted without the introduction? Open your LinkedIn post’s three-dot menu, choose <strong>Edit post</strong>, paste the introduction, and save.</p>
 
         {% if piece_url %}
         <p style="font-size: 13px; color: #6b7280; text-align: center;">

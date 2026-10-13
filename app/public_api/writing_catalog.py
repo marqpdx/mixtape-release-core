@@ -18,6 +18,28 @@ from writing.synopsis_service import _extract_plain_text
 PUBLIC_BROWSE_CHANNELS = ("feed", "shelf")
 
 
+def public_tags_for_pieces(piece_ids):
+    """Load tag labels in a batch for pieces already cleared for public display."""
+    if not piece_ids:
+        return {}
+    usages = list(ClassificationUsage.objects.filter(
+        classification_client_content_type=ContentType.objects.get_for_model(WritingPiece),
+        classification_client_object_id__in=[str(piece_id) for piece_id in piece_ids],
+        classification_content_type=ContentType.objects.get_for_model(Tag),
+    ).values_list("classification_client_object_id", "classification_object_id"))
+    tags = {
+        tag.id: {"slug": tag.slug, "title": tag.title}
+        for tag in Tag.objects.filter(id__in={tag_id for _, tag_id in usages})
+    }
+    result = defaultdict(list)
+    for piece_id, tag_id in usages:
+        if tag_id in tags:
+            result[str(piece_id)].append(tags[tag_id])
+    for labels in result.values():
+        labels.sort(key=lambda tag: tag["title"].casefold())
+    return result
+
+
 def browse_placements(piece_ids, *, viewer=None, allowed_visibilities=("public",)):
     """Return the newest viewable browse placement for each writing piece."""
     if not piece_ids:
