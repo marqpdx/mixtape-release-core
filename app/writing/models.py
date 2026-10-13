@@ -427,6 +427,24 @@ class WritingPiece(BaseContent, PublishableContentMixin):
         return f"{prefix}{self.get_writing_kind_display()}: {self.title or 'Untitled'}"
 
 
+class AtticEntry(BaseModel):
+    """Saved manuscript cuttings. Never part of a published writing body."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    piece = models.ForeignKey("WritingPiece", on_delete=models.CASCADE, related_name="attic_entries")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="attic_entries",
+    )
+    # ProseMirror Slice JSON retains marks, nested blocks, and open selection edges.
+    slice_json = models.JSONField()
+    text = models.TextField(blank=True)
+    source_title = models.CharField(max_length=255, blank=True)
+    source_context = models.TextField(blank=True)
+
+    class Meta(BaseModel.Meta):
+        ordering = ["-created_at", "-id"]
+
+
 class WorkingDocument(BaseModel):
     """
     Mutable draft state for a WritingPiece.
