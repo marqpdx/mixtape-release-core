@@ -1,13 +1,14 @@
 # Phase 3 amendment to ADR-0054 (adr-0054-issue-amendment.md), P3-5:
 # end-to-end test of the Issue rename + editorial fields, modeled on the
 # real Issue #1 workflow: create, write description, order, mark lead,
-# preview via Continuous Read, cascade-publish.
+# preview via Continuous Read, publish articles, then publish the Issue.
 
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase
+from django.utils import timezone
 from io import StringIO
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -15,7 +16,7 @@ from rest_framework.test import APIClient
 from groups.services.groups import GroupService
 from groups.services.memberships import ensure_user_membership
 from publishing.models import ContentPlacement
-from writing.publish_service import ensure_published_feed_placement
+from writing.publish_service import ensure_published_feed_placement, publish_and_place
 from writing.models import Issue, IssuePlacement, WritingPiece
 
 User = get_user_model()
@@ -103,8 +104,66 @@ class IssueAmendmentTests(TestCase):
         issue_list = self.client.get("/api/writing/issues")
         self.assertEqual(issue_list.status_code, status.HTTP_200_OK)
         self.assertEqual(issue_list.data[0]["member_count"], 1)
-        self.assertTrue(issue_list.data[0]["is_publishable"])
+        self.assertFalse(issue_list.data[0]["is_publishable"])
         self.assertEqual(issue_list.data[0]["piece_ids"], [str(self.pieces[0].id)])
+
+        self.pieces[0].publish()
+        self.pieces[0].spellcheck_clean = False
+        self.pieces[0].signed_off = False
+        self.pieces[0].save(update_fields=["spellcheck_clean", "signed_off"])
+        issue_list = self.client.get("/api/writing/issues")
+        self.assertTrue(issue_list.data[0]["is_publishable"])
+
+    def test_issue_publish_requires_every_article_to_be_published(self):
+        issue = Issue.objects.create(
+            title="Publication Gate", sponsor_content_type=ContentType.objects.get_for_model(self.user),
+            sponsor_object_id=self.user.pk,
+        )
+        url = f"/api/writing/issues/{issue.pk}/publish"
+        self.assertEqual(self.client.post(url).status_code, 400)
+        self.assertFalse(issue.is_publishable)
+
+        for index, piece in enumerate(self.pieces[:2]):
+            IssuePlacement.objects.create(issue=issue, piece=piece, order_index=index)
+        self.pieces[0].publish()
+        response = self.client.post(url)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["not_ready"], [self.pieces[1].title])
+        self.assertFalse(issue.is_publishable)
+        self.pieces[1].refresh_from_db()
+        self.assertEqual(self.pieces[1].status, "draft")
+        issue.refresh_from_db()
+        self.assertEqual(issue.status, "draft")
+        self.assertIsNone(issue.published_at)
+
+        for article_status in ("scheduled", "archived"):
+            self.pieces[1].status = article_status
+            self.pieces[1].scheduled_for = timezone.now()
+            self.pieces[1].save(update_fields=["status", "scheduled_for"])
+            self.assertFalse(issue.is_publishable)
+            self.assertEqual(self.client.post(url).status_code, 400)
+
+        self.pieces[1].publish()
+        self.assertTrue(issue.is_publishable)
+        self.assertEqual(self.client.post(url).status_code, 200)
+        issue.refresh_from_db()
+        self.assertFalse(issue.is_publishable)
+        self.assertIsNotNone(issue.published_at)
+        self.assertEqual(self.client.post(url).status_code, 400)
+
+    def test_published_articles_do_not_bypass_issue_permissions(self):
+        issue = Issue.objects.create(
+            title="Owner Only", sponsor_content_type=ContentType.objects.get_for_model(self.user),
+            sponsor_object_id=self.user.pk,
+        )
+        self.pieces[0].publish()
+        IssuePlacement.objects.create(issue=issue, piece=self.pieces[0], order_index=0)
+        reader = User.objects.create_user(username="gate_reader", password="testpass123")
+        other_client = APIClient()
+        other_client.force_authenticate(user=reader)
+        self.assertEqual(other_client.post(f"/api/writing/issues/{issue.pk}/publish").status_code, 403)
+        issue.refresh_from_db()
+        self.assertEqual(issue.status, "draft")
 
     def test_add_placement_at_position_and_append_after_first(self):
         created = self.client.post("/api/writing/issues", {"title": "Ordered Issue"}, format="json")
@@ -197,7 +256,9 @@ class IssueAmendmentTests(TestCase):
         self.assertFalse(resp.data["is_editor"])
         self.assertEqual(resp.data["placements"], [])
 
-        # Cascade-publish — all pieces are spellcheck_clean + signed_off.
+        # Articles publish separately; the Issue collects already-published pieces.
+        for piece in self.pieces:
+            publish_and_place(piece, self.user, {"destinations": {"personal": True}})
         resp = self.client.post(f"/api/writing/issues/{issue.id}/publish")
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         issue.refresh_from_db()
@@ -300,6 +361,7 @@ class IssueAmendmentTests(TestCase):
         pieces[0].publish()
         existing = ensure_published_feed_placement(pieces[0], self.user, group)
         pieces[1].publish()
+        pieces[2].publish()
         original_versions = [pieces[0].versions.count(), pieces[1].versions.count()]
 
         published = self.client.post(f"/api/writing/issues/{issue.pk}/publish")

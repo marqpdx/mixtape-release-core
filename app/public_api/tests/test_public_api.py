@@ -16,6 +16,17 @@ from writing.models import Issue, IssuePlacement, WritingPiece, WritingSynopsis,
 User = get_user_model()
 
 
+def _tag_piece(piece, title):
+    tag = Tag.objects.create(title=title)
+    ClassificationUsage.objects.create(
+        classification_client_content_type=ContentType.objects.get_for_model(WritingPiece),
+        classification_client_object_id=str(piece.id),
+        classification_content_type=ContentType.objects.get_for_model(Tag),
+        classification_object_id=tag.id,
+    )
+    return {"slug": tag.slug, "title": tag.title}
+
+
 def _body_json(text: str) -> dict:
     return {
         "type": "doc",
@@ -460,6 +471,25 @@ class PublicGroupWritingViewTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([item["slug"] for item in response.data], [public_piece.slug])
 
+    def test_tags_are_sorted_and_scoped_to_visible_pieces(self):
+        public_piece = _create_piece(author=self.author, title="Tagged Public Piece")
+        self._sponsor_with_group(public_piece)
+        zeta = _tag_piece(public_piece, "Zeta")
+        alpha = _tag_piece(public_piece, "Alpha")
+        private_piece = _create_piece(author=self.author, title="Tagged Private Piece")
+        self._sponsor_with_group(private_piece, visibility="private")
+        _tag_piece(private_piece, "Private label")
+        untagged_piece = _create_piece(author=self.author, title="Untagged Public Piece")
+        self._sponsor_with_group(untagged_piece)
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        items = {item["id"]: item for item in response.data}
+        self.assertEqual(items[str(public_piece.id)]["tags"], [alpha, zeta])
+        self.assertEqual(items[str(untagged_piece.id)]["tags"], [])
+        self.assertNotIn(str(private_piece.id), items)
+
 
 class PublicGroupIssueViewTests(TestCase):
     def setUp(self):
@@ -811,6 +841,19 @@ class PublicWritingPieceViewTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         for key in ["title", "body_json", "author", "slug", "published_at"]:
             self.assertIn(key, response.data)
+        self.assertEqual(response.data["tags"], [])
+
+    def test_get_piece_returns_its_saved_tag_labels(self):
+        piece = self._piece(title="Tagged Readable Piece")
+        _create_placement(piece=piece, target=self.library, user=self.author, visibility="public")
+        expected = _tag_piece(piece, "Resourcefulness")
+        other_piece = self._piece(title="Other Piece")
+        _tag_piece(other_piece, "Other label")
+
+        response = self.client.get(self._url(piece.slug))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["tags"], [expected])
 
     def test_get_piece_no_email_in_author(self):
         piece = self._piece(title="Author Shape Piece")

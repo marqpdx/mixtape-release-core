@@ -7,6 +7,7 @@ from io import StringIO
 from groups.services.groups import GroupService
 from groups.services.memberships import ensure_user_membership
 from writing.models import Issue, WorkingDocument, WritingPiece, body_json_has_content
+from writing.publish_service import publish_and_place
 
 
 User = get_user_model()
@@ -85,6 +86,9 @@ class IssueSharedDraftTests(TestCase):
             "piece_id": str(self.piece.pk),
         }, format="json")
         self.assertEqual(added.status_code, 201)
+        rejected = self.client.post(f"/api/writing/issues/{issue.pk}/publish")
+        self.assertEqual(rejected.status_code, 400)
+        publish_and_place(self.piece, self.author, {"destinations": {"groups": [self.group.slug]}})
         published = self.client.post(f"/api/writing/issues/{issue.pk}/publish")
         self.assertEqual(published.status_code, 200)
         self.piece.refresh_from_db()
@@ -204,7 +208,7 @@ class IssueSharedDraftTests(TestCase):
         self.assertEqual(self.piece.title, "Resourcefulness")
         self.assertEqual(self.piece.body_json, {"type": "doc", "content": []})
 
-    def test_issue_publish_rejects_title_changed_after_signoff(self):
+    def test_issue_publish_uses_published_article_despite_pending_working_edits(self):
         self.client.put(f"/api/writing/pieces/{self.piece.pk}/working-copy", {
             "title": "Resourcefulness", "body_json": body("Reviewed version"),
             "expected_auto_save_count": 0,
@@ -224,13 +228,19 @@ class IssueSharedDraftTests(TestCase):
             "piece_id": str(self.piece.pk),
         }, format="json")
 
-        WorkingDocument.objects.filter(pk=self.draft.pk).update(title="Unapproved title")
         rejected = self.client.post(f"/api/writing/issues/{issue.pk}/publish")
         self.assertEqual(rejected.status_code, 400)
         self.piece.refresh_from_db()
         self.assertEqual(self.piece.status, "draft")
 
-        WorkingDocument.objects.filter(pk=self.draft.pk).update(title="Resourcefulness")
+        publish_and_place(self.piece, self.author, {"destinations": {"groups": [self.group.slug]}})
+        self.piece.spellcheck_clean = False
+        self.piece.signed_off = False
+        self.piece.save(update_fields=["spellcheck_clean", "signed_off"])
+        WorkingDocument.objects.filter(pk=self.draft.pk).update(
+            title="Unapproved title", body_json=body("Unpublished changes"),
+        )
+        self.assertTrue(issue.is_publishable)
         published = self.client.post(f"/api/writing/issues/{issue.pk}/publish")
         self.assertEqual(published.status_code, 200)
         self.piece.refresh_from_db()
@@ -241,6 +251,9 @@ class IssueSharedDraftTests(TestCase):
         self.assertEqual(version.title, "Resourcefulness")
         self.assertEqual(version.body_json, body("Reviewed version"))
         self.assertEqual(self.piece.current_version_no, version.sequence_no)
+        self.draft.refresh_from_db()
+        self.assertEqual(self.draft.title, "Unapproved title")
+        self.assertEqual(self.draft.body_json, body("Unpublished changes"))
         WorkingDocument.objects.filter(pk=self.draft.pk).update(
             title="Later draft title", body_json=body("Later draft body"),
         )

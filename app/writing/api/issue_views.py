@@ -14,7 +14,7 @@ from rest_framework.views import APIView
 
 from writing.models import WritingPiece, WorkingDocument, Issue, IssuePlacement
 from writing.permissions import can_edit_others_group_writing
-from writing.publish_service import ensure_published_feed_placement, publish_and_place
+from writing.publish_service import ensure_published_feed_placement
 from writing.services import WorkingCopyConflict, get_editing_document
 from dispatch.access import active_group_ids
 from groups.models import Group, GroupMembership
@@ -291,9 +291,8 @@ class IssueDetailView(APIView):
 
 class IssuePublishView(APIView):
     """
-    Gate-up check + cascade-down publish.
-    All member Docs must be Green (spellcheck_clean + signed_off) before publish.
-    Publishing atomically sets all member Docs to published status.
+    Publish a non-empty Issue once all its pieces are already published.
+    Working drafts and editorial review flags do not gate the published pieces.
     """
     permission_classes = [IsAuthenticated]
 
@@ -314,23 +313,14 @@ class IssuePublishView(APIView):
                 pk__in=[placement.piece_id for placement in placements]
             ).order_by("pk")
         }
-        not_ready = []
-        for placement in placements:
-            piece = pieces[placement.piece_id]
-            try:
-                draft = get_editing_document(piece, piece.author, lock=True)
-            except WorkingCopyConflict:
-                not_ready.append(piece.title or str(piece.pk))
-                continue
-            if (
-                (draft and (draft.body_json != piece.body_json or draft.title != piece.title))
-                or not piece.title.strip()
-                or not (piece.spellcheck_clean and piece.signed_off)
-            ):
-                not_ready.append(piece.title or str(piece.pk))
+        not_ready = [
+            pieces[placement.piece_id].title or str(placement.piece_id)
+            for placement in placements
+            if pieces[placement.piece_id].status != "published"
+        ]
         if not_ready:
             return Response(
-                {"detail": "All Docs must match their approved draft, have spelling reviewed, and be signed off before publishing.",
+                {"detail": "Publish every article before publishing this Issue.",
                  "not_ready": not_ready},
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -338,24 +328,14 @@ class IssuePublishView(APIView):
         group_ct = ContentType.objects.get_for_model(Group)
         if issue.sponsor_content_type_id == group_ct.id:
             destination = get_object_or_404(Group, pk=issue.sponsor_object_id)
-            destinations = {"groups": [destination.slug]}
             visibility = "members" if destination.visibility == "private" else destination.visibility
         else:
             destination = request.user
-            destinations = {"personal": True}
             visibility = "public"
 
         for placement in placements:
             piece = pieces[placement.piece_id]
-            if piece.status == "published":
-                ensure_published_feed_placement(piece, request.user, destination, visibility=visibility)
-            else:
-                result = publish_and_place(piece, request.user, {
-                    "destinations": destinations,
-                    "placement_options": {"visibility": visibility},
-                })
-                if not result["placements"]:
-                    raise PermissionDenied("You cannot publish to this Issue's sponsor.")
+            ensure_published_feed_placement(piece, request.user, destination, visibility=visibility)
 
         now = timezone.now()
         issue.status = "published"

@@ -38,7 +38,7 @@ from .serializers import (
     PublicGroupSerializer,
     PublicMemberSerializer,
 )
-from .writing_catalog import build_public_site_writing_catalog, browse_placements
+from .writing_catalog import build_public_site_writing_catalog, browse_placements, public_tags_for_pieces
 
 
 class PublicGroupsListView(APIView):
@@ -303,6 +303,7 @@ class PublicWritingPieceView(APIView):
             },
             "placement_visibility": selected.visibility,
             "sponsor_group": sponsor_group,
+            "tags": public_tags_for_pieces([piece.id]).get(str(piece.id), []),
         }
 
         piece.increment_view_count()
@@ -403,6 +404,7 @@ class PublicGroupWritingView(APIView):
             .order_by("-published_at")
         )
         placements, _ = browse_placements([piece.id for piece in pieces])
+        tags_by_piece = public_tags_for_pieces(list(placements))
 
         results = []
         for piece in pieces:
@@ -418,6 +420,7 @@ class PublicGroupWritingView(APIView):
                 "title": piece.title,
                 "excerpt": piece.excerpt or "",
                 "body_preview": body_preview or piece.excerpt or "",
+                "tags": tags_by_piece.get(str(piece.id), []),
                 "writing_kind": piece.writing_kind,
                 "published_at": piece.published_at,
                 "reading_time": piece.reading_time,

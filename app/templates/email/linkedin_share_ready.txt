@@ -1,13 +1,20 @@
 Your article is live: {{ piece_title }}
 
+Your article is published on Crossroads. Your LinkedIn post still needs to be completed by you.
+The share link supplies the article preview; it does not fill in your introduction or publish to LinkedIn.
+
 {% if post_copy %}
-Your LinkedIn post copy:
+Your LinkedIn introduction — copy and paste this into LinkedIn:
 
 {{ post_copy }}
 
 {% endif %}
-Share on LinkedIn:
+{% if post_copy %}1. Copy the introduction above.{% else %}1. Write an introduction in LinkedIn if you would like to add one.{% endif %}
+2. Open LinkedIn using this share link:
 {{ linkedin_share_url }}
+3. Paste your introduction above the article preview, then click Post in LinkedIn.
+
+Already posted without the introduction? Open your LinkedIn post's three-dot menu, choose Edit post, paste the introduction, and save.
 
 {% if piece_url %}
 View article:
