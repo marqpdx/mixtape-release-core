@@ -1291,7 +1291,7 @@ class InitiativeArtifact(BaseModel):
         max_length=500,
         blank=True,
         default="",
-        help_text="For doc_link: the puddlejump file path (e.g. pilots/weave-pilot.md).",
+        help_text="For doc_link: the puddlejump file path (e.g. pilots/loom-pilot.md).",
     )
     conversation_source = models.CharField(
         max_length=20,
