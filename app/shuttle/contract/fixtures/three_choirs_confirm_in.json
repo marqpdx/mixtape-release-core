@@ -1,0 +1,35 @@
+{
+  "version": "1.0",
+  "action_run_id": "actionrun-3c0ir5",
+  "ticked_item_ids": [
+    "place-toronto",
+    "place-brisbane",
+    "thing-choir-choir-choir",
+    "thing-pub-choir",
+    "idea-singing-together",
+    "idea-gathering",
+    "adj-ccc-pub",
+    "adj-pub-lowbar",
+    "adj-ccc-lowbar"
+  ],
+  "stories": [
+    {
+      "item_id": "place-toronto",
+      "text": "Packed into the back room on a Tuesday, Journey's 'Don't Stop Believin'' split four ways by the room, strangers by the first chorus and not by the last.",
+      "music_link": "https://open.spotify.com/track/5eN7j3gHCmGIu2OKzSpbdU"
+    },
+    {
+      "item_id": "place-brisbane",
+      "text": "The bartender stopped pouring to sing the bass line."
+    }
+  ],
+  "merge_answers": [
+    {
+      "item_id": "thing-pub-choir",
+      "candidate_id": "commonsitem-pub-choir-collective",
+      "decision": "keep_separate"
+    }
+  ],
+  "stories_not_yet_told_answer": true,
+  "idea_rewordings": []
+}

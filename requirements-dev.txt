@@ -75,6 +75,7 @@ jmespath==1.0.1
 joblib==1.5.2
 jsonpatch==1.33
 jsonpointer==3.0.0
+jsonschema==4.26.0
 jwcrypto==1.5.6
 kombu==5.5.4
 langchain-classic==1.0.0
