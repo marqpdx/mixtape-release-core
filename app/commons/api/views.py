@@ -29,7 +29,7 @@ def _require_superuser(request):
 
 class CommonsItemListCreateView(generics.GenericAPIView):
     """
-    GET  — List CommonsItems (filterable by curation_status, item_type)
+    GET  — List CommonsItems (filterable by item_type)
     POST — Capture a new CommonsItem
     """
 
@@ -42,10 +42,6 @@ class CommonsItemListCreateView(generics.GenericAPIView):
 
     def get_queryset(self):
         qs = CommonsItem.objects.filter(deleted_at__isnull=True)
-
-        curation_status = self.request.query_params.get("status")
-        if curation_status:
-            qs = qs.filter(curation_status=curation_status)
 
         item_type = self.request.query_params.get("type")
         if item_type:
@@ -134,64 +130,6 @@ class CommonsItemDetailView(generics.GenericAPIView):
         item.deleted_at = timezone.now()
         item.save(update_fields=["deleted_at"])
         return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-class CommonsItemAdvanceView(generics.GenericAPIView):
-    """
-    POST — Advance curation status.
-    Body: {"target_status": "in_curation"}
-    """
-
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request, pk):
-        denied = _require_superuser(request)
-        if denied:
-            return denied
-
-        item = get_object_or_404(CommonsItem, pk=pk, deleted_at__isnull=True)
-        target_status = request.data.get("target_status")
-
-        if not target_status:
-            return Response(
-                {"detail": "target_status is required."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            item = commons_service.advance_status(item, request.user, target_status)
-        except ValueError as e:
-            return Response(
-                {"detail": str(e)},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        serializer = CommonsItemDetailSerializer(item)
-        return Response(serializer.data)
-
-
-class CommonsItemRejectView(generics.GenericAPIView):
-    """POST — Reject a CommonsItem."""
-
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request, pk):
-        denied = _require_superuser(request)
-        if denied:
-            return denied
-
-        item = get_object_or_404(CommonsItem, pk=pk, deleted_at__isnull=True)
-
-        try:
-            item = commons_service.reject_item(item, request.user)
-        except ValueError as e:
-            return Response(
-                {"detail": str(e)},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        serializer = CommonsItemDetailSerializer(item)
-        return Response(serializer.data)
 
 
 class FilamentListCreateView(generics.GenericAPIView):

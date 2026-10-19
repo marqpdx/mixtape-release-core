@@ -18,7 +18,11 @@ User = get_user_model()
 
 class CommonsItem(BaseContent):
     """
-    A curated entry in the Crossroads Commons atlas.
+    An entry in the Crossroads Commons atlas: a group or organization at
+    one or more Places (ADR-0058 D4 "thing"). Kept as this model rather
+    than renamed or dropped (Shuttle OQ1, Commons CM-0b, both resolved
+    2026-10-19 — Resolution Log 9b). Its five-state curation lifecycle is
+    dropped (D5): it exists once captured, no approval gate.
 
     Inherits from BaseContent:
       id (UUID), title, summary, slug, body, submitted_by, author,
@@ -34,28 +38,12 @@ class CommonsItem(BaseContent):
         PLACE = "place", "Place"
         EVENT = "event", "Event"
 
-    class CurationStatus(models.TextChoices):
-        CAPTURED = "captured", "Captured"
-        IN_CURATION = "in_curation", "In Curation"
-        READY = "ready", "Ready for Review"
-        APPROVED = "approved", "Approved"
-        PUBLISHED = "published", "Published"
-        REJECTED = "rejected", "Rejected"
-
     # Type
     item_type = models.CharField(
         max_length=20,
         choices=ItemType.choices,
         blank=True,
         default="",
-    )
-
-    # Curation workflow
-    curation_status = models.CharField(
-        max_length=20,
-        choices=CurationStatus.choices,
-        default=CurationStatus.CAPTURED,
-        db_index=True,
     )
 
     # Human recommendation
@@ -99,30 +87,12 @@ class CommonsItem(BaseContent):
         help_text="Flexible metadata (hours, pricing, etc.)",
     )
 
-    # Curation tracking
-    curated_by = models.ForeignKey(
-        User,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="commons_curations",
-    )
-    approved_by = models.ForeignKey(
-        User,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="commons_approvals",
-    )
-
     # Founder (text for now, Filament relationship later)
     founder = models.CharField(max_length=255, blank=True, default="")
 
     class Meta(BaseContent.Meta):
         indexes = BaseContent.Meta.indexes + [
-            models.Index(fields=["curation_status"]),
             models.Index(fields=["item_type"]),
-            models.Index(fields=["curation_status", "-created_at"]),
         ]
 
     def __str__(self):
