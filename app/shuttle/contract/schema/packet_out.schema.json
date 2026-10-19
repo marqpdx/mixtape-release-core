@@ -1,0 +1,157 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mixtape.internal/shuttle/contract/packet_out.schema.json",
+  "title": "Shuttle Packet (out)",
+  "description": "One packet, shaped from one weave, shown on one screen at two densities (OQ2). Held server-side, transient, keyed to one ActionRun per weave.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "action_run_id", "anchor", "items", "ideas", "adjacencies", "story_prompts"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "action_run_id": {
+      "type": "string",
+      "description": "The initiatives.ActionRun this packet is keyed to. One ActionRun per weave (OQ2b)."
+    },
+    "anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["headline", "counts"],
+      "properties": {
+        "headline": { "type": "string" },
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["places", "ideas", "adjacencies"],
+          "properties": {
+            "places": { "type": "integer", "minimum": 0 },
+            "ideas": { "type": "integer", "minimum": 0 },
+            "adjacencies": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "items": {
+      "type": "array",
+      "description": "Things and places found in the weave (D4). A thing-at-a-place and its place are each one item.",
+      "items": { "$ref": "#/definitions/item" }
+    },
+    "ideas": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/idea" }
+    },
+    "adjacencies": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/adjacency" }
+    },
+    "story_prompts": {
+      "type": "array",
+      "description": "One short prompt per place.",
+      "items": { "$ref": "#/definitions/story_prompt" }
+    },
+    "stories_not_yet_told": {
+      "description": "At most three top-tier finds, offered as one question (D8). Omitted when there are none to offer.",
+      "$ref": "#/definitions/stories_not_yet_told"
+    }
+  },
+  "definitions": {
+    "match_state": {
+      "type": "string",
+      "enum": ["found", "new", "near_duplicate"]
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "score"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "score": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_id", "kind", "name", "locale", "match_state"],
+      "properties": {
+        "item_id": { "type": "string" },
+        "kind": { "type": "string", "enum": ["place", "thing"] },
+        "name": { "type": "string" },
+        "locale": {
+          "type": "string",
+          "description": "Where this item is, for display (e.g. the Place's city/region)."
+        },
+        "match_state": { "$ref": "#/definitions/match_state" },
+        "candidate": {
+          "description": "Present when match_state is near_duplicate: the existing row this might be the same as.",
+          "$ref": "#/definitions/candidate"
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "match_state": { "const": "near_duplicate" } } },
+          "then": { "required": ["candidate"] }
+        }
+      ]
+    },
+    "idea": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["idea_id", "wording", "closest_existing"],
+      "properties": {
+        "idea_id": { "type": "string" },
+        "wording": { "type": "string" },
+        "closest_existing": {
+          "type": "array",
+          "description": "The closest existing Ideas, shown so the person can reuse one instead of proposing new (D7).",
+          "items": { "$ref": "#/definitions/candidate" }
+        }
+      }
+    },
+    "adjacency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adjacency_id", "ends", "reason"],
+      "properties": {
+        "adjacency_id": { "type": "string" },
+        "ends": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "The item_ids of the two things this adjacency joins (D6)."
+        },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "story_prompt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_id", "prompt"],
+      "properties": {
+        "item_id": { "type": "string" },
+        "prompt": { "type": "string" }
+      }
+    },
+    "stories_not_yet_told": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["question", "offers"],
+      "properties": {
+        "question": { "type": "string" },
+        "offers": {
+          "type": "array",
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "label"],
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

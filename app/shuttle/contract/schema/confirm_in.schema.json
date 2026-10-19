@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mixtape.internal/shuttle/contract/confirm_in.schema.json",
+  "title": "Shuttle Confirm (in)",
+  "description": "The person's yes. Sends only deltas against the packet already held server-side, keyed to the same ActionRun (OQ2a) — never a resent copy of the packet.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "action_run_id", "ticked_item_ids", "stories"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "action_run_id": { "type": "string" },
+    "ticked_item_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Item ids the person approved. Anything not ticked rests as a Seed (D9)."
+    },
+    "stories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["item_id", "text"],
+        "properties": {
+          "item_id": { "type": "string" },
+          "text": {
+            "type": "string",
+            "description": "Verbatim. The agent never drafts or smooths a story (D3).",
+            "minLength": 1
+          },
+          "music_link": {
+            "type": "string",
+            "description": "Optional media link, Spotify first (D4)."
+          }
+        }
+      }
+    },
+    "merge_answers": {
+      "type": "array",
+      "description": "The person's decision on each near_duplicate match surfaced in the packet.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["item_id", "candidate_id", "decision"],
+        "properties": {
+          "item_id": { "type": "string" },
+          "candidate_id": { "type": "string" },
+          "decision": { "type": "string", "enum": ["merge", "keep_separate"] }
+        }
+      }
+    },
+    "stories_not_yet_told_answer": {
+      "description": "Yes or no to the one offered question (D8). Omitted when the packet offered none.",
+      "type": "boolean"
+    },
+    "idea_rewordings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["idea_id", "wording"],
+        "properties": {
+          "idea_id": { "type": "string" },
+          "wording": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

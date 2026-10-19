@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mixtape.internal/shuttle/contract/result_out.schema.json",
+  "title": "Shuttle Result (out)",
+  "description": "What one confirm wrote, in one transaction, and what rested as Seeds (D2, D9).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "action_run_id", "written", "rested_as_seed"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "action_run_id": { "type": "string" },
+    "written": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["item_id", "written_as", "id"],
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "description": "The packet item_id or idea_id/adjacency_id this row resolves, for client-side reconciliation."
+          },
+          "written_as": {
+            "type": "string",
+            "description": "The model this became (D4), e.g. tapestry.Place, commons.CommonsItem, classifications.Tag, relations.Relationship, commons.LeafEntry."
+          },
+          "id": { "type": "string" }
+        }
+      }
+    },
+    "rested_as_seed": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "item_ids left unticked, or ticked without a story: written as writing.Seed rows, not asked about again (D9)."
+    }
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "version": "1.0",
+  "action_run_id": "actionrun-3c0ir5",
+  "anchor": {
+    "headline": "Packet: community singing · 3 places · 2 ideas · 3 adjacencies",
+    "counts": { "places": 3, "ideas": 2, "adjacencies": 3 }
+  },
+  "items": [
+    {
+      "item_id": "place-toronto",
+      "kind": "place",
+      "name": "Toronto",
+      "locale": "Toronto, ON",
+      "match_state": "found"
+    },
+    {
+      "item_id": "place-brisbane",
+      "kind": "place",
+      "name": "Brisbane",
+      "locale": "Brisbane, QLD",
+      "match_state": "found"
+    },
+    {
+      "item_id": "place-portland",
+      "kind": "place",
+      "name": "Portland",
+      "locale": "Portland, OR",
+      "match_state": "new"
+    },
+    {
+      "item_id": "thing-choir-choir-choir",
+      "kind": "thing",
+      "name": "Choir! Choir! Choir!",
+      "locale": "Toronto, ON",
+      "match_state": "found"
+    },
+    {
+      "item_id": "thing-pub-choir",
+      "kind": "thing",
+      "name": "Pub Choir",
+      "locale": "Brisbane, QLD",
+      "match_state": "near_duplicate",
+      "candidate": {
+        "id": "commonsitem-pub-choir-collective",
+        "name": "Pub Choir Collective",
+        "score": 0.86
+      }
+    },
+    {
+      "item_id": "thing-low-bar-chorale",
+      "kind": "thing",
+      "name": "Low Bar Chorale",
+      "locale": "Portland, OR",
+      "match_state": "new"
+    }
+  ],
+  "ideas": [
+    {
+      "idea_id": "idea-singing-together",
+      "wording": "Singing together",
+      "closest_existing": [
+        { "id": "tag-group-singing", "name": "Group singing", "score": 0.74 }
+      ]
+    },
+    {
+      "idea_id": "idea-gathering",
+      "wording": "Gathering",
+      "closest_existing": [
+        { "id": "tag-community-gathering", "name": "Community gathering", "score": 0.68 }
+      ]
+    }
+  ],
+  "adjacencies": [
+    {
+      "adjacency_id": "adj-ccc-pub",
+      "ends": ["thing-choir-choir-choir", "thing-pub-choir"],
+      "reason": "Same practice: drop-in choral singing in a bar."
+    },
+    {
+      "adjacency_id": "adj-pub-lowbar",
+      "ends": ["thing-pub-choir", "thing-low-bar-chorale"],
+      "reason": "Same practice: drop-in choral singing in a bar."
+    },
+    {
+      "adjacency_id": "adj-ccc-lowbar",
+      "ends": ["thing-choir-choir-choir", "thing-low-bar-chorale"],
+      "reason": "Same practice: drop-in choral singing in a bar."
+    }
+  ],
+  "story_prompts": [
+    { "item_id": "place-toronto", "prompt": "What happened the night you were there?" },
+    { "item_id": "place-brisbane", "prompt": "What happened the night you were there?" },
+    { "item_id": "place-portland", "prompt": "What happened the night you were there?" }
+  ],
+  "stories_not_yet_told": {
+    "question": "Also note these for later, if any of them belong here?",
+    "offers": [
+      { "id": "snt-karaoke-bars", "label": "Karaoke bars with a house choir night" },
+      { "id": "snt-busking-choirs", "label": "Busking choirs in transit stations" }
+    ]
+  }
+}

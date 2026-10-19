@@ -1,0 +1,23 @@
+{
+  "version": "1.0",
+  "action_run_id": "actionrun-3c0ir5",
+  "written": [
+    { "item_id": "place-toronto", "written_as": "tapestry.Place", "id": "place-uuid-toronto" },
+    { "item_id": "place-brisbane", "written_as": "tapestry.Place", "id": "place-uuid-brisbane" },
+    { "item_id": "thing-choir-choir-choir", "written_as": "commons.CommonsItem", "id": "commonsitem-choir-choir-choir" },
+    { "item_id": "thing-pub-choir", "written_as": "commons.CommonsItem", "id": "commonsitem-pub-choir-brisbane" },
+    { "item_id": "idea-singing-together", "written_as": "classifications.Tag", "id": "tag-singing-together" },
+    { "item_id": "idea-gathering", "written_as": "classifications.Tag", "id": "tag-gathering" },
+    { "item_id": "adj-ccc-pub", "written_as": "relations.Relationship", "id": "relationship-ccc-pub" },
+    { "item_id": "adj-pub-lowbar", "written_as": "relations.Relationship", "id": "relationship-pub-lowbar" },
+    { "item_id": "adj-ccc-lowbar", "written_as": "relations.Relationship", "id": "relationship-ccc-lowbar" },
+    { "item_id": "place-toronto", "written_as": "commons.LeafEntry", "id": "leafentry-toronto" },
+    { "item_id": "place-brisbane", "written_as": "commons.LeafEntry", "id": "leafentry-brisbane" },
+    { "item_id": "snt-karaoke-bars", "written_as": "shuttle.IdeaTuple", "id": "ideatuple-karaoke-bars" },
+    { "item_id": "snt-busking-choirs", "written_as": "shuttle.IdeaTuple", "id": "ideatuple-busking-choirs" }
+  ],
+  "rested_as_seed": [
+    "place-portland",
+    "thing-low-bar-chorale"
+  ]
+}

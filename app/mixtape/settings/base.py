@@ -194,6 +194,7 @@ INSTALLED_APPS = [
     "sourcework",      # Sourcework - SourceGrant, provisional things, and Working Sets
     "folio",           # Folio — Inception + Hildegard materiality prototype (Phase 0)
     "storyboard",      # Storyboard — shared arrangement layer (Storyboard/StoryboardItem), Fiction first consumer
+    "shuttle",         # Shuttle — fast, curated publishing to Tapestry (ADR-0058); packet contract only (SH-7a)
 ]
 
 if OCR_SPIKE_ENABLED:
