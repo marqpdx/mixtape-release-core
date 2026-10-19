@@ -8,6 +8,7 @@ from .almanac_event import AlmanacEventAdapter
 from .drop import DropAdapter
 from .transcript import TranscriptAdapter
 from .folio_note import FolioNoteAdapter
+from .tag import TagAdapter
 
 ADAPTER_REGISTRY = [
     SeedAdapter(),
@@ -20,6 +21,7 @@ ADAPTER_REGISTRY = [
     DropAdapter(),
     TranscriptAdapter(),
     FolioNoteAdapter(),
+    TagAdapter(),
 ]
 
 
