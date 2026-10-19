@@ -6,15 +6,15 @@ from .models import Tag, Category, ClassificationUsage
 @admin.register(Tag)
 class TagAdmin(admin.ModelAdmin):
     """Admin configuration for Tag model"""
-    list_display = ('title', 'slug', 'usage_count', 'color', 'created_at')
+    list_display = ('title', 'slug', 'is_idea', 'usage_count', 'color', 'created_at')
     search_fields = ('title', 'summary')
     readonly_fields = ('slug', 'usage_count', 'created_at', 'updated_at', 'slug_history')
     ordering = ('title',)
-    list_filter = ('created_at',)
+    list_filter = ('is_idea', 'created_at')
 
     fieldsets = (
         ('Basic Information', {
-            'fields': ('title', 'slug', 'summary')
+            'fields': ('title', 'slug', 'summary', 'is_idea')
         }),
         ('Display', {
             'fields': ('color',)

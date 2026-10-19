@@ -67,6 +67,17 @@ class Tag(BaseClassification):
     Slugs are globally unique across all tags.
     """
 
+    is_idea = models.BooleanField(
+        default=False,
+        help_text=(
+            "Marks this Tag as an Idea in Shuttle's sense (ADR-0058 D4, D7): "
+            "shared platform vocabulary, attached by ClassificationUsage, "
+            "guarded against redundancy and indexed in Stackroom for "
+            "semantic matching so the agent can show the closest existing "
+            "Ideas before proposing a new one."
+        ),
+    )
+
     class Meta(BaseClassification.Meta):
         verbose_name = "Tag"
         verbose_name_plural = "Tags"
