@@ -117,7 +117,7 @@ def promote_seed_to_leaf(*, seed: Seed, author):
     - Sets published_at to now
     - Does NOT delete the Seed (user chooses)
     """
-    from .models import Leaf
+    from commons.models import Leaf
 
     if seed.author_id != author.id:
         raise PromotionError("Not allowed to promote this seed.")
@@ -146,7 +146,7 @@ def quick_post_leaf(*, author, body_text="", body_json=None, kind="text",
     Creates a Seed for provenance, then creates a Leaf.
     If publish=False, the Leaf is saved as a draft (published_at=None).
     """
-    from .models import Leaf
+    from commons.models import Leaf
 
     # Create a Seed for provenance
     seed = Seed.objects.create(
@@ -179,7 +179,7 @@ def create_reference_leaf(*, author, source_object, caption="", image_file=None)
     Create a reference Leaf — a curated card pointing to other content.
     The author writes original commentary (not copied from source).
     """
-    from .models import Leaf
+    from commons.models import Leaf
 
     ct = ContentType.objects.get_for_model(source_object)
 
@@ -201,7 +201,8 @@ def promote_leaf_to_working_copy(*, leaf, author, extra_meta: dict | None = None
     Promote a Leaf to a WritingPiece draft (WorkingDocument).
     Follows the same pattern as promote_seed_to_working_copy.
     """
-    from .models import Leaf, WorkingDocument
+    from commons.models import Leaf
+    from .models import WorkingDocument
 
     if leaf.author_id != author.id:
         raise PromotionError("Not allowed to promote this leaf.")
@@ -251,3 +252,33 @@ def promote_leaf_to_working_copy(*, leaf, author, extra_meta: dict | None = None
     leaf.promoted_to = wc
     leaf.save(update_fields=["promoted_to", "updated_at"])
     return wc
+
+
+class DispatchError(Exception):
+    pass
+
+
+@transaction.atomic
+def create_dispatch(*, seed, destination_type, verb="copy", destination_id=None, dispatched_at=None):
+    """
+    Record one SeedDispatch (Mobile UX ADR, Shuttle ADR-0058 spike findings:
+    "build create_dispatch before inventing another hand-off"). This only
+    logs that a Seed was routed somewhere, for the Placement screen's
+    history ("Sent to @alex - 3 days ago") -- it does not itself move or
+    copy content. The caller performs the actual hand-off first (e.g.
+    commons.leaf_services for a Commons dispatch) and calls this to record it.
+    """
+    from .models import SeedDispatch
+
+    if destination_type not in dict(SeedDispatch.DESTINATION_CHOICES):
+        raise DispatchError(f"Unknown destination_type: {destination_type!r}")
+    if destination_type != "commons" and destination_id is None:
+        raise DispatchError(f"destination_id is required for destination_type={destination_type!r}")
+
+    return SeedDispatch.objects.create(
+        seed=seed,
+        destination_type=destination_type,
+        destination_id=destination_id,
+        verb=verb,
+        dispatched_at=dispatched_at or timezone.now(),
+    )
