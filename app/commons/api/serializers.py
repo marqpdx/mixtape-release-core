@@ -17,7 +17,6 @@ class CommonsItemListSerializer(serializers.ModelSerializer):
             "title",
             "slug",
             "item_type",
-            "curation_status",
             "summary",
             "location_name",
             "latitude",
@@ -38,8 +37,6 @@ class CommonsItemListSerializer(serializers.ModelSerializer):
 class CommonsItemDetailSerializer(CommonsItemListSerializer):
     """Full detail serializer with all fields."""
 
-    curated_by_name = serializers.SerializerMethodField()
-    approved_by_name = serializers.SerializerMethodField()
     filaments_out = serializers.SerializerMethodField()
     filaments_in = serializers.SerializerMethodField()
 
@@ -55,22 +52,10 @@ class CommonsItemDetailSerializer(CommonsItemListSerializer):
             "founder",
             "extracted_data",
             "additional_data",
-            "curated_by_name",
-            "approved_by_name",
             "published_at",
             "filaments_out",
             "filaments_in",
         ]
-
-    def get_curated_by_name(self, obj):
-        if obj.curated_by:
-            return getattr(obj.curated_by, "display_name", str(obj.curated_by))
-        return None
-
-    def get_approved_by_name(self, obj):
-        if obj.approved_by:
-            return getattr(obj.approved_by, "display_name", str(obj.approved_by))
-        return None
 
     def get_filaments_out(self, obj):
         from relations.service import RelationshipService
