@@ -1,0 +1,399 @@
+{
+  "sources": [
+    {
+      "source_ref": "seed:three-choirs-spoken",
+      "source_revision": 0,
+      "text": "Okay, so there's three places. One is choir choir choir, I think out of Toronto. One is pub choir out of Australia. And then there is low bar corral in Portland. So all three of those. So I've been to choir choir choir. And the story for that is that quote, it's a great experience. People come together, all the ex choir kids now in their 40s, and their families singing loudly and proudly and having a great time under the... End quote. And yeah, I think the sort of tagline or whatever singing together is the key thing. So there's the raw material and let's see what comes up."
+    }
+  ],
+  "findings": {
+    "sightings": [
+      {
+        "sighting_id": "thing-toronto",
+        "shape_id": "shuttle.thing",
+        "shape_version": "0.1.0",
+        "strategy_id": "shuttle.weave_to_packet",
+        "strategy_version": "0.1.0",
+        "confidence": "medium",
+        "source_locator": [
+          {
+            "source_ref": "seed:three-choirs-spoken",
+            "source_revision": 0,
+            "start": 38,
+            "end": 55,
+            "quote": "choir choir choir"
+          }
+        ],
+        "uncertain": [],
+        "name_as_said": "choir choir choir",
+        "proposed_name": "Choir! Choir! Choir!",
+        "place_ids": [
+          "locale-toronto"
+        ]
+      },
+      {
+        "sighting_id": "locale-toronto",
+        "shape_id": "shuttle.place",
+        "shape_version": "0.1.0",
+        "strategy_id": "shuttle.weave_to_packet",
+        "strategy_version": "0.1.0",
+        "confidence": "medium",
+        "source_locator": [
+          {
+            "source_ref": "seed:three-choirs-spoken",
+            "source_revision": 0,
+            "start": 72,
+            "end": 79,
+            "quote": "Toronto"
+          }
+        ],
+        "uncertain": [
+          {
+            "field": "name_as_said",
+            "reason": "The speaker says I think.",
+            "source_locator": [
+              {
+                "source_ref": "seed:three-choirs-spoken",
+                "source_revision": 0,
+                "start": 57,
+                "end": 79,
+                "quote": "I think out of Toronto"
+              }
+            ]
+          }
+        ],
+        "name_as_said": "Toronto",
+        "proposed_name": null,
+        "role": "locale"
+      },
+      {
+        "sighting_id": "thing-australia",
+        "shape_id": "shuttle.thing",
+        "shape_version": "0.1.0",
+        "strategy_id": "shuttle.weave_to_packet",
+        "strategy_version": "0.1.0",
+        "confidence": "medium",
+        "source_locator": [
+          {
+            "source_ref": "seed:three-choirs-spoken",
+            "source_revision": 0,
+            "start": 88,
+            "end": 97,
+            "quote": "pub choir"
+          }
+        ],
+        "uncertain": [],
+        "name_as_said": "pub choir",
+        "proposed_name": "Pub Choir",
+        "place_ids": [
+          "locale-australia"
+        ]
+      },
+      {
+        "sighting_id": "locale-australia",
+        "shape_id": "shuttle.place",
+        "shape_version": "0.1.0",
+        "strategy_id": "shuttle.weave_to_packet",
+        "strategy_version": "0.1.0",
+        "confidence": "medium",
+        "source_locator": [
+          {
+            "source_ref": "seed:three-choirs-spoken",
+            "source_revision": 0,
+            "start": 105,
+            "end": 114,
+            "quote": "Australia"
+          }
+        ],
+        "uncertain": [],
+        "name_as_said": "Australia",
+        "proposed_name": null,
+        "role": "locale"
+      },
+      {
+        "sighting_id": "thing-portland",
+        "shape_id": "shuttle.thing",
+        "shape_version": "0.1.0",
+        "strategy_id": "shuttle.weave_to_packet",
+        "strategy_version": "0.1.0",
+        "confidence": "medium",
+        "source_locator": [
+          {
+            "source_ref": "seed:three-choirs-spoken",
+            "source_revision": 0,
+            "start": 134,
+            "end": 148,
+            "quote": "low bar corral"
+          }
+        ],
+        "uncertain": [
+          {
+            "field": "proposed_name",
+            "reason": "Possible corral/Chorale transcription; confirm identity.",
+            "source_locator": [
+              {
+                "source_ref": "seed:three-choirs-spoken",
+                "source_revision": 0,
+                "start": 134,
+                "end": 148,
+                "quote": "low bar corral"
+              }
+            ]
+          }
+        ],
+        "name_as_said": "low bar corral",
+        "proposed_name": "Low Bar Chorale",
+        "place_ids": [
+          "locale-portland"
+        ]
+      },
+      {
+        "sighting_id": "locale-portland",
+        "shape_id": "shuttle.place",
+        "shape_version": "0.1.0",
+        "strategy_id": "shuttle.weave_to_packet",
+        "strategy_version": "0.1.0",
+        "confidence": "medium",
+        "source_locator": [
+          {
+            "source_ref": "seed:three-choirs-spoken",
+            "source_revision": 0,
+            "start": 152,
+            "end": 160,
+            "quote": "Portland"
+          }
+        ],
+        "uncertain": [],
+        "name_as_said": "Portland",
+        "proposed_name": null,
+        "role": "locale"
+      },
+      {
+        "sighting_id": "idea-singing",
+        "shape_id": "shuttle.idea",
+        "shape_version": "0.1.0",
+        "strategy_id": "shuttle.weave_to_packet",
+        "strategy_version": "0.1.0",
+        "confidence": "medium",
+        "source_locator": [
+          {
+            "source_ref": "seed:three-choirs-spoken",
+            "source_revision": 0,
+            "start": 489,
+            "end": 505,
+            "quote": "singing together"
+          }
+        ],
+        "uncertain": [],
+        "wording": "singing together",
+        "basis": "stated",
+        "supporting_sighting_ids": [
+          "thing-toronto",
+          "thing-australia",
+          "thing-portland"
+        ]
+      },
+      {
+        "sighting_id": "adj-1",
+        "shape_id": "shuttle.adjacency",
+        "shape_version": "0.1.0",
+        "strategy_id": "shuttle.weave_to_packet",
+        "strategy_version": "0.1.0",
+        "confidence": "medium",
+        "source_locator": [
+          {
+            "source_ref": "seed:three-choirs-spoken",
+            "source_revision": 0,
+            "start": 162,
+            "end": 183,
+            "quote": "So all three of those"
+          }
+        ],
+        "uncertain": [],
+        "ends": [
+          "thing-toronto",
+          "thing-australia"
+        ],
+        "reason": "Proposed connection through participatory singing, based on the stated cluster intent.",
+        "intent_basis": "inferred_from_intent",
+        "intent_evidence": [
+          {
+            "source_ref": "seed:three-choirs-spoken",
+            "source_revision": 0,
+            "start": 162,
+            "end": 183,
+            "quote": "So all three of those"
+          },
+          {
+            "source_ref": "seed:three-choirs-spoken",
+            "source_revision": 0,
+            "start": 489,
+            "end": 522,
+            "quote": "singing together is the key thing"
+          }
+        ]
+      },
+      {
+        "sighting_id": "adj-2",
+        "shape_id": "shuttle.adjacency",
+        "shape_version": "0.1.0",
+        "strategy_id": "shuttle.weave_to_packet",
+        "strategy_version": "0.1.0",
+        "confidence": "medium",
+        "source_locator": [
+          {
+            "source_ref": "seed:three-choirs-spoken",
+            "source_revision": 0,
+            "start": 162,
+            "end": 183,
+            "quote": "So all three of those"
+          }
+        ],
+        "uncertain": [],
+        "ends": [
+          "thing-australia",
+          "thing-portland"
+        ],
+        "reason": "Proposed connection through participatory singing, based on the stated cluster intent.",
+        "intent_basis": "inferred_from_intent",
+        "intent_evidence": [
+          {
+            "source_ref": "seed:three-choirs-spoken",
+            "source_revision": 0,
+            "start": 162,
+            "end": 183,
+            "quote": "So all three of those"
+          },
+          {
+            "source_ref": "seed:three-choirs-spoken",
+            "source_revision": 0,
+            "start": 489,
+            "end": 522,
+            "quote": "singing together is the key thing"
+          }
+        ]
+      },
+      {
+        "sighting_id": "adj-3",
+        "shape_id": "shuttle.adjacency",
+        "shape_version": "0.1.0",
+        "strategy_id": "shuttle.weave_to_packet",
+        "strategy_version": "0.1.0",
+        "confidence": "medium",
+        "source_locator": [
+          {
+            "source_ref": "seed:three-choirs-spoken",
+            "source_revision": 0,
+            "start": 162,
+            "end": 183,
+            "quote": "So all three of those"
+          }
+        ],
+        "uncertain": [],
+        "ends": [
+          "thing-toronto",
+          "thing-portland"
+        ],
+        "reason": "Proposed connection through participatory singing, based on the stated cluster intent.",
+        "intent_basis": "inferred_from_intent",
+        "intent_evidence": [
+          {
+            "source_ref": "seed:three-choirs-spoken",
+            "source_revision": 0,
+            "start": 162,
+            "end": 183,
+            "quote": "So all three of those"
+          },
+          {
+            "source_ref": "seed:three-choirs-spoken",
+            "source_revision": 0,
+            "start": 489,
+            "end": 522,
+            "quote": "singing together is the key thing"
+          }
+        ]
+      },
+      {
+        "sighting_id": "story-toronto",
+        "shape_id": "shuttle.story",
+        "shape_version": "0.1.0",
+        "strategy_id": "shuttle.weave_to_packet",
+        "strategy_version": "0.1.0",
+        "confidence": "medium",
+        "source_locator": [
+          {
+            "source_ref": "seed:three-choirs-spoken",
+            "source_revision": 0,
+            "start": 185,
+            "end": 218,
+            "quote": "So I've been to choir choir choir"
+          }
+        ],
+        "uncertain": [],
+        "subject_ids": [
+          "thing-toronto"
+        ],
+        "text": "it's a great experience. People come together, all the ex choir kids now in their 40s, and their families singing loudly and proudly and having a great time under the...",
+        "passage": {
+          "source_ref": "seed:three-choirs-spoken",
+          "source_revision": 0,
+          "start": 258,
+          "end": 427,
+          "quote": "it's a great experience. People come together, all the ex choir kids now in their 40s, and their families singing loudly and proudly and having a great time under the..."
+        },
+        "knowledge_basis": "firsthand",
+        "completion": "unfinished"
+      },
+      {
+        "sighting_id": "weave",
+        "shape_id": "shuttle.weave",
+        "shape_version": "0.1.0",
+        "strategy_id": "shuttle.weave_to_packet",
+        "strategy_version": "0.1.0",
+        "confidence": "medium",
+        "source_locator": [
+          {
+            "source_ref": "seed:three-choirs-spoken",
+            "source_revision": 0,
+            "start": 489,
+            "end": 522,
+            "quote": "singing together is the key thing"
+          }
+        ],
+        "uncertain": [],
+        "reading": "I hear three groups connected through singing together. You've been to one and told its story.",
+        "thing_ids": [
+          "thing-toronto",
+          "thing-australia",
+          "thing-portland"
+        ],
+        "place_ids": [
+          "locale-toronto",
+          "locale-australia",
+          "locale-portland"
+        ],
+        "idea_ids": [
+          "idea-singing"
+        ],
+        "adjacency_ids": [
+          "adj-1",
+          "adj-2",
+          "adj-3"
+        ],
+        "story_ids": [
+          "story-toronto"
+        ]
+      }
+    ],
+    "questions": [
+      {
+        "question_id": "q-name",
+        "text": "Did you mean Low Bar Chorale?",
+        "sighting_ids": [
+          "thing-portland"
+        ],
+        "reason": "Clarifies an uncertain transcribed name."
+      }
+    ]
+  }
+}
