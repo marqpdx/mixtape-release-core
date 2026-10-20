@@ -4,6 +4,12 @@ from dataclasses import dataclass
 from typing import Literal
 
 
+# "self": the ActionRun's own initiator, acting on their own content —
+# not a role gate. Writes land where the domain places them (e.g.
+# Shuttle's shared Places, Ideas and adjacencies), not a private sandbox;
+# enforcement is the service layer's job (check the initiator against
+# the requester), this registry only labels the verb (Puddlejump review
+# of ea96aee6, CTO, 2026-10-19).
 AuthorityRequirement = Literal["superuser", "group_owner", "group_admin", "group_steward", "service", "self"]
 AuditBehavior = Literal["action_run", "domain_activity", "none"]
 ConfirmationRequirement = Literal["always", "destructive_only", "never"]

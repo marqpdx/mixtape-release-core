@@ -8,12 +8,22 @@
 # landed in its own commit (CTO, 2026-10-19 — split plan/preview from
 # confirm).
 #
+# start_weave and hold_packet are deliberately two functions, not one
+# (Puddlejump review of ea96aee6, CTO, 2026-10-19 — decision 1 of the
+# Shuttle ADR's 2026-10-19 Headnote): the envelope's ActionRun is created
+# when interpretation first starts, before any packet exists, and the
+# SH-11 mobile interpretation path hangs its own per-call runs under it
+# via parent_action. start_weave is the one shared function that creates
+# that ActionRun; hold_packet only attaches a packet to an existing one.
+# A single hold_packet that always created its own ActionRun would give
+# the same weave two runs once the interpretation path called in too.
+#
 # Building the packet itself from weave_in.text (recognizing places,
 # things, Ideas and adjacencies) is not this module's job yet — that is
-# Shuttle's agent work (SH-8), gated on OQ4/OQ6/OQ7. This module only
-# implements the envelope: hold, validate, key to an ActionRun. Callers
-# supply an already-built packet (today: a fixture or a hand-assembled
-# dict; later: SH-8's agent).
+# Shuttle's agent work (SH-8), gated on OQ6/OQ7 (OQ4 resolved 2026-10-19).
+# This module only implements the envelope: hold, validate, key to an
+# ActionRun. Callers supply an already-built packet (today: a fixture or
+# a hand-assembled dict; later: SH-8's agent).
 from django.conf import settings
 
 from initiatives.models import ActionRun, ActionRunExecutionMode, ActionRunInitiatorType, ActionRunStatus
@@ -28,20 +38,22 @@ class ShuttleEnvelopeError(Exception):
     pass
 
 
-def hold_packet(*, weave_in: dict, packet: dict, author) -> dict:
+def start_weave(*, weave_in: dict, author) -> ActionRun:
     """
-    Hold a built packet transiently, keyed to a new ActionRun (one per
-    weave, OQ2b). Returns the packet with its action_run_id filled in —
-    this is the dict served to the client as packet_out.
+    Create the weave's envelope ActionRun (one per weave, OQ2b), before
+    any packet exists. This is the shared function the SH-11 mobile
+    interpretation path calls into as well, so a weave never ends up
+    with two envelope runs — its own per-call interpretation records
+    hang off this same ActionRun via parent_action.
 
-    `packet` is accepted pre-built (see module docstring); it must
-    validate once action_run_id is attached. weave_in is validated and
-    kept as part of the hold, for audit and for the eventual agent step
-    that builds packets from it.
+    The envelope's tenant_id/tenant_namespace stay the platform default:
+    the Commons is platform-wide, and the person-as-tenant decision
+    (ADR Headnote, decision 2) applies to resolving the Claude runtime,
+    not to this field.
     """
     validate_weave_in(weave_in)
 
-    action_run = ActionRun.objects.create(
+    return ActionRun.objects.create(
         tool_name="shuttle.weave",
         status=ActionRunStatus.PENDING,
         execution_mode=ActionRunExecutionMode.LOCAL,
@@ -53,6 +65,21 @@ def hold_packet(*, weave_in: dict, packet: dict, author) -> dict:
         request_payload={"weave_in": weave_in},
     )
 
+
+def hold_packet(*, action_run_id: str, packet: dict, author) -> dict:
+    """
+    Attach a built packet to the weave's existing envelope ActionRun
+    (started with start_weave). Returns the packet with its
+    action_run_id filled in — this is the dict served to the client as
+    packet_out.
+
+    `author` must be the ActionRun's own initiator (required_authority
+    "self" in the orchestration registry: the envelope's initiator,
+    acting on their own weave) — a packet cannot be held against
+    someone else's weave.
+    """
+    action_run = _get_pending_action_run_for(action_run_id=action_run_id, author=author)
+
     held_packet = {**packet, "version": "1.0", "action_run_id": str(action_run.id)}
     validate_packet_out(held_packet)
 
@@ -62,20 +89,31 @@ def hold_packet(*, weave_in: dict, packet: dict, author) -> dict:
     return held_packet
 
 
-def get_held_packet(*, action_run_id: str) -> dict:
-    """Fetch the packet held for a pending ActionRun. Raises ShuttleEnvelopeError
-    if the ActionRun is unknown or has already moved past PENDING."""
+def get_held_packet(*, action_run_id: str, author) -> dict:
+    """Fetch the packet held for a pending ActionRun, only for its own
+    initiator (see hold_packet's authority note)."""
+    action_run = _get_pending_action_run_for(action_run_id=action_run_id, author=author)
+
+    packet = (action_run.request_payload or {}).get("packet")
+    if packet is None:
+        raise ShuttleEnvelopeError(f"ActionRun {action_run_id} has no held packet")
+    return packet
+
+
+def _get_pending_action_run_for(*, action_run_id: str, author) -> ActionRun:
     try:
         action_run = ActionRun.objects.get(pk=action_run_id)
     except ActionRun.DoesNotExist as exc:
         raise ShuttleEnvelopeError(f"No ActionRun held for {action_run_id}") from exc
+
+    if action_run.initiator_id != str(author.pk):
+        raise ShuttleEnvelopeError(
+            f"ActionRun {action_run_id} does not belong to this requester."
+        )
 
     if action_run.status != ActionRunStatus.PENDING:
         raise ShuttleEnvelopeError(
             f"ActionRun {action_run_id} is not pending confirmation (status={action_run.status})"
         )
 
-    packet = (action_run.request_payload or {}).get("packet")
-    if packet is None:
-        raise ShuttleEnvelopeError(f"ActionRun {action_run_id} has no held packet")
-    return packet
+    return action_run
