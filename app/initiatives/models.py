@@ -84,6 +84,12 @@ class ActionRunStatus(models.TextChoices):
     RUNNING = "running", "Running"
     SUCCEEDED = "succeeded", "Succeeded"
     FAILED = "failed", "Failed"
+    # The person explicitly stepped away without publishing (e.g. Shuttle's
+    # "Keep in Notebook") — distinct from FAILED, which means an attempt was
+    # made and broke. Not a backlog: the run stays inspectable but mutating
+    # actions (correct/execute/confirm) are closed. Added for ADR-0058
+    # (CTO, 2026-10-20 whole-weave amendment, OQ10).
+    ABANDONED = "abandoned", "Abandoned"
 
 
 class ActionRunExecutionMode(models.TextChoices):

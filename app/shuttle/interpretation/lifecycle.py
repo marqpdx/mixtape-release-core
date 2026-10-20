@@ -23,13 +23,14 @@ class InterpretationError(Exception):
         super().__init__(code)
 
 
-def owned_parent(action_run_id, author, lock=False):
+def owned_parent(action_run_id, author, lock=False, allow_abandoned=False):
     qs = ActionRun.objects.select_for_update() if lock else ActionRun.objects
     run = qs.filter(pk=action_run_id, tool_name="shuttle.weave",
                     initiator_id=str(author.pk)).first()
     if run is None:
         raise InterpretationError("not_found", 404)
-    if run.status != ActionRunStatus.PENDING:
+    allowed = {ActionRunStatus.PENDING} | ({ActionRunStatus.ABANDONED} if allow_abandoned else set())
+    if run.status not in allowed:
         raise InterpretationError("weave_closed", 409)
     if "interpretation" not in (run.request_payload or {}):
         raise InterpretationError("not_found", 404)
@@ -66,7 +67,9 @@ def snapshot(parent):
     child = parent.child_actions.filter(pk=state.get("execution_id")).first() if state.get("execution_id") else None
     status = state["status"]
     error = state.get("error")
-    if child and child.status == ActionRunStatus.FAILED:
+    if parent.status == ActionRunStatus.ABANDONED:
+        status, error = "abandoned", None
+    elif child and child.status == ActionRunStatus.FAILED:
         status, error = "failed", (child.error_payload or {}).get("error", "execution_failed")
     elif child and child.status == ActionRunStatus.RUNNING and status == "pending":
         status = "running"
