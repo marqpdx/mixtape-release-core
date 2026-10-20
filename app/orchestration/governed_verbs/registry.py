@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 
-AuthorityRequirement = Literal["superuser", "group_owner", "group_admin", "group_steward", "service"]
+AuthorityRequirement = Literal["superuser", "group_owner", "group_admin", "group_steward", "service", "self"]
 AuditBehavior = Literal["action_run", "domain_activity", "none"]
 ConfirmationRequirement = Literal["always", "destructive_only", "never"]
 Destructiveness = Literal["none", "low", "medium", "high"]
@@ -141,6 +141,45 @@ GOVERNED_VERBS: tuple[GovernedVerb, ...] = (
         description="Apply approved welcome, hero, or orientation copy to the group landing surface.",
         required_authority="superuser",
         affected_shapes=("crossroads.group_public_config", "crossroads.public_page"),
+        reversibility="partially_reversible",
+        destructiveness="low",
+        confirmation="always",
+        audit_behavior="action_run",
+    ),
+    GovernedVerb(
+        verb_id="shuttle.weave.hold",
+        label="Hold Shuttle weave packet",
+        domain="shuttle",
+        description=(
+            "Hold a Shuttle packet transiently, keyed to one ActionRun per "
+            "weave (ADR-0058 D2, OQ2). No model rows are written yet."
+        ),
+        required_authority="self",
+        affected_shapes=("initiatives.action_run",),
+        reversibility="reversible",
+        destructiveness="none",
+        confirmation="never",
+        audit_behavior="action_run",
+    ),
+    GovernedVerb(
+        verb_id="shuttle.weave.confirm",
+        label="Confirm Shuttle weave packet",
+        domain="shuttle",
+        description=(
+            "Apply the person's yes to a held Shuttle packet in one "
+            "transaction: ticked items, ideas and adjacencies are written "
+            "to their real models; anything else rests as a Seed (D4, D9)."
+        ),
+        required_authority="self",
+        affected_shapes=(
+            "tapestry.place",
+            "commons.commons_item",
+            "classifications.tag",
+            "relations.relationship",
+            "commons.leaf_entry",
+            "shuttle.idea_tuple",
+            "writing.seed",
+        ),
         reversibility="partially_reversible",
         destructiveness="low",
         confirmation="always",
