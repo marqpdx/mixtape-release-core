@@ -2,7 +2,10 @@ from rest_framework import serializers
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from shuttle import placement
+from shuttle.confirm import confirm_weave
 from shuttle.interpretation import lifecycle
+from shuttle.services import ShuttleEnvelopeError
 
 
 class StartInput(serializers.Serializer):
@@ -30,11 +33,40 @@ class CorrectionInput(serializers.Serializer):
         return attrs
 
 
+class StoryInput(serializers.Serializer):
+    item_id = serializers.CharField()
+    text = serializers.CharField(min_length=1)
+    music_link = serializers.CharField(required=False, allow_blank=True)
+
+
+class MergeAnswerInput(serializers.Serializer):
+    item_id = serializers.CharField()
+    candidate_id = serializers.CharField()
+    decision = serializers.ChoiceField(choices=["merge", "keep_separate"])
+
+
+class IdeaRewordingInput(serializers.Serializer):
+    idea_id = serializers.CharField()
+    wording = serializers.CharField(min_length=1)
+
+
+class ConfirmInput(serializers.Serializer):
+    ticked_item_ids = serializers.ListField(child=serializers.CharField())
+    stories = StoryInput(many=True, default=list)
+    merge_answers = MergeAnswerInput(many=True, required=False)
+    stories_not_yet_told_answer = serializers.BooleanField(required=False)
+    idea_rewordings = IdeaRewordingInput(many=True, required=False)
+
+
 def invoke(fn, **kwargs):
     try:
         return Response(fn(**kwargs))
     except lifecycle.InterpretationError as exc:
         return Response({"error": exc.code}, status=exc.status)
+    except placement.PlacementError as exc:
+        return Response({"error": exc.code}, status=exc.status)
+    except ShuttleEnvelopeError as exc:
+        return Response({"error": str(exc)}, status=400)
 
 
 @api_view(["POST"])
@@ -71,3 +103,18 @@ def correct(request, action_run_id):
     return invoke(lifecycle.correct, author=request.user, action_run_id=action_run_id,
         request_id=values["request_id"], expected_revision=values["expected_revision"],
         text=values.get("correction_text"), seed_id=values.get("correction_seed_id"))
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def build_packet_view(request, action_run_id):
+    return invoke(placement.build_packet, author=request.user, action_run_id=str(action_run_id))
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def confirm_view(request, action_run_id):
+    data = ConfirmInput(data=request.data)
+    data.is_valid(raise_exception=True)
+    confirm_in = {"version": "1.0", "action_run_id": str(action_run_id), **data.validated_data}
+    return invoke(confirm_weave, author=request.user, action_run_id=str(action_run_id), confirm_in=confirm_in)
