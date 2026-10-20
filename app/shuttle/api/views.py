@@ -3,6 +3,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from shuttle import placement
+from shuttle import services as shuttle_services
 from shuttle.confirm import confirm_weave
 from shuttle.interpretation import lifecycle
 from shuttle.services import ShuttleEnvelopeError
@@ -66,7 +67,7 @@ def invoke(fn, **kwargs):
     except placement.PlacementError as exc:
         return Response({"error": exc.code}, status=exc.status)
     except ShuttleEnvelopeError as exc:
-        return Response({"error": str(exc)}, status=400)
+        return Response({"error": str(exc)}, status=exc.status)
 
 
 @api_view(["POST"])
@@ -80,7 +81,19 @@ def start(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def detail(request, action_run_id):
-    return invoke(lambda: lifecycle.snapshot(lifecycle.owned_parent(action_run_id, request.user)))
+    return invoke(lambda: lifecycle.snapshot(
+        lifecycle.owned_parent(action_run_id, request.user, allow_abandoned=True)))
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def keep_in_notebook(request, action_run_id):
+    def do():
+        action_run = shuttle_services.abandon_weave(action_run_id=str(action_run_id), author=request.user)
+        if "interpretation" in (action_run.request_payload or {}):
+            return lifecycle.snapshot(action_run)
+        return {"weave_action_run_id": str(action_run.id), "status": "abandoned"}
+    return invoke(do)
 
 
 @api_view(["POST"])

@@ -25,6 +25,7 @@
 # ActionRun. Callers supply an already-built packet (today: a fixture or
 # a hand-assembled dict; later: SH-8's agent).
 from django.conf import settings
+from django.utils import timezone
 
 from initiatives.models import ActionRun, ActionRunExecutionMode, ActionRunInitiatorType, ActionRunStatus
 
@@ -35,7 +36,9 @@ _DEFAULT_TENANT_NAMESPACE = getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESP
 
 
 class ShuttleEnvelopeError(Exception):
-    pass
+    def __init__(self, message, status=400):
+        self.status = status
+        super().__init__(message)
 
 
 def start_weave(*, weave_in: dict, author) -> ActionRun:
@@ -89,6 +92,26 @@ def hold_packet(*, action_run_id: str, packet: dict, author) -> dict:
     return held_packet
 
 
+def abandon_weave(*, action_run_id: str, author) -> ActionRun:
+    """
+    Shuttle's explicit "Keep in Notebook" exit (ADR-0058, CTO 2026-10-20
+    whole-weave amendment; OQ10). The person is stepping away without
+    publishing — the envelope ActionRun moves to ABANDONED rather than
+    being left PENDING forever (an invisible backlog D9 warns against).
+
+    Nothing is deleted: the original Seed, interpretation findings,
+    corrections and any held packet all stay exactly as they are, on the
+    same ActionRun, for audit/inspection. Re-engaging is a fresh
+    start_weave call (CTO, 2026-10-20 — "start fresh," not a resume of
+    this run's revision chain); this function does not support resuming.
+    """
+    action_run = _get_pending_action_run_for(action_run_id=action_run_id, author=author)
+    action_run.status = ActionRunStatus.ABANDONED
+    action_run.completed_at = timezone.now()
+    action_run.save(update_fields=["status", "completed_at", "updated_at"])
+    return action_run
+
+
 def get_held_packet(*, action_run_id: str, author) -> dict:
     """Fetch the packet held for a pending ActionRun, only for its own
     initiator (see hold_packet's authority note)."""
@@ -104,16 +127,19 @@ def _get_pending_action_run_for(*, action_run_id: str, author) -> ActionRun:
     try:
         action_run = ActionRun.objects.get(pk=action_run_id)
     except ActionRun.DoesNotExist as exc:
-        raise ShuttleEnvelopeError(f"No ActionRun held for {action_run_id}") from exc
+        raise ShuttleEnvelopeError(f"No ActionRun held for {action_run_id}", status=404) from exc
 
+    # Ownership mismatch reads as "not found," not 403 — don't reveal that an
+    # action_run_id exists for someone else's weave.
     if action_run.initiator_id != str(author.pk):
         raise ShuttleEnvelopeError(
-            f"ActionRun {action_run_id} does not belong to this requester."
+            f"ActionRun {action_run_id} does not belong to this requester.", status=404
         )
 
     if action_run.status != ActionRunStatus.PENDING:
         raise ShuttleEnvelopeError(
-            f"ActionRun {action_run_id} is not pending confirmation (status={action_run.status})"
+            f"ActionRun {action_run_id} is not pending confirmation (status={action_run.status})",
+            status=409,
         )
 
     return action_run

@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from initiatives.models import ActionRun, ActionRunStatus
-from shuttle.services import ShuttleEnvelopeError, get_held_packet, hold_packet, start_weave
+from shuttle.services import ShuttleEnvelopeError, abandon_weave, get_held_packet, hold_packet, start_weave
 
 FIXTURES_DIR = Path(__file__).resolve().parent.parent / "contract" / "fixtures"
 
@@ -102,3 +102,47 @@ class HoldPacketTests(TestCase):
 
         with self.assertRaises(ShuttleEnvelopeError):
             get_held_packet(action_run_id=str(action_run.id), author=self.author)
+
+
+class AbandonWeaveTests(TestCase):
+    """Shuttle's "Keep in Notebook" exit (CTO, 2026-10-20 whole-weave amendment, OQ10)."""
+
+    def setUp(self):
+        self.author = get_user_model().objects.create_user(
+            username="weaver3", email="weaver3@example.com", password="x"
+        )
+        self.other_author = get_user_model().objects.create_user(
+            username="someone-else-3", email="someone-else-3@example.com", password="x"
+        )
+        self.weave_in = load_json("three_choirs_weave_in.json")
+
+    def test_abandon_marks_the_envelope_abandoned(self):
+        action_run = start_weave(weave_in=self.weave_in, author=self.author)
+        abandoned = abandon_weave(action_run_id=str(action_run.id), author=self.author)
+        self.assertEqual(abandoned.status, ActionRunStatus.ABANDONED)
+        self.assertIsNotNone(abandoned.completed_at)
+
+    def test_abandon_preserves_the_held_payload(self):
+        action_run = start_weave(weave_in=self.weave_in, author=self.author)
+        abandon_weave(action_run_id=str(action_run.id), author=self.author)
+        action_run.refresh_from_db()
+        self.assertEqual(action_run.request_payload["weave_in"], self.weave_in)
+
+    def test_abandon_rejects_a_requester_who_is_not_the_initiator(self):
+        action_run = start_weave(weave_in=self.weave_in, author=self.author)
+        with self.assertRaises(ShuttleEnvelopeError):
+            abandon_weave(action_run_id=str(action_run.id), author=self.other_author)
+
+    def test_abandon_cannot_run_twice(self):
+        action_run = start_weave(weave_in=self.weave_in, author=self.author)
+        abandon_weave(action_run_id=str(action_run.id), author=self.author)
+        with self.assertRaises(ShuttleEnvelopeError):
+            abandon_weave(action_run_id=str(action_run.id), author=self.author)
+
+    def test_abandoned_weave_rejects_hold_packet(self):
+        action_run = start_weave(weave_in=self.weave_in, author=self.author)
+        abandon_weave(action_run_id=str(action_run.id), author=self.author)
+        packet = {**load_json("three_choirs_packet_out.json")}
+        del packet["action_run_id"]
+        with self.assertRaises(ShuttleEnvelopeError):
+            hold_packet(action_run_id=str(action_run.id), packet=packet, author=self.author)
