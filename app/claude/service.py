@@ -71,6 +71,8 @@ def run_blocking(
     timeout: int = 90,
     run_as_user: str | None = None,
     log_context: dict | None = None,
+    tools: str | None = None,
+    home_dir: str | None = None,
 ) -> ClaudeResult:
     """
     Run claude -p with a prompt via stdin. Returns a ClaudeResult.
@@ -87,9 +89,12 @@ def run_blocking(
             "runuser", "-u", run_as_user, "--", bin_path,
             "-p", "--dangerously-skip-permissions", "--output-format", "json",
         ]
-        env["HOME"] = f"/home/{run_as_user}"
+        env["HOME"] = home_dir or f"/home/{run_as_user}"
     else:
         cmd = [bin_path, "-p", "--dangerously-skip-permissions", "--output-format", "json"]
+
+    if tools is not None:
+        cmd.extend(["--tools", tools, "--disable-slash-commands", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--settings", "{\"disableAllHooks\":true}"])
 
     try:
         result = subprocess.run(
