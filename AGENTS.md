@@ -17,6 +17,8 @@ Purpose: conservative operating guide for agents working in this Django reposito
 
 ## Meridian Code Intelligence Discipline
 
+> **Not built yet (2026-10-20).** None of the Meridian tools below exist: CodeGraph and OpenWiki are not installed (Meridian M-1 to M-11 pending), and Switchboard has no MCP surface. Until Meridian's status file (`puddlejump/decisions/meridian-adr/meridian-status.md`) shows them live, skip the Meridian lookup and session-start calls and read files directly. Agent instructions name only tools that exist.
+
 Meridian is Mixtape's shared code intelligence layer, exposed through Switchboard MCP.
 
 - Meridian/Wiki provides narrative explanations of files and modules.
