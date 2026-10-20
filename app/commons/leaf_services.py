@@ -17,6 +17,16 @@ class LeafServiceError(Exception):
     pass
 
 
+def detect_music_provider(music_link: str) -> str:
+    """Spotify first (ADR-0058 D4); anything else is held as a link with
+    no provider tag rather than guessed at."""
+    if not music_link:
+        return ""
+    if "open.spotify.com" in music_link or "spotify.link" in music_link:
+        return LeafEntry.MUSIC_PROVIDER_SPOTIFY
+    return ""
+
+
 @transaction.atomic
 def open_leaf(*, author, place=None, kind="text", visibility="public"):
     """Start an open Leaf. Add content with add_entry; finish with close_leaf."""
@@ -39,10 +49,14 @@ def add_entry(
     image_file=None,
     audio_file=None,
     shared=True,
+    music_link="",
 ):
     """
     Append the next-ordered LeafEntry (D6). Only open Leaves accept entries —
     a closed Leaf's entries are final, including for shared=False trims (D7).
+
+    `music_link` is optional media on the entry (D4, SH-4); its provider is
+    detected automatically (Spotify first; a generic field for later providers).
     """
     if leaf.state != Leaf.STATE_OPEN:
         raise LeafServiceError("Cannot add an entry to a closed Leaf.")
@@ -60,6 +74,8 @@ def add_entry(
         image_file=image_file,
         audio_file=audio_file,
         shared=shared,
+        music_link=music_link,
+        music_provider=detect_music_provider(music_link),
     )
 
 

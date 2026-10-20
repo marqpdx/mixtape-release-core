@@ -276,6 +276,18 @@ class LeafEntry(BaseModel):
     # Trim-for-sharing: False = library only, excluded from Commons view
     shared = models.BooleanField(default=True)
 
+    # Music link (ADR-0058 D4, SH-4): Spotify first, generic provider field
+    # so a later provider doesn't need a schema change.
+    MUSIC_PROVIDER_SPOTIFY = "spotify"
+    MUSIC_PROVIDER_CHOICES = [
+        (MUSIC_PROVIDER_SPOTIFY, "Spotify"),
+    ]
+    music_link = models.URLField(blank=True, default="")
+    music_provider = models.CharField(
+        max_length=20, choices=MUSIC_PROVIDER_CHOICES, blank=True, default=""
+    )
+    music_embed_metadata = models.JSONField(null=True, blank=True)
+
     class Meta(BaseModel.Meta):
         ordering = ["position"]
 
