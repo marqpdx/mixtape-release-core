@@ -123,13 +123,30 @@
         "reason": { "type": "string", "minLength": 1 }
       }
     },
+    "known_story": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text"],
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Verbatim, already given by the person (e.g. during SH-11 interpretation). The agent never drafts or smooths it (D3)."
+        },
+        "music_link": { "type": "string" }
+      }
+    },
     "story_prompt": {
       "type": "object",
       "additionalProperties": false,
       "required": ["item_id", "prompt"],
       "properties": {
         "item_id": { "type": "string" },
-        "prompt": { "type": "string" }
+        "prompt": { "type": "string" },
+        "known_story": {
+          "description": "Present when the person already told this story (e.g. a Sighting from SH-11 interpretation) — the review screen confirms it rather than re-asking the prompt (CTO, 2026-10-20).",
+          "$ref": "#/definitions/known_story"
+        }
       }
     },
     "stories_not_yet_told": {
