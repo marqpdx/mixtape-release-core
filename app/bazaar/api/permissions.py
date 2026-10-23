@@ -7,6 +7,8 @@ Custom permission classes for Bazaar operations.
 """
 
 from django.contrib.contenttypes.models import ContentType
+
+from bazaar.sponsors import sponsor_content_type
 from rest_framework import permissions
 
 
@@ -195,7 +197,7 @@ class CanCreateOffering(permissions.BasePermission):
             return True  # Let serializer validation handle missing fields
 
         try:
-            ct = ContentType.objects.get(model=sponsor_type.lower())
+            ct = sponsor_content_type(sponsor_type)
             sponsor = ct.get_object_for_this_type(pk=sponsor_id)
         except Exception:
             return True  # Let serializer validation handle invalid sponsor
