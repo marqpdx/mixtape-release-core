@@ -94,7 +94,8 @@ def transcribe_folio_note_task(self, note_id: str):
         ])
         _notify(note, "folio_note:transcribed")
         if note.transcript_text:
-            tend_folio_note_task.delay(str(note.id))
+            if settings.FOLIO_AUTO_TENDING_ENABLED:
+                tend_folio_note_task.delay(str(note.id))
             enqueue_stackroom_ingest(note, reason="folio_note_transcribed")
         return {"status": "ok", "chars": len(note.transcript_text)}
     except Exception as exc:
@@ -112,6 +113,11 @@ def tend_folio_note_task(note_id: str):
     """Record an ActionRun and hand tending to Switchboard. Re-running is safe:
     the newest ActionRun becomes the note's tending_action_run, and results
     from any older run are ignored when they arrive."""
+    # Also catch tasks queued before the setting was changed. This does not
+    # cancel an execution already dispatched to Switchboard.
+    if not settings.FOLIO_AUTO_TENDING_ENABLED:
+        return {"status": "skipped", "reason": "automatic_tending_paused"}
+
     try:
         note = FolioNote.objects.select_related("folio", "created_by").get(id=note_id)
     except FolioNote.DoesNotExist:
@@ -143,7 +149,8 @@ def tend_folio_note_task(note_id: str):
         request_payload={"folio_note_id": str(note.id), **capability_payload},
     )
     note.tending_action_run = action_run
-    note.save(update_fields=["tending_action_run", "updated_at"])
+    note.tending_error = ""
+    note.save(update_fields=["tending_action_run", "tending_error", "updated_at"])
 
     celery_app.send_task(
         "switchboard.capability_async",

@@ -37,6 +37,10 @@ FIELD_ENCRYPTION_KEY = os.getenv("FIELD_ENCRYPTION_KEY")
 SOURCEWORK_GOOGLE_OAUTH_CLIENT_CONFIG_JSON = os.getenv("SOURCEWORK_GOOGLE_OAUTH_CLIENT_CONFIG_JSON", "")
 SOURCEWORK_GOOGLE_OAUTH_CLIENT_SECRETS_FILE = os.getenv("SOURCEWORK_GOOGLE_OAUTH_CLIENT_SECRETS_FILE", "")
 
+# Pause Folio local tending without interrupting capture or transcription.
+# Set false in production until local generation has sufficient memory.
+FOLIO_AUTO_TENDING_ENABLED = env.bool("FOLIO_AUTO_TENDING_ENABLED", default=True)
+
 # AI / Initiatives
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 AI_PROVIDER = os.getenv("AI_PROVIDER", "anthropic")

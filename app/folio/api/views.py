@@ -3,6 +3,7 @@
 import time
 import uuid
 
+from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.storage import default_storage
 from django.db import transaction
@@ -344,7 +345,8 @@ class FolioNoteListCreateView(APIView):
             status=FolioNoteStatus.READY,
             source=serializer.validated_data["source"],
         )
-        tend_folio_note_task.delay(str(note.id))
+        if settings.FOLIO_AUTO_TENDING_ENABLED:
+            tend_folio_note_task.delay(str(note.id))
         enqueue_stackroom_ingest(note, reason="folio_note_captured")
         return Response(FolioNoteSerializer(note).data, status=status.HTTP_201_CREATED)
 
