@@ -136,6 +136,20 @@ class ConfirmWeaveTests(TestCase):
         ccc_row = next(w for w in self._written_rows(result, "thing-ccc") if w["written_as"] == "commons.CommonsItem")
         self.assertEqual(ccc_row["id"], str(self.ccc.id))
 
+    def test_thing_is_anchored_to_the_same_place_as_its_sibling(self):
+        """A thing's locale ("Toronto, ON") and its sibling place item's
+        name ("Toronto") aren't the same string; the FK must still land on
+        the one Place row, not a locale-keyed near-duplicate (CTO, 2026-10-23)."""
+        confirm_weave(action_run_id=self.action_run_id, confirm_in=self.confirm_in, author=self.author)
+        self.ccc.refresh_from_db()
+        self.assertEqual(self.ccc.place_id, self.toronto.id)
+        self.assertEqual(self.ccc.location_name, "Toronto, ON")
+
+    def test_thing_place_anchor_does_not_create_a_near_duplicate_place(self):
+        before = Place.objects.count()
+        confirm_weave(action_run_id=self.action_run_id, confirm_in=self.confirm_in, author=self.author)
+        self.assertEqual(Place.objects.count(), before + 1)  # +1 for brisbane (new); toronto reused
+
     def test_near_duplicate_keep_separate_creates_a_new_commons_item(self):
         before = CommonsItem.objects.count()
         result = confirm_weave(action_run_id=self.action_run_id, confirm_in=self.confirm_in, author=self.author)

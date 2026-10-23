@@ -68,6 +68,18 @@ class CommonsItem(BaseContent):
     location_name = models.CharField(max_length=255, blank=True, default="")
     latitude = models.FloatField(null=True, blank=True)
     longitude = models.FloatField(null=True, blank=True)
+    # The thing's geographic anchor (CTO, 2026-10-23, ADR-0058 2026-10-23
+    # Headnote): a direct FK to tapestry.Place, set by shuttle.confirm_weave
+    # from the Place its packet locale resolved to. location_name keeps the
+    # locale as said (e.g. "Portland, OR") even when it later diverges from
+    # the resolved Place's own name.
+    place = models.ForeignKey(
+        "tapestry.Place",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="things",
+    )
 
     # Extraction
     source_url = models.URLField(
