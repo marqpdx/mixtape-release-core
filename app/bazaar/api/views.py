@@ -7,6 +7,9 @@ ViewSets and Views for Bazaar REST API.
 """
 
 from django.contrib.contenttypes.models import ContentType
+
+from bazaar.sponsors import sponsor_content_type
+from django.core.exceptions import ObjectDoesNotExist
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status, generics
 from rest_framework.decorators import action
@@ -87,10 +90,11 @@ class ProductViewSet(viewsets.ModelViewSet):
 
         if sponsor_type and sponsor_id:
             try:
-                ct = ContentType.objects.get(model=sponsor_type.lower())
+                ct = sponsor_content_type(sponsor_type)
                 qs = qs.filter(sponsor_content_type=ct, sponsor_object_id=sponsor_id)
-            except ContentType.DoesNotExist:
-                pass
+            except (ObjectDoesNotExist, ValueError):
+                # An unknown sponsor matches nothing, rather than every offering.
+                qs = qs.none()
 
         return qs
 
@@ -151,10 +155,11 @@ class OfferingViewSet(viewsets.ModelViewSet):
 
         if sponsor_type and sponsor_id:
             try:
-                ct = ContentType.objects.get(model=sponsor_type.lower())
+                ct = sponsor_content_type(sponsor_type)
                 qs = qs.filter(sponsor_content_type=ct, sponsor_object_id=sponsor_id)
-            except ContentType.DoesNotExist:
-                pass
+            except (ObjectDoesNotExist, ValueError):
+                # An unknown sponsor matches nothing, rather than every offering.
+                qs = qs.none()
 
         # For public listing, only show active offerings
         if self.action == "list" and not self.request.query_params.get("include_drafts"):
@@ -353,7 +358,7 @@ class StallView(generics.RetrieveAPIView):
         sponsor_id = self.kwargs.get("sponsor_id")
 
         try:
-            ct = ContentType.objects.get(model=sponsor_type.lower())
+            ct = sponsor_content_type(sponsor_type)
             sponsor = ct.get_object_for_this_type(pk=sponsor_id)
         except (ContentType.DoesNotExist, Exception):
             from rest_framework.exceptions import NotFound
