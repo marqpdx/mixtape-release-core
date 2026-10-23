@@ -76,6 +76,7 @@ def _apply_confirm(*, packet: dict, confirm_in: dict, author) -> dict:
     written = []
     rested = []
     things_by_item_id = {}
+    places_by_locale = {}
 
     for item in packet["items"]:
         item_id = item["item_id"]
@@ -85,6 +86,7 @@ def _apply_confirm(*, packet: dict, confirm_in: dict, author) -> dict:
 
         if item["kind"] == "thing":
             commons_item = _resolve_or_create_thing(item=item, merge_answer=merge_by_item.get(item_id), author=author)
+            _anchor_thing_to_place(commons_item=commons_item, locale=item["locale"], places_by_locale=places_by_locale)
             written.append({"item_id": item_id, "written_as": "commons.CommonsItem", "id": str(commons_item.id)})
             things_by_item_id[item_id] = commons_item
             continue
@@ -96,6 +98,7 @@ def _apply_confirm(*, packet: dict, confirm_in: dict, author) -> dict:
             continue
 
         place = _resolve_or_create_place(item=item, merge_answer=merge_by_item.get(item_id))
+        places_by_locale[item["locale"]] = place
         written.append({"item_id": item_id, "written_as": "tapestry.Place", "id": str(place.id)})
 
         leaf = open_leaf(author=author, place=place, kind="text")
@@ -180,11 +183,35 @@ def _resolve_or_create_place(*, item: dict, merge_answer: dict | None) -> Place:
                 f"Merge target {merge_answer['candidate_id']} for {item['item_id']} no longer exists."
             ) from exc
 
-    match = match_against_queryset(name=item["name"], queryset=Place.objects.all(), name_field="name")
+    return _resolve_or_create_place_by_name(item["name"])
+
+
+def _resolve_or_create_place_by_name(name: str) -> Place:
+    match = match_against_queryset(name=name, queryset=Place.objects.all(), name_field="name")
     if match.state == MatchState.FOUND:
         return match.exact
 
-    return Place.objects.create(name=item["name"], location=Location.objects.create())
+    return Place.objects.create(name=name, location=Location.objects.create())
+
+
+def _anchor_thing_to_place(*, commons_item: CommonsItem, locale: str, places_by_locale: dict) -> None:
+    """A thing's geographic anchor (CTO, 2026-10-23). A place item's `name`
+    ("Toronto") and a thing's `locale` ("Toronto, ON") aren't the same
+    string, so this reuses the Place already resolved in this same confirm
+    for a sibling place item sharing the exact locale (the common, and so
+    far only documented, shape: a thing's weave names the place alongside
+    it) rather than name-matching the locale string itself, which would
+    create a spurious near-duplicate Place keyed on the locale text. When
+    no sibling place item shares the locale, falls back to matching/
+    creating a Place by that locale string directly — an edge case, not
+    yet exercised by any fixture; flagged for the CTO alongside OQ15.
+    Keeps the locale as said in `location_name`, even once it diverges
+    from the resolved Place's own name."""
+    place = places_by_locale.get(locale) or _resolve_or_create_place_by_name(locale)
+    places_by_locale.setdefault(locale, place)
+    commons_item.place = place
+    commons_item.location_name = locale
+    commons_item.save(update_fields=["place", "location_name", "updated_at"])
 
 
 def _create_idea_tag(*, wording: str) -> Tag:
