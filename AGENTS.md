@@ -102,6 +102,16 @@ Operating rule: Meridian first. Files second. Search last.
 - After editing: summarize exactly what changed and any follow-up verification steps.
 - If instructions conflict or are ambiguous, stop and ask for clarification.
 
+## Shared Work Between Agents
+
+Several agents work at once (CTO, 2026-10-23). So none overwrites another:
+
+- **Never leave Puddlejump edits uncommitted.** If you change a Puddlejump record for your own work (a status row, a Headnote, a new `zz/` file), commit it in the same session, staging only your own lines. Otherwise, put the proposed change in your hand-back note for the CTO to carry. A file another agent has edited but not committed holds their work: don't commit, revert or reformat their lines.
+- **Puddlejump writes the shared logs.** Put your build-log entry and your Help Fidelity lines in your hand-back note; the Puddlejump session files them in `build-log-inbox/`, `build-log.md` and `HELP_FIDELITY.md` after CTO approval. One writer per shared log.
+- **New `zz/` files:** name them in your hand-back note so Puddlejump commits and tracks them.
+- **`packages/api`:** edit only your own client folder (for example `clients/shuttle/`, `clients/folio/`), and say so in your note before touching a shared index or barrel file.
+- **Contour is the source for Shape schemas** (`puddlejump/reference/contour/`). A copy in core or `packages/api` is never edited on its own: change Contour first, then the copy.
+
 ## Commit Handoff
 
 After completing a commit that has been approved by the CTO, produce a
