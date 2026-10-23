@@ -955,6 +955,14 @@ class Seed(BaseModel):
     context_url = models.URLField(blank=True, null=True)  # optional, set by share/ingest
     source = models.CharField(max_length=64, blank=True, null=True)  # "web","android","ios","share_target", etc.
 
+    # Shuttle's "Keep in Notebook" tag (ADR-0058, CTO 2026-10-20, OQ12) —
+    # a distinct axis from `source` above (which tracks capture platform,
+    # not intent). Set when a Shuttle weave is abandoned back to raw
+    # capture, or when a Seed is deliberately captured as a proto Shuttle
+    # weave from the start. Doesn't change how a Seed behaves; informs how
+    # Notebook can later choose to present it.
+    is_shuttle_proto = models.BooleanField(default=False)
+
     class Meta(BaseModel.Meta):
         ordering = ["-updated_at"]
         indexes = [

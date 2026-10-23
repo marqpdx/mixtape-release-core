@@ -104,11 +104,23 @@ def abandon_weave(*, action_run_id: str, author) -> ActionRun:
     same ActionRun, for audit/inspection. Re-engaging is a fresh
     start_weave call (CTO, 2026-10-20 — "start fresh," not a resume of
     this run's revision chain); this function does not support resuming.
+
+    The originating Seed, if the weave began from one (the mobile
+    `lifecycle.begin` path always does; a bare `start_weave` call, as in
+    tests, may not), is tagged `is_shuttle_proto=True` (OQ12) — the
+    minimal proto-Shuttle marker the CTO asked for: "somehow tag that Seed
+    as a proto Shuttle Weave."
     """
     action_run = _get_pending_action_run_for(action_run_id=action_run_id, author=author)
     action_run.status = ActionRunStatus.ABANDONED
     action_run.completed_at = timezone.now()
     action_run.save(update_fields=["status", "completed_at", "updated_at"])
+
+    seed_id = (action_run.request_payload or {}).get("interpretation", {}).get("seed_id")
+    if seed_id:
+        from writing.models import Seed
+        Seed.objects.filter(pk=seed_id, author=author).update(is_shuttle_proto=True)
+
     return action_run
 
 

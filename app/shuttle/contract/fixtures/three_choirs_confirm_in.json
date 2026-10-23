@@ -4,8 +4,10 @@
   "ticked_item_ids": [
     "place-toronto",
     "place-brisbane",
+    "place-portland",
     "thing-choir-choir-choir",
     "thing-pub-choir",
+    "thing-low-bar-chorale",
     "idea-singing-together",
     "idea-gathering",
     "adj-ccc-pub",
@@ -21,6 +23,10 @@
     {
       "item_id": "place-brisbane",
       "text": "The bartender stopped pouring to sing the bass line."
+    },
+    {
+      "item_id": "place-portland",
+      "text": "Never been, just heard about it, hope it's amazing."
     }
   ],
   "merge_answers": [

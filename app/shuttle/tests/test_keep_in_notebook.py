@@ -52,6 +52,13 @@ class KeepInNotebookApiTests(TestCase):
         self.assertEqual(self.seed.status, "ready")
         self.assertIsNone(self.seed.promoted_to)
 
+    def test_original_seed_is_tagged_as_shuttle_proto(self):
+        """OQ12: the minimal proto-Shuttle marker on a Seed."""
+        self.assertFalse(self.seed.is_shuttle_proto)
+        self.client_api.post(f"/weaves/{self.parent['weave_action_run_id']}/keep-in-notebook/")
+        self.seed.refresh_from_db()
+        self.assertTrue(self.seed.is_shuttle_proto)
+
     def test_re_engaging_starts_a_fresh_weave_not_a_resume(self):
         action_run_id = self.parent["weave_action_run_id"]
         self.client_api.post(f"/weaves/{action_run_id}/keep-in-notebook/")

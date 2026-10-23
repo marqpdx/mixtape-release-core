@@ -51,13 +51,21 @@ class ShuttleContractFixturesValidateAgainstSchemaTests(SimpleTestCase):
         self.assertEqual(len(near_dupes), 1)
         self.assertIn("candidate", near_dupes[0])
 
-    def test_result_out_rests_unticked_place_and_thing_as_seed(self):
+    def test_result_out_publishes_the_whole_weave(self):
+        """The whole-weave amendment (CTO, 2026-10-20, OQ9/OQ13): every place
+        named in the telling is seen through — Portland's own story
+        (place-portland) is told and its thing (thing-low-bar-chorale)
+        ticked, so the fixture's weave publishes in full. Nothing rests as
+        a Seed here; a place that genuinely gets no story still can (see
+        ConfirmWeaveTests.test_unticked_place_and_thing_rest_as_seed in
+        test_confirm.py for that path with a *different* scenario, built
+        from real rows rather than this fixture's ids)."""
         confirm = load_json(FIXTURES_DIR / "three_choirs_confirm_in.json")
         result = load_json(FIXTURES_DIR / "three_choirs_result_out.json")
-        self.assertNotIn("place-portland", confirm["ticked_item_ids"])
-        self.assertNotIn("thing-low-bar-chorale", confirm["ticked_item_ids"])
-        self.assertIn("place-portland", result["rested_as_seed"])
-        self.assertIn("thing-low-bar-chorale", result["rested_as_seed"])
+        self.assertIn("place-portland", confirm["ticked_item_ids"])
+        self.assertIn("thing-low-bar-chorale", confirm["ticked_item_ids"])
+        self.assertTrue(any(s["item_id"] == "place-portland" for s in confirm["stories"]))
+        self.assertEqual(result["rested_as_seed"], [])
 
     def test_near_duplicate_candidate_requires_a_merge_answer_shape(self):
         """Not a server-side check (there is no server yet) — just that the fixture's
