@@ -12,7 +12,7 @@ from celery.exceptions import Retry
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -58,6 +58,29 @@ class FolioNoteCaptureTests(TestCase):
         self.assertEqual(response.data["text"], raw)
         self.assertEqual(response.data["shape"], "unplaced")
         self.tend_delay.assert_called_once_with(response.data["id"])
+
+    @override_settings(FOLIO_AUTO_TENDING_ENABLED=False)
+    @patch("folio.api.views.enqueue_stackroom_ingest")
+    def test_paused_tending_keeps_text_capture_and_ingestion(self, ingest):
+        response = self.client.post(self._notes_url(), {"raw_text": "Mara returns."}, format="json")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["text"], "Mara returns.")
+        self.assertEqual(response.data["tending_error"], "")
+        self.tend_delay.assert_not_called()
+        ingest.assert_called_once()
+
+    def test_failure_is_exposed_without_changing_confirmed_shape_or_source(self):
+        note = FolioNote.objects.create(
+            folio=self.folio, created_by=self.user, raw_text="Mara returns.",
+            source_type=FolioNoteSource.TEXT, status=FolioNoteStatus.READY,
+            confirmed_shape="character", tending_error="Inkwell timed out.",
+        )
+        response = self.client.get(self._notes_url())
+        data = next(row for row in response.data if row["id"] == str(note.id))
+        self.assertEqual(data["tending_error"], "Inkwell timed out.")
+        self.assertEqual(data["shape"], "character")
+        self.assertEqual(data["text"], "Mara returns.")
+        self.assertEqual(data["status"], "ready")
 
     @patch("folio.api.views.transcribe_folio_note_task.delay")
     @patch("folio.api.views.default_storage.save", return_value="folio/notes/audio/test/voice.m4a")
@@ -150,6 +173,21 @@ class FolioNoteTranscriptionTaskTests(TestCase):
         self.assertEqual(notify_mock.call_args.kwargs["json"]["event"], "folio_note:transcribed")
         tend_delay.assert_called_once_with(str(self.note.id))
 
+    @override_settings(FOLIO_AUTO_TENDING_ENABLED=False)
+    @patch("folio.tasks.enqueue_stackroom_ingest")
+    @patch("folio.tasks.tend_folio_note_task.delay")
+    @patch("folio.tasks.requests.post")
+    @patch("folio.tasks.transcribe_audio")
+    def test_paused_tending_keeps_voice_transcription(self, transcribe, notify, tend, ingest):
+        transcribe.return_value = SimpleNamespace(text="Mara returns.", model_name="base", backend="test")
+        transcribe_folio_note_task.run(str(self.note.id))
+        self.note.refresh_from_db()
+        self.assertEqual(self.note.status, FolioNoteStatus.READY)
+        self.assertEqual(self.note.text, "Mara returns.")
+        tend.assert_not_called()
+        notify.assert_called_once()
+        ingest.assert_called_once()
+
     @patch("folio.tasks.transcribe_audio", side_effect=RuntimeError("whisper down"))
     def test_transcription_failure_keeps_the_audio(self, _transcribe_mock):
         # Stop at the first retry — exhausting eager retries trips the global
@@ -185,6 +223,25 @@ class FolioNoteTendingTests(TestCase):
             source_type=FolioNoteSource.TEXT,
             raw_text="Character Jode. His grandmother could not care for herself.",
         )
+
+    @override_settings(FOLIO_AUTO_TENDING_ENABLED=False)
+    @patch("folio.tasks.celery_app.send_task")
+    def test_paused_queued_task_creates_no_run_and_sends_nothing(self, send):
+        count = ActionRun.objects.count()
+        result = tend_folio_note_task.run(str(self.note.id))
+        self.assertEqual(result["reason"], "automatic_tending_paused")
+        self.assertEqual(ActionRun.objects.count(), count)
+        send.assert_not_called()
+
+    @patch("folio.tasks.celery_app.send_task")
+    def test_retry_clears_previous_failure_at_dispatch(self, send):
+        self.note.tending_error = "Old timeout"
+        self.note.save(update_fields=["tending_error"])
+        tend_folio_note_task.run(str(self.note.id))
+        self.note.refresh_from_db()
+        self.assertEqual(self.note.tending_error, "")
+        self.assertIsNotNone(self.note.tending_action_run_id)
+        send.assert_called_once()
 
     @patch("folio.tasks.celery_app.send_task")
     def test_dispatch_records_action_run_and_sends_capability(self, send_task):

@@ -99,6 +99,7 @@ class FolioNoteSerializer(serializers.ModelSerializer):
             "summary",
             "mentions",
             "tended_at",
+            "tending_error",
             "tending_model",
             "tending_prompt_version",
             "source",
