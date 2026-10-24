@@ -1,124 +1,23 @@
-"""Complete a bounded interpretation; all subprocess execution uses the shared runner."""
+"""Complete a bounded interpretation; all subprocess execution uses the
+shared runner. Thin Shuttle wiring over Heddle's generic task bodies
+(ADR-0061, HD-2) — task names, queues and this module's path are
+unchanged so Switchboard's existing dispatch and this module's own
+tests keep working."""
 from __future__ import annotations
 
-import copy
-import json
 from celery import shared_task
-from django.contrib.auth import get_user_model
-from django.db import transaction
-from django.utils import timezone
-from jsonschema import ValidationError
-from initiatives.models import ActionRun, ActionRunStatus
-from .contract import CAPABILITY, PROMPT_VERSION, VERSION, UNITS, source_digest, validate_findings
-from .lifecycle import InterpretationError, person_runtime
 
+from heddle import tasks as heddle_tasks
 
-def fail(child_id, code):
-    ActionRun.objects.filter(pk=child_id).update(status=ActionRunStatus.FAILED,
-        error_payload={"error": code}, completed_at=timezone.now())
-    apply_interpretation(str(child_id))
+from .contract import SHUTTLE_READING
 
 
 @shared_task(name="shuttle.run_cloud_interpretation", queue="catalyst", soft_time_limit=210, time_limit=240)
 def run_cloud_interpretation(*, action_run_id):
-    # The Switchboard → Core worker pattern is shared with LinkedIn copy.
-    # Core trusts no caller-provided source/principal/runtime; all are read from the recorded run.
-    with transaction.atomic():
-        child = ActionRun.objects.select_for_update().filter(pk=action_run_id,
-            tool_name=f"capability.{CAPABILITY}").first()
-        if child is None or child.status != ActionRunStatus.RUNNING:
-            return
-        payload = copy.deepcopy(child.request_payload or {})
-        if payload.get("claimed"):
-            return
-        payload["claimed"] = True
-        child.request_payload = payload
-        child.save(update_fields=["request_payload", "updated_at"])
-    try:
-        parent = child.parent_action
-        data = payload["capability_payload"]
-        digest = source_digest(data["sources"])
-        gate = (child.result_payload or {}).get("dispatch", {})
-        approval = child.approval_payload or {}
-        if (parent is None or parent.tool_name != "shuttle.weave" or
-            parent.initiator_id != child.initiator_id or str(parent.tenant_id) != str(child.tenant_id)):
-            raise InterpretationError("invalid_execution")
-        if parent.status != ActionRunStatus.PENDING:
-            raise InterpretationError("weave_closed")
-        state = parent.request_payload.get("interpretation", {})
-        if (state.get("execution_id") != str(child.pk) or state.get("revision") != data["revision"] or
-                source_digest(state.get("sources", [])) != digest):
-            raise InterpretationError("superseded")
-        if (not child.cloud_approved or not gate.get("cloud_approved") or
-            gate.get("source_digest") != digest or gate.get("revision") != data["revision"] or
-            approval.get("source_digest") != digest or approval.get("revision") != data["revision"] or
-            approval.get("weave_action_run_id") != str(parent.pk) or
-            approval.get("execution_action_run_id") != str(child.pk) or
-            approval.get("author_id") != child.initiator_id or approval.get("capability") != CAPABILITY):
-            raise InterpretationError("cloud_approval_required")
-        author = get_user_model().objects.get(pk=child.initiator_id)
-        if not author.has_perm("initiatives.approve_cloud_dispatch"):
-            raise InterpretationError("cloud_approval_not_permitted")
-        runtime = person_runtime(author)
-        from claude.service import run_blocking
-        result = run_blocking(data["prompt"], cwd=runtime.home_dir,
-            run_as_user=runtime.linux_user, home_dir=runtime.home_dir, timeout=180, tools="")
-        if result.failure:
-            raise InterpretationError(result.failure if result.failure in {"auth_failure", "timeout"} else "execution_failed")
-        parsed = json.loads(result.output or "")
-        validate_findings(parsed, data["sources"])
-        ActionRun.objects.filter(pk=child.pk).update(status=ActionRunStatus.SUCCEEDED,
-            result_payload={"result": {"findings": parsed, "provenance": {
-                "provider": "anthropic-claude-code", "model": None,
-                "prompt_version": PROMPT_VERSION, "elapsed_ms": result.elapsed_ms,
-                "usage": result.usage}}}, completed_at=timezone.now())
-        apply_interpretation(str(child.pk))
-    except InterpretationError as exc:
-        fail(child.pk, exc.code)
-    except (ValueError, TypeError, KeyError, ValidationError):
-        fail(child.pk, "invalid_output")
-    except Exception:
-        fail(child.pk, "execution_failed")
+    heddle_tasks.run_cloud_interpretation(action_run_id=action_run_id, reading=SHUTTLE_READING,
+        apply_fn=lambda child_id: apply_interpretation(child_id))
 
 
 @shared_task(name="shuttle.apply_interpretation", queue="catalyst")
 def apply_interpretation(action_run_id):
-    child = ActionRun.objects.filter(pk=action_run_id, tool_name=f"capability.{CAPABILITY}").first()
-    if child is None or child.parent_action_id is None:
-        return
-    with transaction.atomic():
-        parent = ActionRun.objects.select_for_update().get(pk=child.parent_action_id)
-        state = copy.deepcopy((parent.request_payload or {}).get("interpretation", {}))
-        if (parent.status != ActionRunStatus.PENDING or parent.initiator_id != child.initiator_id or
-            state.get("execution_id") != str(child.pk) or
-            state.get("revision") != (child.request_payload or {}).get("revision")):
-            return  # A stale completion remains on its child for audit; it never replaces newer findings.
-        if child.status == ActionRunStatus.FAILED:
-            state.update(status="failed", error=(child.error_payload or {}).get("error", "execution_failed"))
-        elif child.status == ActionRunStatus.SUCCEEDED:
-            try:
-                result = (child.result_payload or {})["result"]
-                findings = result["findings"]
-                validate_findings(findings, state["sources"])
-                provenance = result["provenance"]
-                if not isinstance(provenance, dict):
-                    raise ValueError("Invalid provenance")
-                state.update(status="succeeded", error=None, findings={
-                    **findings, "revision": state["revision"],
-                    "source_digest": source_digest(state["sources"]),
-                    "execution_action_run_id": str(child.pk),
-                    # Candidates are deliberately unresolved until an authorized resolver supplies them.
-                    "resolution": {s["sighting_id"]: {"status": "unresolved", "candidates": []}
-                        for s in findings["sightings"] if s["shape_id"] in {"shuttle.thing", "shuttle.place", "shuttle.idea"}},
-                    "provenance": {"provider": provenance.get("provider", "inkwell"),
-                        "model": provenance.get("model"), "prompt_version": PROMPT_VERSION,
-                        "elapsed_ms": provenance.get("elapsed_ms"), "usage": provenance.get("usage"),
-                        "contract_version": VERSION, "units": {unit: VERSION for unit in UNITS}}})
-            except (KeyError, TypeError, ValueError, ValidationError):
-                state.update(status="failed", error="invalid_output", findings=None)
-                ActionRun.objects.filter(pk=child.pk).update(status=ActionRunStatus.FAILED,
-                    result_payload=None, error_payload={"error": "invalid_output"})
-        else:
-            return
-        parent.request_payload = {**parent.request_payload, "interpretation": state}
-        parent.save(update_fields=["request_payload", "updated_at"])
+    heddle_tasks.apply_interpretation(action_run_id, reading=SHUTTLE_READING)

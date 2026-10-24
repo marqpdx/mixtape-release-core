@@ -1,9 +1,15 @@
-"""Approved SH-11 Contour contract, separate from the unchanged SH-7a packet."""
+"""Approved SH-11 Contour contract, separate from the unchanged SH-7a packet.
+
+Shape and meaning checks stay here (D7, D9 — Contour is the source for
+Shapes; nothing shuttle.* lives in Heddle). The generic fingerprint
+(`source_digest`) and the lifecycle registration (`SHUTTLE_READING`) are
+Heddle's extraction (ADR-0061, HD-2)."""
 from __future__ import annotations
 
-import hashlib
 import json
 from jsonschema import Draft7Validator, ValidationError
+
+from heddle.contract import Reading, register, source_digest  # noqa: F401 — re-exported for existing imports
 
 VERSION = "0.1.0"
 CAPABILITY = "shuttle_weave_interpret"
@@ -58,11 +64,6 @@ MODEL_SCHEMA = {"$schema": "http://json-schema.org/draft-07/schema#", **obj({
     "questions": {"type": "array", "maxItems": 3, "items": obj({
         "question_id": TEXT, "text": TEXT, "sighting_ids": IDS, "reason": TEXT})},
 })}
-
-
-def source_digest(sources):
-    return hashlib.sha256(json.dumps(sources, ensure_ascii=False, sort_keys=True,
-                                    separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
 def validate_findings(result, sources):
@@ -155,3 +156,24 @@ Schema:
 """ + json.dumps(MODEL_SCHEMA, ensure_ascii=False) + "\nSources:\n" + json.dumps(
         sources, ensure_ascii=False) + "\nPrevious findings (provisional):\n" + json.dumps(
         previous or {}, ensure_ascii=False)
+
+
+# Shuttle's wiring into Heddle's shared lifecycle (ADR-0061, HD-2). The
+# weave-closing "resolution" seam (D6) stays empty for thing/place/idea
+# Sightings until SH-8's placement module (not Heddle's job) supplies
+# candidates.
+SHUTTLE_READING = Reading(
+    capability=CAPABILITY,
+    tool_name="shuttle.weave",
+    version=VERSION,
+    prompt_version=PROMPT_VERSION,
+    units=UNITS,
+    cloud_setting_name="SHUTTLE_INTERPRET_CLOUD",
+    build_prompt=build_prompt,
+    response_schema=MODEL_SCHEMA,
+    validate_findings=validate_findings,
+    resolvable_shape_ids=frozenset({"shuttle.thing", "shuttle.place", "shuttle.idea"}),
+    callback_task="shuttle.apply_interpretation",
+    callback_queue="catalyst",
+)
+register(SHUTTLE_READING)
