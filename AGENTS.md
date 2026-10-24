@@ -106,18 +106,20 @@ Operating rule: Meridian first. Files second. Search last.
 
 Several agents work at once (CTO, 2026-10-23). So none overwrites another:
 
-- **Never leave Puddlejump edits uncommitted.** If you change a Puddlejump record for your own work (a status row, a Headnote, a new `zz/` file), commit it in the same session, staging only your own lines. Otherwise, put the proposed change in your hand-back note for the CTO to carry. A file another agent has edited but not committed holds their work: don't commit, revert or reformat their lines.
-- **Puddlejump writes the shared logs.** Put your build-log entry and your Help Fidelity lines in your hand-back note; the Puddlejump session files them in `build-log-inbox/`, `build-log.md` and `HELP_FIDELITY.md` after CTO approval. One writer per shared log.
-- **New `zz/` files:** name them in your hand-back note so Puddlejump commits and tracks them.
-- **`packages/api`:** edit only your own client folder (for example `clients/shuttle/`, `clients/folio/`), and say so in your note before touching a shared index or barrel file.
+- **Send updates through `puddlejump/agent-inbox/`.** When you finish a unit of work, show the CTO your update for Puddlejump and ask "Send to Puddlejump?" On a yes, write and commit `agent-inbox/YYYY-MM-DD-<agent>-<topic>.md` in the format in its README (commits, build-log entries, Help Fidelity lines, proposed Puddlejump updates, new `zz/` files, open questions). The CTO's yes is the approval; nobody carries notes by hand.
+
+- **Never leave Puddlejump edits uncommitted.** If you change a Puddlejump record for your own work (a status row, a Headnote, a new `zz/` file), commit it in the same session, staging only your own lines. Otherwise, propose it in your agent-inbox update. A file another agent has edited but not committed holds their work: don't commit, revert or reformat their lines.
+- **Puddlejump writes the shared logs.** Put your build-log entry and your Help Fidelity lines in your agent-inbox update; the Puddlejump session files them in `build-log-inbox/`, `build-log.md` and `HELP_FIDELITY.md` from it. One writer per shared log.
+- **New `zz/` files:** name them in your agent-inbox update so Puddlejump commits and tracks them.
+- **`packages/api`:** edit only your own client folder (for example `clients/shuttle/`, `clients/folio/`), and say so in your update before touching a shared index or barrel file.
 - **Contour is the source for Shape schemas** (`puddlejump/reference/contour/`). A copy in core or `packages/api` is never edited on its own: change Contour first, then the copy.
 
 ## Commit Handoff
 
 After completing a commit that has been approved by the CTO, produce a
-handoff note in the format below and present it clearly so the CTO can relay
-it to the Puddlejump session for logging. Do not write to Puddlejump yourself
-— the CTO is the gate.
+handoff entry in the format below and include it in your agent-inbox update
+(see Shared Work Between Agents): the CTO approves sending, and Puddlejump files
+it. Do not write to `build-log.md` or `build-log-inbox/` yourself.
 
     Repo:         mixtape-release-core
     Commit:       [short hash] — [one-line commit message]
