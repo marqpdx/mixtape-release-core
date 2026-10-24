@@ -2136,37 +2136,29 @@ class DocxImportView(APIView):
         if not sponsor_type or not sponsor_id:
             return Response({"error": "sponsor_type and sponsor_id are required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Idempotency check
+        # Resolve sponsor and check permission, as the batch import views do.
+        try:
+            sponsor = _resolve_import_sponsor(sponsor_type, sponsor_id=sponsor_id)
+        except ValidationError as exc:
+            return Response({"error": " ".join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not _user_can_import_to_sponsor(request.user, sponsor):
+            raise PermissionDenied("You do not have permission to import drafts for this sponsor.")
+
+        # Idempotency check, within this sponsor's info-sphere: another sponsor's
+        # import of the same file neither blocks this one nor is revealed to it.
         if file_sha256 and not force:
-            existing = ImportReceipt.objects.filter(source_sha256=file_sha256).first()
+            existing = next(
+                (r for r in ImportReceipt.objects.filter(source_sha256=file_sha256).select_related("created_writing_piece")
+                 if _receipt_matches_sponsor(r, sponsor)),
+                None,
+            )
             if existing:
                 return Response({
                     "error": "This file has already been imported.",
                     "existing_piece_id": str(existing.created_writing_piece_id),
                     "receipt_id": str(existing.id),
                 }, status=status.HTTP_409_CONFLICT)
-
-        # Resolve sponsor
-        try:
-            ct = ContentType.objects.get(model=sponsor_type.lower())
-        except ContentType.DoesNotExist:
-            return Response({"error": f"Unknown sponsor type: {sponsor_type}"}, status=status.HTTP_400_BAD_REQUEST)
-        except ContentType.MultipleObjectsReturned:
-            ct = None
-            for app in ["groups", "users", "identity"]:
-                try:
-                    ct = ContentType.objects.get(app_label=app, model=sponsor_type.lower())
-                    break
-                except ContentType.DoesNotExist:
-                    continue
-            if ct is None:
-                return Response({"error": f"Ambiguous sponsor type: {sponsor_type}"}, status=status.HTTP_400_BAD_REQUEST)
-
-        model_class = ct.model_class()
-        try:
-            sponsor = model_class.objects.get(pk=sponsor_id)
-        except model_class.DoesNotExist:
-            return Response({"error": f"{sponsor_type} with ID {sponsor_id} not found"}, status=status.HTTP_404_NOT_FOUND)
 
         # Optionally generate outline
         outline_specs = []
