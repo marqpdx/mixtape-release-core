@@ -127,11 +127,28 @@ class WritingSeriesSerializer(serializers.ModelSerializer):
         read_only_fields = ["id"]
 
 
+def _piece_sponsor_type(obj):
+    """"member" or "group" (settings.SPONSOR_MODELS tokens), or None."""
+    ct = getattr(obj, "sponsor_content_type", None)
+    if ct is None or obj.sponsor is None:
+        return None
+    from django.contrib.auth import get_user_model
+    model = ct.model_class()
+    if model is get_user_model():
+        return "member"
+    if ct.app_label == "groups" and ct.model == "group":
+        return "group"
+    return None
+
+
 class WritingPieceDetailSerializer(serializers.ModelSerializer):
     """Detailed serializer for viewing a single piece"""
     author_name = serializers.CharField(source="author.get_full_name", read_only=True)
+    author_username = serializers.CharField(source="author.username", read_only=True, default=None)
     author_avatar = serializers.SerializerMethodField()
     sponsor_name = serializers.SerializerMethodField()
+    sponsor_type = serializers.SerializerMethodField()
+    sponsor_slug = serializers.SerializerMethodField()
     reading_time = serializers.IntegerField(read_only=True)
     series = WritingSeriesSerializer(read_only=True)
 
@@ -146,8 +163,11 @@ class WritingPieceDetailSerializer(serializers.ModelSerializer):
             "writing_kind",
             "enable_outline",
             "author_name",
+            "author_username",
             "author_avatar",
             "sponsor_name",
+            "sponsor_type",
+            "sponsor_slug",
             "published_at",
             "reading_time",
             "view_count",
@@ -165,8 +185,25 @@ class WritingPieceDetailSerializer(serializers.ModelSerializer):
             return None
 
     def get_sponsor_name(self, obj):
-        if obj.sponsor:
-            return str(obj.sponsor)
+        sponsor = obj.sponsor
+        if not sponsor:
+            return None
+        if _piece_sponsor_type(obj) == "member":
+            profile = getattr(sponsor, "profile", None)
+            return getattr(profile, "display_name", None) or sponsor.get_full_name() or sponsor.username
+        return getattr(sponsor, "title", None) or str(sponsor)
+
+    def get_sponsor_type(self, obj):
+        return _piece_sponsor_type(obj)
+
+    def get_sponsor_slug(self, obj):
+        # A member's username or a group's slug: where the piece lives in the app.
+        sponsor = obj.sponsor
+        kind = _piece_sponsor_type(obj)
+        if kind == "member":
+            return sponsor.username
+        if kind == "group":
+            return getattr(sponsor, "slug", None)
         return None
 
 
