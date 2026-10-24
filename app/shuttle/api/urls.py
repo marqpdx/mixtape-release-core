@@ -8,5 +8,6 @@ urlpatterns = [
     path("weaves/<uuid:action_run_id>/correct/", views.correct, name="shuttle-correct"),
     path("weaves/<uuid:action_run_id>/build-packet/", views.build_packet_view, name="shuttle-build-packet"),
     path("weaves/<uuid:action_run_id>/confirm/", views.confirm_view, name="shuttle-confirm"),
+    path("weaves/<uuid:action_run_id>/result/", views.result_view, name="shuttle-result"),
     path("weaves/<uuid:action_run_id>/keep-in-notebook/", views.keep_in_notebook, name="shuttle-keep-in-notebook"),
 ]

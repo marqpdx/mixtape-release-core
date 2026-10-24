@@ -131,3 +131,9 @@ def confirm_view(request, action_run_id):
     data.is_valid(raise_exception=True)
     confirm_in = {"version": "1.0", "action_run_id": str(action_run_id), **data.validated_data}
     return invoke(confirm_weave, author=request.user, action_run_id=str(action_run_id), confirm_in=confirm_in)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def result_view(request, action_run_id):
+    return invoke(shuttle_services.get_result, author=request.user, action_run_id=str(action_run_id))
