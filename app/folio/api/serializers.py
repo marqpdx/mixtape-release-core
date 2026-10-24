@@ -9,8 +9,8 @@ from folio.shapes import Shape
 class FolioSerializer(serializers.ModelSerializer):
     class Meta:
         model = Folio
-        fields = ["id", "title", "created_at", "updated_at"]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        fields = ["id", "slug", "title", "created_at", "updated_at"]
+        read_only_fields = ["id", "slug", "created_at", "updated_at"]
 
 
 class FolioMaterialCandidateSerializer(serializers.ModelSerializer):
