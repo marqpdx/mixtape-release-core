@@ -135,6 +135,38 @@ def get_held_packet(*, action_run_id: str, author) -> dict:
     return packet
 
 
+def get_result(*, action_run_id: str, author) -> dict:
+    """Publication recovery (CTO, 2026-10-23): if Publish commits but the
+    phone loses the response, it re-fetches the weave's terminal result
+    here rather than treating the loss as ambiguous. Read-only — never
+    re-invokes confirm_weave, only reads what's already on the row.
+    SUCCEEDED returns the stored result_out verbatim; FAILED returns the
+    recorded error, so the phone can tell "nothing published, retry
+    confirm" apart from "published, I just lost the response." Any other
+    status means confirm hasn't resolved yet — the client should keep
+    waiting on the existing GET weaves/<id>/ snapshot, not call this."""
+    try:
+        action_run = ActionRun.objects.get(pk=action_run_id)
+    except ActionRun.DoesNotExist as exc:
+        raise ShuttleEnvelopeError(f"No ActionRun held for {action_run_id}", status=404) from exc
+
+    # Ownership mismatch reads as "not found," same convention as
+    # _get_pending_action_run_for below.
+    if action_run.initiator_id != str(author.pk):
+        raise ShuttleEnvelopeError(
+            f"ActionRun {action_run_id} does not belong to this requester.", status=404
+        )
+
+    if action_run.status == ActionRunStatus.SUCCEEDED:
+        return {"status": "succeeded", "result": action_run.result_payload}
+    if action_run.status == ActionRunStatus.FAILED:
+        return {"status": "failed", "error": (action_run.error_payload or {}).get("error")}
+    raise ShuttleEnvelopeError(
+        f"ActionRun {action_run_id} has not finished confirming yet (status={action_run.status})",
+        status=409,
+    )
+
+
 def _get_pending_action_run_for(*, action_run_id: str, author) -> ActionRun:
     try:
         action_run = ActionRun.objects.get(pk=action_run_id)
