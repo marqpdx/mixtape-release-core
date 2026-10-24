@@ -97,6 +97,15 @@ OCR_SPIKE_PDF_DPI = int(os.getenv("OCR_SPIKE_PDF_DPI", "220"))
 OCR_SPIKE_MAX_PDF_PAGES = int(os.getenv("OCR_SPIKE_MAX_PDF_PAGES", "20"))
 OCR_SPIKE_PDF_RENDER_TIMEOUT_SECONDS = int(os.getenv("OCR_SPIKE_PDF_RENDER_TIMEOUT_SECONDS", "180"))
 
+# Contour's manifest root for Catalyst's Shape Library adapter (HD-6, CTO,
+# 2026-10-23). Defaults to the sibling-checkout path the loader always
+# assumed; no production deploy step exists yet to put Contour there
+# (ADR-0061 D9/OQ2 — Blue's finding, 2026-10-23).
+CONTOUR_ROOT = os.getenv(
+    "CONTOUR_ROOT",
+    str((BASE_DIR / ".." / ".." / "puddlejump" / "reference" / "contour").resolve()),
+)
+
 # Ariadne — direct filesystem read of the Puddlejump repo, decided 2026-10-09
 # (decisions/ariadne/ariadne-build-spec.md §2). Not through Stackroom's
 # canon-bundle-replica MCP path.

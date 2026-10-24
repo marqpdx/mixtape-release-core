@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +24,15 @@ def _release_root() -> Path:
 
 
 def _shape_root() -> Path:
+    # CONTOUR_ROOT (HD-6, CTO, 2026-10-23) — previously hard-coded to the
+    # sibling-checkout path below, which is absent in production (no
+    # Puddlejump checkout exists there yet; Blue's finding, 2026-10-23).
     # Contour was renamed from reference/shapes/ to reference/contour/ on
     # 2026-09-09 (puddlejump/reference/contour/README.md); reference/shapes/
     # now holds only the unrelated Puddlejump doc-type schemas.
+    configured = getattr(settings, "CONTOUR_ROOT", None)
+    if configured:
+        return Path(configured)
     return _release_root() / "puddlejump" / "reference" / "contour"
 
 
@@ -101,7 +108,10 @@ class ShapeLibrary:
             self.manifest = self._load_yaml_file(self.manifest_path)
         except Exception as exc:
             self.load_error = str(exc)
-            logger.warning("[shape-library] manifest load failed: %s", exc)
+            logger.error(
+                "[shape-library] Contour manifest load failed, no strategy "
+                "contracts are available (HD-6): %s", exc,
+            )
             return
 
         for vertical in self.manifest.get("verticals", []) or []:
@@ -117,6 +127,16 @@ class ShapeLibrary:
                     self.strategies[str(strategy_id)] = dict(entry)
 
     def get_strategy(self, strategy_id: str) -> ShapeLibraryStrategy | None:
+        if self.load_error:
+            # HD-6: every caller must see this, not only food_service.* —
+            # a strategy lookup that silently falls back to defaults is
+            # indistinguishable from a real "no contract for this strategy"
+            # result otherwise.
+            return ShapeLibraryStrategy(
+                id=strategy_id,
+                contract_gaps=[{"contract_gap": "contour_not_loaded", "detail": self.load_error}],
+            )
+
         manifest_entry = self.strategies.get(strategy_id)
         if not manifest_entry:
             return None
