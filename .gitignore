@@ -12,6 +12,9 @@ ENV/
 env.bak/
 venv.bak/
 
+# Meridian / CodeGraph — local structural index, regenerated per machine
+.codegraph/
+
 # Django
 *.log
 local_settings.py
