@@ -30,8 +30,8 @@ class FolioNoteSearchTests(TestCase):
         self.user.save(update_fields=["stackroom_library_id"])
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
-        self.folio = Folio.objects.create(title="The Quiet City", created_by=self.user)
-        self.other_folio = Folio.objects.create(title="Elsewhere", created_by=self.user)
+        self.folio = Folio.objects.create(title="The Quiet City", sponsor=self.user, author=self.user, submitted_by=self.user)
+        self.other_folio = Folio.objects.create(title="Elsewhere", sponsor=self.user, author=self.user, submitted_by=self.user)
         self.note_ct = ContentType.objects.get_for_model(FolioNote, for_concrete_model=False)
 
     def _note(self, text, *, folio=None, suggested="", confirmed="", mentions=None):
@@ -165,6 +165,6 @@ class FolioNoteSearchTests(TestCase):
 
     def test_other_writers_folio_is_not_searchable(self):
         other = User.objects.create_user(username="folio_search_other")
-        folio = Folio.objects.create(title="Theirs", created_by=other)
+        folio = Folio.objects.create(title="Theirs", sponsor=other, author=other, submitted_by=other)
         response = self.client.get(f"/api/folio/folios/{folio.id}/notes/search")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

@@ -45,7 +45,7 @@ class StoryboardAPITestCase(TestCase):
         self.assertEqual(response.status_code, 400)
 
     def test_storyboard_can_draw_from_multiple_owned_folios(self):
-        folios = [Folio.objects.create(title=title, created_by=self.user) for title in ("Book", "World")]
+        folios = [Folio.objects.create(title=title, sponsor=self.user, author=self.user, submitted_by=self.user) for title in ("Book", "World")]
         response = self.client.post(
             "/api/storyboard/storyboards",
             {"grammar": "fiction_v1", "folio_ids": [str(folio.id) for folio in folios]},
@@ -56,7 +56,7 @@ class StoryboardAPITestCase(TestCase):
         self.assertEqual(Storyboard.objects.get(pk=response.data["id"]).folios.count(), 2)
 
     def test_storyboard_rejects_another_users_folio(self):
-        folio = Folio.objects.create(title="Private", created_by=self.other_user)
+        folio = Folio.objects.create(title="Private", sponsor=self.other_user, author=self.other_user, submitted_by=self.other_user)
         response = self.client.post(
             "/api/storyboard/storyboards",
             {"grammar": "fiction_v1", "folio_ids": [str(folio.id)]},
@@ -196,7 +196,7 @@ class StoryboardAPITestCase(TestCase):
         self.assertEqual(reused.status_code, 201)
 
     def test_note_link_preserves_scene_reference_and_mention_requires_confirmation(self):
-        folio = Folio.objects.create(title="Notes", created_by=self.user)
+        folio = Folio.objects.create(title="Notes", sponsor=self.user, author=self.user, submitted_by=self.user)
         note = FolioNote.objects.create(
             folio=folio, created_by=self.user, source_type=FolioNoteSource.TEXT,
             raw_text="Leo enters the room.", status=FolioNoteStatus.READY,
