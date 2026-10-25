@@ -81,12 +81,15 @@ class BaseData(BaseModel):
         """
         Generate a unique slug by appending a counter if needed.
         """
-        slug = base
+        # Keep the field's existing limit; titles can be longer than their URL.
+        maximum = self._meta.get_field("slug").max_length
+        slug = base[:maximum].rstrip("-")
         counter = 2
         while self.slug_exists(slug):
             if counter > MAX_SLUG_ATTEMPTS:
                 raise ValueError(f"Too many duplicate slugs for base '{base}'")
-            slug = f"{base}-{counter}"
+            suffix = f"-{counter}"
+            slug = f"{base[:maximum-len(suffix)].rstrip('-')}{suffix}"
             counter += 1
         return slug
 
