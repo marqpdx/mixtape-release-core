@@ -21,6 +21,7 @@ from publishing.models import ContentPlacement
 from publishing.services.content_access import can_view_placement
 from publishing.services.content_display import get_display_payload
 from writing.models import WritingPiece
+from writing.search_index import extract_search_text
 
 
 # ==============================================================================
@@ -155,6 +156,7 @@ class SponsorDraftsListView(generics.ListAPIView):
     Query params:
       - sponsor_type: 'group' or 'member'
       - sponsor_slug: slug of the sponsor
+      - search: case-insensitive substring in title, excerpt, or complete draft text
     """
     serializer_class = WorkingDocumentListSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -228,7 +230,22 @@ class SponsorDraftsListView(generics.ListAPIView):
             # Default to 'my'
             qs = base_qs.filter(user=user)
 
-        return [draft for draft in qs.order_by("-last_saved_at") if _has_visible_draft_content(draft)]
+        drafts = [draft for draft in qs.order_by("-last_saved_at") if _has_visible_draft_content(draft)]
+        term = self.request.query_params.get("search", "").strip().casefold()
+        if not term:
+            return drafts
+
+        # Search only the already-authorized list. Resolve imported, never-saved
+        # working copies exactly as the list preview does, but never truncate text.
+        serializer = self.get_serializer()
+        return [
+            draft for draft in drafts
+            if any(term in (value or "").casefold() for value in (
+                draft.title,
+                draft.excerpt,
+                extract_search_text(serializer._preview_body(draft)),
+            ))
+        ]
 
 
 class RecentDraftsListView(generics.ListAPIView):
