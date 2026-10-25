@@ -16,6 +16,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from folio.models import Folio
+from folio.ownership import member_folios
 from storyboard.grammars import get_grammar
 from storyboard.models import Entity, Participation, Storyboard, StoryboardFolio, StoryboardItem, StoryboardItemLink, SurfaceState
 from storyboard.services import add_note_link, add_participation, create_item, create_scene, reorder_siblings, reparent_item
@@ -65,7 +66,7 @@ class StoryboardListCreateView(APIView):
             return Response({"grammar": [str(exc)]}, status=status.HTTP_400_BAD_REQUEST)
 
         folio_ids = serializer.validated_data.get("folio_ids", [])
-        folios = list(Folio.objects.filter(pk__in=folio_ids, created_by=request.user))
+        folios = list(member_folios(request.user).filter(pk__in=folio_ids))
         if len(folios) != len(set(folio_ids)):
             return Response({"folio_ids": ["All Folios must be owned by you."]}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -127,7 +128,7 @@ class StoryboardDetailView(APIView):
         serializer = StoryboardFolioUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         folio_ids = serializer.validated_data["folio_ids"]
-        folios = list(Folio.objects.filter(pk__in=folio_ids, created_by=request.user))
+        folios = list(member_folios(request.user).filter(pk__in=folio_ids))
         if len(folios) != len(set(folio_ids)):
             return Response({"folio_ids": ["All Folios must be owned by you."]}, status=status.HTTP_400_BAD_REQUEST)
         storyboard.folios.set(folios)
@@ -141,7 +142,7 @@ class StoryboardNoteListView(APIView):
         from folio.api.serializers import FolioNoteSerializer
 
         storyboard = _get_owned_storyboard(request.user, storyboard_id)
-        notes = FolioNote.objects.filter(folio__in=storyboard.folios.all(), folio__created_by=request.user).order_by("-created_at")[:200]
+        notes = FolioNote.objects.filter(folio__in=storyboard.folios.all(), folio__sponsor_content_type=ContentType.objects.get_for_model(request.user), folio__sponsor_object_id=request.user.pk).order_by("-created_at")[:200]
         return Response(FolioNoteSerializer(notes, many=True).data)
 
 
@@ -178,7 +179,7 @@ class StoryboardParticipationView(APIView):
         note = None
         mention = None
         if data.get("note_id") is not None:
-            note = get_object_or_404(FolioNote, pk=data["note_id"], folio__in=storyboard.folios.all(), folio__created_by=request.user)
+            note = get_object_or_404(FolioNote, pk=data["note_id"], folio__in=storyboard.folios.all(), folio__sponsor_content_type=ContentType.objects.get_for_model(request.user), folio__sponsor_object_id=request.user.pk)
             index = data.get("mention_index")
             if index is None or index >= len(note.mentions):
                 return Response({"detail": "Choose a valid mention candidate."}, status=status.HTTP_400_BAD_REQUEST)
@@ -214,7 +215,7 @@ class StoryboardItemLinkView(APIView):
         item = get_object_or_404(StoryboardItem, pk=item_id, storyboard=storyboard)
         serializer = NoteLinkCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        note = get_object_or_404(FolioNote, pk=serializer.validated_data["note_id"], folio__created_by=request.user)
+        note = get_object_or_404(FolioNote, pk=serializer.validated_data["note_id"], folio__sponsor_content_type=ContentType.objects.get_for_model(request.user), folio__sponsor_object_id=request.user.pk)
         try:
             link = add_note_link(item=item, note=note, user=request.user)
         except ValidationError as exc:

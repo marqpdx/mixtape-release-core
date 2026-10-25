@@ -31,7 +31,7 @@ class FolioNoteCaptureTests(TestCase):
         self.other = User.objects.create_user(username="folio_notes_other")
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
-        self.folio = Folio.objects.create(title="The Quiet City", created_by=self.user)
+        self.folio = Folio.objects.create(title="The Quiet City", sponsor=self.user, author=self.user, submitted_by=self.user)
         tend_patcher = patch("folio.api.views.tend_folio_note_task.delay")
         self.tend_delay = tend_patcher.start()
         self.addCleanup(tend_patcher.stop)
@@ -40,7 +40,7 @@ class FolioNoteCaptureTests(TestCase):
         return f"/api/folio/folios/{(folio or self.folio).id}/notes"
 
     def test_list_and_create_folios_scoped_to_owner(self):
-        Folio.objects.create(title="Not mine", created_by=self.other)
+        Folio.objects.create(title="Not mine", sponsor=self.other, author=self.other, submitted_by=self.other)
         response = self.client.post("/api/folio/folios", {"title": "Second"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -109,7 +109,7 @@ class FolioNoteCaptureTests(TestCase):
         self.assertFalse(FolioNote.objects.exists())
 
     def test_cannot_read_or_write_another_writers_folio(self):
-        theirs = Folio.objects.create(title="Theirs", created_by=self.other)
+        theirs = Folio.objects.create(title="Theirs", sponsor=self.other, author=self.other, submitted_by=self.other)
         self.assertEqual(self.client.get(self._notes_url(theirs)).status_code, status.HTTP_404_NOT_FOUND)
         response = self.client.post(self._notes_url(theirs), {"raw_text": "hello"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -134,7 +134,7 @@ class FolioNoteCaptureTests(TestCase):
         )
 
     def test_cannot_patch_another_writers_note(self):
-        theirs = Folio.objects.create(title="Theirs", created_by=self.other)
+        theirs = Folio.objects.create(title="Theirs", sponsor=self.other, author=self.other, submitted_by=self.other)
         note = FolioNote.objects.create(folio=theirs, created_by=self.other, source_type=FolioNoteSource.TEXT, raw_text="x")
         response = self.client.patch(f"{self._notes_url(theirs)}/{note.id}", {"confirmed_shape": "meta"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -149,7 +149,7 @@ class FolioNoteCaptureTests(TestCase):
 class FolioNoteTranscriptionTaskTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="folio_notes_task_writer")
-        self.folio = Folio.objects.create(title="", created_by=self.user)
+        self.folio = Folio.objects.create(title="", sponsor=self.user, author=self.user, submitted_by=self.user)
         stored = StoredFile.objects.create(file_path="folio/notes/audio/x.m4a", uploaded_by=self.user)
         self.note = FolioNote.objects.create(
             folio=self.folio,
@@ -216,7 +216,7 @@ class FolioNoteTendingTests(TestCase):
 
     def setUp(self):
         self.user = User.objects.create_user(username="folio_notes_tend_writer")
-        self.folio = Folio.objects.create(title="The Quiet City", created_by=self.user)
+        self.folio = Folio.objects.create(title="The Quiet City", sponsor=self.user, author=self.user, submitted_by=self.user)
         self.note = FolioNote.objects.create(
             folio=self.folio,
             created_by=self.user,

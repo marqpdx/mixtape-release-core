@@ -28,7 +28,7 @@ class FolioWorkbenchTests(TestCase):
         self.other = User.objects.create_user(username="folio_workbench_other")
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
-        self.folio = Folio.objects.create(title="The Quiet City", created_by=self.user)
+        self.folio = Folio.objects.create(title="The Quiet City", sponsor=self.user, author=self.user, submitted_by=self.user)
         self.base = f"/api/folio/folios/{self.folio.id}/notes"
 
     def _note(self, text, *, folio=None, suggested="", confirmed="", mentions=None, summary=""):
@@ -143,13 +143,13 @@ class FolioWorkbenchTests(TestCase):
 
     def test_move_note_to_another_of_the_writers_folios(self):
         note = self._note("belongs elsewhere")
-        target = Folio.objects.create(title="Second book", created_by=self.user)
+        target = Folio.objects.create(title="Second book", sponsor=self.user, author=self.user, submitted_by=self.user)
         response = self.client.patch(f"{self.base}/{note.id}", {"folio": str(target.id)}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         note.refresh_from_db()
         self.assertEqual(note.folio_id, target.id)
 
-        theirs = Folio.objects.create(title="Not mine", created_by=self.other)
+        theirs = Folio.objects.create(title="Not mine", sponsor=self.other, author=self.other, submitted_by=self.other)
         response = self.client.patch(
             f"/api/folio/folios/{target.id}/notes/{note.id}", {"folio": str(theirs.id)}, format="json"
         )

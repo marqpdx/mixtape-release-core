@@ -11,64 +11,22 @@
 import uuid
 
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError, models, transaction
-from django.utils.text import slugify
+from django.db import models
 
 from fundamentals.bases import BaseModel
+from fundamentals.models import BaseContent
 
 from folio.shapes import Shape, effective_shape
 
 User = get_user_model()
 
 
-class Folio(BaseModel):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-
-    # Blank until Gate 2 (subject extraction) or an explicit user edit sets it.
+class Folio(BaseContent):
+    # Folio's public title capacity stays wider than BaseContent's default.
     title = models.CharField(max_length=255, blank=True, default="")
 
-    slug = models.SlugField(max_length=200, unique=True, editable=False)
-
-    created_by = models.ForeignKey(
-        User,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="created_folios",
-    )
-
-    def save(self, *args, **kwargs):
-        # A later title edit must never change a bookmarked URL.
-        if self.slug:
-            return super().save(*args, **kwargs)
-        base = slugify(self.title)[:160] or "folio"
-        # Reserve UUID-shaped identifiers for legacy UUID web links.
-        try:
-            uuid.UUID(base)
-        except ValueError:
-            pass
-        else:
-            base = f"folio-{base}"
-        self.slug = base
-        # Check first for ordinary duplicate titles; the unique constraint and
-        # savepoint also cover two concurrent creations choosing the same slug.
-        suffix = f"{base}-{self.pk.hex}"
-        counter = 0
-        while type(self).objects.filter(slug=self.slug).exclude(pk=self.pk).exists():
-            self.slug = suffix if counter == 0 else f"{suffix}-{counter}"
-            counter += 1
-        try:
-            with transaction.atomic():
-                return super().save(*args, **kwargs)
-        except IntegrityError:
-            if not type(self).objects.filter(slug=self.slug).exclude(pk=self.pk).exists():
-                raise
-            self.slug = suffix
-            counter = 1
-            while type(self).objects.filter(slug=self.slug).exclude(pk=self.pk).exists():
-                self.slug = f"{suffix}-{counter}"
-                counter += 1
-            return super().save(*args, **kwargs)
+    class Meta(BaseContent.Meta):
+        pass
 
     def __str__(self):
         return self.title or f"Folio {self.id}"

@@ -34,6 +34,7 @@ from folio.services.gate5_validate import validate_candidates
 from folio.services.note_search import search_folio_notes
 from folio.services.workbench import confirm_mention, folio_facets, related_notes, unlink_mention, writer_entities
 from folio.shapes import Shape
+from folio.ownership import member_folios
 from folio.tasks import tend_folio_note_task, transcribe_folio_note_task
 from inkwell.stackroom_enqueue import enqueue_stackroom_ingest
 from stackroom_client import StackroomClientError
@@ -69,7 +70,7 @@ class FolioInceptionListCreateView(APIView):
         title = serializer.validated_data.get("title", "")
 
         with transaction.atomic():
-            folio = Folio.objects.create(title=title, created_by=request.user)
+            folio = Folio.objects.create(title=title, sponsor=request.user, author=request.user, submitted_by=request.user)
             inception = FolioInception.objects.create(
                 folio=folio,
                 raw_text=raw_text,
@@ -89,7 +90,7 @@ class FolioInceptionDetailView(APIView):
         inception = get_object_or_404(
             FolioInception.objects.select_related("folio"),
             pk=inception_id,
-            folio__created_by=request.user,
+            folio__in=member_folios(request.user),
         )
         return Response(FolioInceptionSerializer(inception).data)
 
@@ -114,7 +115,7 @@ class FolioInceptionAnalyzeView(APIView):
         inception = get_object_or_404(
             FolioInception,
             pk=inception_id,
-            folio__created_by=request.user,
+            folio__in=member_folios(request.user),
         )
 
         start = time.monotonic()
@@ -168,10 +169,13 @@ class FolioInceptionAnalyzeView(APIView):
 
                 # Near-verbatim short form only (spec section 8) -- never
                 # overwrites a title a human has already set.
-                if not inception.folio.title:
+                folio = Folio.objects.select_for_update().get(pk=inception.folio_id)
+                if not folio.title:
                     derived_title = derive_title(validation["valid_candidates"])
                     if derived_title:
-                        Folio.objects.filter(pk=inception.folio_id).update(title=derived_title)
+                        folio.title = derived_title
+                        # Let BaseContent promote the placeholder and retain history.
+                        folio.save()
             gate4_5_latency_ms = round((time.monotonic() - start) * 1000, 2)
 
         if gate3_output is not None:
@@ -217,21 +221,21 @@ class FolioTitleDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def patch(self, request, folio_id):
-        folio = get_object_or_404(Folio, pk=folio_id, created_by=request.user)
+        folio = get_object_or_404(member_folios(request.user), pk=folio_id)
         serializer = FolioTitlePatchSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         folio.title = serializer.validated_data["title"]
-        folio.save(update_fields=["title", "updated_at"])
-        return Response({"id": str(folio.id), "title": folio.title})
+        folio.save()
+        return Response(FolioSerializer(folio).data)
 
 
 def _get_owned_candidate(request, candidate_id):
     return get_object_or_404(
         FolioMaterialCandidate,
         pk=candidate_id,
-        inception__folio__created_by=request.user,
+        inception__folio__in=member_folios(request.user),
     )
 
 
@@ -295,14 +299,14 @@ class FolioListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        folios = Folio.objects.filter(created_by=request.user).order_by("-updated_at")
+        folios = member_folios(request.user).order_by("-updated_at")
         return Response(FolioSerializer(folios, many=True).data)
 
     def post(self, request):
         serializer = FolioCreateSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        folio = Folio.objects.create(title=serializer.validated_data["title"], created_by=request.user)
+        folio = Folio.objects.create(title=serializer.validated_data["title"], sponsor=request.user, author=request.user, submitted_by=request.user)
         return Response(FolioSerializer(folio).data, status=status.HTTP_201_CREATED)
 
 
@@ -320,7 +324,7 @@ class FolioNoteListCreateView(APIView):
     parser_classes = [JSONParser, FormParser, MultiPartParser]
 
     def get(self, request, folio_id):
-        folio = get_object_or_404(Folio, pk=folio_id, created_by=request.user)
+        folio = get_object_or_404(member_folios(request.user), pk=folio_id)
         try:
             limit = max(1, min(int(request.query_params.get("limit", 50)), 200))
         except ValueError:
@@ -329,7 +333,7 @@ class FolioNoteListCreateView(APIView):
         return Response(FolioNoteSerializer(notes, many=True).data)
 
     def post(self, request, folio_id):
-        folio = get_object_or_404(Folio, pk=folio_id, created_by=request.user)
+        folio = get_object_or_404(member_folios(request.user), pk=folio_id)
         audio_file = request.FILES.get("audio_file")
         if audio_file:
             return self._create_voice_note(request, folio, audio_file)
@@ -410,7 +414,7 @@ class FolioNoteSearchView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, folio_id):
-        folio = get_object_or_404(Folio, pk=folio_id, created_by=request.user)
+        folio = get_object_or_404(member_folios(request.user), pk=folio_id)
         params = request.query_params
         query = (params.get("q") or "").strip()
         literal = params.get("mode") == "literal"
@@ -461,7 +465,7 @@ class FolioNoteDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def patch(self, request, folio_id, note_id):
-        note = get_object_or_404(FolioNote, pk=note_id, folio_id=folio_id, folio__created_by=request.user)
+        note = get_object_or_404(FolioNote, pk=note_id, folio_id=folio_id, folio__in=member_folios(request.user))
         serializer = FolioNotePatchSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -471,7 +475,7 @@ class FolioNoteDetailView(APIView):
             note.confirmed_shape = data["confirmed_shape"]
             fields.append("confirmed_shape")
         if "folio" in data:
-            note.folio = get_object_or_404(Folio, pk=data["folio"], created_by=request.user)
+            note.folio = get_object_or_404(member_folios(request.user), pk=data["folio"])
             fields.append("folio")
         note.save(update_fields=fields)
         return Response(FolioNoteSerializer(note).data)
@@ -484,7 +488,7 @@ class FolioNoteFacetsView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, folio_id):
-        folio = get_object_or_404(Folio, pk=folio_id, created_by=request.user)
+        folio = get_object_or_404(member_folios(request.user), pk=folio_id)
         return Response(folio_facets(folio))
 
 
@@ -496,7 +500,7 @@ class FolioNoteRelatedView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, folio_id, note_id):
-        note = get_object_or_404(FolioNote, pk=note_id, folio_id=folio_id, folio__created_by=request.user)
+        note = get_object_or_404(FolioNote, pk=note_id, folio_id=folio_id, folio__in=member_folios(request.user))
         try:
             hits = related_notes(note, user=request.user)
         except StackroomClientError as exc:
@@ -524,7 +528,7 @@ class FolioNoteMentionView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, folio_id, note_id, index):
-        note = get_object_or_404(FolioNote, pk=note_id, folio_id=folio_id, folio__created_by=request.user)
+        note = get_object_or_404(FolioNote, pk=note_id, folio_id=folio_id, folio__in=member_folios(request.user))
         serializer = FolioNoteMentionConfirmSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -539,7 +543,7 @@ class FolioNoteMentionView(APIView):
         return Response(FolioNoteSerializer(note).data)
 
     def delete(self, request, folio_id, note_id, index):
-        note = get_object_or_404(FolioNote, pk=note_id, folio_id=folio_id, folio__created_by=request.user)
+        note = get_object_or_404(FolioNote, pk=note_id, folio_id=folio_id, folio__in=member_folios(request.user))
         try:
             note = unlink_mention(note, index)
         except DjangoValidationError as exc:

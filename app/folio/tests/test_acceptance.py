@@ -42,7 +42,7 @@ class FolioAcceptanceTestCase(TestCase):
         self.client.force_authenticate(user=self.user)
 
     def _run(self, raw_text: str):
-        folio = Folio.objects.create(title="", created_by=self.user)
+        folio = Folio.objects.create(title="", sponsor=self.user, author=self.user, submitted_by=self.user)
         inception = FolioInception.objects.create(folio=folio, raw_text=raw_text, created_by=self.user)
         analyze_response = self.client.post(f"/api/folio/inceptions/{inception.id}/analyze")
         get_response = self.client.get(f"/api/folio/inceptions/{inception.id}")
