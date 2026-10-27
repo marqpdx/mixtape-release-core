@@ -1,0 +1,21 @@
+# Data routes — keeps core's AI and outside calls where the charter says they are.
+# Service Trust ST-12 (CTO, 2026-10-27). See tools/check_data_routes.py.
+name: data-routes
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check data routes
+        run: python3 tools/check_data_routes.py

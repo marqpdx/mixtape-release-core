@@ -1,0 +1,93 @@
+# data-routes.toml — the approved places where core reaches a model or a service outside Mixtape.
+#
+# Read by tools/check_data_routes.py (Service Trust ST-12, CTO 2026-10-27).
+# Every entry names its Service Map route (puddlejump/reference/knowledge-architecture/service-map.md)
+# and why it is here. Adding an entry is a decision: update the Service Map in the same change.
+# Entries marked `retire` are known gaps the Service Trust plan removes; they are listed so that
+# nothing new joins them unnoticed, not because they are approved for good.
+
+# --- Cloud model SDKs -------------------------------------------------------
+
+[[sdk_import]]
+sdk = "anthropic"
+route = "R8 (API key; deactivated on the server 2026-10-27)"
+status = "retire"  # ST-4 moves these behind Switchboard; one dormant adapter stays (F7)
+paths = [
+  "app/atrium/ai/service.py",                # Atrium's API-key fallback adapter
+  "app/initiatives/ai/service.py",           # Initiatives chat and distillation
+  "app/initiatives/services/agent_commands.py",  # Initiatives agent draft
+  "app/writing/tasks.py",                    # Writing split suggestions
+]
+
+[[sdk_import]]
+sdk = "openai"
+route = "R9 (API key; no key set on the server)"
+status = "keep, decide with Codex and transcription"
+paths = [
+  "app/concord/services/whisper.py",         # transcription fallback when no local Whisper is installed
+  "app/concord/services/interpretation.py",  # recording interpretation, off by default (use_llm=False)
+]
+
+# --- CLI launchers ----------------------------------------------------------
+
+[[cli_launcher]]
+route = "R5 / R6 (Claude Code), R7 (Codex)"
+reason = "The shared runners: the only code that starts the claude or codex CLI"
+paths = ["app/claude/", "app/codex/"]
+
+# --- Hosts named in code ----------------------------------------------------
+
+[[host]]
+route = "Mixtape's own"
+reason = "Mixtape and Crossroads domains, links and CORS origins"
+hosts = [
+  "crossroads.place", "www.crossroads.place", "app.crossroads.place", "api.crossroads.place",
+  "chat.crossroads.place", "inkwell.crossroads.place",
+  "mixtape.social", "mindfulbrilliance.com", "www.mindfulbrilliance.com",
+  "crossroads.network", "api.crossroads.network", "crossroads-dashboard.vercel.app",
+]
+
+[[host]]
+route = "this server (loopback defaults for local services)"
+reason = "Default addresses for Inkwell, Stackroom, Livewire and others on the same machine"
+hosts = ["127.0.0.1"]
+
+[[host]]
+route = "none (identifiers and documentation, never called)"
+reason = "XML namespaces, JSON Schema ids, documentation links, examples"
+hosts = ["schemas.openxmlformats.org", "json-schema.org", "docs.djangoproject.com", "example.com", "django-environ.readthedocs.io"]
+
+[[host]]
+route = "R10"
+reason = "Expo push service: notification title and body go to Expo to reach phones"
+hosts = ["exp.host"]
+
+[[host]]
+route = "R10"
+reason = "DiceBear renders avatar images from a seed (identity emblems)"
+hosts = ["api.dicebear.com"]
+
+[[host]]
+route = "R10"
+reason = "Project Gutenberg: public-domain texts fetched for asset imports"
+hosts = ["www.gutenberg.org"]
+
+[[host]]
+route = "R10"
+reason = "Opportunity search: queries sent to Dice's public MCP server; links to job pages"
+hosts = ["mcp.dice.com", "www.dice.com"]
+
+[[host]]
+route = "R10"
+reason = "Sourcework Google sign-in: read-only Gmail scope, on the member's own consent"
+hosts = ["www.googleapis.com"]
+
+[[host]]
+route = "none (a share link the member opens in their browser)"
+reason = "LinkedIn share-offsite URL; core sends nothing to LinkedIn"
+hosts = ["www.linkedin.com"]
+
+[[host]]
+route = "none (link recognition)"
+reason = "Spotify links are recognised in music fields; core does not call Spotify"
+hosts = ["open.spotify.com"]
