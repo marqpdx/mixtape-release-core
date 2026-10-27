@@ -146,7 +146,7 @@ class ClaudeCodeAdapter:
 
         if not self._session:
             return
-        cwd = getattr(settings, "ATRIUM_CLAUDE_CODE_CWD", "") or os.getcwd()
+        cwd = getattr(settings, "ATRIUM_CLAUDE_CODE_CWD", "") or None  # unset: empty scratch dir (ST-2)
         session_id = str(self._session.id)
 
         was_alive = claude_service.is_session_alive(session_id)
@@ -156,7 +156,10 @@ class ClaudeCodeAdapter:
             _trigger_idle_keeper_if_due(self._session)
 
         opening_context, provenance_note = _build_cold_spawn_context(self._session)
-        claude_service.get_or_spawn(session_id, cwd, opening_context if not was_alive else None)
+        claude_service.get_or_spawn(
+            session_id, cwd, opening_context if not was_alive else None,
+            tools=claude_service.READ_ONLY_TOOLS, allow_slash_commands=True,
+        )
 
         pid = _pty_pid(session_id)
         if pid and self._session.pty_pid != pid:
@@ -179,7 +182,7 @@ class ClaudeCodeAdapter:
         from django.conf import settings
         from claude import service as claude_service
 
-        cwd = getattr(settings, "ATRIUM_CLAUDE_CODE_CWD", "") or os.getcwd()
+        cwd = getattr(settings, "ATRIUM_CLAUDE_CODE_CWD", "") or None  # unset: empty scratch dir (ST-2)
         session_id = str(self._session.id) if self._session else "global"
         logger.info("[atrium] ClaudeCodeAdapter stream-json: session=%s cwd=%s", session_id, cwd)
 
@@ -205,7 +208,8 @@ class ClaudeCodeAdapter:
         message_to_send = (_DOC_PROTOCOL_HINT + user_message) if was_alive else user_message
 
         for event_type, text in claude_service.send_to_session(
-            session_id, message_to_send, cwd, opening_context
+            session_id, message_to_send, cwd, opening_context,
+            tools=claude_service.READ_ONLY_TOOLS, allow_slash_commands=True,
         ):
             if event_type == "context_status":
                 payload = json.dumps({"type": "context_status", **json.loads(text)})
@@ -231,7 +235,7 @@ class ClaudeCodeAdapter:
         if not self._session:
             return None
         session_id = str(self._session.id)
-        return claude_service.compact_pty(session_id, cwd)
+        return claude_service.compact_pty(session_id, cwd, tools=claude_service.READ_ONLY_TOOLS)
 
     def reset(self, cwd: str) -> None:
         """
@@ -245,7 +249,10 @@ class ClaudeCodeAdapter:
         session_id = str(self._session.id)
         claude_service.terminate_session(session_id)
         orientation = _build_orientation_context(self._session)
-        claude_service.get_or_spawn(session_id, cwd, orientation)
+        claude_service.get_or_spawn(
+            session_id, cwd, orientation,
+            tools=claude_service.READ_ONLY_TOOLS, allow_slash_commands=True,
+        )
 
 
 class CodexExecAdapter:
@@ -449,7 +456,7 @@ class AtriumAIService:
         if not hasattr(self._adapter, "compact"):
             return None
         from django.conf import settings
-        cwd = getattr(settings, "ATRIUM_CLAUDE_CODE_CWD", "") or os.getcwd()
+        cwd = getattr(settings, "ATRIUM_CLAUDE_CODE_CWD", "") or None  # unset: empty scratch dir (ST-2)
         summary = self._adapter.compact(cwd)
         if summary and session.initiative_id:
             _store_compact_summary(session, summary)
@@ -463,7 +470,7 @@ class AtriumAIService:
         if not hasattr(self._adapter, "reset"):
             return
         from django.conf import settings
-        cwd = getattr(settings, "ATRIUM_CLAUDE_CODE_CWD", "") or os.getcwd()
+        cwd = getattr(settings, "ATRIUM_CLAUDE_CODE_CWD", "") or None  # unset: empty scratch dir (ST-2)
         self._adapter.reset(cwd)
 
     def exchange_stream(

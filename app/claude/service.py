@@ -2,7 +2,7 @@
 claude/service.py — Shared Claude Code subprocess service.
 
 Three variants:
-  run_blocking(prompt, cwd, timeout) → str | None
+  run_blocking(prompt, cwd=None, timeout, tools="") → ClaudeResult
   stream(prompt, cwd)               → Generator[str, None, None]
   get_or_spawn / send_to_session    → stream-json interactive session (Phase 2C)
 
@@ -11,6 +11,16 @@ Constraints (from planning/catalyst/claude-code-ingest-architecture.md):
   - Prompts via stdin only — never as CLI arguments (ARG_MAX risk on large prompts).
   - --dangerously-skip-permissions is correct for server-side automation.
   - stream-json turns must have hard timeouts; stalled subprocesses are dropped.
+
+Lockdown (Service Trust ST-2, CTO 2026-10-27):
+  - No tools unless the caller names them. `tools=""` (the default) disables every
+    built-in tool; a caller that needs tools passes them by name ("Read,Grep,Glob").
+    MCP servers and hooks are always off.
+  - Each run gets an empty scratch directory as its working directory, removed
+    afterwards, so no CLAUDE.md or code checkout is read by accident. A caller
+    passes `cwd` only when the run must read that directory (Atrium's canon).
+  - Sessions are not saved to disk (`--no-session-persistence`) where the
+    installed CLI supports it.
 
 Interactive session notes (stream-json mode):
   - One persistent subprocess per AtriumSession UUID, keyed in _session_registry.
@@ -30,10 +40,13 @@ import os
 import select
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
-from collections.abc import Generator
+from collections.abc import Generator, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Literal
 
 logger = logging.getLogger(__name__)
@@ -62,26 +75,98 @@ def _strip_api_key(env: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# run_blocking / stream — one-shot -p variants (unchanged)
+# Lockdown helpers (ST-2)
+# ---------------------------------------------------------------------------
+
+NO_TOOLS = ""
+READ_ONLY_TOOLS = "Read,Grep,Glob"
+
+
+@lru_cache(maxsize=None)
+def _cli_supports(flag: str) -> bool:
+    """True when the installed claude CLI lists `flag` in its --help output."""
+    try:
+        out = subprocess.run(
+            [_claude_bin(), "--help"], capture_output=True, text=True, timeout=15,
+        )
+    except Exception as exc:
+        logger.warning("[claude] could not read CLI help to check %s: %s", flag, exc)
+        return False
+    return flag in (out.stdout or "")
+
+
+def _lockdown_args(tools: str, allow_slash_commands: bool = False) -> list[str]:
+    """CLI args restricting a run to the named tools, with no MCP, hooks or saved session."""
+    args = ["--tools", tools]
+    if not allow_slash_commands:
+        args.append("--disable-slash-commands")
+    args.extend([
+        "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}",
+        "--settings", "{\"disableAllHooks\":true}",
+    ])
+    if _cli_supports("--no-session-persistence"):
+        args.append("--no-session-persistence")
+    return args
+
+
+def _make_scratch_dir(run_as_user: str | None) -> str:
+    """Create an empty working directory for one run, owned by the user who runs it."""
+    root = os.getenv("CLAUDE_SCRATCH_ROOT") or None
+    path = tempfile.mkdtemp(prefix="claude-run-", dir=root)
+    if run_as_user:
+        try:
+            shutil.chown(path, user=run_as_user)
+        except Exception as exc:
+            # runuser needs root, so chown normally succeeds; fall back to traversable.
+            logger.warning("[claude] scratch chown to %s failed (%s); opening permissions", run_as_user, exc)
+            os.chmod(path, 0o755)
+    return path
+
+
+def _remove_scratch_dir(path: str | None) -> None:
+    if path:
+        shutil.rmtree(path, ignore_errors=True)
+
+
+@contextmanager
+def _working_dir(cwd: str | None, run_as_user: str | None) -> Iterator[str]:
+    """Yield `cwd` when given; otherwise a fresh scratch directory removed on exit."""
+    if cwd:
+        yield cwd
+        return
+    path = _make_scratch_dir(run_as_user)
+    try:
+        yield path
+    finally:
+        _remove_scratch_dir(path)
+
+
+# ---------------------------------------------------------------------------
+# run_blocking / stream — one-shot -p variants
 # ---------------------------------------------------------------------------
 
 def run_blocking(
     prompt: str,
-    cwd: str,
+    cwd: str | None = None,
     timeout: int = 90,
     run_as_user: str | None = None,
     log_context: dict | None = None,
-    tools: str | None = None,
+    tools: str = NO_TOOLS,
     home_dir: str | None = None,
 ) -> ClaudeResult:
     """
     Run claude -p with a prompt via stdin. Returns a ClaudeResult.
     When run_as_user is set, the subprocess runs via runuser as that Linux user
     with HOME set explicitly so ~/.claude/ credentials resolve correctly.
+    tools: "" (default) disables all tools; name them to allow some.
+    cwd: omit for an empty scratch directory (the default and the safe choice).
     Raises nothing — logs warnings on any error.
     """
     bin_path = _claude_bin()
-    logger.info("[claude] run_blocking: cwd=%s timeout=%ds run_as_user=%s", cwd, timeout, run_as_user)
+    logger.info(
+        "[claude] run_blocking: cwd=%s tools=%r timeout=%ds run_as_user=%s",
+        cwd or "(scratch)", tools, timeout, run_as_user,
+    )
 
     env = _strip_api_key(os.environ.copy())
     if run_as_user:
@@ -93,19 +178,19 @@ def run_blocking(
     else:
         cmd = [bin_path, "-p", "--dangerously-skip-permissions", "--output-format", "json"]
 
-    if tools is not None:
-        cmd.extend(["--tools", tools, "--disable-slash-commands", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--settings", "{\"disableAllHooks\":true}"])
+    cmd.extend(_lockdown_args(tools))
 
     try:
-        result = subprocess.run(
-            cmd,
-            input=prompt,
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            env=env,
-        )
+        with _working_dir(cwd, run_as_user) as run_cwd:
+            result = subprocess.run(
+                cmd,
+                input=prompt,
+                cwd=run_cwd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                env=env,
+            )
         if result.returncode != 0:
             stderr = (result.stderr or "").strip()
             stdout = (result.stdout or "").strip()
@@ -161,20 +246,21 @@ def run_blocking(
         return ClaudeResult(output=None, failure="error")
 
 
-def stream(prompt: str, cwd: str) -> Generator[str, None, None]:
+def stream(prompt: str, cwd: str | None = None, tools: str = NO_TOOLS) -> Generator[str, None, None]:
     """
     Stream claude -p output line-by-line via Popen stdout pipe.
     Caller is responsible for lifecycle management (no hard timeout here).
     Cleans up the process on error via try/finally.
     """
     bin_path = _claude_bin()
-    logger.info("[claude] stream: cwd=%s", cwd)
+    logger.info("[claude] stream: cwd=%s tools=%r", cwd or "(scratch)", tools)
+    scratch = None if cwd else _make_scratch_dir(None)
     proc = subprocess.Popen(
-        [bin_path, "-p", "--dangerously-skip-permissions"],
+        [bin_path, "-p", "--dangerously-skip-permissions", *_lockdown_args(tools)],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        cwd=cwd,
+        cwd=cwd or scratch,
         text=True,
         env=_strip_api_key(os.environ.copy()),
     )
@@ -196,6 +282,7 @@ def stream(prompt: str, cwd: str) -> Generator[str, None, None]:
             proc.stdout.close()
         if proc.stderr:
             proc.stderr.close()
+        _remove_scratch_dir(scratch)
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +291,8 @@ def stream(prompt: str, cwd: str) -> Generator[str, None, None]:
 
 # Session UUID → subprocess.Popen handle.
 _session_registry: dict[str, subprocess.Popen] = {}
+# Session UUID → the scratch directory created for it (removed when the session ends).
+_session_scratch: dict[str, str] = {}
 # Per-session lock — prevents two concurrent requests interleaving on the same process.
 _session_locks: dict[str, threading.RLock] = {}
 _session_locks_mu = threading.Lock()
@@ -220,11 +309,20 @@ def _is_alive(proc: subprocess.Popen) -> bool:
     return proc.poll() is None
 
 
+def _forget_session(session_id: str) -> None:
+    """Drop a session from the registry and remove its scratch directory, if any."""
+    _session_registry.pop(session_id, None)
+    _remove_scratch_dir(_session_scratch.pop(session_id, None))
+
+
 def get_or_spawn(
     session_id: str,
-    cwd: str,
+    cwd: str | None = None,
     opening_context: str | None = None,
     run_as_user: str | None = None,
+    tools: str = NO_TOOLS,
+    allow_slash_commands: bool = False,
+    home_dir: str | None = None,
 ) -> subprocess.Popen:
     """
     Return the live stream-json subprocess for session_id, spawning a new one
@@ -232,18 +330,23 @@ def get_or_spawn(
 
     opening_context: if provided, sent as the first user message before returning.
     run_as_user: when set, spawns the subprocess via runuser as that Linux user.
+    tools / cwd: as for run_blocking; a scratch cwd lives as long as the session.
+    allow_slash_commands: Atrium needs /compact; batch callers do not.
     """
     with _session_lock(session_id):
         existing = _session_registry.get(session_id)
         if existing is not None and _is_alive(existing):
             return existing
         if existing is not None:
-            _session_registry.pop(session_id, None)
+            _forget_session(session_id)
 
         bin_path = _claude_bin()
+        if not cwd:
+            cwd = _make_scratch_dir(run_as_user)
+            _session_scratch[session_id] = cwd
         logger.info(
-            "[claude] spawning stream-json session: session=%s cwd=%s run_as_user=%s",
-            session_id, cwd, run_as_user,
+            "[claude] spawning stream-json session: session=%s cwd=%s tools=%r run_as_user=%s",
+            session_id, cwd, tools, run_as_user,
         )
 
         env = _strip_api_key(os.environ.copy())
@@ -254,10 +357,11 @@ def get_or_spawn(
             "--input-format", "stream-json",
             "--output-format", "stream-json",
             "--include-partial-messages",
+            *_lockdown_args(tools, allow_slash_commands=allow_slash_commands),
         ]
         if run_as_user:
             cmd = ["runuser", "-u", run_as_user, "--", bin_path, *session_args]
-            env["HOME"] = f"/home/{run_as_user}"
+            env["HOME"] = home_dir or f"/home/{run_as_user}"
         else:
             cmd = [bin_path, *session_args]
 
@@ -326,7 +430,7 @@ def _read_turn(
                 session_id,
                 turn_timeout,
             )
-            _session_registry.pop(session_id, None)
+            _forget_session(session_id)
             try:
                 proc.kill()
             except Exception:
@@ -345,7 +449,7 @@ def _read_turn(
                 session_id,
                 proc.poll(),
             )
-            _session_registry.pop(session_id, None)
+            _forget_session(session_id)
             yield ("error", "Claude Code exited before completing the turn.")
             return
 
@@ -448,10 +552,13 @@ def is_session_alive(session_id: str) -> bool:
 def send_to_session(
     session_id: str,
     message: str,
-    cwd: str,
+    cwd: str | None = None,
     opening_context: str | None = None,
     run_as_user: str | None = None,
     timeout: int | None = None,
+    tools: str = NO_TOOLS,
+    allow_slash_commands: bool = False,
+    home_dir: str | None = None,
 ) -> Generator[tuple[str, str], None, None]:
     """
     Send message to the session's stream-json subprocess and yield SSE event pairs.
@@ -468,12 +575,15 @@ def send_to_session(
         return
 
     try:
-        proc = get_or_spawn(session_id, cwd, opening_context, run_as_user=run_as_user)
+        proc = get_or_spawn(
+            session_id, cwd, opening_context, run_as_user=run_as_user,
+            tools=tools, allow_slash_commands=allow_slash_commands, home_dir=home_dir,
+        )
         _send_message(proc, message)
         yield from _read_turn(proc, session_id, timeout=timeout)
     except BrokenPipeError:
         logger.warning("[claude] send_to_session: broken pipe — process died session=%s", session_id)
-        _session_registry.pop(session_id, None)
+        _forget_session(session_id)
         yield ("error", "Session process exited unexpectedly.")
     except Exception as exc:
         logger.exception("[claude] send_to_session: unexpected error session=%s", session_id)
@@ -485,10 +595,12 @@ def send_to_session(
 def run_session_blocking(
     session_id: str,
     prompt: str,
-    cwd: str,
+    cwd: str | None = None,
     opening_context: str | None = None,
     run_as_user: str | None = None,
     timeout: int | None = None,
+    tools: str = NO_TOOLS,
+    home_dir: str | None = None,
 ) -> str | None:
     """
     Run one prompt through the persistent stream-json subprocess and collect text.
@@ -506,6 +618,8 @@ def run_session_blocking(
         opening_context,
         run_as_user=run_as_user,
         timeout=timeout,
+        tools=tools,
+        home_dir=home_dir,
     ):
         if event_type == "delta":
             chunks.append(text)
@@ -528,11 +642,9 @@ def run_session_blocking(
 
 def terminate_session(session_id: str) -> None:
     """Terminate the stream-json subprocess for session_id."""
-    proc = _session_registry.pop(session_id, None)
-    if proc is None:
-        return
+    proc = _session_registry.get(session_id)
     try:
-        if _is_alive(proc):
+        if proc is not None and _is_alive(proc):
             proc.stdin.close()
             proc.terminate()
             proc.wait(timeout=5)
@@ -541,6 +653,9 @@ def terminate_session(session_id: str) -> None:
             proc.kill()
         except Exception:
             pass
+    finally:
+        # After the process has stopped, so its working directory isn't pulled out from under it.
+        _forget_session(session_id)
 
 
 # ---------------------------------------------------------------------------
@@ -572,7 +687,11 @@ def terminate_pty(session_id: str) -> None:
     terminate_session(session_id)
 
 
-def compact_pty(session_id: str, cwd: str) -> str | None:
+def compact_pty(
+    session_id: str,
+    cwd: str | None = None,
+    tools: str = NO_TOOLS,
+) -> str | None:
     """
     Send /compact to the session and collect the summary text.
     Returns the response text or None on failure.
@@ -581,7 +700,7 @@ def compact_pty(session_id: str, cwd: str) -> str | None:
     if not lock.acquire(timeout=30):
         return None
     try:
-        proc = get_or_spawn(session_id, cwd)
+        proc = get_or_spawn(session_id, cwd, tools=tools, allow_slash_commands=True)
         _send_message(proc, "/compact")
         parts = []
         for event_type, payload in _read_turn(proc, session_id):

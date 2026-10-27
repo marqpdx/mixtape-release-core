@@ -345,7 +345,7 @@ def generate_linkedin_copy_with_claude_code(
             raise ValueError("ActionRun initiator does not match dispatched principal.")
 
         run_as_user = None
-        cwd = str(settings.BASE_DIR)
+        home_dir = None
         runtime = None
         group = Group.objects.filter(pk=tenant_id, is_active=True).first()
         if group:
@@ -363,7 +363,7 @@ def generate_linkedin_copy_with_claude_code(
             if allowed_modes and not allowed_modes.intersection(accepted_modes):
                 raise RuntimeError("Tenant Claude runtime does not permit LinkedIn copy generation.")
             run_as_user = runtime.linux_user
-            cwd = runtime.home_dir
+            home_dir = runtime.home_dir
         else:
             logger.warning(
                 "[linkedin-copy] no TenantClaudeRuntime for tenant=%s; using server Claude login",
@@ -375,8 +375,8 @@ def generate_linkedin_copy_with_claude_code(
             title=str(synopsis_payload.get("title") or ""),
             excerpt=str(synopsis_payload.get("excerpt") or ""),
             body_preview=str(synopsis_payload.get("body_preview") or ""),
-            cwd=cwd,
             run_as_user=run_as_user,
+            home_dir=home_dir,
         )
         result.update(
             {

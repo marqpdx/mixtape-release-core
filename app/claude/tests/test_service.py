@@ -102,6 +102,104 @@ class TestRunBlocking(unittest.TestCase):
         self.assertIn("tob-catalyst", args[0])
 
 
+class TestLockdown(unittest.TestCase):
+    """ST-2: no tools unless named, empty scratch cwd, no MCP/hooks/saved session."""
+
+    def setUp(self):
+        claude_service._cli_supports.cache_clear()
+
+    def _ok(self):
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "ok"
+        mock_result.stderr = ""
+        return mock_result
+
+    def test_default_run_has_no_tools_and_no_mcp_or_hooks(self):
+        with patch("claude.service._cli_supports", return_value=False), \
+             patch("claude.service.subprocess.run", return_value=self._ok()) as mock_run:
+            claude_service.run_blocking("say ok")
+        cmd = mock_run.call_args.args[0]
+        self.assertEqual(cmd[cmd.index("--tools") + 1], "")
+        self.assertIn("--disable-slash-commands", cmd)
+        self.assertIn("--strict-mcp-config", cmd)
+        self.assertIn('{"mcpServers":{}}', cmd)
+        self.assertIn('{"disableAllHooks":true}', cmd)
+        self.assertNotIn("--no-session-persistence", cmd)
+
+    def test_named_tools_are_passed_through(self):
+        with patch("claude.service._cli_supports", return_value=False), \
+             patch("claude.service.subprocess.run", return_value=self._ok()) as mock_run:
+            claude_service.run_blocking("read it", tools=claude_service.READ_ONLY_TOOLS)
+        cmd = mock_run.call_args.args[0]
+        self.assertEqual(cmd[cmd.index("--tools") + 1], "Read,Grep,Glob")
+
+    def test_session_persistence_off_when_cli_supports_it(self):
+        with patch("claude.service._cli_supports", return_value=True), \
+             patch("claude.service.subprocess.run", return_value=self._ok()) as mock_run:
+            claude_service.run_blocking("say ok")
+        self.assertIn("--no-session-persistence", mock_run.call_args.args[0])
+
+    def test_default_cwd_is_an_empty_scratch_dir_removed_afterwards(self):
+        seen = {}
+
+        def fake_run(cmd, **kwargs):
+            seen["cwd"] = kwargs["cwd"]
+            seen["empty"] = os.listdir(kwargs["cwd"]) == []
+            return self._ok()
+
+        with patch("claude.service._cli_supports", return_value=False), \
+             patch("claude.service.subprocess.run", side_effect=fake_run):
+            claude_service.run_blocking("say ok")
+        self.assertTrue(os.path.basename(seen["cwd"]).startswith("claude-run-"))
+        self.assertTrue(seen["empty"])
+        self.assertFalse(os.path.exists(seen["cwd"]))
+
+    def test_scratch_dir_removed_on_timeout(self):
+        seen = {}
+
+        def fake_run(cmd, **kwargs):
+            seen["cwd"] = kwargs["cwd"]
+            raise subprocess.TimeoutExpired("claude", 1)
+
+        with patch("claude.service._cli_supports", return_value=False), \
+             patch("claude.service.subprocess.run", side_effect=fake_run):
+            result = claude_service.run_blocking("say ok")
+        self.assertEqual(result.failure, "timeout")
+        self.assertFalse(os.path.exists(seen["cwd"]))
+
+    def test_session_gets_scratch_dir_removed_on_terminate(self):
+        proc = MagicMock()
+        proc.poll.return_value = None
+        with patch("claude.service._cli_supports", return_value=False), \
+             patch("claude.service.subprocess.Popen", return_value=proc) as mock_popen:
+            claude_service.get_or_spawn("lockdown-session")
+            kwargs = mock_popen.call_args.kwargs
+            cmd = mock_popen.call_args.args[0]
+            scratch = kwargs["cwd"]
+            self.assertTrue(os.path.isdir(scratch))
+            self.assertEqual(cmd[cmd.index("--tools") + 1], "")
+            self.assertIn("--disable-slash-commands", cmd)
+            claude_service.terminate_session("lockdown-session")
+        self.assertFalse(os.path.exists(scratch))
+        self.assertNotIn("lockdown-session", claude_service._session_registry)
+
+    def test_atrium_style_session_keeps_slash_commands(self):
+        proc = MagicMock()
+        proc.poll.return_value = None
+        with patch("claude.service._cli_supports", return_value=False), \
+             patch("claude.service.subprocess.Popen", return_value=proc) as mock_popen:
+            claude_service.get_or_spawn(
+                "atrium-session", "/tmp",
+                tools=claude_service.READ_ONLY_TOOLS, allow_slash_commands=True,
+            )
+            claude_service.terminate_session("atrium-session")
+        cmd = mock_popen.call_args.args[0]
+        self.assertEqual(mock_popen.call_args.kwargs["cwd"], "/tmp")
+        self.assertNotIn("--disable-slash-commands", cmd)
+        self.assertTrue(os.path.isdir("/tmp"))  # a caller's cwd is never removed
+
+
 class TestStream(unittest.TestCase):
     """
     Integration smoke test — skip unless `claude` binary is on PATH.

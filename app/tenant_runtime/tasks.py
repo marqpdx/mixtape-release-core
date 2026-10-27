@@ -116,7 +116,9 @@ def run_tenant_claude_login(self, runtime_id: str):
 
         # Exit 0 — run pre-flight verification
         logger.info("[tenant_runtime] auth login exited 0, running pre-flight session=%s", session.id)
-        result = run_blocking("say ok", cwd=runtime.home_dir, run_as_user=runtime.linux_user, timeout=30)
+        result = run_blocking(
+            "say ok", run_as_user=runtime.linux_user, home_dir=runtime.home_dir, timeout=30, tools="",
+        )
 
         if result.failure == "auth_failure":
             session.status = TenantClaudeLoginSession.STATUS_FAILED

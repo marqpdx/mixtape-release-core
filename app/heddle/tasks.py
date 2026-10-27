@@ -68,7 +68,7 @@ def run_cloud_interpretation(*, action_run_id, reading: Reading, apply_fn):
             raise InterpretationError("cloud_approval_not_permitted")
         runtime = person_runtime(author, reading=reading)
         from claude.service import run_blocking
-        result = run_blocking(data["prompt"], cwd=runtime.home_dir,
+        result = run_blocking(data["prompt"],
             run_as_user=runtime.linux_user, home_dir=runtime.home_dir, timeout=180, tools="")
         if result.failure:
             raise InterpretationError(result.failure if result.failure in {"auth_failure", "timeout"} else "execution_failed")
