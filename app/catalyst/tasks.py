@@ -261,7 +261,9 @@ def _runtime_preflight(group, codex_cwd: str) -> tuple[str | None, str | None]:
     if runtime.status != TenantClaudeRuntime.STATUS_READY:
         return None, f"auth_failure: runtime status={runtime.status} for group={group.slug}"
 
-    result = run_blocking("say ok", cwd=codex_cwd, run_as_user=runtime.linux_user, timeout=30)
+    result = run_blocking(
+        "say ok", run_as_user=runtime.linux_user, home_dir=runtime.home_dir, timeout=30, tools="",
+    )
     if result.failure == "auth_failure":
         runtime.status = TenantClaudeRuntime.STATUS_LOGIN_REQUIRED
         runtime.last_verification_error = "Pre-flight failed before extraction job."

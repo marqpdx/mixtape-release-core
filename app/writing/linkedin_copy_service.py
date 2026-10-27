@@ -168,11 +168,15 @@ def generate_linkedin_copy(
     title: str,
     excerpt: str,
     body_preview: str,
-    cwd: str,
     run_as_user: str | None = None,
+    home_dir: str | None = None,
     timeout: int = 180,
 ) -> dict:
-    """Run generation and review in one bounded, short-lived Claude session."""
+    """Run generation and review in one bounded, short-lived Claude session.
+
+    The session has no tools and an empty scratch working directory (ST-2):
+    it sees only the text in these prompts.
+    """
     session_id = f"linkedin-copy:{action_run_id}"
     generation_prompt = GENERATION_PROMPT.format(
         title=title or "(untitled)",
@@ -184,9 +188,10 @@ def generate_linkedin_copy(
         generation_text = claude_service.run_session_blocking(
             session_id,
             generation_prompt,
-            cwd,
             run_as_user=run_as_user,
+            home_dir=home_dir,
             timeout=timeout,
+            tools=claude_service.NO_TOOLS,
         )
         if not generation_text:
             raise LinkedInCopyGenerationError("Claude Code generation returned no output.")
@@ -200,9 +205,10 @@ def generate_linkedin_copy(
         validation_text = claude_service.run_session_blocking(
             session_id,
             validation_prompt,
-            cwd,
             run_as_user=run_as_user,
+            home_dir=home_dir,
             timeout=timeout,
+            tools=claude_service.NO_TOOLS,
         )
         if not validation_text:
             raise LinkedInCopyGenerationError("Claude Code review returned no output.")

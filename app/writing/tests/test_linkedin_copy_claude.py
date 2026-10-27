@@ -38,8 +38,8 @@ class LinkedInCopyClaudeServiceTests(SimpleTestCase):
             title="Careful systems",
             excerpt="A grounded excerpt.",
             body_preview="The article opening.",
-            cwd="/tmp",
             run_as_user="tenant-user",
+            home_dir="/home/tenant-user",
         )
 
         self.assertEqual(result["hook"], "Reviewed hook")
@@ -48,8 +48,11 @@ class LinkedInCopyClaudeServiceTests(SimpleTestCase):
         self.assertEqual(run_session_blocking.call_count, 2)
         first_call = run_session_blocking.call_args_list[0]
         self.assertEqual(first_call.args[0], "linkedin-copy:run-123")
-        self.assertEqual(first_call.args[2], "/tmp")
-        self.assertEqual(first_call.kwargs, {"run_as_user": "tenant-user", "timeout": 180})
+        self.assertEqual(len(first_call.args), 2)  # no cwd: an empty scratch directory
+        self.assertEqual(
+            first_call.kwargs,
+            {"run_as_user": "tenant-user", "home_dir": "/home/tenant-user", "timeout": 180, "tools": ""},
+        )
         self.assertEqual(run_session_blocking.call_args_list[1].args[0], "linkedin-copy:run-123")
         terminate_session.assert_called_once_with("linkedin-copy:run-123")
 
@@ -62,7 +65,6 @@ class LinkedInCopyClaudeServiceTests(SimpleTestCase):
                 title="Careful systems",
                 excerpt="",
                 body_preview="The article opening.",
-                cwd="/tmp",
             )
 
         terminate_session.assert_called_once_with("linkedin-copy:run-456")

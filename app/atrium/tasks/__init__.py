@@ -5,8 +5,6 @@
 # rows and store the result in ApertureLog.compact_summary.
 
 import logging
-import subprocess
-import os
 
 from celery import shared_task
 
@@ -112,31 +110,13 @@ def keeper_compact_task(self, session_id: str) -> None:
 def _run_claude_p(prompt: str) -> str | None:
     """
     Run a one-shot `claude -p` summarization call and return the text output.
-    Uses the same API-key-stripped env as the main session subprocess.
+    Goes through the shared runner: no tools, an empty scratch directory,
+    and the API key stripped (ST-2).
     """
-    from django.conf import settings
-    from claude.service import _claude_bin, _strip_api_key
+    from claude.service import NO_TOOLS, run_blocking
 
-    bin_path = _claude_bin()
-    cwd = getattr(settings, "ATRIUM_CLAUDE_CODE_CWD", "") or os.getcwd()
-
-    try:
-        result = subprocess.run(
-            [bin_path, "-p", "--dangerously-skip-permissions", prompt],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            cwd=cwd,
-            env=_strip_api_key(os.environ.copy()),
-        )
-        output = result.stdout.strip()
-        if result.returncode != 0 or not output:
-            logger.warning("[keeper] claude -p exited %d stderr=%s", result.returncode, result.stderr[:200])
-            return None
-        return output
-    except subprocess.TimeoutExpired:
-        logger.warning("[keeper] claude -p timed out for summarization")
+    result = run_blocking(prompt, timeout=120, tools=NO_TOOLS, log_context={"phase": "keeper-summary"})
+    if result.failure:
+        logger.warning("[keeper] claude -p summarization failed: %s", result.failure)
         return None
-    except Exception as exc:
-        logger.warning("[keeper] _run_claude_p failed: %s", exc)
-        return None
+    return result.output

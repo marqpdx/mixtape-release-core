@@ -26,7 +26,6 @@ from __future__ import annotations
 import io
 import json
 import logging
-import os
 import re
 import unicodedata
 import hashlib
@@ -453,7 +452,7 @@ def semantic_analyze(
         )
         raw = claude_service.run_blocking(
             prompt,
-            cwd=codex_cwd or os.getcwd(),
+            tools=claude_service.NO_TOOLS,
             timeout=timeout,
             run_as_user=run_as_user,
             log_context={"phase": "semantic", "file": filename, "chunk": "1/1"},
@@ -478,7 +477,7 @@ def semantic_analyze(
         )
         raw = claude_service.run_blocking(
             prompt,
-            cwd=codex_cwd or os.getcwd(),
+            tools=claude_service.NO_TOOLS,
             timeout=timeout,
             run_as_user=run_as_user,
             log_context={"phase": "semantic", "file": filename, "chunk": f"{i}/{len(chunks)}"},
@@ -1073,12 +1072,11 @@ def _run_extract_on_text(
             shape_contract_block=shape_contract_block,
             content=text,
         )
-    cwd = codex_cwd or os.getcwd()
     if claude_session_id:
         raw = claude_service.run_session_blocking(
             claude_session_id,
             prompt,
-            cwd=cwd,
+            tools=claude_service.NO_TOOLS,
             opening_context=(
                 "You are helping materialize a Catalyst Codex register. "
                 "Each request is an extraction pass. Return only the JSON requested by the prompt."
@@ -1089,7 +1087,7 @@ def _run_extract_on_text(
     else:
         raw = claude_service.run_blocking(
             prompt,
-            cwd=cwd,
+            tools=claude_service.NO_TOOLS,
             timeout=timeout,
             run_as_user=run_as_user,
             log_context={
@@ -1210,7 +1208,7 @@ def extract_food_service_section_bundle(
     )
     raw = claude_service.run_blocking(
         prompt,
-        cwd=codex_cwd or os.getcwd(),
+        tools=claude_service.NO_TOOLS,
         timeout=timeout,
         run_as_user=run_as_user,
         log_context={
