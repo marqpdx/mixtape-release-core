@@ -7,6 +7,13 @@ from pathlib import Path
 from django.conf import settings
 
 
+# Contour is the source for this Shape (ADR-0061 D9): load_shape() reads
+# reference/contour/food-service/recipe.* through OCR_SPIKE_SHAPE_LIBRARY_ROOT,
+# which defaults to Contour (CTO, 2026-10-29). The BUILTIN_* constants below are
+# the August 2026 proof of concept's own copy, kept only as a fallback.
+# Before OCR moves forward (Provisional Data PD-5): drop the fallback and fail
+# loudly when Contour is missing, read the version from recipe.shape.yaml rather
+# than RECIPE_SHAPE_VERSION, and go through Heddle like the other readings.
 RECIPE_SHAPE_ID = "food_service.recipe"
 RECIPE_SHAPE_VERSION = "0.1.0"
 

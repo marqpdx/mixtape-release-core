@@ -87,9 +87,12 @@ INKWELL_OCR_TIMEOUT_SECONDS = int(os.getenv("INKWELL_OCR_TIMEOUT_SECONDS", "240"
 INKWELL_SHAPING_TIMEOUT_SECONDS = int(os.getenv("INKWELL_SHAPING_TIMEOUT_SECONDS", "240"))
 OCR_SPIKE_ENABLED = env.bool("OCR_SPIKE_ENABLED", default=False)
 OCR_SPIKE_LOCAL_ENGINES = os.getenv("OCR_SPIKE_LOCAL_ENGINES", "tesseract,paddleocr")
+# The OCR spike reads its recipe Shape from Contour, like Catalyst (CTO, 2026-10-29;
+# ADR-0061 D9). Its old default, puddlejump/zz/shape-library, no longer exists, so it
+# had been running on its built-in copy. Same default as CONTOUR_ROOT below.
 OCR_SPIKE_SHAPE_LIBRARY_ROOT = os.getenv(
     "OCR_SPIKE_SHAPE_LIBRARY_ROOT",
-    str((BASE_DIR / ".." / "puddlejump" / "zz" / "shape-library").resolve()),
+    os.getenv("CONTOUR_ROOT", str((BASE_DIR / ".." / ".." / "puddlejump" / "reference" / "contour").resolve())),
 )
 OCR_SPIKE_PDF_RENDERER = os.getenv("OCR_SPIKE_PDF_RENDERER", "pdftoppm")
 OCR_SPIKE_PDFTOPPM_CMD = os.getenv("OCR_SPIKE_PDFTOPPM_CMD", "pdftoppm")
