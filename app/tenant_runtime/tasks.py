@@ -27,13 +27,13 @@ def run_tenant_claude_login(self, runtime_id: str):
 
     Flow:
       1. Create TenantClaudeLoginSession (status: starting).
-      2. Spawn subprocess via runuser — stdout contains the login URL.
+      2. Spawn the subprocess as the runtime's Linux user (sudo) — stdout contains the login URL.
       3. Read stdout lines until a https:// URL is found; save it and set status: awaiting_auth.
       4. Wait for process exit (Anthropic server-side polling resolves the login).
       5. On exit 0: run pre-flight verification; set runtime status: ready.
       6. On non-zero exit or timeout: set session/runtime to failed/expired.
     """
-    from claude.service import run_blocking
+    from claude.service import login_argv, run_blocking
     from tenant_runtime.models import TenantClaudeLoginSession, TenantClaudeRuntime
 
     try:
@@ -55,7 +55,7 @@ def run_tenant_claude_login(self, runtime_id: str):
     proc = None
     try:
         proc = subprocess.Popen(
-            ["runuser", "-u", runtime.linux_user, "--", "claude", "auth", "login"],
+            login_argv(runtime.linux_user),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -172,6 +172,7 @@ def run_tenant_codex_login(self, runtime_id: str):
     Credential truth stays in CODEX_HOME. The login URL and one-time device
     code are saved for admin display only.
     """
+    from cloud_agents.subprocess import run_as_argv
     from codex import service as codex_service
     from tenant_runtime.models import TenantCodexLoginSession, TenantCodexRuntime
 
@@ -196,17 +197,10 @@ def run_tenant_codex_login(self, runtime_id: str):
     proc = None
     try:
         proc = subprocess.Popen(
-            [
-                "runuser",
-                "-u",
+            run_as_argv(
                 runtime.linux_user,
-                "--",
-                "codex",
-                "login",
-                "--device-auth",
-                "-c",
-                'cli_auth_credentials_store="file"',
-            ],
+                ["codex", "login", "--device-auth", "-c", 'cli_auth_credentials_store="file"'],
+            ),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -337,3 +331,49 @@ def run_tenant_codex_login(self, runtime_id: str):
         if proc is not None and proc.poll() is None:
             proc.kill()
             proc.wait()
+
+
+def verify_claude_runtime(runtime) -> str:
+    """
+    Check a runtime's sign-in with `claude auth status` (no model call) and record it.
+
+    Returns "ready", "needs_sign_in" or "unknown". Readiness is only ever *granted* by
+    the login task's preflight; this check can confirm it or take it away, never give it.
+    """
+    from claude.service import auth_status
+    from tenant_runtime.models import TenantClaudeRuntime
+
+    if not runtime.linux_user:
+        return "unknown"
+    status = auth_status(runtime.linux_user, runtime.home_dir)
+    if status is None:
+        runtime.last_verification_error = "Could not check the sign-in (the CLI did not answer)."
+        runtime.save(update_fields=["last_verification_error", "updated_at"])
+        return "unknown"
+    if status.get("loggedIn") is True:
+        if runtime.status == TenantClaudeRuntime.STATUS_READY:
+            runtime.last_verified_at = timezone.now()
+            runtime.last_verification_error = ""
+            runtime.save(update_fields=["last_verified_at", "last_verification_error", "updated_at"])
+            return "ready"
+        return "unknown"
+    runtime.status = TenantClaudeRuntime.STATUS_LOGIN_REQUIRED
+    runtime.last_verification_error = "Signed out or sign-in expired."
+    runtime.save(update_fields=["status", "last_verification_error", "updated_at"])
+    return "needs_sign_in"
+
+
+@shared_task(name="tenant_runtime.check_ready_claude_runtimes")
+def check_ready_claude_runtimes():
+    """Daily: every READY Claude runtime is still signed in, or moves to login_required."""
+    from tenant_runtime.models import TenantClaudeRuntime
+
+    results = {}
+    for runtime in TenantClaudeRuntime.objects.filter(status=TenantClaudeRuntime.STATUS_READY):
+        try:
+            results[str(runtime.id)] = verify_claude_runtime(runtime)
+        except Exception:
+            logger.exception("[tenant_runtime] check failed for runtime %s", runtime.id)
+            results[str(runtime.id)] = "error"
+    logger.info("[tenant_runtime] daily runtime check: %s", results)
+    return results

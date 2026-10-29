@@ -35,9 +35,22 @@ def provider_env(
     return env
 
 
-def runuser_argv(linux_user: str | None, argv: list[str]) -> list[str]:
-    """Prefix argv with runuser when a tenant Linux identity is supplied."""
+def run_as_argv(linux_user: str | None, argv: list[str]) -> list[str]:
+    """
+    Prefix argv so it runs as a runtime's Linux user.
+
+    Workers run unprivileged (systemd User=crossroads), so `runuser` (root only)
+    cannot work. A narrow sudo rule allows exactly the provider CLIs, as members of
+    the runtime group only (Service Trust ST-3, decision S1):
+
+        crossroads ALL=(%mixtape-runtimes) NOPASSWD: /usr/local/bin/claude, /usr/local/bin/codex
+
+    -n never prompts; -H sets HOME from the target user's passwd entry, so each CLI
+    finds its own login under that home. sudo resets the environment: provider keys
+    never reach the CLI, and provider home variables (CODEX_HOME) fall back to the
+    CLI's default under HOME.
+    """
     if not linux_user:
         return argv
-    return ["runuser", "-u", linux_user, "--", *argv]
+    return ["sudo", "-n", "-H", "-u", linux_user, "--", *argv]
 

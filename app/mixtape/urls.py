@@ -148,6 +148,7 @@ urlpatterns = [
     # Catalyst — Codex ingest and materialization
     path("api/catalyst/", include("catalyst.api.urls")),
     path("api/tenant-runtime/", include("tenant_runtime.api.urls")),
+    path("api/me/ai-accounts/", include("tenant_runtime.api.person_urls")),  # your own AI accounts (ST-3)
     path("api/shuttle/", include("shuttle.api.urls")),
 
     # === END PHASE 4 ENDPOINTS ===

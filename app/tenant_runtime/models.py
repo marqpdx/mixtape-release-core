@@ -4,6 +4,7 @@ import uuid
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
 from cloud_agents.constants import PROVIDER_OPENAI_CODEX
@@ -16,8 +17,9 @@ class TenantClaudeRuntime(models.Model):
     The credential truth lives in ~/.claude/ in the tenant's Linux home directory —
     nothing secret is stored here. This record tracks operational state only.
 
-    Tenant is polymorphic (currently always a Group, but wired to accept any model
-    so Atrium and other surfaces can share this layer without structural changes).
+    Tenant is polymorphic: a person (users.CustomUser) for personal runtimes, the
+    only kind new work uses (Service Trust ST-3), or a Group for the older Group
+    runtimes, which retire as their callers move to the person who starts the work.
     """
 
     STATUS_NOT_CONFIGURED = "not_configured"
@@ -87,6 +89,18 @@ class TenantClaudeRuntime(models.Model):
         ordering = ["-created_at"]
         verbose_name = "Tenant Claude Runtime"
         verbose_name_plural = "Tenant Claude Runtimes"
+        constraints = [
+            # One runtime per tenant and provider; lookups no longer need .first() to be safe.
+            models.UniqueConstraint(
+                fields=["tenant_content_type", "tenant_object_id", "provider"],
+                name="uniq_claude_runtime_per_tenant_provider",
+            ),
+            # A Linux user belongs to one runtime owner (Service Trust ST-3).
+            models.UniqueConstraint(
+                fields=["linux_user"], condition=~Q(linux_user=""),
+                name="uniq_claude_runtime_linux_user",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.linux_user} [{self.status}]"
@@ -252,6 +266,16 @@ class TenantCodexRuntime(models.Model):
         ordering = ["-created_at"]
         verbose_name = "Tenant Codex Runtime"
         verbose_name_plural = "Tenant Codex Runtimes"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant_content_type", "tenant_object_id", "provider"],
+                name="uniq_codex_runtime_per_tenant_provider",
+            ),
+            models.UniqueConstraint(
+                fields=["linux_user"], condition=~Q(linux_user=""),
+                name="uniq_codex_runtime_linux_user",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.linux_user} [{self.status}]"

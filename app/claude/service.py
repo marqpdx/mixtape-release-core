@@ -49,6 +49,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Literal
 
+from cloud_agents.subprocess import run_as_argv
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_SESSION_TURN_TIMEOUT = int(os.getenv("CLAUDE_SESSION_TURN_TIMEOUT", "300"))
@@ -114,11 +116,11 @@ def _make_scratch_dir(run_as_user: str | None) -> str:
     root = os.getenv("CLAUDE_SCRATCH_ROOT") or None
     path = tempfile.mkdtemp(prefix="claude-run-", dir=root)
     if run_as_user:
-        try:
+        # Workers run unprivileged and cannot chown to the runtime user; the run needs
+        # only to enter an empty folder, so make it traversable. Under root, hand it over.
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
             shutil.chown(path, user=run_as_user)
-        except Exception as exc:
-            # runuser needs root, so chown normally succeeds; fall back to traversable.
-            logger.warning("[claude] scratch chown to %s failed (%s); opening permissions", run_as_user, exc)
+        else:
             os.chmod(path, 0o755)
     return path
 
@@ -145,6 +147,57 @@ def _working_dir(cwd: str | None, run_as_user: str | None) -> Iterator[str]:
 # run_blocking / stream — one-shot -p variants
 # ---------------------------------------------------------------------------
 
+
+def auth_status(run_as_user: str, home_dir: str | None = None, timeout: int = 20) -> dict | None:
+    """
+    Ask the CLI whether the runtime user is signed in, without a model call.
+
+    Returns the parsed `claude auth status --json` (loggedIn, authMethod, …) or None
+    when the CLI could not be run or its output was not JSON. Callers keep only the
+    non-identifying fields they need; the email and org are never stored.
+    """
+    cmd = run_as_argv(run_as_user, [_claude_bin(), "auth", "status", "--json"])
+    env = _strip_api_key(os.environ.copy())
+    env["HOME"] = home_dir or f"/home/{run_as_user}"
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        logger.warning("[claude] auth status failed to run for %s: %s", run_as_user, exc)
+        return None
+    try:
+        data = json.loads(result.stdout or "")
+    except ValueError:
+        logger.warning(
+            "[claude] auth status for %s exit=%s gave no JSON: %r",
+            run_as_user, result.returncode, (result.stderr or result.stdout or "")[:300],
+        )
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def login_argv(run_as_user: str) -> list[str]:
+    """The `claude auth login` command line for a runtime user (run by tenant_runtime's login task)."""
+    return run_as_argv(run_as_user, [_claude_bin(), "auth", "login"])
+
+
+def logout(run_as_user: str, home_dir: str | None = None, timeout: int = 30) -> bool:
+    """Sign the runtime user out of the CLI, removing its saved login. True on success."""
+    cmd = run_as_argv(run_as_user, [_claude_bin(), "auth", "logout"])
+    env = _strip_api_key(os.environ.copy())
+    env["HOME"] = home_dir or f"/home/{run_as_user}"
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        logger.warning("[claude] auth logout failed to run for %s: %s", run_as_user, exc)
+        return False
+    if result.returncode != 0:
+        logger.warning(
+            "[claude] auth logout for %s exit=%s: %r",
+            run_as_user, result.returncode, (result.stderr or result.stdout or "")[:300],
+        )
+    return result.returncode == 0
+
+
 def run_blocking(
     prompt: str,
     cwd: str | None = None,
@@ -156,7 +209,7 @@ def run_blocking(
 ) -> ClaudeResult:
     """
     Run claude -p with a prompt via stdin. Returns a ClaudeResult.
-    When run_as_user is set, the subprocess runs via runuser as that Linux user
+    When run_as_user is set, the subprocess runs as that Linux user (sudo, see run_as_argv)
     with HOME set explicitly so ~/.claude/ credentials resolve correctly.
     tools: "" (default) disables all tools; name them to allow some.
     cwd: omit for an empty scratch directory (the default and the safe choice).
@@ -170,10 +223,9 @@ def run_blocking(
 
     env = _strip_api_key(os.environ.copy())
     if run_as_user:
-        cmd = [
-            "runuser", "-u", run_as_user, "--", bin_path,
-            "-p", "--dangerously-skip-permissions", "--output-format", "json",
-        ]
+        cmd = run_as_argv(run_as_user, [
+            bin_path, "-p", "--dangerously-skip-permissions", "--output-format", "json",
+        ])
         env["HOME"] = home_dir or f"/home/{run_as_user}"
     else:
         cmd = [bin_path, "-p", "--dangerously-skip-permissions", "--output-format", "json"]
@@ -329,7 +381,7 @@ def get_or_spawn(
     if the registry entry is missing or the process has exited.
 
     opening_context: if provided, sent as the first user message before returning.
-    run_as_user: when set, spawns the subprocess via runuser as that Linux user.
+    run_as_user: when set, spawns the subprocess as that Linux user (sudo, see run_as_argv).
     tools / cwd: as for run_blocking; a scratch cwd lives as long as the session.
     allow_slash_commands: Atrium needs /compact; batch callers do not.
     """
@@ -360,7 +412,7 @@ def get_or_spawn(
             *_lockdown_args(tools, allow_slash_commands=allow_slash_commands),
         ]
         if run_as_user:
-            cmd = ["runuser", "-u", run_as_user, "--", bin_path, *session_args]
+            cmd = run_as_argv(run_as_user, [bin_path, *session_args])
             env["HOME"] = home_dir or f"/home/{run_as_user}"
         else:
             cmd = [bin_path, *session_args]
@@ -607,7 +659,7 @@ def run_session_blocking(
 
     This is for batch workers that need the speed/context benefits of the Atrium
     wrapper but want a simple blocking string result instead of SSE events.
-    When run_as_user is set, the subprocess spawns via runuser as that Linux user.
+    When run_as_user is set, the subprocess spawns as that Linux user (sudo, see run_as_argv).
     """
     chunks: list[str] = []
     errors: list[str] = []

@@ -72,7 +72,7 @@ class TestCodexRunBlocking(unittest.TestCase):
 
         self.assertEqual(result.output, "ok")
         args, kwargs = mock_run.call_args
-        self.assertEqual(args[0][:4], ["runuser", "-u", "tenant-a", "--"])
+        self.assertEqual(args[0][:6], ["sudo", "-n", "-H", "-u", "tenant-a", "--"])
         self.assertIn("exec", args[0])
         self.assertIn("--json", args[0])
         self.assertIn("--sandbox", args[0])
