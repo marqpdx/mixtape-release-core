@@ -16,13 +16,13 @@ import hashlib
 from uuid import uuid4
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from django.utils import timezone
 
 from initiatives.models import ActionRun, ActionRunStatus, ActionRunExecutionMode, ActionRunInitiatorType
 from mixtape.celery_app import app as celery_app
-from tenant_runtime.models import TenantClaudeRuntime
+from tenant_runtime.resolve import RuntimeUnavailable
+from tenant_runtime.resolve import person_runtime as resolve_person_runtime
 
 from .contract import Reading, source_digest
 from .errors import InterpretationError
@@ -43,16 +43,10 @@ def owned_parent(action_run_id, author, *, tool_name, lock=False, allow_abandone
 
 
 def person_runtime(author, *, reading: Reading):
-    runtime = TenantClaudeRuntime.objects.filter(
-        tenant_content_type=ContentType.objects.get_for_model(get_user_model()),
-        tenant_object_id=author.pk).first()
-    if runtime is None:
-        raise InterpretationError("runtime_missing", 409)
-    if runtime.status != TenantClaudeRuntime.STATUS_READY or not runtime.linux_user or not runtime.home_dir:
-        raise InterpretationError("runtime_not_ready", 409)
-    if reading.capability not in (runtime.allowed_ai_modes or []):
-        raise InterpretationError("mode_not_allowed", 403)
-    return runtime
+    try:
+        return resolve_person_runtime(author, reading.capability)
+    except RuntimeUnavailable as exc:
+        raise InterpretationError(exc.code, 403 if exc.code == "mode_not_allowed" else 409) from exc
 
 
 def snapshot(parent, *, reading: Reading):

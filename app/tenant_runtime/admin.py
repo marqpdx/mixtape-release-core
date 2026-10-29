@@ -20,10 +20,13 @@ class TenantClaudeRuntimeAdmin(admin.ModelAdmin):
         "created_at",
     )
     list_filter = ("status", "provider", "privacy_mode")
+    # Status is earned by verification (login preflight, auth status), never set by hand (ST-3).
     readonly_fields = (
         "id",
         "tenant_content_type",
         "tenant_object_id",
+        "status",
+        "last_verified_at",
         "created_at",
         "updated_at",
     )
@@ -47,6 +50,8 @@ class TenantClaudeRuntimeAdmin(admin.ModelAdmin):
 
 @admin.register(TenantClaudeLoginSession)
 class TenantClaudeLoginSessionAdmin(admin.ModelAdmin):
+    # A person's sign-in link is theirs alone; staff never see it (ST-3, decision S5).
+    exclude = ("login_url",)
     list_display = (
         "id",
         "runtime",
@@ -80,10 +85,13 @@ class TenantCodexRuntimeAdmin(admin.ModelAdmin):
         "created_at",
     )
     list_filter = ("status", "provider", "auth_method", "privacy_mode")
+    # Status is earned by verification (login preflight, auth status), never set by hand (ST-3).
     readonly_fields = (
         "id",
         "tenant_content_type",
         "tenant_object_id",
+        "status",
+        "last_verified_at",
         "created_at",
         "updated_at",
     )
@@ -107,6 +115,7 @@ class TenantCodexRuntimeAdmin(admin.ModelAdmin):
 
 @admin.register(TenantCodexLoginSession)
 class TenantCodexLoginSessionAdmin(admin.ModelAdmin):
+    exclude = ("login_url", "login_code")
     list_display = (
         "id",
         "runtime",

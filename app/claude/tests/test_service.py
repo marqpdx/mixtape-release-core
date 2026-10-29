@@ -88,7 +88,7 @@ class TestRunBlocking(unittest.TestCase):
         self.assertIsNone(result.output)
         self.assertEqual(result.failure, "empty")
 
-    def test_run_as_user_prepends_runuser(self):
+    def test_run_as_user_switches_user_with_sudo(self):
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_result.stdout = "ok"
@@ -97,9 +97,8 @@ class TestRunBlocking(unittest.TestCase):
             result = claude_service.run_blocking("say ok", cwd="/tmp", run_as_user="tob-catalyst")
         self.assertEqual(result.output, "ok")
         args, _ = mock_run.call_args
-        self.assertEqual(args[0][0], "runuser")
-        self.assertIn("-u", args[0])
-        self.assertIn("tob-catalyst", args[0])
+        # Workers are unprivileged: a narrow sudo rule, never runuser (ST-3, S1).
+        self.assertEqual(args[0][:6], ["sudo", "-n", "-H", "-u", "tob-catalyst", "--"])
 
 
 class TestLockdown(unittest.TestCase):
@@ -233,3 +232,29 @@ class TestStreamJsonSession(unittest.TestCase):
 
         self.assertEqual(events, [("error", "Claude Code timed out after 0.01s.")])
         proc.kill.assert_called_once()
+
+
+class TestAuthCommands(unittest.TestCase):
+    def test_auth_status_parses_json_as_runtime_user(self):
+        mock_result = MagicMock(returncode=0, stdout='{"loggedIn": true, "authMethod": "claude.ai"}', stderr="")
+        with patch("claude.service.subprocess.run", return_value=mock_result) as mock_run:
+            status = claude_service.auth_status("mxr-abc", "/home/mxr-abc")
+        self.assertEqual(status["loggedIn"], True)
+        argv = mock_run.call_args[0][0]
+        self.assertEqual(argv[:6], ["sudo", "-n", "-H", "-u", "mxr-abc", "--"])
+        self.assertEqual(argv[-3:], ["auth", "status", "--json"])
+
+    def test_auth_status_returns_none_when_not_json(self):
+        mock_result = MagicMock(returncode=1, stdout="sudo: a password is required", stderr="")
+        with patch("claude.service.subprocess.run", return_value=mock_result):
+            self.assertIsNone(claude_service.auth_status("mxr-abc"))
+
+    def test_logout_reports_failure(self):
+        mock_result = MagicMock(returncode=1, stdout="", stderr="nope")
+        with patch("claude.service.subprocess.run", return_value=mock_result):
+            self.assertFalse(claude_service.logout("mxr-abc"))
+
+    def test_login_argv_runs_as_user(self):
+        argv = claude_service.login_argv("mxr-abc")
+        self.assertEqual(argv[:6], ["sudo", "-n", "-H", "-u", "mxr-abc", "--"])
+        self.assertEqual(argv[-2:], ["auth", "login"])

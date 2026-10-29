@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from cloud_agents.policies import AgentExecutionPolicy, resolve_policy
-from cloud_agents.subprocess import provider_env, runuser_argv
+from cloud_agents.subprocess import provider_env, run_as_argv
 
 
 logger = logging.getLogger(__name__)
@@ -223,7 +223,7 @@ def run_blocking(
         output_schema=output_schema,
         ephemeral=ephemeral,
     )
-    cmd = runuser_argv(run_as_user, argv)
+    cmd = run_as_argv(run_as_user, argv)
     env = _env_for(run_as_user=run_as_user, home_dir=home_dir)
     logger.info("[codex] run_blocking: cwd=%s timeout=%ds run_as_user=%s", cwd, timeout, run_as_user)
 
@@ -268,7 +268,7 @@ def resume_blocking(
         output_schema=output_schema,
         resume_session_id=provider_session_id,
     )
-    cmd = runuser_argv(run_as_user, argv)
+    cmd = run_as_argv(run_as_user, argv)
     env = _env_for(run_as_user=run_as_user, home_dir=home_dir)
     logger.info(
         "[codex] resume_blocking: provider_session=%s cwd=%s timeout=%ds run_as_user=%s",
@@ -316,7 +316,7 @@ def stream_exec(
         policy=policy,
         resume_session_id=provider_session_id,
     )
-    cmd = runuser_argv(run_as_user, argv)
+    cmd = run_as_argv(run_as_user, argv)
     env = _env_for(run_as_user=run_as_user, home_dir=home_dir)
     turn_timeout = timeout or DEFAULT_CODEX_TIMEOUT
     stdout = []
@@ -426,7 +426,7 @@ def terminate_session(local_process_id_or_session_id: str) -> None:
 
 
 def login_status(run_as_user: str | None = None, home_dir: str | None = None) -> CodexResult:
-    cmd = runuser_argv(
+    cmd = run_as_argv(
         run_as_user,
         [_codex_bin(), "login", "status", "-c", 'cli_auth_credentials_store="file"'],
     )
@@ -452,7 +452,7 @@ def login_status(run_as_user: str | None = None, home_dir: str | None = None) ->
 
 
 def logout(run_as_user: str | None = None, home_dir: str | None = None) -> CodexResult:
-    cmd = runuser_argv(
+    cmd = run_as_argv(
         run_as_user,
         [_codex_bin(), "logout", "-c", 'cli_auth_credentials_store="file"'],
     )

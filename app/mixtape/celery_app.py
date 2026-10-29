@@ -433,6 +433,10 @@ app.conf.beat_schedule = {
         "task": "console.tasks.register_inbox_keeper_task",
         "schedule": 300.0,  # every 5 minutes — same rationale as RecencyKeeper's heartbeat (K-7)
     },
+    "check-ready-claude-runtimes": {
+        "task": "tenant_runtime.check_ready_claude_runtimes",
+        "schedule": 86400.0,  # daily — an expired sign-in shows in Settings before a task fails on it (ST-3)
+    },
 }
 
 # Discover tasks.py in all INSTALLED_APPS
