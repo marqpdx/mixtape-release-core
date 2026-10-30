@@ -506,6 +506,13 @@ class ProvisionalData(BaseModel):
             models.Index(fields=["source_type", "source_external_id"]),
             models.Index(fields=["freshness", "state"]),
         ]
+        constraints = [
+            # Every record has a sponsor, a group or a member, like WorkingSet (Provisional Data PD-7).
+            models.CheckConstraint(
+                condition=models.Q(group__isnull=False) | models.Q(owner_user__isnull=False),
+                name="sourcework_provisional_data_has_sponsor",
+            ),
+        ]
 
     def __str__(self):
         label = self.normalized_payload.get("title") or self.normalized_payload.get("preferred_name") or str(self.id)
