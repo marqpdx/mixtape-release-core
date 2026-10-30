@@ -289,3 +289,18 @@ def _gmail_service_mock(*, labels=None, profile=None):
             return _Users()
 
     return _Service()
+
+
+class ProvisionalDataSponsorTests(TestCase):
+    """Every record has a sponsor, a group or a member (Provisional Data PD-7)."""
+
+    def test_member_alone_is_a_sponsor(self):
+        user = User.objects.create_user(username="pd-sponsor", password="pass")
+        record = ProvisionalData.objects.create(owner_user=user, kind="opportunity_candidate", source_type="dice")
+        self.assertIsNone(record.group)
+
+    def test_record_without_a_sponsor_is_refused(self):
+        from django.db import IntegrityError, transaction
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            ProvisionalData.objects.create(kind="opportunity_candidate", source_type="dice")
