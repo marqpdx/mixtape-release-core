@@ -386,6 +386,20 @@ class ProvisionalData(BaseModel):
         db_index=True,
         help_text="Record type: 'recruiter_contact', 'opportunity_candidate', etc.",
     )
+    shape_id = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text="Contour Shape id that shaped this record, when `kind` is a Shape "
+                   "reference rather than a pre-Contour free-text kind (PD-5, HD-8).",
+    )
+    shape_version = models.CharField(
+        max_length=40,
+        blank=True,
+        default="",
+        help_text="Contour Shape version `shape_id` was validated against (PD-5, HD-8).",
+    )
     source_type = models.CharField(
         max_length=80,
         db_index=True,
