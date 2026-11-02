@@ -117,8 +117,10 @@ class CommonsItem(BaseContent):
 
 class Leaf(RichBodyMixin, BaseModel):
     """
-    First-class Commons content unit (formerly the Storyline content unit;
-    Storyline is superseded by ADR-0049 — see commons-adr.md D1/D2).
+    First-class Commons content unit (formerly the Storyline content unit,
+    ADR-0049, commons-adr.md D1/D2). Storyline now names the feed of a member's
+    or Group's LeafPlacements, a Named Lens; a Storyboard may draw a Leaf from
+    it by reference (puddlejump reference/glossary/hand-touch/storyboard.md).
     Sits between Seed (private capture) and WritingPiece (structured publication).
 
     Two kinds (one model):
