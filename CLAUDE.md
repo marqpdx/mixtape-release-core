@@ -4,6 +4,26 @@ Django backend monolith for the Mixtape platform.
 
 ---
 
+## Meridian — Code Intelligence Layer (interim)
+
+This repo is indexed by CodeGraph (`.codegraph/` at the repo root), Meridian's
+Phase 1 structural index (ADR-0051). Use it before grep/find or reading files
+to understand or locate code:
+
+- **MCP tool** (when available): `codegraph_explore` — one call returns the
+  relevant symbols' source plus call paths between them, including
+  dynamic-dispatch hops grep can't follow.
+- **Shell** (always works): `codegraph explore "<symbol names or question>"`.
+
+This is Meridian Phase 1 only — there is no shared Switchboard-routed index
+yet (waits on SW-11) and no Meridian/Wiki narrative layer yet (Phase 1.5,
+blocked on Inkwell). Don't expect `repo_overview`, `trace_model`,
+`query_governing_docs`, or any other Phase 2 tool named in
+`../puddlejump/decisions/meridian-adr/meridian-claude-block.md` — that block
+documents a later phase and isn't live yet.
+
+---
+
 ## ADR Status Protocol
 
 When implementation work in this repo is governed by an ADR: read `{adr-name}-status.md` (in `../puddlejump/decisions/`) at the start of every session. Update the checkpoint table (row → ✅, commit hash) as phases complete. If no status file exists for the ADR, flag it — one should have been created at ratification.
