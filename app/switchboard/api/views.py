@@ -9,6 +9,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.decorators import authentication_classes
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
 
 from initiatives.api.serializers import NoteSerializer, ReminderSerializer, TaskSerializer
 from initiatives.services import (
@@ -25,6 +26,7 @@ from initiatives.models import (
     ActionRunStatus,
 )
 from livewire.auth import InternalServiceAuthentication
+from livewire.permissions import HasAuthorizationReadScope
 from mixtape.celery_app import app as celery_app
 from switchboard.api.serializers import (
     AgentAddCommandSerializer,
@@ -55,6 +57,72 @@ _DEFAULT_TENANT_NAMESPACE = getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESP
 
 
 _VALID_SURFACES = {"console", "puddlejump"}
+
+
+@api_view(["POST"])
+@authentication_classes([InternalServiceAuthentication])
+@permission_classes([HasAuthorizationReadScope])
+def authorize_tool_request(request):
+    """
+    SW-11.4: the live decision Switchboard's DjangoAuthClient calls for
+    every /tools/* request. An ordinary deny is a 200 with allowed=False —
+    Switchboard's own AuthorizationService turns that into the 403 the
+    caller sees. Only a malformed request or a failed service auth at this
+    endpoint itself is an HTTP error; this view never raises for a tenant
+    or actor it simply doesn't recognize.
+    """
+    from django.contrib.auth import get_user_model
+
+    User = get_user_model()
+
+    tenant = request.data.get("tenant") or {}
+    tenant_id = tenant.get("id")
+    tenant_namespace = tenant.get("namespace")
+    if not tenant_id or not tenant_namespace:
+        return Response(
+            {"detail": "tenant.id and tenant.namespace are required."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    def _denied(reason):
+        return Response(
+            {
+                "allowed": False,
+                "tenant_id": tenant_id,
+                "tenant_namespace": tenant_namespace,
+                "principal": {"user_id": None, "service_token_id": None},
+                "reason": reason,
+            }
+        )
+
+    if str(tenant_id) != str(_DEFAULT_TENANT_ID) or tenant_namespace != _DEFAULT_TENANT_NAMESPACE:
+        return _denied("unknown_tenant")
+
+    actor = request.data.get("actor") or {}
+    user_id = actor.get("user_id")
+    service_token_id = actor.get("service_token_id")
+
+    if not user_id and not service_token_id:
+        return _denied("actor_required")
+
+    resolved_user_id = None
+    if user_id:
+        if not User.objects.filter(pk=user_id).exists():
+            return _denied("unknown_user")
+        resolved_user_id = str(user_id)
+
+    return Response(
+        {
+            "allowed": True,
+            "tenant_id": tenant_id,
+            "tenant_namespace": tenant_namespace,
+            "principal": {
+                "user_id": resolved_user_id,
+                "service_token_id": service_token_id,
+            },
+            "reason": None,
+        }
+    )
 
 
 @api_view(["POST"])

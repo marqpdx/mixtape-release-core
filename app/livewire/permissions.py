@@ -32,3 +32,7 @@ class HasKeeperRouteScope(_HasServiceScope):
 
 class HasKeeperFindingScope(_HasServiceScope):
     required_scope = "keeper:finding"
+
+
+class HasAuthorizationReadScope(_HasServiceScope):
+    required_scope = "authorization:read"
