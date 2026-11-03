@@ -10,6 +10,7 @@ Mounted at /api/me/ai-accounts/.
 """
 
 import logging
+import re
 
 from rest_framework import permissions, status
 from rest_framework.response import Response
@@ -22,6 +23,9 @@ from tenant_runtime.resolve import CLAUDE, ensure_person_runtime, get_person_run
 logger = logging.getLogger(__name__)
 
 _ACTIVE_LOGIN = (TenantClaudeLoginSession.STATUS_STARTING, TenantClaudeLoginSession.STATUS_AWAITING_AUTH)
+
+# A sign-in code: printable ASCII with no spaces, so it can't carry a second line to the CLI.
+_SIGN_IN_CODE_RE = re.compile(r"[\x21-\x7e]{8,512}")
 
 # How long a check or sign-out waits for the runtime worker before saying so.
 RUNTIME_ANSWER_SECONDS = 45
@@ -94,6 +98,10 @@ class MyClaudeConnectView(APIView):
         if _active_login(runtime):
             return Response(_claude_state(runtime), status=status.HTTP_409_CONFLICT)
 
+        # A new attempt: last time's error no longer describes it.
+        if runtime.last_verification_error:
+            runtime.last_verification_error = ""
+            runtime.save(update_fields=["last_verification_error", "updated_at"])
         task = run_tenant_claude_login.delay(str(runtime.id))
         logger.info("[tenant_runtime] person sign-in queued: user=%s runtime=%s task=%s",
                     request.user.pk, runtime.id, task.id)
@@ -119,6 +127,42 @@ class MyClaudeLoginView(APIView):
                 "error": session.error or None,
             },
         })
+
+
+class MyClaudeLoginCodeView(APIView):
+    """
+    POST /api/me/ai-accounts/claude/login/code/ — the code Anthropic showed you after you approved.
+
+    Accepted only for your own sign-in that is showing its link. The login task on the
+    runtime worker types it into the waiting CLI and clears it within seconds. The code
+    is never logged and never sent back.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        code = request.data.get("code")
+        code = code.strip() if isinstance(code, str) else ""
+        if not _SIGN_IN_CODE_RE.fullmatch(code):
+            return Response(
+                {"detail": "That doesn't look like a sign-in code. Copy it again from the Claude page."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        runtime = get_person_runtime(request.user, CLAUDE)
+        session = _active_login(runtime) if runtime else None
+        if session is None or session.status != TenantClaudeLoginSession.STATUS_AWAITING_AUTH:
+            return Response(
+                {"detail": "There's no sign-in waiting for a code. Start again with Sign in."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        # Only an empty slot takes a code, so a second paste can't replace one in flight.
+        taken = TenantClaudeLoginSession.objects.filter(pk=session.pk, pending_code="").update(pending_code=code)
+        if not taken:
+            return Response(
+                {"detail": "A code is already on its way. Give it a moment."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        logger.info("[tenant_runtime] sign-in code received: user=%s session=%s", request.user.pk, session.id)
+        return Response({"state": "connecting"}, status=status.HTTP_202_ACCEPTED)
 
 
 class MyClaudeCheckView(APIView):
