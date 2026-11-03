@@ -149,6 +149,7 @@ urlpatterns = [
     path("api/catalyst/", include("catalyst.api.urls")),
     path("api/tenant-runtime/", include("tenant_runtime.api.urls")),
     path("api/me/ai-accounts/", include("tenant_runtime.api.person_urls")),  # your own AI accounts (ST-3)
+    path("api/me/mcp-tokens/", include("tenant_runtime.api.mcp_token_urls")),  # your own MCP tokens (ST-3, SW-11.6)
     path("api/shuttle/", include("shuttle.api.urls")),
 
     # === END PHASE 4 ENDPOINTS ===
