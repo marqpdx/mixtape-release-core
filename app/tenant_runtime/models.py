@@ -1,8 +1,12 @@
 # tenant_runtime/models.py
+import hashlib
+import secrets
 import uuid
 
+from django.conf import settings as django_settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
@@ -173,6 +177,104 @@ class TenantClaudeLoginSession(models.Model):
     @property
     def is_expired(self) -> bool:
         return timezone.now() > self.expires_at
+
+
+class McpRuntimeToken(models.Model):
+    """
+    A per-runtime credential (Service Trust ST-3, SW-11.6) that lets a
+    person's Claude Code runtime call Switchboard's MCP surface as that
+    person, optionally acting for one Group they belong to.
+
+    The raw token is shown once, at creation (issue()); only its SHA-256
+    hash is ever stored, following standard bearer-token practice rather
+    than AgentToken's plaintext-storage stub (initiatives/models.py), which
+    has no real caller to date. Revocation is immediate (revoked_at) and
+    scoped to the issuing person alone — nobody can list or revoke another
+    person's tokens, matching decision S5 for /api/me/ai-accounts/.
+    """
+
+    DEFAULT_SCOPES = ["read"]  # S3: read-only for now.
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    runtime = models.ForeignKey(
+        TenantClaudeRuntime,
+        on_delete=models.CASCADE,
+        related_name="mcp_tokens",
+    )
+    person = models.ForeignKey(
+        django_settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="mcp_runtime_tokens",
+        help_text="Denormalized from runtime.tenant for simple person-scoped queries.",
+    )
+    group = models.ForeignKey(
+        "groups.Group",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="At most one Group per token (S4), chosen at minting. Null = acts for the person only.",
+    )
+
+    token_hash = models.CharField(max_length=64, unique=True)
+    token_prefix = models.CharField(
+        max_length=12,
+        help_text="First characters of the raw token, for display only (e.g. distinguishing tokens in Settings).",
+    )
+    scopes = ArrayField(models.CharField(max_length=32), default=list)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "MCP Runtime Token"
+        verbose_name_plural = "MCP Runtime Tokens"
+
+    def __str__(self):
+        return f"McpRuntimeToken {self.token_prefix}... [{self.person_id}]"
+
+    @property
+    def is_valid(self) -> bool:
+        if self.revoked_at is not None:
+            return False
+        if self.expires_at is not None and self.expires_at <= timezone.now():
+            return False
+        return True
+
+    def revoke(self):
+        if self.revoked_at is None:
+            self.revoked_at = timezone.now()
+            self.save(update_fields=["revoked_at"])
+
+    @classmethod
+    def issue(cls, *, person, runtime, group=None, scopes=None):
+        """Create a token and return (instance, raw_token). The raw value is
+        never stored or retrievable again after this call returns."""
+        raw_token = f"mcp_{secrets.token_urlsafe(32)}"
+        token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+        instance = cls.objects.create(
+            runtime=runtime,
+            person=person,
+            group=group,
+            token_hash=token_hash,
+            token_prefix=raw_token[:12],
+            scopes=list(scopes) if scopes else list(cls.DEFAULT_SCOPES),
+        )
+        return instance, raw_token
+
+    @classmethod
+    def resolve(cls, raw_token: str):
+        """Return the valid, non-revoked, non-expired token for a raw value, or None."""
+        token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+        try:
+            instance = cls.objects.select_related("person", "group", "runtime").get(token_hash=token_hash)
+        except cls.DoesNotExist:
+            return None
+        return instance if instance.is_valid else None
 
 
 class TenantCodexRuntime(models.Model):
