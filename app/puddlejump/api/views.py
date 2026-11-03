@@ -456,7 +456,7 @@ def _get_user_library(request):
 @permission_classes([IsAuthenticated])
 def retrieve_async_proxy(request):
     from initiatives.models import ActionRun, ActionRunExecutionMode, ActionRunInitiatorType, ActionRunStatus
-    from mixtape.celery_app import app as celery_app
+    from switchboard.dispatch import SWITCHBOARD_UNAVAILABLE_DETAIL, enqueue_switchboard_task
 
     query = (request.data.get("query") or "").strip()
     library_id_raw = (request.data.get("library_id") or "").strip() or None
@@ -504,7 +504,7 @@ def retrieve_async_proxy(request):
         "score_threshold": score_threshold,
     }
 
-    celery_app.send_task(
+    if not enqueue_switchboard_task(
         "switchboard.retrieve_async",
         kwargs={
             "action_run_id": str(action_run.id),
@@ -515,8 +515,12 @@ def retrieve_async_proxy(request):
             "request_payload": retrieve_payload,
             "retrieve_payload": retrieve_payload,
         },
-        queue="switchboard",
-    )
+        action_run=action_run,
+    ):
+        return JsonResponse(
+            {"detail": SWITCHBOARD_UNAVAILABLE_DETAIL, "action_run_id": str(action_run.id)},
+            status=503,
+        )
 
     logger.info(
         "Enqueued retrieve action_run=%s user=%s library=%s query_len=%s",
@@ -530,7 +534,7 @@ def retrieve_async_proxy(request):
 @permission_classes([IsAuthenticated])
 def find_async_proxy(request):
     from initiatives.models import ActionRun, ActionRunExecutionMode, ActionRunInitiatorType, ActionRunStatus
-    from mixtape.celery_app import app as celery_app
+    from switchboard.dispatch import SWITCHBOARD_UNAVAILABLE_DETAIL, enqueue_switchboard_task
 
     query = (request.data.get("query") or "").strip()
     library_id_raw = (request.data.get("library_id") or "").strip() or None
@@ -588,7 +592,7 @@ def find_async_proxy(request):
         "source_file_ids": source_file_ids or None,
     }
 
-    celery_app.send_task(
+    if not enqueue_switchboard_task(
         "switchboard.retrieve_async",
         kwargs={
             "action_run_id": str(action_run.id),
@@ -599,8 +603,12 @@ def find_async_proxy(request):
             "request_payload": retrieve_payload,
             "retrieve_payload": retrieve_payload,
         },
-        queue="switchboard",
-    )
+        action_run=action_run,
+    ):
+        return JsonResponse(
+            {"detail": SWITCHBOARD_UNAVAILABLE_DETAIL, "action_run_id": str(action_run.id)},
+            status=503,
+        )
 
     logger.info(
         "Enqueued find action_run=%s user=%s library=%s source_files=%d query_len=%s",

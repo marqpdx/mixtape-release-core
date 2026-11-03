@@ -25,7 +25,7 @@ from folio.models import FolioNote, FolioNoteSource, FolioNoteStatus
 from folio.shapes import allowed_shapes, coerce_shape
 from inkwell.stackroom_enqueue import enqueue_stackroom_ingest
 from initiatives.models import ActionRun, ActionRunExecutionMode, ActionRunInitiatorType, ActionRunStatus
-from mixtape.celery_app import app as celery_app
+from switchboard.dispatch import enqueue_switchboard_task
 
 TENDING_CAPABILITY = "folio_note_tend"
 _DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000001"
@@ -152,7 +152,7 @@ def tend_folio_note_task(note_id: str):
     note.tending_error = ""
     note.save(update_fields=["tending_action_run", "tending_error", "updated_at"])
 
-    celery_app.send_task(
+    if not enqueue_switchboard_task(
         "switchboard.capability_async",
         kwargs={
             "action_run_id": str(action_run.id),
@@ -165,8 +165,11 @@ def tend_folio_note_task(note_id: str):
             "callback_task": "folio.tasks.apply_folio_note_tending",
             "callback_queue": "commons",
         },
-        queue="switchboard",
-    )
+        action_run=action_run,
+    ):
+        note.tending_error = "Switchboard is temporarily unavailable."
+        note.save(update_fields=["tending_error", "updated_at"])
+        return {"status": "dispatch_failed", "action_run_id": str(action_run.id)}
     return {"status": "dispatched", "action_run_id": str(action_run.id)}
 
 

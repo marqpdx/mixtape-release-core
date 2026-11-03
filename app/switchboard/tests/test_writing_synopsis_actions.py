@@ -68,7 +68,7 @@ class WritingSynopsisActionTests(TestCase):
         )
         self.assertEqual(task_kwargs["summarize_payload"]["words"], 120)
 
-    @patch("switchboard.api.views.celery_app.send_task")
+    @patch("mixtape.celery_app.app.send_task")
     def test_public_synopsis_creates_governed_action_with_article_body(self, send_task):
         response = self.client.post(
             "/api/switchboard/agent/synopsis/public",
@@ -85,7 +85,7 @@ class WritingSynopsisActionTests(TestCase):
         self.assertGreater(len(task_kwargs["summarize_payload"]["text"]), 400)
         self.assertEqual(task_kwargs["summarize_payload"]["words"], 70)
 
-    @patch("switchboard.api.views.celery_app.send_task")
+    @patch("mixtape.celery_app.app.send_task")
     def test_linkedin_synopsis_uses_group_sponsor_as_tenant(self, send_task):
         permission = Permission.objects.get(codename="approve_cloud_dispatch")
         self.author.user_permissions.add(permission)
