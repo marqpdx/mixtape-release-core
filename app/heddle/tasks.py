@@ -19,6 +19,7 @@ from initiatives.models import ActionRun, ActionRunStatus
 from .contract import Reading, source_digest
 from .errors import InterpretationError
 from .lifecycle import person_runtime
+from .validation import validate_result
 
 
 def fail(child_id, code, *, apply_fn):
@@ -66,6 +67,9 @@ def run_cloud_interpretation(*, action_run_id, reading: Reading, apply_fn):
         author = get_user_model().objects.get(pk=child.initiator_id)
         if not author.has_perm("initiatives.approve_cloud_dispatch"):
             raise InterpretationError("cloud_approval_not_permitted")
+        if reading.steps:
+            from .ordered import verify_worker
+            verify_worker(reading, parent, state, child, data, author)
         runtime = person_runtime(author, reading=reading)
         from claude.service import run_blocking
         result = run_blocking(data["prompt"],
@@ -73,7 +77,11 @@ def run_cloud_interpretation(*, action_run_id, reading: Reading, apply_fn):
         if result.failure:
             raise InterpretationError(result.failure if result.failure in {"auth_failure", "timeout"} else "execution_failed")
         parsed = json.loads(result.output or "")
-        reading.validate_findings(parsed, data["sources"])
+        if reading.steps:
+            from .ordered import validate_model_output
+            validate_model_output(reading, child, parsed)
+        else:
+            validate_result(reading, parsed, data["sources"])
         ActionRun.objects.filter(pk=child.pk).update(status=ActionRunStatus.SUCCEEDED,
             result_payload={"result": {"findings": parsed, "provenance": {
                 "provider": "anthropic-claude-code", "model": None,
@@ -99,13 +107,18 @@ def apply_interpretation(action_run_id, *, reading: Reading):
             state.get("execution_id") != str(child.pk) or
             state.get("revision") != (child.request_payload or {}).get("revision")):
             return  # A stale completion remains on its child for audit; it never replaces newer findings.
+        if reading.steps:
+            from .ordered import apply
+            author = get_user_model().objects.get(pk=child.initiator_id)
+            apply(child, parent, state, reading, author)
+            return
         if child.status == ActionRunStatus.FAILED:
             state.update(status="failed", error=(child.error_payload or {}).get("error", "execution_failed"))
         elif child.status == ActionRunStatus.SUCCEEDED:
             try:
                 result = (child.result_payload or {})["result"]
                 findings = result["findings"]
-                reading.validate_findings(findings, state["sources"])
+                validate_result(reading, findings, state["sources"])
                 provenance = result["provenance"]
                 if not isinstance(provenance, dict):
                     raise ValueError("Invalid provenance")
