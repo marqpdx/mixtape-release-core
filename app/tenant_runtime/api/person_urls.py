@@ -5,6 +5,7 @@ from .person_views import (
     MyClaudeCheckView,
     MyClaudeConnectView,
     MyClaudeDisconnectView,
+    MyClaudeLoginCodeView,
     MyClaudeLoginView,
 )
 
@@ -13,6 +14,7 @@ urlpatterns = [
     path("", MyAIAccountsView.as_view(), name="my-ai-accounts"),
     path("claude/connect/", MyClaudeConnectView.as_view(), name="my-claude-connect"),
     path("claude/login/", MyClaudeLoginView.as_view(), name="my-claude-login"),
+    path("claude/login/code/", MyClaudeLoginCodeView.as_view(), name="my-claude-login-code"),
     path("claude/check/", MyClaudeCheckView.as_view(), name="my-claude-check"),
     path("claude/disconnect/", MyClaudeDisconnectView.as_view(), name="my-claude-disconnect"),
 ]

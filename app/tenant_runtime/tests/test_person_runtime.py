@@ -215,3 +215,162 @@ class RuntimeWorkerTests(TestCase):
         with patch("claude.service.logout", return_value=True) as logout:
             self.assertTrue(sign_out_claude_runtime(str(self.rt.id)))
         logout.assert_called_once_with("mxr-1", "/home/mxr-1")
+
+
+# CLI 2.1.x prints the link inside a terminal hyperlink, then waits for the code (2026-11-03).
+_OSC_URL = "https://claude.com/cai/oauth/authorize?code=true&state=abc"
+_CLI_LINES = [
+    "Opening browser to sign in…\n",
+    f"If the browser didn't open, visit: \x1b]8;;{_OSC_URL}\x07{_OSC_URL}\x1b]8;;\x07\n",
+]
+_CODE = "kFbl6aNOhbTCtestcode#state-abc"
+
+
+class _FakeLogin:
+    """Stands in for `claude auth login`: prints the link, exits 0 once a code arrives on stdin."""
+
+    def __init__(self, on_poll=None, never_exits=False):
+        self.stdout = iter(_CLI_LINES)
+        self.stdin = MagicMock()
+        self.on_poll = on_poll
+        self.never_exits = never_exits
+        self.polls = 0
+        self.returncode = None
+        self.killed = False
+
+    def __call__(self, *args, **kwargs):
+        return self
+
+    def poll(self):
+        self.polls += 1
+        if self.on_poll:
+            self.on_poll(self.polls)
+        if self.stdin.write.called and not self.never_exits:
+            self.returncode = 0
+        return self.returncode
+
+    def terminate(self):
+        self.killed = True
+        self.returncode = -15
+
+    kill = terminate
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+
+class SignInCodeTests(TestCase):
+    """The paste-the-code sign-in (ST-3, 2026-11-03)."""
+
+    def setUp(self):
+        self.alice = _user("alice")
+        self.bob = _user("bob")
+        self.client = APIClient()
+        with patch.object(pool, "pool_members", return_value=["mxr-1", "mxr-2"]), \
+                patch.object(pool, "_groups_of", return_value=set()), \
+                patch.object(pool, "home_of", side_effect=lambda n: f"/home/{n}"):
+            self.rt = ensure_person_runtime(self.alice)
+
+    def _awaiting(self):
+        return self.rt.login_sessions.create(login_url=_OSC_URL, status="awaiting_auth")
+
+    def test_link_is_found_inside_a_terminal_hyperlink(self):
+        from tenant_runtime.tasks import _URL_RE, _plain
+
+        self.assertEqual(_URL_RE.search(_plain(_CLI_LINES[1])).group(0), _OSC_URL)
+
+    def test_code_is_held_for_the_waiting_sign_in_and_never_sent_back(self):
+        session = self._awaiting()
+        self.client.force_authenticate(self.alice)
+        resp = self.client.post("/api/me/ai-accounts/claude/login/code/", {"code": _CODE}, format="json")
+        self.assertEqual(resp.status_code, 202)
+        self.assertNotIn(_CODE, resp.content.decode())
+        session.refresh_from_db()
+        self.assertEqual(session.pending_code, _CODE)
+        self.assertNotIn(_CODE, self.client.get("/api/me/ai-accounts/claude/login/").content.decode())
+
+    def test_a_second_paste_cannot_replace_one_in_flight(self):
+        self._awaiting()
+        self.client.force_authenticate(self.alice)
+        self.client.post("/api/me/ai-accounts/claude/login/code/", {"code": _CODE}, format="json")
+        resp = self.client.post("/api/me/ai-accounts/claude/login/code/", {"code": "another-code-123"}, format="json")
+        self.assertEqual(resp.status_code, 409)
+        self.assertEqual(self.rt.login_sessions.get().pending_code, _CODE)
+
+    def test_no_code_without_a_sign_in_showing_its_link(self):
+        self.client.force_authenticate(self.alice)
+        url = "/api/me/ai-accounts/claude/login/code/"
+        self.assertEqual(self.client.post(url, {"code": _CODE}, format="json").status_code, 409)
+        self.rt.login_sessions.create()  # starting: no link yet
+        self.assertEqual(self.client.post(url, {"code": _CODE}, format="json").status_code, 409)
+
+    def test_one_person_cannot_send_a_code_to_anothers_sign_in(self):
+        session = self._awaiting()
+        self.client.force_authenticate(self.bob)
+        resp = self.client.post("/api/me/ai-accounts/claude/login/code/", {"code": _CODE}, format="json")
+        self.assertEqual(resp.status_code, 409)
+        session.refresh_from_db()
+        self.assertEqual(session.pending_code, "")
+
+    def test_a_code_cannot_carry_a_second_line(self):
+        self._awaiting()
+        self.client.force_authenticate(self.alice)
+        for bad in ("", "short", "abc defghijk", "abcdefgh\nrm -rf", None, 12345678):
+            resp = self.client.post("/api/me/ai-accounts/claude/login/code/", {"code": bad}, format="json")
+            self.assertEqual(resp.status_code, 400, bad)
+
+    def test_connect_clears_last_times_error(self):
+        self.rt.last_verification_error = 'sudo: The "no new privileges" flag is set'
+        self.rt.status = TenantClaudeRuntime.STATUS_FAILED
+        self.rt.save()
+        self.client.force_authenticate(self.alice)
+        with patch("tenant_runtime.tasks.run_tenant_claude_login.delay", return_value=MagicMock(id="t")):
+            self.client.post("/api/me/ai-accounts/claude/connect/")
+        self.rt.refresh_from_db()
+        self.assertEqual(self.rt.last_verification_error, "")
+
+    def _run(self, fake):
+        from tenant_runtime.tasks import run_tenant_claude_login
+
+        ok = MagicMock(failure=None)
+        with patch("subprocess.Popen", fake), \
+                patch("tenant_runtime.tasks._LOGIN_POLL_SECONDS", 0), \
+                patch("claude.service.run_blocking", return_value=ok):
+            run_tenant_claude_login.run(str(self.rt.id))
+        self.rt.refresh_from_db()
+        return self.rt.login_sessions.get()
+
+    def test_the_task_types_the_pasted_code_into_the_cli_then_signs_in(self):
+        def paste(n):
+            session = self.rt.login_sessions.first()
+            if n == 3 and session and session.login_url:
+                type(session).objects.filter(pk=session.pk).update(pending_code=_CODE)
+
+        fake = _FakeLogin(on_poll=paste)
+        session = self._run(fake)
+        fake.stdin.write.assert_called_once_with(_CODE + "\n")
+        self.assertEqual(session.login_url, _OSC_URL)
+        self.assertEqual(session.status, "complete")
+        self.assertEqual(session.pending_code, "")
+        self.assertEqual(self.rt.status, TenantClaudeRuntime.STATUS_READY)
+
+    def test_a_silent_cli_is_ended_at_expiry(self):
+        from django.utils import timezone
+
+        from tenant_runtime.models import TenantClaudeLoginSession
+
+        def expire(n):
+            if n == 3:
+                TenantClaudeLoginSession.objects.filter(runtime=self.rt).update(
+                    expires_at=timezone.now() - timezone.timedelta(seconds=1)
+                )
+
+        fake = _FakeLogin(on_poll=expire, never_exits=True)
+        fake.stdout = iter([])  # prints nothing at all
+        with patch.object(TenantClaudeLoginSession, "is_expired", property(
+            lambda s: type(s).objects.filter(pk=s.pk, expires_at__lt=timezone.now()).exists()
+        )):
+            session = self._run(fake)
+        self.assertTrue(fake.killed)
+        self.assertEqual(session.status, "expired")
+        self.assertEqual(self.rt.status, TenantClaudeRuntime.STATUS_FAILED)

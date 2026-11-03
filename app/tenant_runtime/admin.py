@@ -50,8 +50,8 @@ class TenantClaudeRuntimeAdmin(admin.ModelAdmin):
 
 @admin.register(TenantClaudeLoginSession)
 class TenantClaudeLoginSessionAdmin(admin.ModelAdmin):
-    # A person's sign-in link is theirs alone; staff never see it (ST-3, decision S5).
-    exclude = ("login_url",)
+    # A person's sign-in link and code are theirs alone; staff never see them (ST-3, decision S5).
+    exclude = ("login_url", "pending_code")
     list_display = (
         "id",
         "runtime",

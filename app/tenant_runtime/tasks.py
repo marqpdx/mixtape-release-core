@@ -3,12 +3,16 @@
 Celery tasks for the tenant_runtime app.
 
 run_tenant_claude_login: launches claude auth login as the tenant's Linux user,
-captures the URL from stdout for display in the admin UI, and waits for exit.
+captures the URL from its output, passes in the code the person pastes, and
+waits for exit.
 """
 
 import logging
+import queue
 import re
 import subprocess
+import threading
+import time
 
 from celery import shared_task
 from django.utils import timezone
@@ -18,20 +22,27 @@ logger = logging.getLogger(__name__)
 _LOGIN_SUBPROCESS_TIMEOUT = 610  # slightly over the 10-minute session TTL
 _URL_RE = re.compile(r"https://\S+")
 _DEVICE_CODE_RE = re.compile(r"\b[A-Z0-9]{4,}(?:-[A-Z0-9]{4,})+\b")
+_OSC_RE = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+_CSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+_LOGIN_POLL_SECONDS = 2
 
 
 @shared_task(bind=True, name="tenant_runtime.run_tenant_claude_login")
 def run_tenant_claude_login(self, runtime_id: str):
     """
-    Launch `claude auth login` as the tenant's Linux user and track the session.
+    Launch `claude auth login` as the tenant's Linux user and see it through.
 
-    Flow:
+    Flow (CLI 2.1.x, ST-3):
       1. Create TenantClaudeLoginSession (status: starting).
-      2. Spawn the subprocess as the runtime's Linux user (sudo) — stdout contains the login URL.
-      3. Read stdout lines until a https:// URL is found; save it and set status: awaiting_auth.
-      4. Wait for process exit (Anthropic server-side polling resolves the login).
+      2. Spawn the subprocess as the runtime's Linux user (sudo; the runtime worker only).
+      3. Find the login URL anywhere in its output (it arrives wrapped in a terminal
+         hyperlink); save it and set status: awaiting_auth.
+      4. The person approves in the browser and Anthropic shows them a code. They paste
+         it in Settings; it waits in session.pending_code. Type it into the CLI's stdin
+         and clear it at once. The code is never logged.
       5. On exit 0: run pre-flight verification; set runtime status: ready.
-      6. On non-zero exit or timeout: set session/runtime to failed/expired.
+      6. On non-zero exit, or at the session's expiry whatever the CLI is doing:
+         set session/runtime to failed/expired and end the CLI.
     """
     from claude.service import login_argv, run_blocking
     from tenant_runtime.models import TenantClaudeLoginSession, TenantClaudeRuntime
@@ -52,53 +63,97 @@ def run_tenant_claude_login(self, runtime_id: str):
         session.id, runtime_id, runtime.linux_user,
     )
 
+    def fail(status, error, runtime_status, runtime_error):
+        session.status = status
+        session.error = error
+        session.save(update_fields=["status", "error"])
+        runtime.status = runtime_status
+        runtime.last_verification_error = runtime_error[:500]
+        runtime.save(update_fields=["status", "last_verification_error", "updated_at"])
+
     proc = None
     try:
         proc = subprocess.Popen(
             login_argv(runtime.linux_user),
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             env={"HOME": runtime.home_dir, "PATH": "/usr/local/bin:/usr/bin:/bin"},
         )
+        # A thread reads the output, so a silent CLI can't stop the deadline below.
+        lines = queue.Queue()
+        threading.Thread(target=_read_lines, args=(proc.stdout, lines), daemon=True).start()
 
         url_found = False
+        code_sent = False
+        output_ended = False
         stdout_lines = []
 
-        for line in proc.stdout:
-            line = line.rstrip()
-            stdout_lines.append(line)
+        while proc.poll() is None and not session.is_expired:
+            while True:
+                try:
+                    line = lines.get_nowait()
+                except queue.Empty:
+                    break
+                if line is None:
+                    output_ended = True
+                    break
+                line = _plain(line.rstrip())
+                stdout_lines = (stdout_lines + [line])[-200:]
+                if not url_found:
+                    match = _URL_RE.search(line)
+                    if match:
+                        session.login_url = match.group(0)
+                        session.status = TenantClaudeLoginSession.STATUS_AWAITING_AUTH
+                        session.save(update_fields=["login_url", "status"])
+                        logger.info("[tenant_runtime] login URL detected session=%s", session.id)
+                        url_found = True
 
-            if len(stdout_lines) > 200:
-                stdout_lines = stdout_lines[-200:]
+            if url_found and not code_sent:
+                code = (
+                    TenantClaudeLoginSession.objects.filter(pk=session.pk)
+                    .values_list("pending_code", flat=True).first()
+                )
+                if code:
+                    TenantClaudeLoginSession.objects.filter(pk=session.pk).update(pending_code="")
+                    try:
+                        proc.stdin.write(code + "\n")
+                        proc.stdin.flush()
+                    except (BrokenPipeError, OSError):
+                        pass  # the CLI has gone; its exit code says why
+                    code_sent = True
+                    logger.info("[tenant_runtime] sign-in code passed to the CLI session=%s", session.id)
 
-            if not url_found and line.strip().startswith("https://"):
-                url = line.strip()
-                session.login_url = url
-                session.status = TenantClaudeLoginSession.STATUS_AWAITING_AUTH
-                session.save(update_fields=["login_url", "status"])
-                logger.info("[tenant_runtime] login URL detected session=%s", session.id)
-                url_found = True
+            time.sleep(_LOGIN_POLL_SECONDS)
 
-            if session.is_expired:
-                logger.warning("[tenant_runtime] login session %s expired while waiting", session.id)
-                proc.terminate()
-                break
-
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
-
-        if session.is_expired:
-            session.status = TenantClaudeLoginSession.STATUS_EXPIRED
-            session.error = "Login TTL expired before authentication completed."
-            session.save(update_fields=["status", "error"])
-            runtime.status = TenantClaudeRuntime.STATUS_FAILED
-            runtime.last_verification_error = "Login session expired."
-            runtime.save(update_fields=["status", "last_verification_error", "updated_at"])
+        if proc.poll() is None:
+            # Expired while the CLI waited (for the code, or for nothing).
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+            logger.warning("[tenant_runtime] login session %s expired while waiting", session.id)
+            fail(
+                TenantClaudeLoginSession.STATUS_EXPIRED,
+                "Login TTL expired before authentication completed.",
+                TenantClaudeRuntime.STATUS_FAILED,
+                "Sign-in timed out. Try again.",
+            )
             return
+
+        # Collect whatever the CLI printed last.
+        while not output_ended:
+            try:
+                line = lines.get(timeout=2)
+            except queue.Empty:
+                break
+            if line is None:
+                output_ended = True
+                break
+            stdout_lines = (stdout_lines + [_plain(line.rstrip())])[-200:]
 
         if proc.returncode != 0:
             error_snippet = "\n".join(stdout_lines[-20:])[:1000]
@@ -106,12 +161,12 @@ def run_tenant_claude_login(self, runtime_id: str):
                 "[tenant_runtime] claude auth login exited %s session=%s output=%r",
                 proc.returncode, session.id, error_snippet,
             )
-            session.status = TenantClaudeLoginSession.STATUS_FAILED
-            session.error = f"Exit code {proc.returncode}. Output: {error_snippet}"
-            session.save(update_fields=["status", "error"])
-            runtime.status = TenantClaudeRuntime.STATUS_FAILED
-            runtime.last_verification_error = session.error[:500]
-            runtime.save(update_fields=["status", "last_verification_error", "updated_at"])
+            fail(
+                TenantClaudeLoginSession.STATUS_FAILED,
+                f"Exit code {proc.returncode}. Output: {error_snippet}",
+                TenantClaudeRuntime.STATUS_FAILED,
+                f"Exit code {proc.returncode}. Output: {error_snippet}",
+            )
             return
 
         # Exit 0 — run pre-flight verification
@@ -121,21 +176,13 @@ def run_tenant_claude_login(self, runtime_id: str):
         )
 
         if result.failure == "auth_failure":
-            session.status = TenantClaudeLoginSession.STATUS_FAILED
-            session.error = "Pre-flight verification failed: auth_failure after login completed."
-            session.save(update_fields=["status", "error"])
-            runtime.status = TenantClaudeRuntime.STATUS_LOGIN_REQUIRED
-            runtime.last_verification_error = session.error
-            runtime.save(update_fields=["status", "last_verification_error", "updated_at"])
+            error = "Pre-flight verification failed: auth_failure after login completed."
+            fail(TenantClaudeLoginSession.STATUS_FAILED, error, TenantClaudeRuntime.STATUS_LOGIN_REQUIRED, error)
             return
 
         if result.failure:
-            session.status = TenantClaudeLoginSession.STATUS_FAILED
-            session.error = f"Pre-flight verification failed: {result.failure}."
-            session.save(update_fields=["status", "error"])
-            runtime.status = TenantClaudeRuntime.STATUS_FAILED
-            runtime.last_verification_error = session.error
-            runtime.save(update_fields=["status", "last_verification_error", "updated_at"])
+            error = f"Pre-flight verification failed: {result.failure}."
+            fail(TenantClaudeLoginSession.STATUS_FAILED, error, TenantClaudeRuntime.STATUS_FAILED, error)
             return
 
         # Verification passed
@@ -152,16 +199,27 @@ def run_tenant_claude_login(self, runtime_id: str):
 
     except Exception as exc:
         logger.exception("[tenant_runtime] run_tenant_claude_login unexpected error session=%s", session.id)
-        session.status = TenantClaudeLoginSession.STATUS_FAILED
-        session.error = str(exc)[:500]
-        session.save(update_fields=["status", "error"])
-        runtime.status = TenantClaudeRuntime.STATUS_FAILED
-        runtime.last_verification_error = str(exc)[:500]
-        runtime.save(update_fields=["status", "last_verification_error", "updated_at"])
+        fail(TenantClaudeLoginSession.STATUS_FAILED, str(exc)[:500], TenantClaudeRuntime.STATUS_FAILED, str(exc))
     finally:
+        # The code never outlives the attempt, whatever happened.
+        TenantClaudeLoginSession.objects.filter(pk=session.pk).exclude(pending_code="").update(pending_code="")
         if proc is not None and proc.poll() is None:
             proc.kill()
             proc.wait()
+
+
+def _read_lines(stream, lines):
+    """Feed a subprocess's output lines into a queue; None marks the end."""
+    try:
+        for line in stream:
+            lines.put(line)
+    finally:
+        lines.put(None)
+
+
+def _plain(text: str) -> str:
+    """Drop terminal escapes: OSC 8 hyperlinks (which wrap the login URL) and colour codes."""
+    return _CSI_RE.sub("", _OSC_RE.sub("", text))
 
 
 @shared_task(bind=True, name="tenant_runtime.run_tenant_codex_login")

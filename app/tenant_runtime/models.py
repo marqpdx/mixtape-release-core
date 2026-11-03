@@ -120,8 +120,10 @@ class TenantClaudeLoginSession(models.Model):
     Tracks one interactive login subprocess for a TenantClaudeRuntime.
 
     claude auth login on a headless VPS prints its URL to stdout; the backend
-    reads that URL, stores it here, and polls subprocess exit to detect completion.
-    No OAuth token or credential is stored — credential truth stays in ~/.claude/.
+    reads that URL and stores it here. The CLI then waits for the code Anthropic
+    shows the person after they approve: they paste it in Settings, it waits in
+    pending_code until the login task types it into the CLI, and is cleared at
+    once. No OAuth token is stored — credential truth stays in ~/.claude/.
     """
 
     STATUS_STARTING = "starting"
@@ -160,6 +162,12 @@ class TenantClaudeLoginSession(models.Model):
     expires_at = models.DateTimeField()
     completed_at = models.DateTimeField(null=True, blank=True)
     error = models.TextField(blank=True, default="")
+    pending_code = models.TextField(
+        blank=True,
+        default="",
+        help_text="The sign-in code the person pasted, held only until the login task "
+        "types it into the CLI (seconds). Never logged or returned by any endpoint.",
+    )
 
     class Meta:
         ordering = ["-started_at"]
