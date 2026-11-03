@@ -225,7 +225,7 @@ class FolioNoteTendingTests(TestCase):
         )
 
     @override_settings(FOLIO_AUTO_TENDING_ENABLED=False)
-    @patch("folio.tasks.celery_app.send_task")
+    @patch("mixtape.celery_app.app.send_task")
     def test_paused_queued_task_creates_no_run_and_sends_nothing(self, send):
         count = ActionRun.objects.count()
         result = tend_folio_note_task.run(str(self.note.id))
@@ -233,7 +233,7 @@ class FolioNoteTendingTests(TestCase):
         self.assertEqual(ActionRun.objects.count(), count)
         send.assert_not_called()
 
-    @patch("folio.tasks.celery_app.send_task")
+    @patch("mixtape.celery_app.app.send_task")
     def test_retry_clears_previous_failure_at_dispatch(self, send):
         self.note.tending_error = "Old timeout"
         self.note.save(update_fields=["tending_error"])
@@ -243,7 +243,7 @@ class FolioNoteTendingTests(TestCase):
         self.assertIsNotNone(self.note.tending_action_run_id)
         send.assert_called_once()
 
-    @patch("folio.tasks.celery_app.send_task")
+    @patch("mixtape.celery_app.app.send_task")
     def test_dispatch_records_action_run_and_sends_capability(self, send_task):
         tend_folio_note_task.apply(args=[str(self.note.id)])
 
@@ -258,7 +258,7 @@ class FolioNoteTendingTests(TestCase):
         self.assertEqual(kwargs["capability_payload"]["allowed_shapes"], list(Shape.values))
         self.assertEqual(kwargs["callback_task"], "folio.tasks.apply_folio_note_tending")
 
-    @patch("folio.tasks.celery_app.send_task")
+    @patch("mixtape.celery_app.app.send_task")
     def test_dispatch_skips_notes_without_text(self, send_task):
         self.note.raw_text = "   "
         self.note.save()

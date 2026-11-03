@@ -244,7 +244,7 @@ def enqueue_writing_piece_synopsis_task(piece_id: str):
     from writing.models import WritingPiece
     from writing.synopsis_service import _extract_plain_text
     from initiatives.models import ActionRun, ActionRunStatus, ActionRunExecutionMode, ActionRunInitiatorType
-    from mixtape.celery_app import app as celery_app
+    from switchboard.dispatch import enqueue_switchboard_task
 
     _DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000001"
     _DEFAULT_TENANT_NAMESPACE = "platform:crossroads"
@@ -280,7 +280,7 @@ def enqueue_writing_piece_synopsis_task(piece_id: str):
         request_payload={"piece_id": str(piece_id), "content_type": "writing.piece"},
     )
 
-    celery_app.send_task(
+    if not enqueue_switchboard_task(
         "switchboard.summarize_async",
         kwargs={
             "action_run_id": str(action_run.id),
@@ -291,8 +291,10 @@ def enqueue_writing_piece_synopsis_task(piece_id: str):
             "request_payload": summarize_payload,
             "summarize_payload": summarize_payload,
         },
-        queue="switchboard",
-    )
+        action_run=action_run,
+    ):
+        logger.warning("[synopsis_ai] Switchboard unavailable — action_run=%s for piece=%s marked failed", action_run.id, piece_id)
+        return
 
     logger.info("[synopsis_ai] Enqueued summarize action_run=%s for piece=%s", action_run.id, piece_id)
 

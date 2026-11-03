@@ -165,7 +165,7 @@ class EditOthersWritingTests(TestCase):
         self.assertEqual(self.client.get(f"/api/atelier/{self.other_piece.id}/readiness/").status_code, 404)
         self.assertEqual(self.client.get(f"/api/atelier/{self.piece.id}/tags/").status_code, 404)
 
-    @patch("switchboard.api.views.celery_app.send_task")
+    @patch("mixtape.celery_app.app.send_task")
     def test_steward_can_generate_and_confirm_summaries(self, send_task):
         self._role("steward")
         self.editor.user_permissions.add(Permission.objects.get(codename="approve_cloud_dispatch"))
@@ -194,7 +194,7 @@ class EditOthersWritingTests(TestCase):
             self.assertEqual(response.status_code, 202)
         self.assertEqual(send_task.call_count, 2)
 
-    @patch("switchboard.api.views.celery_app.send_task")
+    @patch("mixtape.celery_app.app.send_task")
     def test_coordinator_cannot_access_another_authors_summaries(self, send_task):
         self._role("coordinator")
         self.editor.user_permissions.add(Permission.objects.get(codename="approve_cloud_dispatch"))

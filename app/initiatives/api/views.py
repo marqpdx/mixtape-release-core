@@ -287,7 +287,7 @@ _VALID_APPROVAL_MODES = frozenset({"standard", "reviewed_default", "trusted_defa
 
 
 def _dispatch_approved_action_run(action_run, user):
-    from mixtape.celery_app import app as celery_app
+    from switchboard.dispatch import SwitchboardUnavailable, enqueue_switchboard_task
 
     payload = action_run.request_payload or {}
     tool = action_run.tool_name
@@ -301,7 +301,7 @@ def _dispatch_approved_action_run(action_run, user):
             "audience": payload.get("audience"),
             "additional_context": payload.get("additional_context"),
         }
-        celery_app.send_task(
+        dispatched = enqueue_switchboard_task(
             "switchboard.draft_async",
             kwargs={
                 "action_run_id": str(action_run.id),
@@ -313,7 +313,7 @@ def _dispatch_approved_action_run(action_run, user):
                 "draft_payload": draft_payload,
                 "cloud_mode": True,
             },
-            queue="switchboard",
+            action_run=action_run,
         )
     elif ".refine" in tool:
         refine_payload = {
@@ -322,7 +322,7 @@ def _dispatch_approved_action_run(action_run, user):
             "target_length": payload.get("target_length"),
             "additional_context": payload.get("additional_context"),
         }
-        celery_app.send_task(
+        dispatched = enqueue_switchboard_task(
             "switchboard.refine_async",
             kwargs={
                 "action_run_id": str(action_run.id),
@@ -334,10 +334,13 @@ def _dispatch_approved_action_run(action_run, user):
                 "refine_payload": refine_payload,
                 "cloud_mode": True,
             },
-            queue="switchboard",
+            action_run=action_run,
         )
     else:
         raise ValueError(f"No dispatch handler for tool '{tool}'")
+
+    if not dispatched:
+        raise SwitchboardUnavailable("Switchboard is temporarily unavailable.")
 
 
 class ActionRunApproveView(APIView):
@@ -371,10 +374,14 @@ class ActionRunApproveView(APIView):
         }
         action_run.save(update_fields=["cloud_approved", "execution_mode", "approval_payload", "updated_at"])
 
+        from switchboard.dispatch import SwitchboardUnavailable
+
         try:
             _dispatch_approved_action_run(action_run, request.user)
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except SwitchboardUnavailable as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         logger.info(
             "action_run_approved action_run=%s user=%s tool=%s mode=%s",

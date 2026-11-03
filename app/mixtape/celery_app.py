@@ -265,6 +265,11 @@ app.conf.task_routes = {
     "switchboard.synopsis_linkedin_async": {
         "queue": "switchboard", "routing_key": "switchboard"
     },
+    # SW-11.12: runs on "polling", not "switchboard" -- it exists to detect a
+    # stalled/down Switchboard worker, so it must not depend on that same worker.
+    "switchboard.tasks.sweep_stale_action_runs": {
+        "queue": "polling", "routing_key": "polling"
+    },
 
     # --- Puddlejump: snapshot generation + beat scan + Stackroom ingest + retrieve/find ---
     "puddlejump.tasks.generate_snapshot": {
@@ -436,6 +441,10 @@ app.conf.beat_schedule = {
     "check-ready-claude-runtimes": {
         "task": "tenant_runtime.check_ready_claude_runtimes",
         "schedule": 86400.0,  # daily — an expired sign-in shows in Settings before a task fails on it (ST-3)
+    },
+    "sweep-stale-switchboard-action-runs": {
+        "task": "switchboard.tasks.sweep_stale_action_runs",
+        "schedule": 300.0,  # every 5 minutes (SW-11.12 — catches a down/stalled Switchboard worker)
     },
 }
 

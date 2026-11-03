@@ -27,7 +27,6 @@ from initiatives.models import (
 )
 from livewire.auth import InternalServiceAuthentication
 from livewire.permissions import HasAuthorizationReadScope
-from mixtape.celery_app import app as celery_app
 from switchboard.api.serializers import (
     AgentAddCommandSerializer,
     AgentFindCommandSerializer,
@@ -44,6 +43,7 @@ from switchboard.api.serializers import (
     GroupSearchSerializer,
     SourceGrantLatestMessagesSerializer,
 )
+from switchboard.dispatch import SWITCHBOARD_UNAVAILABLE_DETAIL, enqueue_switchboard_task
 from switchboard.source_grants import (
     SourceGrantAccessError,
     SourceGrantReadRequest,
@@ -155,7 +155,7 @@ def classify_async_proxy(request):
 
     classify_payload = {"text": text, "max_tags": max_tags}
 
-    celery_app.send_task(
+    if not enqueue_switchboard_task(
         "switchboard.classify_async",
         kwargs={
             "action_run_id": str(action_run.id),
@@ -166,8 +166,12 @@ def classify_async_proxy(request):
             "request_payload": classify_payload,
             "classify_payload": classify_payload,
         },
-        queue="switchboard",
-    )
+        action_run=action_run,
+    ):
+        return JsonResponse(
+            {"detail": SWITCHBOARD_UNAVAILABLE_DETAIL, "action_run_id": str(action_run.id)},
+            status=503,
+        )
 
     logger.info(
         "Enqueued async classify action_run=%s user=%s text_len=%s",
@@ -270,7 +274,7 @@ def summarize_async_proxy(request):
         "style": style,
     }
 
-    celery_app.send_task(
+    if not enqueue_switchboard_task(
         "switchboard.summarize_async",
         kwargs={
             "action_run_id": str(action_run.id),
@@ -281,8 +285,12 @@ def summarize_async_proxy(request):
             "request_payload": summarize_payload,
             "summarize_payload": summarize_payload,
         },
-        queue="switchboard",
-    )
+        action_run=action_run,
+    ):
+        return JsonResponse(
+            {"detail": SWITCHBOARD_UNAVAILABLE_DETAIL, "action_run_id": str(action_run.id)},
+            status=503,
+        )
 
     logger.info(
         "Enqueued async summarize action_run=%s user=%s content_type=%s text_len=%s",
@@ -327,7 +335,7 @@ def context_shape_async_proxy(request):
 
     shape_payload = {"text": text, "group_context": group_context}
 
-    celery_app.send_task(
+    if not enqueue_switchboard_task(
         "switchboard.context_shape_async",
         kwargs={
             "action_run_id": str(action_run.id),
@@ -338,8 +346,12 @@ def context_shape_async_proxy(request):
             "request_payload": shape_payload,
             "shape_payload": shape_payload,
         },
-        queue="switchboard",
-    )
+        action_run=action_run,
+    ):
+        return JsonResponse(
+            {"detail": SWITCHBOARD_UNAVAILABLE_DETAIL, "action_run_id": str(action_run.id)},
+            status=503,
+        )
 
     logger.info(
         "Enqueued context_shape action_run=%s user=%s text_len=%s surface=%s",
@@ -414,7 +426,7 @@ def think_cluster_async_proxy(request):
         request_payload={"initiative_id": initiative_id_raw, "entry_count": len(entries)},
     )
 
-    celery_app.send_task(
+    if not enqueue_switchboard_task(
         "switchboard.think_cluster_async",
         kwargs={
             "action_run_id": str(action_run.id),
@@ -425,10 +437,14 @@ def think_cluster_async_proxy(request):
             "initiative_id": initiative_id_raw,
             "entries": entries,
         },
-        queue="switchboard",
+        action_run=action_run,
         exchange="switchboard",
         routing_key="switchboard",
-    )
+    ):
+        return JsonResponse(
+            {"detail": SWITCHBOARD_UNAVAILABLE_DETAIL, "action_run_id": str(action_run.id)},
+            status=503,
+        )
 
     logger.info(
         "Enqueued think.cluster action_run=%s initiative=%s user=%s entries=%d",
@@ -824,7 +840,7 @@ def agent_research_proxy(request):
         request_payload={"query": query, "max_sources": max_sources, "surface": surface},
     )
 
-    celery_app.send_task(
+    if not enqueue_switchboard_task(
         "switchboard.research_async",
         kwargs={
             "action_run_id": str(action_run.id),
@@ -835,8 +851,12 @@ def agent_research_proxy(request):
             "request_payload": research_payload,
             "research_payload": research_payload,
         },
-        queue="switchboard",
-    )
+        action_run=action_run,
+    ):
+        return JsonResponse(
+            {"detail": SWITCHBOARD_UNAVAILABLE_DETAIL, "action_run_id": str(action_run.id)},
+            status=503,
+        )
 
     logger.info(
         "Enqueued research action_run=%s user=%s query_len=%d",
@@ -910,7 +930,7 @@ def agent_pattern_proxy(request):
         },
     )
 
-    celery_app.send_task(
+    if not enqueue_switchboard_task(
         "switchboard.pattern_async",
         kwargs={
             "action_run_id": str(action_run.id),
@@ -922,8 +942,12 @@ def agent_pattern_proxy(request):
             "pattern_payload": pattern_payload,
             "corpus_items": corpus_items,
         },
-        queue="switchboard",
-    )
+        action_run=action_run,
+    ):
+        return JsonResponse(
+            {"detail": SWITCHBOARD_UNAVAILABLE_DETAIL, "action_run_id": str(action_run.id)},
+            status=503,
+        )
 
     logger.info(
         "Enqueued pattern action_run=%s user=%s query_len=%d corpus=%d",
@@ -1004,7 +1028,7 @@ def agent_synthesize_proxy(request):
         },
     )
 
-    celery_app.send_task(
+    if not enqueue_switchboard_task(
         "switchboard.synthesize_async",
         kwargs={
             "action_run_id": str(action_run.id),
@@ -1016,8 +1040,12 @@ def agent_synthesize_proxy(request):
             "synthesize_payload": synthesize_payload,
             "corpus_items": corpus_items,
         },
-        queue="switchboard",
-    )
+        action_run=action_run,
+    ):
+        return JsonResponse(
+            {"detail": SWITCHBOARD_UNAVAILABLE_DETAIL, "action_run_id": str(action_run.id)},
+            status=503,
+        )
 
     logger.info(
         "Enqueued synthesize action_run=%s user=%s query_len=%d corpus=%d",
@@ -1089,7 +1117,7 @@ def agent_synthesize_narrative_proxy(request):
         request_payload={"brief_action_run_id": action_run_id, "query": narrative_payload["query"]},
     )
 
-    celery_app.send_task(
+    if not enqueue_switchboard_task(
         "switchboard.synthesize_narrative_async",
         kwargs={
             "action_run_id": str(narrative_run.id),
@@ -1100,8 +1128,12 @@ def agent_synthesize_narrative_proxy(request):
             "request_payload": narrative_payload,
             "narrative_payload": narrative_payload,
         },
-        queue="switchboard",
-    )
+        action_run=narrative_run,
+    ):
+        return JsonResponse(
+            {"detail": SWITCHBOARD_UNAVAILABLE_DETAIL, "action_run_id": str(narrative_run.id)},
+            status=503,
+        )
 
     logger.info(
         "Enqueued synthesize_narrative action_run=%s brief_run=%s user=%s",
@@ -1186,7 +1218,7 @@ def agent_synopsis_linkedin_proxy(request):
         },
     )
 
-    celery_app.send_task(
+    if not enqueue_switchboard_task(
         "switchboard.synopsis_linkedin_async",
         kwargs={
             "action_run_id": str(action_run.id),
@@ -1197,8 +1229,12 @@ def agent_synopsis_linkedin_proxy(request):
             "request_payload": synopsis_payload,
             "synopsis_payload": synopsis_payload,
         },
-        queue="switchboard",
-    )
+        action_run=action_run,
+    ):
+        return JsonResponse(
+            {"detail": SWITCHBOARD_UNAVAILABLE_DETAIL, "action_run_id": str(action_run.id)},
+            status=503,
+        )
 
     logger.info(
         "Enqueued synopsis_linkedin action_run=%s user=%s piece=%s",
@@ -1273,7 +1309,7 @@ def agent_synopsis_public_proxy(request):
             "summary_type": "public_synopsis",
         },
     )
-    celery_app.send_task(
+    if not enqueue_switchboard_task(
         "switchboard.summarize_async",
         kwargs={
             "action_run_id": str(action_run.id),
@@ -1284,8 +1320,12 @@ def agent_synopsis_public_proxy(request):
             "request_payload": summarize_payload,
             "summarize_payload": summarize_payload,
         },
-        queue="switchboard",
-    )
+        action_run=action_run,
+    ):
+        return JsonResponse(
+            {"detail": SWITCHBOARD_UNAVAILABLE_DETAIL, "action_run_id": str(action_run.id)},
+            status=503,
+        )
     logger.info(
         "Enqueued public synopsis action_run=%s user=%s piece=%s source_chars=%s",
         action_run.id,
@@ -1353,7 +1393,7 @@ def refine_async_proxy(request):
     )
 
     if not deferred:
-        celery_app.send_task(
+        if not enqueue_switchboard_task(
             "switchboard.refine_async",
             kwargs={
                 "action_run_id": str(action_run.id),
@@ -1364,8 +1404,12 @@ def refine_async_proxy(request):
                 "request_payload": refine_payload,
                 "refine_payload": refine_payload,
             },
-            queue="switchboard",
-        )
+            action_run=action_run,
+        ):
+            return JsonResponse(
+                {"detail": SWITCHBOARD_UNAVAILABLE_DETAIL, "action_run_id": str(action_run.id)},
+                status=503,
+            )
         logger.info(
             "Enqueued refine action_run=%s user=%s surface=%s",
             action_run.id,
@@ -1460,7 +1504,7 @@ def draft_async_proxy(request):
     )
 
     if not deferred:
-        celery_app.send_task(
+        if not enqueue_switchboard_task(
             "switchboard.draft_async",
             kwargs={
                 "action_run_id": str(action_run.id),
@@ -1471,8 +1515,12 @@ def draft_async_proxy(request):
                 "request_payload": draft_payload,
                 "draft_payload": draft_payload,
             },
-            queue="switchboard",
-        )
+            action_run=action_run,
+        ):
+            return JsonResponse(
+                {"detail": SWITCHBOARD_UNAVAILABLE_DETAIL, "action_run_id": str(action_run.id)},
+                status=503,
+            )
         logger.info(
             "Enqueued draft action_run=%s user=%s content_type=%s surface=%s",
             action_run.id,
