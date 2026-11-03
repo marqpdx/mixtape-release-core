@@ -377,3 +377,35 @@ def check_ready_claude_runtimes():
             results[str(runtime.id)] = "error"
     logger.info("[tenant_runtime] daily runtime check: %s", results)
     return results
+
+
+@shared_task(name="tenant_runtime.check_claude_runtime")
+def check_claude_runtime(runtime_id: str) -> str:
+    """
+    verify_claude_runtime, on the runtime worker (routed in celery_app).
+
+    The web process can't run the CLI as a pool user: it runs with
+    NoNewPrivileges, which forbids sudo. So Settings' "check" asks this task.
+    """
+    from tenant_runtime.models import TenantClaudeRuntime
+
+    try:
+        runtime = TenantClaudeRuntime.objects.get(id=runtime_id)
+    except TenantClaudeRuntime.DoesNotExist:
+        return "unknown"
+    return verify_claude_runtime(runtime)
+
+
+@shared_task(name="tenant_runtime.sign_out_claude_runtime")
+def sign_out_claude_runtime(runtime_id: str) -> bool:
+    """`claude auth logout` as the runtime's user, on the runtime worker. True on success."""
+    from claude.service import logout
+    from tenant_runtime.models import TenantClaudeRuntime
+
+    try:
+        runtime = TenantClaudeRuntime.objects.get(id=runtime_id)
+    except TenantClaudeRuntime.DoesNotExist:
+        return False
+    if not runtime.linux_user:
+        return False
+    return logout(runtime.linux_user, runtime.home_dir)

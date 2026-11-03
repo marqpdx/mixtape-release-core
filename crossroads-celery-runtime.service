@@ -1,0 +1,41 @@
+[Unit]
+Description=Crossroads Celery Worker (runtime — person runtimes; the only worker allowed sudo, Service Trust ST-3)
+After=network.target rabbitmq-server.service
+Requires=rabbitmq-server.service
+
+[Service]
+Type=simple
+User=crossroads
+Group=crossroads
+WorkingDirectory=/var/www/crossroads/app/app
+EnvironmentFile=/var/www/crossroads/.env
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Consumes only the "runtime" queue: sign-in, check and sign-out for person runtimes,
+# which run the Claude/Codex CLI as a pool user (sudo -u mxr-NN). What it may run is
+# bounded by /etc/sudoers.d/mixtape-runtimes: only /usr/local/bin/claude and codex,
+# only as members of mixtape-runtimes.
+ExecStart=/var/www/crossroads/app/venv/bin/celery -A mixtape.celery_app worker \
+  --loglevel=INFO \
+  --concurrency=2 \
+  --prefetch-multiplier=1 \
+  -Q runtime \
+  -n runtime-worker@%%h
+
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Unlike every other worker: sudo must work here, so no NoNewPrivileges, and none of
+# the settings that imply it (RestrictSUIDSGID, SystemCallFilter, PrivateDevices,
+# ProtectKernel*, MemoryDenyWriteExecute, LockPersonality, DynamicUser). No ProtectHome:
+# the pool users' homes live under /home.
+NoNewPrivileges=false
+PrivateTmp=true
+ReadWritePaths=/var/www/crossroads
+
+[Install]
+WantedBy=multi-user.target

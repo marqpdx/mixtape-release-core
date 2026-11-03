@@ -63,6 +63,12 @@ app.conf.task_queues = (
 
     # ---- Switchboard: AI worker (summarize, classify, think) ----
     Queue("switchboard", routing_key="switchboard"),
+
+    # ---- Person runtimes: the only queue whose worker may use sudo (ST-3) ----
+    # Every other worker runs with NoNewPrivileges=true, which forbids sudo, so
+    # running the Claude/Codex CLI as a person's pool user (sudo -u mxr-NN) only
+    # works on the dedicated crossroads-celery-runtime worker.
+    Queue("runtime", routing_key="runtime"),
 )
 
 # ---- Task routing ----
@@ -80,7 +86,15 @@ app.conf.task_queues = (
 #   ocr      → OCR spike document rendering and local OCR engine calls
 #   commons  → external integrations (Inkwell URL extraction)
 #   default_q → Livewire real-time events only (activity fanout, socket notifications)
+#   runtime  → person-runtime CLI calls (sign-in, check, sign-out); its worker alone may sudo (ST-3)
 app.conf.task_routes = {
+    # --- Person runtimes → the runtime worker, the only one allowed sudo (ST-3) ---
+    "tenant_runtime.run_tenant_claude_login": {"queue": "runtime", "routing_key": "runtime"},
+    "tenant_runtime.run_tenant_codex_login": {"queue": "runtime", "routing_key": "runtime"},
+    "tenant_runtime.check_ready_claude_runtimes": {"queue": "runtime", "routing_key": "runtime"},
+    "tenant_runtime.check_claude_runtime": {"queue": "runtime", "routing_key": "runtime"},
+    "tenant_runtime.sign_out_claude_runtime": {"queue": "runtime", "routing_key": "runtime"},
+
     # --- Beat-scheduled polling tasks → isolated polling worker ---
     "recurring_action.tasks.advance_recurring_actions": {
         "queue": "polling", "routing_key": "polling"
