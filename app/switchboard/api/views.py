@@ -26,7 +26,7 @@ from initiatives.models import (
     ActionRunStatus,
 )
 from livewire.auth import InternalServiceAuthentication
-from livewire.permissions import HasAuthorizationReadScope
+from livewire.permissions import HasAuthorizationReadScope, HasMcpResolveScope
 from switchboard.api.serializers import (
     AgentAddCommandSerializer,
     AgentFindCommandSerializer,
@@ -121,6 +121,39 @@ def authorize_tool_request(request):
                 "service_token_id": service_token_id,
             },
             "reason": None,
+        }
+    )
+
+
+@api_view(["POST"])
+@authentication_classes([InternalServiceAuthentication])
+@permission_classes([HasMcpResolveScope])
+def resolve_mcp_token(request):
+    """
+    SW-11.7/SW-11.6: the live lookup Switchboard's /mcp mount calls for every
+    bearer token it receives. An invalid token (unknown, revoked, expired) is
+    a 200 with valid=False, not an HTTP error -- only a malformed request or
+    a failed service auth at this endpoint itself is one.
+    """
+    from tenant_runtime.models import McpRuntimeToken
+
+    raw_token = request.data.get("token")
+    if not raw_token:
+        return Response({"detail": "token is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    token = McpRuntimeToken.resolve(raw_token)
+    if token is None:
+        return Response({"valid": False, "reason": "invalid_or_revoked"})
+
+    token.last_used_at = timezone.now()
+    token.save(update_fields=["last_used_at"])
+
+    return Response(
+        {
+            "valid": True,
+            "person_id": str(token.person_id),
+            "group_id": str(token.group_id) if token.group_id else None,
+            "scopes": token.scopes,
         }
     )
 

@@ -22,6 +22,7 @@ from .views import (
     draft_async_proxy,
     group_search_proxy,
     refine_async_proxy,
+    resolve_mcp_token,
     source_grant_latest_messages_proxy,
     summarize_async_proxy,
     think_cluster_async_proxy,
@@ -29,6 +30,7 @@ from .views import (
 
 urlpatterns = [
     path("authorize", authorize_tool_request, name="switchboard-authorize"),
+    path("resolve-mcp-token", resolve_mcp_token, name="switchboard-resolve-mcp-token"),
     path("summarize/async", summarize_async_proxy, name="switchboard-summarize-async"),
     path("classify/async", classify_async_proxy, name="switchboard-classify-async"),
     path("source-grants/<uuid:grant_id>/messages/latest", source_grant_latest_messages_proxy, name="switchboard-source-grant-latest-messages"),

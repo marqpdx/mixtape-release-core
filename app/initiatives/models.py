@@ -92,6 +92,17 @@ class ActionRunStatus(models.TextChoices):
     ABANDONED = "abandoned", "Abandoned"
 
 
+class ActionRunOutcome(models.TextChoices):
+    """
+    SW-11.11: a person's verdict on a G (governed) ActionRun's result.
+    U tools are exempt by convention -- nothing stops setting this on one,
+    but no surface offers it for a direct/no-judgement call.
+    """
+    ACCEPTED = "accepted", "Accepted"
+    REJECTED = "rejected", "Rejected"
+    IGNORED = "ignored", "Ignored"
+
+
 class ActionRunExecutionMode(models.TextChoices):
     LOCAL = "local", "Local"
     LOCAL_RETRIEVAL = "local_retrieval", "Local + Retrieval"
@@ -559,6 +570,14 @@ class ActionRun(BaseModel):
     cloud_approved = models.BooleanField(default=False)
     approval_payload = models.JSONField(null=True, blank=True)
 
+    outcome = models.CharField(
+        max_length=20,
+        choices=ActionRunOutcome.choices,
+        null=True,
+        blank=True,
+        help_text="SW-11.11: set by the initiating person, not the system. Null = no verdict given.",
+    )
+
     started_at = models.DateTimeField(default=timezone.now)
     completed_at = models.DateTimeField(null=True, blank=True)
 
@@ -569,6 +588,7 @@ class ActionRun(BaseModel):
             models.Index(fields=["tool_name", "-started_at"], name="initiatives_ar_tool_idx"),
             models.Index(fields=["status", "-started_at"], name="initiatives_ar_status_idx"),
             models.Index(fields=["initiator_type", "initiator_id"], name="initiatives_ar_init_idx"),
+            models.Index(fields=["tool_name", "outcome"], name="initiatives_ar_outcome_idx"),
         ]
         permissions = [
             ("approve_cloud_dispatch", "Can approve cloud AI dispatch"),

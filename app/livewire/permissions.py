@@ -36,3 +36,7 @@ class HasKeeperFindingScope(_HasServiceScope):
 
 class HasAuthorizationReadScope(_HasServiceScope):
     required_scope = "authorization:read"
+
+
+class HasMcpResolveScope(_HasServiceScope):
+    required_scope = "mcp:resolve"
