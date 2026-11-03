@@ -134,8 +134,9 @@ class PersonApiTests(TestCase):
         rt.status = TenantClaudeRuntime.STATUS_READY
         rt.save()
         self.client.force_authenticate(self.alice)
-        with patch("claude.service.logout", return_value=True):
+        with patch("tenant_runtime.api.person_views._on_runtime_worker", return_value=True) as worker:
             resp = self.client.post("/api/me/ai-accounts/claude/disconnect/")
+        self.assertEqual(worker.call_args.args[0].name, "tenant_runtime.sign_out_claude_runtime")
         self.assertEqual(resp.json()["state"], "needs_sign_in")
         rt.refresh_from_db()
         self.assertEqual(rt.status, TenantClaudeRuntime.STATUS_LOGIN_REQUIRED)
@@ -166,3 +167,51 @@ class VerifyTests(TestCase):
             self.assertEqual(verify_claude_runtime(self.rt), "needs_sign_in")
         self.rt.refresh_from_db()
         self.assertEqual(self.rt.status, TenantClaudeRuntime.STATUS_LOGIN_REQUIRED)
+
+
+class RuntimeWorkerTests(TestCase):
+    """The CLI runs as a pool user only on the runtime worker: every other worker forbids sudo (ST-3)."""
+
+    def setUp(self):
+        self.alice = _user("alice")
+        self.client = APIClient()
+        with patch.object(pool, "pool_members", return_value=["mxr-1"]), \
+                patch.object(pool, "_groups_of", return_value=set()), \
+                patch.object(pool, "home_of", return_value="/home/mxr-1"):
+            self.rt = ensure_person_runtime(self.alice)
+
+    def test_every_cli_task_routes_to_the_runtime_queue(self):
+        from mixtape.celery_app import app
+
+        names = {q.name for q in app.conf.task_queues}
+        self.assertIn("runtime", names)
+        for task in (
+            "tenant_runtime.run_tenant_claude_login",
+            "tenant_runtime.run_tenant_codex_login",
+            "tenant_runtime.check_ready_claude_runtimes",
+            "tenant_runtime.check_claude_runtime",
+            "tenant_runtime.sign_out_claude_runtime",
+        ):
+            self.assertEqual(app.conf.task_routes[task]["queue"], "runtime", task)
+
+    def test_check_asks_the_runtime_worker(self):
+        self.client.force_authenticate(self.alice)
+        with patch("tenant_runtime.api.person_views._on_runtime_worker", return_value="needs_sign_in") as worker:
+            resp = self.client.post("/api/me/ai-accounts/claude/check/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(worker.call_args.args[0].name, "tenant_runtime.check_claude_runtime")
+        self.assertEqual(worker.call_args.args[1], str(self.rt.id))
+
+    def test_no_answer_from_the_runtime_worker_is_a_clear_503(self):
+        self.client.force_authenticate(self.alice)
+        with patch("tenant_runtime.api.person_views._on_runtime_worker", return_value=None):
+            resp = self.client.post("/api/me/ai-accounts/claude/check/")
+        self.assertEqual(resp.status_code, 503)
+        self.assertNotIn("mxr-", resp.content.decode())
+
+    def test_sign_out_task_signs_out_the_runtime_user(self):
+        from tenant_runtime.tasks import sign_out_claude_runtime
+
+        with patch("claude.service.logout", return_value=True) as logout:
+            self.assertTrue(sign_out_claude_runtime(str(self.rt.id)))
+        logout.assert_called_once_with("mxr-1", "/home/mxr-1")

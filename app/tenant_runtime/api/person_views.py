@@ -23,6 +23,24 @@ logger = logging.getLogger(__name__)
 
 _ACTIVE_LOGIN = (TenantClaudeLoginSession.STATUS_STARTING, TenantClaudeLoginSession.STATUS_AWAITING_AUTH)
 
+# How long a check or sign-out waits for the runtime worker before saying so.
+RUNTIME_ANSWER_SECONDS = 45
+
+
+def _on_runtime_worker(task, runtime_id: str):
+    """
+    Run a CLI task on the runtime worker and wait for its answer; None if none came.
+
+    The web process runs with NoNewPrivileges, which forbids sudo, so it can't run
+    the CLI as a pool user itself (ST-3). The task is routed to the "runtime" queue,
+    whose worker alone may.
+    """
+    try:
+        return task.apply_async(args=[runtime_id]).get(timeout=RUNTIME_ANSWER_SECONDS)
+    except Exception:
+        logger.exception("[tenant_runtime] %s got no answer from the runtime worker", task.name)
+        return None
+
 
 def _active_login(runtime):
     session = runtime.login_sessions.order_by("-started_at").first()
@@ -108,12 +126,16 @@ class MyClaudeCheckView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        from tenant_runtime.tasks import verify_claude_runtime
+        from tenant_runtime.tasks import check_claude_runtime
 
         runtime = get_person_runtime(request.user, CLAUDE)
         if runtime is None:
             return Response({"state": "none"}, status=status.HTTP_404_NOT_FOUND)
-        verify_claude_runtime(runtime)
+        if _on_runtime_worker(check_claude_runtime, str(runtime.id)) is None:
+            return Response(
+                {**_claude_state(runtime), "detail": "Couldn't check your sign-in just now. Try again in a minute."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         runtime.refresh_from_db()
         return Response(_claude_state(runtime))
 
@@ -123,7 +145,7 @@ class MyClaudeDisconnectView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        from claude.service import logout
+        from tenant_runtime.tasks import sign_out_claude_runtime
 
         runtime = get_person_runtime(request.user, CLAUDE)
         if runtime is None:
@@ -132,7 +154,7 @@ class MyClaudeDisconnectView(APIView):
         runtime.status = TenantClaudeRuntime.STATUS_LOGIN_REQUIRED
         runtime.last_verification_error = "Disconnected."
         runtime.save(update_fields=["status", "last_verification_error", "updated_at"])
-        if not logout(runtime.linux_user, runtime.home_dir):
+        if not _on_runtime_worker(sign_out_claude_runtime, str(runtime.id)):
             runtime.last_verification_error = "Disconnected here, but signing out of Claude did not complete."
             runtime.save(update_fields=["last_verification_error", "updated_at"])
             return Response(_claude_state(runtime), status=status.HTTP_502_BAD_GATEWAY)
