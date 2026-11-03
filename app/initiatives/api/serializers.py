@@ -428,6 +428,7 @@ class ActionRunDetailSerializer(serializers.ModelSerializer):
             "completed_at",
             "result_payload",
             "error_payload",
+            "outcome",
         ]
 
 

@@ -19,6 +19,7 @@ from initiatives.models import (
     AgentCommandStatus,
     ActionRun,
     ActionRunExecutionMode,
+    ActionRunOutcome,
     ActionRunStatus,
     Artifact,
     ApertureLog,
@@ -391,6 +392,39 @@ class ActionRunApproveView(APIView):
             approval_mode,
         )
 
+        return Response(ActionRunDetailSerializer(action_run).data)
+
+
+_VALID_OUTCOMES = {
+    ActionRunOutcome.ACCEPTED,
+    ActionRunOutcome.REJECTED,
+    ActionRunOutcome.IGNORED,
+}
+
+
+class ActionRunOutcomeView(APIView):
+    """
+    SW-11.11: the initiating person's verdict on their own ActionRun's
+    result (accepted/rejected/ignored) -- the acceptance-vs-rejection signal
+    tracked per tool. Not the internal service PATCH; this is person-facing.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, action_run_id):
+        action_run = get_object_or_404(ActionRun, pk=action_run_id)
+
+        if action_run.initiator_id != str(request.user.pk):
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        outcome = request.data.get("outcome")
+        if outcome not in _VALID_OUTCOMES:
+            return Response(
+                {"detail": f"outcome must be one of: {', '.join(sorted(_VALID_OUTCOMES))}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        action_run.outcome = outcome
+        action_run.save(update_fields=["outcome", "updated_at"])
         return Response(ActionRunDetailSerializer(action_run).data)
 
 

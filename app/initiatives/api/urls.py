@@ -23,6 +23,7 @@ action_run_patterns = [
     path("action-runs", views.ActionRunListCreateView.as_view(), name="action-run-create"),
     path("action-runs/<uuid:action_run_id>", views.ActionRunDetailView.as_view(), name="action-run-detail"),
     path("action-runs/<uuid:action_run_id>/approve", views.ActionRunApproveView.as_view(), name="action-run-approve"),
+    path("action-runs/<uuid:action_run_id>/outcome", views.ActionRunOutcomeView.as_view(), name="action-run-outcome"),
 ]
 
 agent_object_patterns = [
