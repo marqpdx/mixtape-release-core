@@ -9,6 +9,8 @@ import json
 from dataclasses import dataclass
 from typing import Callable
 
+from .steps import Step
+
 
 def source_digest(sources: list[dict]) -> str:
     return hashlib.sha256(json.dumps(sources, ensure_ascii=False, sort_keys=True,
@@ -39,6 +41,13 @@ class Reading:
     resolvable_shape_ids: frozenset[str]
     callback_task: str
     callback_queue: str = "catalyst"
+    # Opt-in: legacy readings retain their one-call public contract unchanged.
+    steps: tuple[Step, ...] = ()
+    context_provider: Callable | None = None
+    strategy_id: str | None = None
+    strategy_version: str | None = None
+    reference_fields: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    max_prompt_chars: int = 150000
 
 
 _REGISTRY: dict[str, Reading] = {}

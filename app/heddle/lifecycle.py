@@ -56,16 +56,22 @@ def snapshot(parent, *, reading: Reading):
     error = state.get("error")
     if parent.status == ActionRunStatus.ABANDONED:
         status, error = "abandoned", None
-    elif child and child.status == ActionRunStatus.FAILED:
+    elif child and child.status == ActionRunStatus.FAILED and not (reading.steps and status == "superseded"):
         status, error = "failed", (child.error_payload or {}).get("error", "execution_failed")
     elif child and child.status == ActionRunStatus.RUNNING and status == "pending":
         status = "running"
-    return {"contract_version": reading.version, "weave_action_run_id": str(parent.pk),
+    result = {"contract_version": reading.version, "weave_action_run_id": str(parent.pk),
             "execution_action_run_id": str(child.pk) if child else None,
             "revision": state["revision"], "source_digest": source_digest(state["sources"]),
             "sources": state["sources"], "status": status, "error": error,
             "findings": state.get("findings"),
             "cloud_requested": bool(getattr(settings, reading.cloud_setting_name, True))}
+    if reading.steps:
+        from .steps import identity
+        result.update(context=state["context"], **identity(state),
+                      steps=state.get("steps", []), history=state.get("history", []),
+                      plan=state.get("plan"), attempt_id=state.get("attempt_id"))
+    return result
 
 
 @transaction.atomic
@@ -89,11 +95,16 @@ def begin(*, author, request_id, reading: Reading, parent_factory, source_ref, s
             raise InterpretationError("request_conflict", 409)
         return existing, snapshot(existing, reading=reading)
     parent = parent_factory()
+    parent.request_payload = parent.request_payload or {}
     parent.request_payload["interpretation"] = {
         "request_id": str(request_id), conflict_key: conflict_value, "revision": 0,
         "sources": [{"source_ref": source_ref, "source_revision": 0, "text": source_text}],
         "status": "awaiting_cloud_approval" if getattr(settings, reading.cloud_setting_name, True) else "pending",
         "requests": {}, "execution_id": None, "findings": None, "error": None}
+    if reading.steps:
+        from .steps import context_snapshot, plan_identity
+        parent.request_payload["interpretation"].update(
+            context=context_snapshot(reading, author, parent), plan=plan_identity(reading), steps=[], history=[])
     parent.save(update_fields=["request_payload", "updated_at"])
     return parent, snapshot(parent, reading=reading)
 
@@ -115,6 +126,9 @@ def correct(*, author, action_run_id, request_id, expected_revision, reading: Re
         raise InterpretationError("revision_conflict", 409)
     if len(state["sources"]) >= 12 or sum(len(s["text"]) for s in state["sources"]) + len(text) > 40000:
         raise InterpretationError("source_too_long", 413)
+    if reading.steps:
+        from .steps import archive
+        archive(state)
     state["revision"] += 1
     state["sources"].append({"source_ref": f"{source_ref_prefix}:{request_id}",
         "source_revision": state["revision"], "text": text})
@@ -138,7 +152,13 @@ def _enqueue(child_id, kwargs):
 
 
 @transaction.atomic
-def execute(*, author, action_run_id, request_id, expected_revision, digest, reading: Reading, consent=False):
+def execute(*, author, action_run_id, request_id, expected_revision, digest, reading: Reading, consent=False,
+            expected_context_revision=None, context_digest=None):
+    if reading.steps:
+        from .ordered import execute as execute_ordered
+        return execute_ordered(author=author, action_run_id=action_run_id, request_id=request_id,
+            expected_revision=expected_revision, digest_value=digest, reading=reading, consent=consent,
+            expected_context_revision=expected_context_revision, context_digest=context_digest)
     parent = owned_parent(action_run_id, author, tool_name=reading.tool_name, lock=True)
     state = copy.deepcopy(parent.request_payload["interpretation"])
     key = f"execution:{request_id}"
