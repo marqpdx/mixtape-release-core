@@ -73,3 +73,40 @@ case. The mixed decomposed/precomposed accents are intentional and tested.
 `python3 -B report.py` rebuilds CASE_REVIEW.md, baseline_summary.json and review
 provenance from compiled fixtures; it evaluates only tuning/contrast/paraphrase.
 The second reader, Puddlejump, accepted CONTRACT.md as M1's draft format.
+
+## M2 laptop comparison (2026-11-04)
+
+CTO advanced M2/M3 for a prospective author who cannot use cloud AI. This is
+local evaluation, not approval for privacy-facing production rollout.
+`model_adapters.py` adds lazy-loaded spaCy/GLiNER adapters; M1 stays standard-library
+only. The isolated environment lock is m2-requirements.lock. Exact model sources
+and file hashes are in m2-model-manifest.json; model files stay outside git.
+Tier 0 raw outputs are in m2-tier0.json, including the missing-protobuf harness
+failure and successful repeat. Encoder models do not use chat templates.
+
+spaCy: 3.8.18 / en_core_web_sm 3.8.0 (MIT). GLiNER: 0.2.30 /
+urchade/gliner_small-v2.1, revision 4e091416cf7c3481db542c2a3d26156916f3a47f
+(Apache-2.0), with DeBERTa tokenizer/config revision pinned in the manifest.
+The runtime config changes only model_name to the local encoder directory; the
+original config is retained and hashed. Runtime weights point to the original
+pinned weights. Evaluation uses CPU, two torch threads, seed 0, fixed threshold
+0.5, labels character/setting/scene and flat_ner=False. No tuning on holdouts.
+
+Generic spaCy PERSON maps provisionally to Character; GPE/LOC/FAC to Setting.
+It has no Scene NER mapping. These are evaluation hypotheses, not confirmation
+that a mentioned person or location belongs to fiction. GLiNER's returned label
+is likewise provisional. Original offsets and quotes are validated without
+article trimming, possessive repair, normalization or duplicate suppression.
+The unchanged cue baseline is included independently in both adapters.
+
+Run `run_m2.py --backend spacy --split tuning --model-root /private/tmp/ner-m2-models
+--output /private/tmp/ner-m2-runs/spacy-tuning` using the isolated Python; choose
+one split explicitly. Replace backend/split/output as needed. The runner requires
+its source and lock committed and clean, verifies downloaded artifact hashes,
+and saves raw predictions, contract responses, exact/overlap scores, errors,
+code/model/data/context identities and resource timings outside git.
+
+All measured samples are synthetic. Private notes remain excluded, holdouts are
+never used for tuning, and no Claude baseline runs without its own approval.
+M3 remains a separate found-mention semantic comparison, including abstention;
+a full end-to-end local reading needs more than successful name recognition.
