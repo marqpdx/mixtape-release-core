@@ -1,0 +1,15 @@
+{
+  "gliner_revision": "4e091416cf7c3481db542c2a3d26156916f3a47f",
+  "encoder_revision": "a36c739020e01763fe789b4b85e2df55d6180012",
+  "spacy_url": "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
+  "sha256": {
+    "en_core_web_sm-3.8.0-py3-none-any.whl": "1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85",
+    "encoder/tokenizer_config.json": "3f3978e0c036f2c2588cac34a6047cbb0af0b0dc1814254e291028529805496d",
+    "encoder/config.json": "b0bb1caf90a50aa67d1085130508dfbf8646ac5a11928305e280b07a36e100ae",
+    "encoder/spm.model": "c679fbf93643d19aab7ee10c0b99e460bdbc02fedf34b92b05af343b4af586fd",
+    "encoder/README.md": "9aa2d47666370a87d20422ed68a1ee80d79d66b4447b6f9925d97d11f4605d24",
+    "gliner/gliner_config.json": "eb963bd7182a1eaed4d170a87348ab62de6fc4eb30cfa7130c80846fee43d0ac",
+    "gliner/README.md": "5f665c0a6a0e7431ecf0ff59555a418e27601c4c3e8bc1616087a25490294a30",
+    "gliner/pytorch_model.bin": "1d4e83e4e4ae4ae0a4fbc81a32ee6de480fb341650d73e808088bb2800312de4"
+  }
+}

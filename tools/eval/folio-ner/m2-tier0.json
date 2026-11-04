@@ -1,0 +1,83 @@
+{
+  "basic": {
+    "spacy_load_seconds": 0.25076474994421005,
+    "spacy_sanity": [
+      {
+        "text": "London",
+        "label": "GPE",
+        "start": 15,
+        "end": 21
+      }
+    ],
+    "gliner_load_seconds": 5.29861154104583,
+    "gliner_sanity": [
+      {
+        "start": 0,
+        "end": 5,
+        "text": "Alice",
+        "label": "person",
+        "score": 0.9708371758460999
+      },
+      {
+        "start": 15,
+        "end": 21,
+        "text": "London",
+        "label": "city",
+        "score": 0.9813548922538757
+      }
+    ],
+    "peak_rss_bytes": 1485275136
+  },
+  "task": {
+    "text": "For my fiction Jackalope, the character is Travis and the setting is an abandoned station.",
+    "outputs": {
+      "spacy": [
+        {
+          "start": 15,
+          "end": 24,
+          "label": "PERSON",
+          "score": null
+        },
+        {
+          "start": 43,
+          "end": 49,
+          "label": "PERSON",
+          "score": null
+        }
+      ],
+      "gliner": [
+        {
+          "start": 15,
+          "end": 24,
+          "text": "Jackalope",
+          "label": "character",
+          "score": 0.7957860231399536
+        },
+        {
+          "start": 43,
+          "end": 49,
+          "text": "Travis",
+          "label": "character",
+          "score": 0.954249918460846
+        },
+        {
+          "start": 69,
+          "end": 89,
+          "text": "an abandoned station",
+          "label": "setting",
+          "score": 0.7354143261909485
+        },
+        {
+          "start": 72,
+          "end": 89,
+          "text": "abandoned station",
+          "label": "setting",
+          "score": 0.8370658159255981
+        }
+      ]
+    }
+  },
+  "chat_template": "not applicable to non-generative NER encoders",
+  "harness_failure_then_fixed": "protobuf dependency missing; installed protobuf 5.29.5 and reran successfully",
+  "status": "load and basic extraction sanity passed; task output structurally sane, not a quality endorsement"
+}
