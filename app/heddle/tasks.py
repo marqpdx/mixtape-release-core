@@ -74,6 +74,10 @@ def run_cloud_interpretation(*, action_run_id, reading: Reading, apply_fn):
         from claude.service import run_blocking
         result = run_blocking(data["prompt"],
             run_as_user=runtime.linux_user, home_dir=runtime.home_dir, timeout=180, tools="")
+        if result.failure == "auth_failure":
+            # Signed out since the last check: Settings says "Sign in again" at once (ST-3).
+            from tenant_runtime.tasks import verify_claude_runtime
+            verify_claude_runtime(runtime)
         if result.failure:
             raise InterpretationError(result.failure if result.failure in {"auth_failure", "timeout"} else "execution_failed")
         parsed = json.loads(result.output or "")
