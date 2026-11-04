@@ -306,6 +306,14 @@ _LINKEDIN_RUNTIME_MESSAGES = {
 }
 
 
+class _RuntimeStop(RuntimeError):
+    """The person's Claude account stopped the work; `code` tells the page which way to send them."""
+
+    def __init__(self, code: str):
+        super().__init__(_LINKEDIN_RUNTIME_MESSAGES[code])
+        self.code = code
+
+
 def _action_run_initiator(action_run):
     """The person who started the ActionRun, or None. Never a Group or the server."""
     from django.contrib.auth import get_user_model
@@ -385,22 +393,31 @@ def generate_linkedin_copy_with_claude_code(
 
         initiator = _action_run_initiator(action_run)
         if initiator is None:
-            raise RuntimeError(_LINKEDIN_RUNTIME_MESSAGES["runtime_missing"])
+            raise _RuntimeStop("runtime_missing")
         try:
             runtime = person_runtime(initiator, "writing.synopsis_linkedin")
         except RuntimeUnavailable as exc:
-            raise RuntimeError(_LINKEDIN_RUNTIME_MESSAGES[exc.code]) from exc
+            raise _RuntimeStop(exc.code) from exc
         run_as_user = runtime.linux_user
         home_dir = runtime.home_dir
 
-        result = generate_linkedin_copy(
-            action_run_id=action_run_id,
-            title=str(synopsis_payload.get("title") or ""),
-            excerpt=str(synopsis_payload.get("excerpt") or ""),
-            body_preview=str(synopsis_payload.get("body_preview") or ""),
-            run_as_user=run_as_user,
-            home_dir=home_dir,
-        )
+        try:
+            result = generate_linkedin_copy(
+                action_run_id=action_run_id,
+                title=str(synopsis_payload.get("title") or ""),
+                excerpt=str(synopsis_payload.get("excerpt") or ""),
+                body_preview=str(synopsis_payload.get("body_preview") or ""),
+                run_as_user=run_as_user,
+                home_dir=home_dir,
+            )
+        except Exception as exc:
+            # A sign-in that expired since the last check fails here as an empty or odd
+            # reply. Ask the CLI (no model call); if signed out, Settings says so at once.
+            from tenant_runtime.tasks import verify_claude_runtime
+
+            if verify_claude_runtime(runtime) == "needs_sign_in":
+                raise _RuntimeStop("runtime_not_ready") from exc
+            raise
         result.update(
             {
                 "status": "ok",
@@ -436,6 +453,8 @@ def generate_linkedin_copy_with_claude_code(
             "message": str(exc),
             "backend": "anthropic-claude-code",
         }
+        if isinstance(exc, _RuntimeStop):
+            action_run.error_payload["code"] = exc.code
         action_run.completed_at = timezone.now()
         action_run.save(
             update_fields=[

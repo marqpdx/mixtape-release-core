@@ -129,6 +129,23 @@ class InterpretationTests(TestCase):
             lifecycle.correct(**kwargs,text='Different correction.')
         self.assertEqual(err.exception.code,'request_conflict')
 
+    def test_a_signed_out_account_turns_to_sign_in_again_at_once(self):
+        state = self.begin()
+        with patch('shuttle.interpretation.lifecycle.celery_app.send_task'):
+            running = self.execute(state)
+        child = ActionRun.objects.get(pk=running['execution_action_run_id'])
+        child.status = ActionRunStatus.RUNNING
+        child.result_payload = {'dispatch': {'cloud_approved': True, 'source_digest': state['source_digest'], 'revision': 0}}
+        child.save()
+        from claude.service import ClaudeResult
+        with patch('claude.service.run_blocking', return_value=ClaudeResult(output=None, failure='auth_failure')), \
+                patch('claude.service.auth_status', return_value={'loggedIn': False}):
+            run_cloud_interpretation(action_run_id=str(child.pk))
+        child.refresh_from_db()
+        self.runtime.refresh_from_db()
+        self.assertEqual(child.error_payload['error'], 'auth_failure')
+        self.assertEqual(self.runtime.status, TenantClaudeRuntime.STATUS_LOGIN_REQUIRED)
+
     def test_success_uses_exact_person_runtime_and_only_completes_child(self):
         fixture=json.loads((Path(__file__).parent.parent/'interpretation'/'spoken_choirs.findings.json').read_text())
         self.seed.body_text=fixture['sources'][0]['text']

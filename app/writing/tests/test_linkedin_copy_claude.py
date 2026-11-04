@@ -186,6 +186,7 @@ class LinkedInCopyClaudeTaskTests(TestCase):
         action_run.refresh_from_db()
         self.assertEqual(action_run.status, ActionRunStatus.FAILED)
         self.assertIn("Connect your Claude account", action_run.error_payload["message"])
+        self.assertEqual(action_run.error_payload["code"], "runtime_missing")
         generate_copy.assert_not_called()
 
     @patch("writing.linkedin_copy_service.generate_linkedin_copy")
@@ -226,3 +227,31 @@ class LinkedInCopyClaudeTaskTests(TestCase):
         with self.assertRaises(RuntimeError):
             self._run(action_run, principal_user_id="principal-123")
         generate_copy.assert_not_called()
+
+    @patch("claude.service.auth_status", return_value={"loggedIn": False})
+    @patch("writing.linkedin_copy_service.generate_linkedin_copy", side_effect=RuntimeError("no output"))
+    def test_a_sign_in_expired_mid_run_says_sign_in_again_and_settings_follows(self, _generate, _status):
+        from tenant_runtime.models import TenantClaudeRuntime
+
+        action_run = self._action_run()
+        with self.assertRaises(RuntimeError):
+            self._run(action_run)
+        action_run.refresh_from_db()
+        self.runtime.refresh_from_db()
+        self.assertEqual(action_run.error_payload["code"], "runtime_not_ready")
+        self.assertIn("sign in again", action_run.error_payload["message"])
+        self.assertEqual(self.runtime.status, TenantClaudeRuntime.STATUS_LOGIN_REQUIRED)
+
+    @patch("claude.service.auth_status", return_value={"loggedIn": True})
+    @patch("writing.linkedin_copy_service.generate_linkedin_copy", side_effect=RuntimeError("no output"))
+    def test_other_failures_leave_a_signed_in_account_alone(self, _generate, _status):
+        from tenant_runtime.models import TenantClaudeRuntime
+
+        action_run = self._action_run()
+        with self.assertRaises(RuntimeError):
+            self._run(action_run)
+        action_run.refresh_from_db()
+        self.runtime.refresh_from_db()
+        self.assertNotIn("code", action_run.error_payload)
+        self.assertEqual(action_run.error_payload["message"], "no output")
+        self.assertEqual(self.runtime.status, TenantClaudeRuntime.STATUS_READY)
