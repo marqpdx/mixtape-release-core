@@ -1,0 +1,30 @@
+{
+  "annotation_status": "cto_review_amended",
+  "case_review_statuses": {
+    "amended_per_cto": 6,
+    "approved_as_written": 12,
+    "authored_to_cto_spec": 3
+  },
+  "contour": {
+    "bundle_digest": "08cb9feb832b0b0ad4d52ab5220ca97b8a27a506d9dbf0030a4665e3a8bb482e",
+    "library_id": "crossroads.shape_library",
+    "library_version": "0.4.5",
+    "source_commit": "5513e0bb9bdfbc010f6e485cb1db9be5e497c23e"
+  },
+  "contract_second_reader": "Puddlejump: accepted M1 draft 0.1.0-draft, CTO 2026-11-03",
+  "host": "laptop",
+  "host_override": "CTO 2026-11-03; Cass still provisioning",
+  "review_handoff": "puddlejump/zz/handoff-2026-11-03-mobile-ner-m1-review.md",
+  "scaffold_source_commit": "d0ee754e",
+  "seed_case_source": "puddlejump/zz/folio-orientation-cloud-local/folio/ner-cases.jsonl",
+  "seed_case_source_sha256": "6d4fc3a7964a717e36ccd28fe893d50fccaf2adcf2fe5754215649f4659801bd",
+  "source_path": "apps/mobile/pre-tests/folio-ner/",
+  "strategy": {
+    "id": "writing.fiction_note_reading",
+    "version": "0.1.0"
+  },
+  "unchanged_files_sha256": {
+    "recognition.py": "ab759285c7091f0e685a497a43798956d5a5215f430be125e22726ab8700b58c",
+    "test_recognition.py": "b2897e56f09ac939eb8aac109f3e8e46fafb969acb3c6e2cabf33adfb9290112"
+  }
+}
