@@ -19,12 +19,14 @@ from .views import (
     DialogueResetView,
     DialogueUpdateView,
     DialogueWarmView,
+    InitiativeDialogueZeroView,
 )
 
 urlpatterns = [
     path("me/dialogue", AtriumMeDialogueView.as_view(), name="atrium-me-dialogue"),
     path("me/dialogue/exchange", AtriumMeDialogueExchangeView.as_view(), name="atrium-me-dialogue-exchange"),
     path("sponsor-context/", AtriumSponsorContextView.as_view(), name="atrium-sponsor-context"),
+    path("initiatives/<uuid:initiative_id>/dialogue-zero", InitiativeDialogueZeroView.as_view(), name="atrium-initiative-dialogue-zero"),
     path("dialogues/", DialogueListView.as_view(), name="atrium-dialogue-list"),
     path("dialogues/new", DialogueCreateView.as_view(), name="atrium-dialogue-create"),
     path("dialogues/<uuid:dialogue_id>/", DialogueUpdateView.as_view(), name="atrium-dialogue-update"),

@@ -283,3 +283,72 @@ class NoServerLoginTests(SimpleTestCase):
 
         for name in ("atrium.tasks.run_dialogue_turn", "atrium.tasks.run_distill", "atrium.tasks.keeper_compact_task"):
             self.assertEqual(app.conf.task_routes[name]["queue"], "runtime", name)
+
+
+class DialogueZeroTests(DialogueTestCase):
+    def _initiative(self, sponsor):
+        from django.contrib.contenttypes.models import ContentType
+        from initiatives.models import Initiative
+
+        return Initiative.objects.create(
+            title="Marketing",
+            sponsor_content_type=ContentType.objects.get_for_model(sponsor),
+            sponsor_object_id=sponsor.pk,
+        )
+
+    def _open(self, initiative, user=None):
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        client.force_authenticate(user or self.user)
+        return client.post(f"/api/atrium/initiatives/{initiative.id}/dialogue-zero")
+
+    def test_opening_an_initiative_creates_its_dialogue_zero_once(self):
+        initiative = self._initiative(self.profile)
+        first = self._open(initiative)
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(first.data["title"], "Dialogue Zero")
+        again = self._open(initiative)
+        self.assertEqual(again.status_code, 200)
+        self.assertEqual(again.data["id"], first.data["id"])
+
+    def test_dialogue_zero_is_the_first_dialogue_in_the_initiative(self):
+        initiative = self._initiative(self.profile)
+        earliest = Dialogue.objects.create(member=self.profile, initiative=initiative, title="Plans")
+        Dialogue.objects.create(member=self.profile, initiative=initiative, title="Later")
+        self.assertEqual(self._open(initiative).data["id"], str(earliest.id))
+
+    def test_someone_elses_initiative_is_not_found(self):
+        other = get_user_model().objects.create_user(username="bo", email="bo@example.com", password="x")
+        initiative = self._initiative(ensure_user_profile(other))
+        self.assertEqual(self._open(initiative).status_code, 404)
+
+    def test_the_list_filters_by_initiative(self):
+        from rest_framework.test import APIClient
+
+        initiative = self._initiative(self.profile)
+        inside = Dialogue.objects.create(member=self.profile, initiative=initiative)
+        client = APIClient()
+        client.force_authenticate(self.user)
+        data = client.get(f"/api/atrium/dialogues/?initiative_id={initiative.id}").data
+        rows = data["results"] if isinstance(data, dict) else data
+        self.assertEqual([row["id"] for row in rows], [str(inside.id)])
+
+
+class DialogueZeroTests(DialogueTestCase):
+    def test_opening_an_initiative_creates_its_dialogue_zero_once(self):
+        from django.contrib.contenttypes.models import ContentType
+        from initiatives.models import Initiative
+        from rest_framework.test import APIClient
+
+        initiative = Initiative.objects.create(
+            title="Marketing",
+            sponsor_content_type=ContentType.objects.get_for_model(self.profile),
+            sponsor_object_id=self.profile.pk,
+        )
+        client = APIClient()
+        client.force_authenticate(self.user)
+        url = f"/api/atrium/initiatives/{initiative.id}/dialogue-zero"
+        first = client.post(url)
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(client.post(url).data["id"], first.data["id"])
