@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import AgentCommand, ApertureLog, ApertureLogEntry, Artifact, Initiative, Note, Reminder, Session, Task
+from .models import AgentCommand, InitiativeLog, InitiativeLogEntry, Artifact, Initiative, Note, Reminder, Session, Task
 
 
 @admin.register(Initiative)
@@ -50,16 +50,16 @@ class TaskAdmin(admin.ModelAdmin):
     readonly_fields = ("id", "created_at", "updated_at")
 
 
-@admin.register(ApertureLog)
-class ApertureLogAdmin(admin.ModelAdmin):
+@admin.register(InitiativeLog)
+class InitiativeLogAdmin(admin.ModelAdmin):
     list_display = ("initiative", "last_handoff_at", "created_at")
     search_fields = ("initiative__title",)
     readonly_fields = ("id", "created_at", "updated_at", "last_handoff_at")
 
 
-@admin.register(ApertureLogEntry)
-class ApertureLogEntryAdmin(admin.ModelAdmin):
-    list_display = ("aperture_log", "kind", "authored_by", "is_system_generated", "created_at")
+@admin.register(InitiativeLogEntry)
+class InitiativeLogEntryAdmin(admin.ModelAdmin):
+    list_display = ("initiative_log", "kind", "authored_by", "is_system_generated", "created_at")
     list_filter = ("kind", "is_system_generated", "ledger_event_type")
     search_fields = ("body", "authored_by")
     readonly_fields = ("id", "created_at", "updated_at")

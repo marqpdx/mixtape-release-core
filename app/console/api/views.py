@@ -253,8 +253,8 @@ class HubCapturePromoteView(APIView):
 class WorkTableProseView(APIView):
     """
     POST /api/worktable/prose/
-    WT-B6: Create a prose ApertureLogEntry for the member's Personal Initiative
-    or a specified initiative. Thin wrapper over the existing ApertureLog entry API.
+    WT-B6: Create a prose InitiativeLogEntry for the member's Personal Initiative
+    or a specified initiative. Thin wrapper over the existing InitiativeLog entry API.
 
     Body: { "initiative_id": "uuid", "body": "string" }
     """
@@ -268,7 +268,7 @@ class WorkTableProseView(APIView):
             return Response({"error": "body is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         from django.contrib.contenttypes.models import ContentType
-        from initiatives.models import ApertureLog, ApertureLogEntry, ApertureLogEntryKind, Initiative
+        from initiatives.models import InitiativeLog, InitiativeLogEntry, InitiativeLogEntryKind, Initiative
 
         if initiative_id:
             try:
@@ -306,10 +306,10 @@ class WorkTableProseView(APIView):
                     },
                 )
 
-        aperture_log, _ = ApertureLog.objects.get_or_create(initiative=initiative)
-        entry = ApertureLogEntry.objects.create(
-            aperture_log=aperture_log,
-            kind=ApertureLogEntryKind.PROSE,
+        initiative_log, _ = InitiativeLog.objects.get_or_create(initiative=initiative)
+        entry = InitiativeLogEntry.objects.create(
+            initiative_log=initiative_log,
+            kind=InitiativeLogEntryKind.PROSE,
             body=body,
             authored_by=request.user.username,
             created_by=request.user,
@@ -336,7 +336,7 @@ class WorkTableStreamView(APIView):
     or initiative context. Cursor-paginated (before= ISO8601 timestamp).
 
     W1: entry_type=capture only (HubCaptures).
-    W2 will add prose and ledger entries from ApertureLogEntry.
+    W2 will add prose and ledger entries from InitiativeLogEntry.
     W3 will wire initiative scope fully.
     """
     permission_classes = [permissions.IsAuthenticated]
@@ -374,17 +374,17 @@ class WorkTableStreamView(APIView):
                 return Response({"error": "not a member of this group"}, status=status.HTTP_403_FORBIDDEN)
 
         elif scope == "initiative":
-            # WT-B8: return ApertureLogEntries interleaved with HubCaptures for the initiative
+            # WT-B8: return InitiativeLogEntries interleaved with HubCaptures for the initiative
             if not initiative_id:
                 return Response({"error": "initiative_id required for initiative scope"}, status=status.HTTP_400_BAD_REQUEST)
 
-            from initiatives.models import ApertureLog, ApertureLogEntry
+            from initiatives.models import InitiativeLog, InitiativeLogEntry
             try:
-                aperture_log = ApertureLog.objects.get(initiative_id=initiative_id)
-            except ApertureLog.DoesNotExist:
+                initiative_log = InitiativeLog.objects.get(initiative_id=initiative_id)
+            except InitiativeLog.DoesNotExist:
                 return Response({"entries": [], "has_more": False, "cursor": None})
 
-            log_entries_qs = aperture_log.entries.filter(deleted_at__isnull=True).order_by("created_at")
+            log_entries_qs = initiative_log.entries.filter(deleted_at__isnull=True).order_by("created_at")
             if not include_archived:
                 log_entries_qs = log_entries_qs.filter(archived_at__isnull=True)
             if before:
@@ -448,12 +448,12 @@ class WorkTableStreamView(APIView):
         # Fetch limit + 1 to determine has_more
         captures = list(qs[: limit + 1])
 
-        # W2: merge ApertureLogEntries from personal initiative into personal scope stream
+        # W2: merge InitiativeLogEntries from personal initiative into personal scope stream
         log_entries = []
         if scope == "personal":
             from django.contrib.contenttypes.models import ContentType
             from django.contrib.auth import get_user_model
-            from initiatives.models import ApertureLog, ApertureLogEntry, Initiative
+            from initiatives.models import InitiativeLog, InitiativeLogEntry, Initiative
             user_ct = ContentType.objects.get_for_model(get_user_model())
             personal_initiative = (
                 Initiative.objects
@@ -467,8 +467,8 @@ class WorkTableStreamView(APIView):
             )
             if personal_initiative:
                 try:
-                    aperture_log = ApertureLog.objects.get(initiative=personal_initiative)
-                    log_qs = aperture_log.entries.filter(deleted_at__isnull=True).order_by("created_at")
+                    initiative_log = InitiativeLog.objects.get(initiative=personal_initiative)
+                    log_qs = initiative_log.entries.filter(deleted_at__isnull=True).order_by("created_at")
                     if not include_archived:
                         log_qs = log_qs.filter(archived_at__isnull=True)
                     if before:
@@ -480,7 +480,7 @@ class WorkTableStreamView(APIView):
                         except Exception:
                             pass
                     log_entries = list(log_qs[: limit + 1])
-                except ApertureLog.DoesNotExist:
+                except InitiativeLog.DoesNotExist:
                     pass
 
         # Merge captures and log entries, sort by created_at, paginate
@@ -529,7 +529,7 @@ class WorkTableStreamView(APIView):
 
 def _get_stream_entry_for_user(entry_id: str, user):
     """
-    Resolves a stream entry UUID to either a HubCapture or ApertureLogEntry and
+    Resolves a stream entry UUID to either a HubCapture or InitiativeLogEntry and
     verifies the requesting user has write access to it.
 
     Returns (obj, "capture"|"log_entry").
@@ -537,7 +537,7 @@ def _get_stream_entry_for_user(entry_id: str, user):
     """
     from django.core.exceptions import PermissionDenied
     from django.http import Http404
-    from initiatives.models import ApertureLogEntry
+    from initiatives.models import InitiativeLogEntry
 
     # Try HubCapture first
     try:
@@ -548,13 +548,13 @@ def _get_stream_entry_for_user(entry_id: str, user):
     except HubCapture.DoesNotExist:
         pass
 
-    # Try ApertureLogEntry
+    # Try InitiativeLogEntry
     try:
-        entry = ApertureLogEntry.objects.get(id=entry_id, deleted_at__isnull=True)
+        entry = InitiativeLogEntry.objects.get(id=entry_id, deleted_at__isnull=True)
         if not entry.is_system_generated and entry.created_by_id != user.pk:
             raise PermissionDenied
         return entry, "log_entry"
-    except ApertureLogEntry.DoesNotExist:
+    except InitiativeLogEntry.DoesNotExist:
         raise Http404
 
 
@@ -562,7 +562,7 @@ class WorkTableEntryArchiveView(APIView):
     """
     POST /api/worktable/entries/{entry_id}/archive/
 
-    Sets archived_at on a HubCapture or ApertureLogEntry owned by the requesting
+    Sets archived_at on a HubCapture or InitiativeLogEntry owned by the requesting
     user. Archived entries are excluded from the default stream view but visible
     when include_archived=true is passed to the stream endpoint.
     """
@@ -590,7 +590,7 @@ class WorkTableEntryDeleteView(APIView):
     """
     DELETE /api/worktable/entries/{entry_id}/
 
-    Soft-deletes a HubCapture or user-authored ApertureLogEntry by setting
+    Soft-deletes a HubCapture or user-authored InitiativeLogEntry by setting
     deleted_at. System-generated ledger entries cannot be deleted.
     """
     permission_classes = [permissions.IsAuthenticated]
@@ -598,7 +598,7 @@ class WorkTableEntryDeleteView(APIView):
     def delete(self, request, entry_id):
         from django.core.exceptions import PermissionDenied
         from django.http import Http404
-        from initiatives.models import ApertureLogEntry
+        from initiatives.models import InitiativeLogEntry
 
         try:
             obj, entry_type = _get_stream_entry_for_user(entry_id, request.user)
@@ -607,7 +607,7 @@ class WorkTableEntryDeleteView(APIView):
         except PermissionDenied:
             return Response({"error": "forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
-        if entry_type == "log_entry" and isinstance(obj, ApertureLogEntry) and obj.is_system_generated:
+        if entry_type == "log_entry" and isinstance(obj, InitiativeLogEntry) and obj.is_system_generated:
             return Response({"error": "system-generated entries cannot be deleted"}, status=status.HTTP_403_FORBIDDEN)
 
         if obj.deleted_at is None:

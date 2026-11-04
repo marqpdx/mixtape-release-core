@@ -52,9 +52,9 @@ class Scrap(BaseModel):
         related_name="scraps",
     )
 
-    # Associated ApertureLogEntry (nullable — populated when /scrap runs inside initiative)
-    aperture_log_entry = models.ForeignKey(
-        "initiatives.ApertureLogEntry",
+    # Associated InitiativeLogEntry (nullable — populated when /scrap runs inside initiative)
+    initiative_log_entry = models.ForeignKey(
+        "initiatives.InitiativeLogEntry",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,

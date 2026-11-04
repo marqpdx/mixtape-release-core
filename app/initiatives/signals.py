@@ -14,15 +14,15 @@ logger = logging.getLogger(__name__)
 
 
 @receiver(post_save, sender="initiatives.Initiative")
-def create_aperture_log_for_initiative(sender, instance, created, **kwargs):
+def create_initiative_log_for_initiative(sender, instance, created, **kwargs):
     """
-    WT-B5: Auto-create an ApertureLog whenever a new Initiative is created.
+    WT-B5: Auto-create an InitiativeLog whenever a new Initiative is created.
     Uses get_or_create so re-saves are safe.
     """
     if not created:
         return
-    from initiatives.models import ApertureLog
-    ApertureLog.objects.get_or_create(initiative=instance)
+    from initiatives.models import InitiativeLog
+    InitiativeLog.objects.get_or_create(initiative=instance)
 
 
 @receiver(post_save, sender="initiatives.Session")
@@ -40,19 +40,19 @@ def ledger_session_started(sender, instance, created, **kwargs):
     )
 
 
-@receiver(post_save, sender="initiatives.ApertureLogEntry")
+@receiver(post_save, sender="initiatives.InitiativeLogEntry")
 def schedule_handover_on_new_entry(sender, instance, created, **kwargs):
     """
-    Trigger the lock-debounced handover_task whenever a new ApertureLogEntry is saved.
+    Trigger the lock-debounced handover_task whenever a new InitiativeLogEntry is saved.
     Skips handoff entries — a fresh handoff clears the draft; no generation needed.
     """
     if not created:
         return
-    from initiatives.models import ApertureLogEntryKind
-    if instance.kind == ApertureLogEntryKind.HANDOFF:
+    from initiatives.models import InitiativeLogEntryKind
+    if instance.kind == InitiativeLogEntryKind.HANDOFF:
         return
     from initiatives.tasks import handover_task
-    handover_task.delay(str(instance.aperture_log_id))
+    handover_task.delay(str(instance.initiative_log_id))
 
 
 @receiver(post_save, sender="initiatives.ActionRun")
@@ -142,13 +142,13 @@ def _persist_writing_piece_synopsis(action_run):
 
 
 def _append_ledger(initiative, event_type: str, body: str, data: dict | None = None):
-    """Create a ledger ApertureLogEntry for an initiative, auto-creating the ApertureLog if needed."""
-    from initiatives.models import ApertureLog, ApertureLogEntry, ApertureLogEntryKind
+    """Create a ledger InitiativeLogEntry for an initiative, auto-creating the InitiativeLog if needed."""
+    from initiatives.models import InitiativeLog, InitiativeLogEntry, InitiativeLogEntryKind
     try:
-        aperture_log, _ = ApertureLog.objects.get_or_create(initiative=initiative)
-        ApertureLogEntry.objects.create(
-            aperture_log=aperture_log,
-            kind=ApertureLogEntryKind.LEDGER,
+        initiative_log, _ = InitiativeLog.objects.get_or_create(initiative=initiative)
+        InitiativeLogEntry.objects.create(
+            initiative_log=initiative_log,
+            kind=InitiativeLogEntryKind.LEDGER,
             ledger_event_type=event_type,
             body=body,
             ledger_data=data or {},

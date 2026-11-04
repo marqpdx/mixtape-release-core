@@ -6,7 +6,7 @@ from rest_framework.test import APIClient
 
 from groups.services.groups import GroupService
 from initiatives.models import (
-    ApertureLog,
+    InitiativeLog,
     Initiative,
     InitiativeStatus,
     Session,
@@ -68,7 +68,7 @@ class GroupInitiativesApiTests(TestCase):
         self.assertEqual(list_response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(create_response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_superuser_create_initiative_sets_defaults_and_aperture_log(self):
+    def test_superuser_create_initiative_sets_defaults_and_initiative_log(self):
         self.client.force_authenticate(self.superuser)
 
         response = self.client.post(
@@ -92,7 +92,7 @@ class GroupInitiativesApiTests(TestCase):
                 "where_we_are_now": "",
             },
         )
-        self.assertTrue(ApertureLog.objects.filter(initiative=initiative).exists())
+        self.assertTrue(InitiativeLog.objects.filter(initiative=initiative).exists())
 
     def test_superuser_list_hides_resolved_and_archived_by_default(self):
         active = self._create_initiative(title="Active Initiative", status=InitiativeStatus.ACTIVE)

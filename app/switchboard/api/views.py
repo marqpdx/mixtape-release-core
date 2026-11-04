@@ -408,25 +408,25 @@ def think_cluster_async_proxy(request):
     if not initiative_id_raw:
         return JsonResponse({"detail": "initiative_id is required."}, status=400)
 
-    from initiatives.models import ApertureLog, ApertureLogEntry, ApertureLogEntryKind, Initiative
+    from initiatives.models import InitiativeLog, InitiativeLogEntry, InitiativeLogEntryKind, Initiative
     from django.shortcuts import get_object_or_404
     initiative = get_object_or_404(Initiative, pk=initiative_id_raw)
 
     # Collect content entries from the current run window (since last RUN_BOUNDARY).
     try:
-        aperture_log = ApertureLog.objects.get(initiative=initiative)
-    except ApertureLog.DoesNotExist:
-        return JsonResponse({"detail": "Initiative has no ApertureLog — add entries first."}, status=422)
+        initiative_log = InitiativeLog.objects.get(initiative=initiative)
+    except InitiativeLog.DoesNotExist:
+        return JsonResponse({"detail": "Initiative has no InitiativeLog — add entries first."}, status=422)
 
     last_boundary = (
-        ApertureLogEntry.objects
-        .filter(aperture_log=aperture_log, kind=ApertureLogEntryKind.RUN_BOUNDARY)
+        InitiativeLogEntry.objects
+        .filter(initiative_log=initiative_log, kind=InitiativeLogEntryKind.RUN_BOUNDARY)
         .order_by("-created_at")
         .first()
     )
-    qs = ApertureLogEntry.objects.filter(
-        aperture_log=aperture_log,
-        kind__in=[ApertureLogEntryKind.PROSE, ApertureLogEntryKind.EMPH],
+    qs = InitiativeLogEntry.objects.filter(
+        initiative_log=initiative_log,
+        kind__in=[InitiativeLogEntryKind.PROSE, InitiativeLogEntryKind.EMPH],
         archived_at__isnull=True,
     ).order_by("created_at")
     if last_boundary:
@@ -434,7 +434,7 @@ def think_cluster_async_proxy(request):
 
     entries = []
     for entry in qs:
-        text = entry.emph_note if entry.kind == ApertureLogEntryKind.EMPH else entry.body
+        text = entry.emph_note if entry.kind == InitiativeLogEntryKind.EMPH else entry.body
         if text and text.strip():
             entries.append(text.strip())
 

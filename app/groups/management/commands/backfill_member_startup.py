@@ -25,7 +25,7 @@ User = get_user_model()
 
 
 class Command(BaseCommand):
-    help = "Backfill MemberStartupService for existing members (Personal Initiative + ApertureLog)."
+    help = "Backfill MemberStartupService for existing members (Personal Initiative + InitiativeLog)."
 
     def add_arguments(self, parser):
         parser.add_argument(

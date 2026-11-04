@@ -181,7 +181,7 @@ def get_keeper_signal_for_profile(profile, *, signals: list[str], after=None) ->
 
     `after` mirrors ClioState.last_surfaced_at: only findings submitted
     after this cutoff are eligible — the same convention Signal 1
-    (ApertureLog) already uses in studio/views.py. There is no separate
+    (InitiativeLog) already uses in studio/views.py. There is no separate
     "surfaced" flag on KeeperFinding by design (see its docstring).
     """
     from django.conf import settings

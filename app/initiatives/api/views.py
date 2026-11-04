@@ -22,9 +22,9 @@ from initiatives.models import (
     ActionRunOutcome,
     ActionRunStatus,
     Artifact,
-    ApertureLog,
-    ApertureLogEntry,
-    ApertureLogEntryKind,
+    InitiativeLog,
+    InitiativeLogEntry,
+    InitiativeLogEntryKind,
     ArtifactKind,
     DistillationState,
     Initiative,
@@ -41,8 +41,8 @@ from initiatives.api.serializers import (
     ActionRunDetailSerializer,
     ActionRunPatchSerializer,
     ActionRunSummarySerializer,
-    ApertureLogEntrySerializer,
-    ApertureLogSerializer,
+    InitiativeLogEntrySerializer,
+    InitiativeLogSerializer,
     ArtifactSerializer,
     DistillationCurateSerializer,
     InitiativeSerializer,
@@ -734,7 +734,7 @@ class SessionExchangeView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # /run command — insert run_boundary ApertureLog entry; do not pass to AI
+        # /run command — insert run_boundary InitiativeLog entry; do not pass to AI
         if message == "/run":
             return self._handle_run_command(initiative, request.user)
 
@@ -774,38 +774,38 @@ class SessionExchangeView(APIView):
 
     def _handle_run_command(self, initiative, user):
         """
-        Insert a run_boundary ApertureLog entry and return a system SSE response.
+        Insert a run_boundary InitiativeLog entry and return a system SSE response.
         The entry carries a label with timestamp and entry count since the last boundary.
         """
         import json as _json
         from django.utils import timezone
-        from initiatives.models import ApertureLog, ApertureLogEntry, ApertureLogEntryKind
+        from initiatives.models import InitiativeLog, InitiativeLogEntry, InitiativeLogEntryKind
 
-        aperture_log, _ = ApertureLog.objects.get_or_create(initiative=initiative)
+        initiative_log, _ = InitiativeLog.objects.get_or_create(initiative=initiative)
 
         # Count entries since the last run_boundary (or all entries if none)
         last_boundary = (
-            ApertureLogEntry.objects
-            .filter(aperture_log=aperture_log, kind=ApertureLogEntryKind.RUN_BOUNDARY)
+            InitiativeLogEntry.objects
+            .filter(initiative_log=initiative_log, kind=InitiativeLogEntryKind.RUN_BOUNDARY)
             .order_by("-created_at")
             .first()
         )
         if last_boundary:
-            entry_count = ApertureLogEntry.objects.filter(
-                aperture_log=aperture_log,
+            entry_count = InitiativeLogEntry.objects.filter(
+                initiative_log=initiative_log,
                 created_at__gt=last_boundary.created_at,
-            ).exclude(kind=ApertureLogEntryKind.RUN_BOUNDARY).count()
+            ).exclude(kind=InitiativeLogEntryKind.RUN_BOUNDARY).count()
         else:
-            entry_count = ApertureLogEntry.objects.filter(
-                aperture_log=aperture_log,
-            ).exclude(kind=ApertureLogEntryKind.RUN_BOUNDARY).count()
+            entry_count = InitiativeLogEntry.objects.filter(
+                initiative_log=initiative_log,
+            ).exclude(kind=InitiativeLogEntryKind.RUN_BOUNDARY).count()
 
         now = timezone.now()
         label = f"Run — {now.strftime('%B %-d, %-I:%M%p').lower()} · {entry_count} {'entry' if entry_count == 1 else 'entries'}"
 
-        ApertureLogEntry.objects.create(
-            aperture_log=aperture_log,
-            kind=ApertureLogEntryKind.RUN_BOUNDARY,
+        InitiativeLogEntry.objects.create(
+            initiative_log=initiative_log,
+            kind=InitiativeLogEntryKind.RUN_BOUNDARY,
             body=label,
             is_system_generated=True,
             authored_by="system",
@@ -1340,10 +1340,10 @@ def _artifacts_to_distillation(artifact_specs: list[dict]) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# ApertureLog views
+# InitiativeLog views
 # ---------------------------------------------------------------------------
 
-def _get_initiative_for_aperture(request, initiative_id):
+def _get_initiative_for_log(request, initiative_id):
     """Return initiative if user is the sponsor (member ownership check)."""
     initiative = get_object_or_404(Initiative, pk=initiative_id)
     user_ct = ContentType.objects.get_for_model(request.user.__class__)
@@ -1356,45 +1356,45 @@ def _get_initiative_for_aperture(request, initiative_id):
     return initiative, None
 
 
-class ApertureLogView(APIView):
+class InitiativeLogView(APIView):
     """
-    GET /api/initiatives/<id>/aperture-log
-    Retrieve the full entry stream for an Initiative's ApertureLog.
+    GET /api/initiatives/<id>/log
+    Retrieve the full entry stream for an Initiative's InitiativeLog.
     Ordered chronologically. Paginated (50/page).
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, initiative_id):
-        initiative, err = _get_initiative_for_aperture(request, initiative_id)
+        initiative, err = _get_initiative_for_log(request, initiative_id)
         if err:
             return err
-        aperture_log = get_object_or_404(ApertureLog, initiative=initiative)
+        initiative_log = get_object_or_404(InitiativeLog, initiative=initiative)
         page = int(request.query_params.get("page", 1))
         page_size = 50
         offset = (page - 1) * page_size
-        entries = aperture_log.entries.all()[offset:offset + page_size]
-        serializer = ApertureLogSerializer(aperture_log)
+        entries = initiative_log.entries.all()[offset:offset + page_size]
+        serializer = InitiativeLogSerializer(initiative_log)
         data = serializer.data
-        data["entries"] = ApertureLogEntrySerializer(entries, many=True).data
+        data["entries"] = InitiativeLogEntrySerializer(entries, many=True).data
         return Response(data)
 
 
-class ApertureLogEntryCreateView(APIView):
+class InitiativeLogEntryCreateView(APIView):
     """
-    POST /api/initiatives/<id>/aperture-log/entries
+    POST /api/initiatives/<id>/log/entries
     Create a new member-authored entry (prose, handoff, emph, seed_spawn).
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, initiative_id):
-        initiative, err = _get_initiative_for_aperture(request, initiative_id)
+        initiative, err = _get_initiative_for_log(request, initiative_id)
         if err:
             return err
-        aperture_log = get_object_or_404(ApertureLog, initiative=initiative)
-        serializer = ApertureLogEntrySerializer(data=request.data)
+        initiative_log = get_object_or_404(InitiativeLog, initiative=initiative)
+        serializer = InitiativeLogEntrySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save(
-            aperture_log=aperture_log,
+            initiative_log=initiative_log,
             authored_by=request.user.username,
             created_by=request.user,
             is_system_generated=False,
@@ -1402,69 +1402,69 @@ class ApertureLogEntryCreateView(APIView):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
-class ApertureLogEntryDetailView(APIView):
+class InitiativeLogEntryDetailView(APIView):
     """
-    PATCH /api/initiatives/<id>/aperture-log/entries/<entry_id>
+    PATCH /api/initiatives/<id>/log/entries/<entry_id>
     Edit body or emph_note of a member-authored entry.
     Refused for ledger and seed_spawn entries.
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def patch(self, request, initiative_id, entry_id):
-        initiative, err = _get_initiative_for_aperture(request, initiative_id)
+        initiative, err = _get_initiative_for_log(request, initiative_id)
         if err:
             return err
-        aperture_log = get_object_or_404(ApertureLog, initiative=initiative)
-        entry = get_object_or_404(ApertureLogEntry, pk=entry_id, aperture_log=aperture_log)
-        if entry.kind in (ApertureLogEntryKind.LEDGER, ApertureLogEntryKind.SEED_SPAWN):
+        initiative_log = get_object_or_404(InitiativeLog, initiative=initiative)
+        entry = get_object_or_404(InitiativeLogEntry, pk=entry_id, initiative_log=initiative_log)
+        if entry.kind in (InitiativeLogEntryKind.LEDGER, InitiativeLogEntryKind.SEED_SPAWN):
             return Response(
                 {"detail": "System-generated entries cannot be edited."},
                 status=status.HTTP_403_FORBIDDEN,
             )
         allowed_fields = {"body", "emph_note", "emph_accepted_to_summary"}
         data = {k: v for k, v in request.data.items() if k in allowed_fields}
-        serializer = ApertureLogEntrySerializer(entry, data=data, partial=True)
+        serializer = InitiativeLogEntrySerializer(entry, data=data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
 
 
-class ApertureLogHandoffsView(APIView):
+class InitiativeLogHandoffsView(APIView):
     """
-    GET /api/initiatives/<id>/aperture-log/handoffs
+    GET /api/initiatives/<id>/log/handoffs
     Return all handoff entries for this Initiative, ordered chronologically.
     Powers the handoff note sidebar.
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, initiative_id):
-        initiative, err = _get_initiative_for_aperture(request, initiative_id)
+        initiative, err = _get_initiative_for_log(request, initiative_id)
         if err:
             return err
-        aperture_log = get_object_or_404(ApertureLog, initiative=initiative)
-        entries = aperture_log.entries.filter(kind=ApertureLogEntryKind.HANDOFF)
-        return Response(ApertureLogEntrySerializer(entries, many=True).data)
+        initiative_log = get_object_or_404(InitiativeLog, initiative=initiative)
+        entries = initiative_log.entries.filter(kind=InitiativeLogEntryKind.HANDOFF)
+        return Response(InitiativeLogEntrySerializer(entries, many=True).data)
 
 
-class ApertureLogHandoverDraftView(APIView):
+class InitiativeLogHandoverDraftView(APIView):
     """
-    GET /api/initiatives/<id>/aperture-log/handover-draft
+    GET /api/initiatives/<id>/log/handover-draft
     Return the current AI-generated handover draft, or {"draft": null} if none exists.
     Read-only — the draft is written exclusively by the handover_task Celery task.
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, initiative_id):
-        initiative, err = _get_initiative_for_aperture(request, initiative_id)
+        initiative, err = _get_initiative_for_log(request, initiative_id)
         if err:
             return err
-        aperture_log = get_object_or_404(ApertureLog, initiative=initiative)
-        return Response({"draft": aperture_log.handover_draft})
+        initiative_log = get_object_or_404(InitiativeLog, initiative=initiative)
+        return Response({"draft": initiative_log.handover_draft})
 
 
-class ApertureOrientationView(APIView):
+class InitiativeOrientationView(APIView):
     """
-    GET /api/members/me/aperture/orientation
+    GET /api/members/me/initiatives/orientation
     Return the member's 10 most recent contexts (Initiatives collapsed,
     standalones listed). Powers the WorkTable // orientation view.
     """
@@ -1496,14 +1496,14 @@ class ApertureOrientationView(APIView):
         for initiative in initiatives:
             last_handoff = None
             try:
-                log = initiative.aperture_log
+                log = initiative.initiative_log
                 last_handoff = (
-                    log.entries.filter(kind=ApertureLogEntryKind.HANDOFF)
+                    log.entries.filter(kind=InitiativeLogEntryKind.HANDOFF)
                     .order_by("-created_at")
                     .values_list("body", "created_at")
                     .first()
                 )
-            except ApertureLog.DoesNotExist:
+            except InitiativeLog.DoesNotExist:
                 pass
 
             results.append({
@@ -1520,9 +1520,9 @@ class ApertureOrientationView(APIView):
         return Response({"contexts": results, "limit": limit})
 
 
-class ApertureInitiativeTypeaheadView(APIView):
+class InitiativeTypeaheadView(APIView):
     """
-    GET /api/members/me/aperture/initiatives?q=<query>&limit=10
+    GET /api/members/me/initiatives/search?q=<query>&limit=10
     Initiative title prefix search for the // command typeahead.
     Returns the member's own Initiatives whose titles start with (or contain) q.
     """

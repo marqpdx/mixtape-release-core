@@ -1,7 +1,7 @@
 # initiatives/management/commands/import_conversation.py
 """
 Import an externally-exported conversation (Claude Web, ChatGPT) into an
-ApertureLog-backed Initiative.
+InitiativeLog-backed Initiative.
 
 Usage:
     python manage.py import_conversation <path-to-export.md> \\
@@ -26,7 +26,7 @@ on their own line. If a different ChatGPT export tool/format is
 encountered later, extend CHATGPT_TURN_RE / _parse_chatgpt_markdown rather
 than assuming this format generalizes.
 
-Each turn becomes a prose ApertureLogEntry. Turns detected as standalone
+Each turn becomes a prose InitiativeLogEntry. Turns detected as standalone
 documents (long structured responses) are extracted to --output-dir
 and replaced in the log with a stub + ledger_data reference. Two ledger
 bookends (session_started / session_ended) bracket the stream.
@@ -44,9 +44,9 @@ from django.db import transaction
 
 from groups.models import Group
 from initiatives.models import (
-    ApertureLog,
-    ApertureLogEntry,
-    ApertureLogEntryKind,
+    InitiativeLog,
+    InitiativeLogEntry,
+    InitiativeLogEntryKind,
     Initiative,
     InitiativeStatus,
     LedgerEventType,
@@ -233,7 +233,7 @@ def _save_document(output_dir: Path, turn: dict, doc_title: str, seq: int) -> st
 
 
 class Command(BaseCommand):
-    help = "Import an exported conversation into an ApertureLog-backed Initiative."
+    help = "Import an exported conversation into an InitiativeLog-backed Initiative."
 
     def add_arguments(self, parser):
         parser.add_argument("file", type=str, help="Path to the conversation export file.")
@@ -361,7 +361,7 @@ class Command(BaseCommand):
                 sponsor_object_id=group.id,
             )
 
-            log: ApertureLog = initiative.aperture_log
+            log: InitiativeLog = initiative.initiative_log
             log.import_source = {
                 "platform": options["platform"],
                 "conversation_id": conversation_id,
@@ -374,9 +374,9 @@ class Command(BaseCommand):
             }
             log.save(update_fields=["import_source"])
 
-            ApertureLogEntry.objects.create(
-                aperture_log=log,
-                kind=ApertureLogEntryKind.LEDGER,
+            InitiativeLogEntry.objects.create(
+                initiative_log=log,
+                kind=InitiativeLogEntryKind.LEDGER,
                 is_system_generated=True,
                 authored_by="system",
                 ledger_event_type=LedgerEventType.SESSION_STARTED,
@@ -407,9 +407,9 @@ class Command(BaseCommand):
                     ledger_data = None
 
                 entries.append(
-                    ApertureLogEntry(
-                        aperture_log=log,
-                        kind=ApertureLogEntryKind.PROSE,
+                    InitiativeLogEntry(
+                        initiative_log=log,
+                        kind=InitiativeLogEntryKind.PROSE,
                         body=body,
                         authored_by=authored_by,
                         source_turn_index=turn["index"],
@@ -417,11 +417,11 @@ class Command(BaseCommand):
                         ledger_data=ledger_data,
                     )
                 )
-            ApertureLogEntry.objects.bulk_create(entries)
+            InitiativeLogEntry.objects.bulk_create(entries)
 
-            ApertureLogEntry.objects.create(
-                aperture_log=log,
-                kind=ApertureLogEntryKind.LEDGER,
+            InitiativeLogEntry.objects.create(
+                initiative_log=log,
+                kind=InitiativeLogEntryKind.LEDGER,
                 is_system_generated=True,
                 authored_by="system",
                 ledger_event_type=LedgerEventType.SESSION_ENDED,
@@ -434,7 +434,7 @@ class Command(BaseCommand):
                 f"  Title:         {title}\n"
                 f"  Group:         {group.title} ({group.slug})\n"
                 f"  Status:        {initiative.status}\n"
-                f"  ApertureLog:   {log.id}\n"
+                f"  InitiativeLog:   {log.id}\n"
                 f"  Docs extracted: {len(doc_turns)} → {output_dir}\n"
                 f"\nNext: open the Initiative in Atrium and run the curation pass."
             )
