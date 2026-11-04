@@ -113,7 +113,8 @@ class FolioSponsorMigrationTests(TransactionTestCase):
                     for title, owner in [("Same", one), ("Same", one), ("Same", two), ("", one)]]
             ids = [row.pk for row in rows]
             MigrationExecutor(connection).migrate(after)
-            current = Folio.objects.in_bulk(ids)
+            migrated = MigrationExecutor(connection).loader.project_state(after).apps.get_model("folio", "Folio")
+            current = migrated.objects.in_bulk(ids)
             self.assertEqual(set(current), set(ids))
             self.assertEqual({current[ids[0]].slug, current[ids[1]].slug}, {"same", "same-2"})
             self.assertEqual(current[ids[2]].slug, "same")
@@ -126,4 +127,5 @@ class FolioSponsorMigrationTests(TransactionTestCase):
                 self.assertEqual(row.sponsor_content_type.model, model)
             self.assertNotIn("created_by", {field.name for field in Folio._meta.fields})
         finally:
-            MigrationExecutor(connection).migrate(after)
+            restore = MigrationExecutor(connection)
+            restore.migrate(restore.loader.graph.leaf_nodes())
