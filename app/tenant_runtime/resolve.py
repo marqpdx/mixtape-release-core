@@ -24,12 +24,13 @@ _MODELS = {CLAUDE: TenantClaudeRuntime, CODEX: TenantCodexRuntime}
 # Decision S4: a new person runtime serves every current cloud feature; each call
 # still needs its own approval. Add a capability here when its caller moves to the
 # person's runtime, with a data migration for runtimes that already exist
-# (Catalyst: tenant_runtime 0006). Atrium joins in ST-3 Part B.
+# (Catalyst: tenant_runtime 0006; Atrium Dialogues: 0007, ST-3 Part B).
 PERSON_DEFAULT_MODES = [
     "shuttle_weave_interpret",
     "folio_note_tend",
     "writing.synopsis_linkedin",
     "catalyst.parse",
+    "atrium.dialogue",
 ]
 
 

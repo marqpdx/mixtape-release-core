@@ -1,28 +1,28 @@
 from django.contrib import admin
 
-from .models import AtriumSession, AtriumSessionEntry, CloudAgentSession
+from .models import CloudAgentSession, Dialogue, DialogueEntry
 
 
-class AtriumSessionEntryInline(admin.TabularInline):
-    model = AtriumSessionEntry
+class DialogueEntryInline(admin.TabularInline):
+    model = DialogueEntry
     extra = 0
-    readonly_fields = ("role", "content", "created_at")
+    readonly_fields = ("role", "speaker", "status", "content", "created_at")
     ordering = ("created_at",)
 
 
-@admin.register(AtriumSession)
-class AtriumSessionAdmin(admin.ModelAdmin):
+@admin.register(Dialogue)
+class DialogueAdmin(admin.ModelAdmin):
     list_display = ("id", "member", "title", "ai_provider", "status", "last_activity_at", "created_at")
     list_filter = ("status", "ai_provider")
     search_fields = ("member__user__email", "title")
     readonly_fields = ("id", "created_at", "updated_at", "last_activity_at")
-    inlines = [AtriumSessionEntryInline]
+    inlines = [DialogueEntryInline]
 
 
-@admin.register(AtriumSessionEntry)
-class AtriumSessionEntryAdmin(admin.ModelAdmin):
-    list_display = ("id", "session", "role", "created_at")
-    list_filter = ("role",)
+@admin.register(DialogueEntry)
+class DialogueEntryAdmin(admin.ModelAdmin):
+    list_display = ("id", "dialogue", "role", "speaker", "status", "error_code", "created_at")
+    list_filter = ("role", "status", "speaker")
     readonly_fields = ("id", "created_at", "updated_at")
 
 
@@ -30,10 +30,11 @@ class AtriumSessionEntryAdmin(admin.ModelAdmin):
 class CloudAgentSessionAdmin(admin.ModelAdmin):
     list_display = (
         "id",
-        "atrium_session",
+        "dialogue",
         "provider",
         "status",
         "linux_user",
+        "seen_through",
         "last_used_at",
         "created_at",
     )

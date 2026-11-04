@@ -23,7 +23,8 @@ Lockdown (Service Trust ST-2, CTO 2026-10-27):
     installed CLI supports it.
 
 Interactive session notes (stream-json mode):
-  - One persistent subprocess per AtriumSession UUID, keyed in _session_registry.
+  - One persistent subprocess per session key, kept in _session_registry (LinkedIn, Catalyst).
+  - stream_turn(): one process per Atrium Dialogue turn, resuming a saved session (ST-3 Part B).
   - Process runs: claude -p --dangerously-skip-permissions --verbose
       --input-format stream-json --output-format stream-json --include-partial-messages
   - Each turn: write one JSONL user message to stdin, read JSON events from stdout
@@ -97,8 +98,14 @@ def _cli_supports(flag: str) -> bool:
     return flag in (out.stdout or "")
 
 
-def _lockdown_args(tools: str, allow_slash_commands: bool = False) -> list[str]:
-    """CLI args restricting a run to the named tools, with no MCP, hooks or saved session."""
+def _lockdown_args(tools: str, allow_slash_commands: bool = False, persist_session: bool = False) -> list[str]:
+    """
+    CLI args restricting a run to the named tools, with no MCP, hooks or saved session.
+
+    persist_session: keep the CLI's session file so the next turn can --resume it. Only
+    for Atrium Dialogue turns, which run as the person's own Linux user, so the file
+    lands in their own home (ST-3 Part B); every other run stays unsaved (ST-2).
+    """
     args = ["--tools", tools]
     if not allow_slash_commands:
         args.append("--disable-slash-commands")
@@ -106,7 +113,7 @@ def _lockdown_args(tools: str, allow_slash_commands: bool = False) -> list[str]:
         "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}",
         "--settings", "{\"disableAllHooks\":true}",
     ])
-    if _cli_supports("--no-session-persistence"):
+    if not persist_session and _cli_supports("--no-session-persistence"):
         args.append("--no-session-persistence")
     return args
 
@@ -452,27 +459,94 @@ def _send_message(proc: subprocess.Popen, text: str) -> None:
     proc.stdin.flush()
 
 
+def _stream_json_events(obj: dict, state: dict) -> Generator[tuple[str, str], None, None]:
+    """
+    Turn one stream-json object from the CLI into Atrium event pairs:
+      ("delta",            text)     — response text chunk
+      ("activity",         text)     — tool call in progress (file read, bash, etc.)
+      ("context_status",   json_str) — token-count update
+      ("provider_session", id)       — the CLI's session id, from its init event
+      ("error",            message)  — is_error result
+    Sets state["done"] when the "result" event closes the turn. Silently drops
+    rate_limit_event, message_start/stop, assistant and user (tool-result routing)
+    events and thinking blocks.
+    """
+    t = obj.get("type")
+    session_id = state.get("session_id", "")
+
+    # ── turn complete ────────────────────────────────────────────────────────
+    if t == "result":
+        state["done"] = True
+        if obj.get("is_error"):
+            msg = (obj.get("error") or {}).get("message") or obj.get("result") or "Claude Code returned an error."
+            logger.warning("[claude] stream-json error result: session=%s msg=%s", session_id, str(msg)[:200])
+            yield ("error", str(msg))
+            return
+        logger.info(
+            "[claude] stream-json turn complete: session=%s turns=%s duration_ms=%s",
+            session_id,
+            obj.get("num_turns"),
+            obj.get("duration_api_ms"),
+        )
+        usage = obj.get("usage") or {}
+        input_tokens = usage.get("input_tokens") or 0
+        if input_tokens:
+            context_limit = 200_000
+            yield ("context_status", json.dumps({
+                "used": input_tokens,
+                "total": context_limit,
+                "pct": round(input_tokens / context_limit * 100, 1),
+            }))
+        return
+
+    # ── stream events ────────────────────────────────────────────────────────
+    if t == "stream_event":
+        event = obj.get("event", {})
+        et = event.get("type")
+        if et == "content_block_start":
+            block = event.get("content_block", {})
+            if block.get("type") == "tool_use":
+                name = block.get("name", "tool")
+                logger.debug("[claude] tool call started: %s", name)
+                yield ("activity", name)
+        elif et == "content_block_delta":
+            delta = event.get("delta", {})
+            if delta.get("type") == "text_delta":
+                text = delta.get("text", "")
+                if text:
+                    yield ("delta", text)
+            # input_json_delta (tool arguments) and thinking_delta are not surfaced.
+        # content_block_stop, message_start, message_delta, message_stop — no payload.
+        return
+
+    # ── system events ────────────────────────────────────────────────────────
+    if t == "system":
+        sub = obj.get("subtype")
+        if sub == "init":
+            logger.info("[claude] stream-json init: session=%s", obj.get("session_id"))
+            if obj.get("session_id"):
+                yield ("provider_session", str(obj["session_id"]))
+        elif sub == "status":
+            logger.debug("[claude] system status: %s", obj.get("status"))
+        return
+
+    if t not in ("assistant", "user", "rate_limit_event"):
+        logger.debug("[claude] stream-json unknown event type=%s", t)
+
+
 def _read_turn(
     proc: subprocess.Popen,
     session_id: str,
     timeout: int | None = None,
 ) -> Generator[tuple[str, str], None, None]:
     """
-    Read JSON events from stdout until a "result" event signals turn complete.
-    Yields (event_type, payload) pairs for Atrium SSE:
-      ("delta",          text)          — response text chunk
-      ("activity",       text)          — tool call in progress (file read, bash, etc.)
-      ("context_status", json_str)      — token-count update
-      ("error",          message)       — is_error result
-    Silently drops: system/init, rate_limit_event, stream_event/message_start,
-    stream_event/content_block_stop, stream_event/message_delta/stop, assistant,
-    user (tool-result routing), thinking blocks.
+    Read JSON events from a live session's stdout until a "result" event signals the
+    turn is complete, yielding the pairs _stream_json_events describes (except
+    provider_session, which long-lived session callers don't use).
     """
-    import json as _json
-
-    active_tool_name: str | None = None
     started_at = time.monotonic()
     turn_timeout = timeout or DEFAULT_SESSION_TURN_TIMEOUT
+    state = {"session_id": session_id, "done": False}
 
     while True:
         remaining = turn_timeout - (time.monotonic() - started_at)
@@ -508,92 +582,115 @@ def _read_turn(
         raw = raw.strip()
         if not raw:
             continue
-
         try:
-            obj = _json.loads(raw)
-        except _json.JSONDecodeError:
+            obj = json.loads(raw)
+        except json.JSONDecodeError:
             logger.debug("[claude] stream-json non-JSON line: %r", raw[:120])
             continue
 
-        t = obj.get("type")
-
-        # ── turn complete ────────────────────────────────────────────────────
-        if t == "result":
-            if obj.get("is_error"):
-                msg = obj.get("error", {}).get("message", "Claude Code returned an error.")
-                logger.warning("[claude] stream-json error result: session=%s msg=%s", session_id, msg[:200])
-                yield ("error", msg)
-            else:
-                logger.info(
-                    "[claude] stream-json turn complete: session=%s turns=%s duration_ms=%s",
-                    session_id,
-                    obj.get("num_turns"),
-                    obj.get("duration_api_ms"),
-                )
-                usage = obj.get("usage") or {}
-                input_tokens = usage.get("input_tokens") or 0
-                if input_tokens:
-                    _CONTEXT_LIMIT = 200_000
-                    pct = round(input_tokens / _CONTEXT_LIMIT * 100, 1)
-                    yield ("context_status", _json.dumps({
-                        "used": input_tokens,
-                        "total": _CONTEXT_LIMIT,
-                        "pct": pct,
-                    }))
+        for event in _stream_json_events(obj, state):
+            if event[0] != "provider_session":
+                yield event
+        if state["done"]:
             return
 
-        # ── stream events ────────────────────────────────────────────────────
-        if t == "stream_event":
-            event = obj.get("event", {})
-            et = event.get("type")
 
-            if et == "content_block_start":
-                block = event.get("content_block", {})
-                if block.get("type") == "tool_use":
-                    active_tool_name = block.get("name", "tool")
-                    logger.debug("[claude] tool call started: %s", active_tool_name)
-                    yield ("activity", active_tool_name)
-                elif block.get("type") == "text":
-                    active_tool_name = None
+def stream_turn(
+    prompt: str,
+    *,
+    cwd: str,
+    run_as_user: str,
+    home_dir: str | None = None,
+    tools: str = READ_ONLY_TOOLS,
+    resume_session_id: str | None = None,
+    timeout: int | None = None,
+) -> Generator[tuple[str, str], None, None]:
+    """
+    Run one Atrium Dialogue turn as its own process, as the person's Linux user.
 
-            elif et == "content_block_delta":
-                delta = event.get("delta", {})
-                dt = delta.get("type")
+    `claude -p --output-format stream-json`, resuming `resume_session_id` when given,
+    in `cwd`, which must be the same path on every turn of a Dialogue (the CLI keeps
+    its sessions per working directory). The session file is kept, in the person's own
+    home, so the next turn can resume it. Yields the pairs _stream_json_events
+    describes, plus ("auth_failure", text) when the CLI says it isn't signed in.
+    No process outlives the turn (ST-3 Part B): a restart or a second worker loses
+    nothing, because the next turn resumes from the saved session.
+    """
+    if not run_as_user:
+        raise ValueError("stream_turn runs only as a person's runtime user (ST-3).")
+    args = [
+        _claude_bin(),
+        "-p",
+        "--dangerously-skip-permissions",
+        "--verbose",
+        "--output-format", "stream-json",
+        "--include-partial-messages",
+        *_lockdown_args(tools, persist_session=True),
+    ]
+    if resume_session_id:
+        args.extend(["--resume", resume_session_id])
+    cmd = run_as_argv(run_as_user, args)
+    env = _strip_api_key(os.environ.copy())
+    env["HOME"] = home_dir or f"/home/{run_as_user}"
+    turn_timeout = timeout or DEFAULT_SESSION_TURN_TIMEOUT
+    logger.info(
+        "[claude] stream_turn: cwd=%s tools=%r resume=%s run_as_user=%s",
+        cwd, tools, bool(resume_session_id), run_as_user,
+    )
 
-                if dt == "text_delta":
-                    text = delta.get("text", "")
-                    if text:
-                        yield ("delta", text)
-
-                elif dt == "input_json_delta":
-                    # Tool call argument being assembled — no user-visible text yet.
-                    pass
-
-                elif dt == "thinking_delta":
-                    # Extended thinking block — internal to Claude, not surfaced.
-                    pass
-
-            elif et == "content_block_stop":
-                active_tool_name = None
-
-            # message_start, message_delta, message_stop — no user-visible payload.
-
-        # ── system events ────────────────────────────────────────────────────
-        elif t == "system":
-            sub = obj.get("subtype")
-            if sub == "thinking_tokens":
-                pass  # extended thinking token count, not surfaced
-            elif sub == "status":
-                logger.debug("[claude] system status: %s", obj.get("status"))
-            elif sub == "init":
-                logger.info("[claude] stream-json init: session=%s", obj.get("session_id"))
-
-        # ── assistant / user (tool routing) — skip ──────────────────────────
-        elif t in ("assistant", "user", "rate_limit_event"):
-            pass
-
+    proc = subprocess.Popen(
+        cmd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=cwd,
+        text=True,
+        env=env,
+    )
+    state = {"session_id": resume_session_id or "(new)", "done": False}
+    non_json: list[str] = []
+    started_at = time.monotonic()
+    try:
+        proc.stdin.write(prompt)
+        proc.stdin.close()
+        while True:
+            remaining = turn_timeout - (time.monotonic() - started_at)
+            if remaining <= 0:
+                logger.warning("[claude] stream_turn timeout after %ss", turn_timeout)
+                yield ("error", f"Claude Code timed out after {turn_timeout}s.")
+                return
+            ready, _, _ = select.select([proc.stdout], [], [], min(remaining, 1.0))
+            if not ready:
+                continue
+            raw = proc.stdout.readline()
+            if raw == "":
+                break
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                obj = json.loads(raw)
+            except json.JSONDecodeError:
+                non_json.append(raw[:300])
+                continue
+            yield from _stream_json_events(obj, state)
+            if state["done"]:
+                return
+        # stdout closed before a result event.
+        proc.wait(timeout=10)
+        said = " ".join(non_json) + " " + (proc.stderr.read(500) if proc.stderr else "")
+        if "Not logged in" in said or "Please run /login" in said:
+            yield ("auth_failure", "Claude Code is not signed in.")
         else:
-            logger.debug("[claude] stream-json unknown event type=%s", t)
+            logger.warning("[claude] stream_turn ended before result: exit=%s said=%r", proc.returncode, said[:300])
+            yield ("error", "Claude Code exited before completing the turn.")
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+        for pipe in (proc.stdout, proc.stderr):
+            if pipe:
+                pipe.close()
 
 
 def is_session_alive(session_id: str) -> bool:

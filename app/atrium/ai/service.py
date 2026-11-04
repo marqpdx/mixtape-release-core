@@ -1,31 +1,20 @@
 # atrium/ai/service.py
 #
-# AI service for the Atrium personal session surface.
-# Mirrors the adapter pattern from initiatives/ai/service.py.
+# What an agent is told in an Atrium Dialogue, and the Continuous Keeper's triggers.
 #
-# exchange_stream() yields SSE byte chunks for StreamingHttpResponse.
-# The caller is responsible for saving AtriumSessionEntry records.
-#
-# Phase 2A dispatch:
-#   ATRIUM_USE_CLAUDE_CODE=True  → ClaudeCodeAdapter (local claude -p subprocess)
-#   default                       → AtriumAnthropicAdapter (Anthropic SDK, Phase 1)
+# ST-3 Part B (2026-11-04): every turn runs on the runtime worker, as the Dialogue
+# owner's own account, one process per turn (atrium/turns.py). The adapters that ran
+# Claude Code inside the API on the server's login, the Anthropic API adapter and the
+# PUDDLEJUMP_GROUPS switch are gone. What stays here is provider-neutral: the system
+# prompt, the opening context for an agent new to a Dialogue, the catch-up for one
+# returning to it, the InitiativeLog lookup and the document envelope.
 
-import json
 import logging
-import os
 import re as _re
-from typing import Generator
 
-from atrium.ai.tools import TOOLS, dispatch_tool
-from cloud_agents.constants import (
-    PROVIDER_ANTHROPIC_CLAUDE_CODE,
-    PROVIDER_OPENAI_CODEX,
-)
-from cloud_agents.events import sse_event
+from cloud_agents.constants import PROVIDER_ANTHROPIC_CLAUDE_CODE, PROVIDER_OPENAI_CODEX
 
 logger = logging.getLogger(__name__)
-
-MAX_TOOL_ITERATIONS = 6
 
 # P-1: Document signal protocol.
 # When the AI generates a titled document (summary, spec, plan, ADR, etc.),
@@ -44,496 +33,44 @@ _DOC_SIGNAL_INSTRUCTION = (
     "code snippets."
 )
 
-# Compact one-liner injected as a prefix for warm ClaudeCode subprocess sessions
-# that already have history but didn't receive the full _DOC_SIGNAL_INSTRUCTION
-# in their cold-spawn context.
+# Compact one-liner added to each later turn, so a resumed agent keeps the protocol.
 _DOC_PROTOCOL_HINT = (
     "[Atrium doc protocol: if this response is a titled document, wrap it in "
     "<document title=\"Title\">...markdown body...</document>]\n\n"
 )
 
-# Groups that route through ClaudeCodeAdapter (Puddlejump cwd).
-# Hard-coded for local use — VPS deployment is a separate ADR item.
-PUDDLEJUMP_GROUPS: frozenset[str] = frozenset({"mindful-brilliance"})
-
-
-class AtriumAnthropicAdapter:
-    MODEL = "claude-sonnet-4-6"
-    MAX_TOKENS = 4096
-
-    def __init__(self):
-        import anthropic
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise RuntimeError("ANTHROPIC_API_KEY is not set.")
-        self._client = anthropic.Anthropic(api_key=api_key)
-
-    def exchange_stream(
-        self,
-        system_prompt: str,
-        messages: list[dict],
-    ) -> Generator[bytes, None, None]:
-        """
-        Yields SSE-formatted byte chunks:
-          data: {"type": "delta", "text": "..."}\n\n
-          data: {"type": "done"}\n\n
-
-        Runs Claude's tool_use loop internally (query_canon, get_document,
-        read_file, grep — all read-only, see atrium/ai/tools.py) so the
-        streamed text is always the final assistant turn. Tool calls
-        themselves are not streamed to the client in Stage 1.
-        """
-        working_messages = list(messages)
-
-        for _ in range(MAX_TOOL_ITERATIONS):
-            with self._client.messages.stream(
-                model=self.MODEL,
-                max_tokens=self.MAX_TOKENS,
-                system=system_prompt,
-                messages=working_messages,
-                tools=TOOLS,
-            ) as stream:
-                for text in stream.text_stream:
-                    payload = json.dumps({"type": "delta", "text": text})
-                    yield f"data: {payload}\n\n".encode()
-                final_message = stream.get_final_message()
-
-            if final_message.stop_reason != "tool_use":
-                break
-
-            assistant_content = [_serialize_content_block(b) for b in final_message.content]
-            working_messages.append({"role": "assistant", "content": assistant_content})
-
-            tool_results = []
-            for block in final_message.content:
-                if block.type == "tool_use":
-                    result_text = dispatch_tool(block.name, block.input)
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result_text,
-                    })
-            working_messages.append({"role": "user", "content": tool_results})
-        else:
-            logger.warning("Atrium exchange_stream hit MAX_TOOL_ITERATIONS without a final answer.")
-
-        yield b"data: " + json.dumps({"type": "done"}).encode() + b"\n\n"
-
-
-class ClaudeCodeAdapter:
-    """
-    Phase 2C adapter — routes through a persistent stream-json subprocess.
-    Replaces the Phase 2A one-shot -p approach and the retired PTY/pexpect prototype.
-
-    Yields SSE byte chunks in the same format as AtriumAnthropicAdapter:
-      data: {"type": "delta",          "text": "..."}
-      data: {"type": "activity",       "text": "Reading foo.md"}
-      data: {"type": "context_status", "used": N, "total": N, "pct": N}
-      data: {"type": "done"}
-    """
-
-    def __init__(self, session=None):
-        self._session = session
-
-    def warm(self) -> Generator[bytes, None, None]:
-        """
-        Ensure the stream-json subprocess is spawned. Yields SSE events:
-          type: ready        — subprocess was already live (same context)
-          type: reconstructed — cold spawn; history injected from DB + InitiativeLog
-        """
-        from django.conf import settings
-        from claude import service as claude_service
-
-        if not self._session:
-            return
-        cwd = getattr(settings, "ATRIUM_CLAUDE_CODE_CWD", "") or None  # unset: empty scratch dir (ST-2)
-        session_id = str(self._session.id)
-
-        was_alive = claude_service.is_session_alive(session_id)
-
-        # On cold spawn: fire idle-threshold keeper check before building context.
-        if not was_alive:
-            _trigger_idle_keeper_if_due(self._session)
-
-        opening_context, provenance_note = _build_cold_spawn_context(self._session)
-        claude_service.get_or_spawn(
-            session_id, cwd, opening_context if not was_alive else None,
-            tools=claude_service.READ_ONLY_TOOLS, allow_slash_commands=True,
-        )
-
-        pid = _pty_pid(session_id)
-        if pid and self._session.pty_pid != pid:
-            self._session.pty_pid = pid
-            self._session.save(update_fields=["pty_pid", "updated_at"])
-
-        if not was_alive and opening_context:
-            yield b"data: " + json.dumps({
-                "type": "reconstructed",
-                "provenance": provenance_note,
-            }).encode() + b"\n\n"
-        else:
-            yield b"data: " + json.dumps({"type": "ready"}).encode() + b"\n\n"
-
-    def exchange_stream(
-        self,
-        system_prompt: str,
-        messages: list[dict],
-    ) -> Generator[bytes, None, None]:
-        from django.conf import settings
-        from claude import service as claude_service
-
-        cwd = getattr(settings, "ATRIUM_CLAUDE_CODE_CWD", "") or None  # unset: empty scratch dir (ST-2)
-        session_id = str(self._session.id) if self._session else "global"
-        logger.info("[atrium] ClaudeCodeAdapter stream-json: session=%s cwd=%s", session_id, cwd)
-
-        # Extract the latest user message — subprocess tracks history itself.
-        user_message = ""
-        for msg in reversed(messages):
-            if msg["role"] == "user":
-                user_message = msg["content"]
-                break
-
-        if not user_message:
-            yield b"data: " + json.dumps({"type": "done"}).encode() + b"\n\n"
-            return
-
-        # Pass opening_context so a cold spawn triggered by exchange (not warm)
-        # still gets history injected before the first real message.
-        was_alive = claude_service.is_session_alive(session_id)
-        opening_context, _ = _build_cold_spawn_context(self._session) if not was_alive else (None, None)
-
-        # For warm sessions the opening_context (which carries the full doc protocol) was
-        # already injected on cold spawn. Prepend the compact hint so the subprocess
-        # is reminded on every turn without re-injecting the full block.
-        message_to_send = (_DOC_PROTOCOL_HINT + user_message) if was_alive else user_message
-
-        for event_type, text in claude_service.send_to_session(
-            session_id, message_to_send, cwd, opening_context,
-            tools=claude_service.READ_ONLY_TOOLS, allow_slash_commands=True,
-        ):
-            if event_type == "context_status":
-                payload = json.dumps({"type": "context_status", **json.loads(text)})
-            elif event_type == "activity":
-                payload = json.dumps({"type": "activity", "text": text})
-            elif event_type == "fallback":
-                payload = json.dumps({"type": "fallback"})
-            else:  # delta
-                payload = json.dumps({"type": "delta", "text": text})
-            yield f"data: {payload}\n\n".encode()
-
-        # Store PID after first successful exchange.
-        pid = _pty_pid(session_id)
-        if pid and self._session and self._session.pty_pid != pid:
-            self._session.pty_pid = pid
-            self._session.save(update_fields=["pty_pid", "updated_at"])
-
-        yield b"data: " + json.dumps({"type": "done"}).encode() + b"\n\n"
-
-    def compact(self, cwd: str) -> str | None:
-        """Run /compact in the stream-json subprocess. Returns compact summary text."""
-        from claude import service as claude_service
-        if not self._session:
-            return None
-        session_id = str(self._session.id)
-        return claude_service.compact_pty(session_id, cwd, tools=claude_service.READ_ONLY_TOOLS)
-
-    def reset(self, cwd: str) -> None:
-        """
-        Terminate the live subprocess and respawn with orientation-only context
-        (compact summary + session_context; no turn history). The DB entry archive
-        is preserved — only the subprocess state is cleared.
-        """
-        from claude import service as claude_service
-        if not self._session:
-            return
-        session_id = str(self._session.id)
-        claude_service.terminate_session(session_id)
-        orientation = _build_orientation_context(self._session)
-        claude_service.get_or_spawn(
-            session_id, cwd, orientation,
-            tools=claude_service.READ_ONLY_TOOLS, allow_slash_commands=True,
-        )
-
-
-class CodexExecAdapter:
-    """
-    Codex CLI adapter using `codex exec --json` and native session resume.
-
-    Unlike ClaudeCodeAdapter, this does not keep a long-lived subprocess. Codex
-    owns provider-native history through its thread id; Mixtape persists that
-    mapping in CloudAgentSession.
-    """
-
-    def __init__(self, session=None):
-        self._session = session
-
-    def warm(self) -> Generator[bytes, None, None]:
-        yield sse_event("ready")
-
-    def exchange_stream(
-        self,
-        system_prompt: str,
-        messages: list[dict],
-    ) -> Generator[bytes, None, None]:
-        from atrium.models import CloudAgentSession, CloudAgentSessionStatus
-        from codex import service as codex_service
-        from django.conf import settings
-        from django.utils import timezone
-        from tenant_runtime.models import TenantCodexRuntime
-
-        if not self._session:
-            yield sse_event("error", detail="Codex requires an Atrium session.")
-            return
-
-        runtime = None
-        if self._session.sponsor_content_type_id and self._session.sponsor_object_id:
-            runtime = TenantCodexRuntime.objects.filter(
-                tenant_content_type_id=self._session.sponsor_content_type_id,
-                tenant_object_id=self._session.sponsor_object_id,
-            ).first()
-
-        if runtime is None:
-            yield sse_event("error", detail="No Codex runtime is configured for this session.")
-            return
-        if runtime.status != TenantCodexRuntime.STATUS_READY:
-            yield sse_event("error", detail="Codex runtime is not ready.", status=runtime.status)
-            return
-
-        cwd = (
-            getattr(settings, "ATRIUM_CODEX_CWD", "")
-            or getattr(settings, "ATRIUM_CLAUDE_CODE_CWD", "")
-            or os.getcwd()
-        )
-        agent_session, _ = CloudAgentSession.objects.get_or_create(
-            atrium_session=self._session,
-            provider=PROVIDER_OPENAI_CODEX,
-            defaults={
-                "linux_user": runtime.linux_user,
-                "working_directory": cwd,
-                "policy": "read_only",
-                "status": CloudAgentSessionStatus.STARTING,
-            },
-        )
-        update_fields = []
-        if agent_session.linux_user != runtime.linux_user:
-            agent_session.linux_user = runtime.linux_user
-            update_fields.append("linux_user")
-        if agent_session.working_directory != cwd:
-            agent_session.working_directory = cwd
-            update_fields.append("working_directory")
-        if update_fields:
-            update_fields.append("updated_at")
-            agent_session.save(update_fields=update_fields)
-
-        user_message = ""
-        for msg in reversed(messages):
-            if msg["role"] == "user":
-                user_message = msg["content"]
-                break
-
-        if not user_message:
-            yield sse_event("done")
-            return
-
-        if agent_session.provider_session_id:
-            prompt = user_message
-            provider_session_id = agent_session.provider_session_id
-        else:
-            prompt = _build_agent_prompt(system_prompt, messages)
-            provider_session_id = None
-
-        agent_session.status = CloudAgentSessionStatus.RUNNING
-        agent_session.last_used_at = timezone.now()
-        agent_session.save(update_fields=["status", "last_used_at", "updated_at"])
-
-        saw_error = False
-        for event_type, text in codex_service.stream_exec(
-            prompt,
-            cwd=cwd,
-            run_as_user=runtime.linux_user,
-            home_dir=runtime.home_dir,
-            policy=agent_session.policy,
-            provider_session_id=provider_session_id,
-        ):
-            if event_type == "provider_session":
-                if text and agent_session.provider_session_id != text:
-                    agent_session.provider_session_id = text
-                    agent_session.save(update_fields=["provider_session_id", "updated_at"])
-                continue
-            if event_type == "context_status":
-                try:
-                    yield sse_event("context_status", **json.loads(text))
-                except json.JSONDecodeError:
-                    yield sse_event("context_status", raw=text)
-                continue
-            if event_type == "activity":
-                yield sse_event("activity", text=text)
-                continue
-            if event_type == "error":
-                saw_error = True
-                yield sse_event("error", detail=text)
-                continue
-            yield sse_event("delta", text=text)
-
-        agent_session.status = (
-            CloudAgentSessionStatus.FAILED if saw_error else CloudAgentSessionStatus.READY
-        )
-        agent_session.last_used_at = timezone.now()
-        agent_session.save(update_fields=["status", "last_used_at", "updated_at"])
-
-    def reset(self, cwd: str) -> None:
-        if not self._session:
-            return
-        from atrium.models import CloudAgentSession
-
-        CloudAgentSession.objects.filter(
-            atrium_session=self._session,
-            provider=PROVIDER_OPENAI_CODEX,
-            deleted_at__isnull=True,
-        ).update(provider_session_id="", status="starting")
-
-
-class AtriumAIService:
-    """
-    Provider-agnostic façade for Atrium session AI exchanges.
-
-    Usage (in a streaming view):
-        ai = AtriumAIService()
-        full_text = []
-        for chunk in ai.exchange_stream(atrium_session, user_message):
-            yield chunk
-            # full_text is accumulated inside; no post-processing needed by caller
-    """
-
-    def __init__(self, session=None):
-        from django.conf import settings
-        use_claude_code = False
-        use_codex = False
-
-        # Per-session dispatch: sponsor slug in PUDDLEJUMP_GROUPS wins.
-        if session and session.sponsor_object_id:
-            try:
-                sponsor_slug = getattr(session.sponsor, "slug", None)
-                use_claude_code = sponsor_slug in PUDDLEJUMP_GROUPS
-            except Exception:
-                pass
-
-        if session and getattr(session, "ai_provider", "") == PROVIDER_OPENAI_CODEX:
-            use_codex = True
-            use_claude_code = False
-        elif session and getattr(session, "ai_provider", "") == PROVIDER_ANTHROPIC_CLAUDE_CODE:
-            use_claude_code = True
-
-        # Fall back to global toggle (useful for testing without a sponsor).
-        if not use_claude_code and not use_codex:
-            use_claude_code = getattr(settings, "ATRIUM_USE_CLAUDE_CODE", False)
-
-        if use_codex:
-            logger.info("[atrium] AtriumAIService: CodexExecAdapter")
-            self._adapter = CodexExecAdapter(session=session)
-        elif use_claude_code:
-            sponsor_slug = getattr(getattr(session, "sponsor", None), "slug", "global") if session else "global"
-            logger.info("[atrium] AtriumAIService: ClaudeCodeAdapter stream-json (sponsor=%s)", sponsor_slug)
-            self._adapter = ClaudeCodeAdapter(session=session)
-        else:
-            self._adapter = AtriumAnthropicAdapter()
-
-    def warm(self) -> Generator[bytes, None, None]:
-        """
-        Pre-warm the stream-json subprocess for this session. Yields a `type: ready` SSE event.
-        Only meaningful for ClaudeCodeAdapter sessions.
-        """
-        if hasattr(self._adapter, "warm"):
-            yield from self._adapter.warm()
-        else:
-            yield b"data: " + json.dumps({"type": "ready"}).encode() + b"\n\n"
-
-    def compact(self, session) -> str | None:
-        """
-        Run /compact in the stream-json subprocess and store the summary in InitiativeLog.
-        Returns the summary text.
-        """
-        if not hasattr(self._adapter, "compact"):
-            return None
-        from django.conf import settings
-        cwd = getattr(settings, "ATRIUM_CLAUDE_CODE_CWD", "") or None  # unset: empty scratch dir (ST-2)
-        summary = self._adapter.compact(cwd)
-        if summary and session.initiative_id:
-            _store_compact_summary(session, summary)
-        return summary
-
-    def reset(self, session) -> None:
-        """
-        Terminate subprocess and respawn with orientation-only context.
-        No-op for non-ClaudeCode adapters.
-        """
-        if not hasattr(self._adapter, "reset"):
-            return
-        from django.conf import settings
-        cwd = getattr(settings, "ATRIUM_CLAUDE_CODE_CWD", "") or None  # unset: empty scratch dir (ST-2)
-        self._adapter.reset(cwd)
-
-    def exchange_stream(
-        self,
-        session,
-        user_message: str,
-    ) -> Generator[bytes, None, None]:
-        """
-        Builds the system prompt from session_context, constructs the message
-        history from existing AtriumSessionEntry records, then streams the
-        Claude API response.
-
-        Saves the user entry before streaming and the assistant entry after.
-        Yields SSE byte chunks for StreamingHttpResponse.
-        """
-        from django.utils import timezone
-        from atrium.models import AtriumSessionEntry, AtriumSessionRole
-
-        # Save user entry
-        AtriumSessionEntry.objects.create(
-            session=session,
-            role=AtriumSessionRole.USER,
-            content=user_message,
-        )
-
-        system_prompt = _build_system_prompt(session)
-        messages = _session_to_messages(session)
-
-        full_response: list[str] = []
-
-        for chunk in self._adapter.exchange_stream(system_prompt, messages):
-            try:
-                decoded = chunk.decode()
-                if decoded.startswith("data: "):
-                    payload = json.loads(decoded[6:])
-                    if payload.get("type") == "delta":
-                        full_response.append(payload.get("text", ""))
-            except Exception:
-                pass
-            yield chunk
-
-        # Save assistant entry — parse document envelope if present
-        assistant_text = "".join(full_response)
-        if assistant_text:
-            entry_type, doc_title, saved_content = _parse_document_envelope(assistant_text)
-            AtriumSessionEntry.objects.create(
-                session=session,
-                role=AtriumSessionRole.ASSISTANT,
-                content=saved_content,
-                entry_type=entry_type,
-                document_title=doc_title,
-            )
-
-        # Update session activity timestamp
-        session.last_activity_at = timezone.now()
-        session.save(update_fields=["last_activity_at", "updated_at"])
+# Who said what, in the words every agent sees. The person is "Person".
+SPEAKER_LABELS = {
+    PROVIDER_ANTHROPIC_CLAUDE_CODE: "Claude",
+    PROVIDER_OPENAI_CODEX: "Codex",
+}
+
+
+def speaker_label(entry) -> str:
+    from atrium.models import DialogueRole
+
+    if entry.role == DialogueRole.USER:
+        return "Person"
+    return SPEAKER_LABELS.get(entry.speaker, "Agent")
+
+
+# How many recent turns an agent new to a Dialogue is shown (token-bounded below).
+_HISTORY_INJECT_TURNS = 10
+# Approximate budget for that history, and for a returning agent's catch-up (tokens ≈ chars / 4).
+_HISTORY_INJECT_MAX_CHARS = 16_000  # ~4 000 tokens
+_CATCH_UP_MAX_CHARS = 16_000
+
+# Idle-threshold in minutes per cadence setting.
+_IDLE_THRESHOLDS = {"light": None, "steady": 30, "active": 10}
+# Turn-count thresholds per cadence setting (count of finished replies).
+_TURN_THRESHOLDS = {"light": None, "steady": 8, "active": 4}
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# What an agent is told
 # ---------------------------------------------------------------------------
 
-def _build_system_prompt(session) -> str:
+def _build_system_prompt(dialogue) -> str:
     from atrium.ai.context import ClioPersonalContextBuilder
     from atrium.ai.filters import get_persona_filter
 
@@ -542,35 +79,33 @@ def _build_system_prompt(session) -> str:
         "a collaborative platform for creative and professional work. "
         "You help the member think clearly, plan effectively, and make good decisions. "
         "Be direct and specific. Match the depth of the question.",
+        "\n\nThis is an Atrium Dialogue. More than one agent may take part: each earlier "
+        "turn is labelled with who said it (Person, Claude, Codex). When another agent "
+        "answered, you may be asked what you make of its answer.",
     ]
 
-    if session.sponsor_object_id:
-        sponsor = session.sponsor
+    if dialogue.sponsor_object_id:
+        sponsor = dialogue.sponsor
         if sponsor is not None:
             sponsor_slug = getattr(sponsor, "slug", None)
             sponsor_title = getattr(sponsor, "title", None) or getattr(sponsor, "username", str(sponsor))
             sponsor_summary = getattr(sponsor, "summary", "") or ""
-            sponsor_type = session.sponsor_content_type.model if session.sponsor_content_type_id else "unknown"
+            sponsor_type = dialogue.sponsor_content_type.model if dialogue.sponsor_content_type_id else "unknown"
             sponsor_line = f"{sponsor_type.capitalize()}: {sponsor_title}"
             if sponsor_slug:
                 sponsor_line += f" (slug: {sponsor_slug})"
             if sponsor_summary:
                 sponsor_line += f" — {sponsor_summary.strip()}"
             parts.append(f"\n\nSponsor context:\n{sponsor_line}")
-            if sponsor_slug in PUDDLEJUMP_GROUPS:
-                parts.append(
-                    "This session operates in the Puddlejump planning context for this group. "
-                    "You have access to the group's canon documents, ADRs, and decision records."
-                )
 
-    persona_filter = get_persona_filter(session)
+    persona_filter = get_persona_filter(dialogue)
     if persona_filter:
         parts.append(f"\n\n{persona_filter}")
 
-    if session.session_context and session.session_context.strip():
-        parts.append(f"\n\nSession context:\n{session.session_context.strip()}")
+    if dialogue.session_context and dialogue.session_context.strip():
+        parts.append(f"\n\nSession context:\n{dialogue.session_context.strip()}")
 
-    personal_ctx = ClioPersonalContextBuilder().build(session)
+    personal_ctx = ClioPersonalContextBuilder().build(dialogue)
     if personal_ctx:
         parts.append(f"\n\nPersonal context:\n{personal_ctx}")
 
@@ -579,120 +114,178 @@ def _build_system_prompt(session) -> str:
     return "\n".join(parts)
 
 
-def _serialize_content_block(block) -> dict:
-    """Serialize an Anthropic content block to the wire format the API accepts.
+def _format_turns(entries, char_budget: int) -> list[str]:
+    """Newest-last labelled lines, dropping the oldest when over budget."""
+    lines: list[str] = []
+    for entry in reversed(entries):
+        text = (entry.content or "").strip()
+        if not text:
+            continue
+        line = f"{speaker_label(entry)}: {text}"
+        if len(line) > char_budget:
+            break
+        lines.append(line)
+        char_budget -= len(line)
+    lines.reverse()
+    return lines
 
-    block.model_dump() includes SDK-internal fields (e.g. parsed_output) that
-    the API rejects when the block is sent back as part of conversation history.
+
+def build_opening_prompt(dialogue, message: str, *, before) -> tuple[str, str]:
     """
-    if block.type == "tool_use":
-        return {"type": "tool_use", "id": block.id, "name": block.name, "input": block.input}
-    if block.type == "text":
-        return {"type": "text", "text": block.text}
-    return {"type": block.type}
+    Everything an agent new to this Dialogue needs, then the person's message.
 
-
-def _build_claude_code_prompt(system_prompt: str, messages: list[dict]) -> str:
+    `before` is the created_at of the person's entry: only what came before it counts
+    as history. Returns (prompt, provenance note).
     """
-    Flatten system prompt + conversation history into a single stdin prompt
-    for the claude -p subprocess. Claude Code CLI is single-turn; we carry
-    the full history so the session feels continuous.
+    from atrium.models import DialogueEntry, DialogueEntryStatus
+
+    parts = [_build_system_prompt(dialogue).strip()]
+    provenance: list[str] = []
+
+    log, _ = _resolve_initiative_log(dialogue)
+    if log and log.compact_summary:
+        ts = log.compact_at.strftime("%Y-%m-%d") if log.compact_at else "prior"
+        parts.append(
+            f"[Compact summary — distilled {ts}]\n{log.compact_summary.strip()}\n[End compact summary]"
+        )
+        provenance.append(f"compact summary ({ts})")
+    elif log and log.import_source:
+        imported = _imported_log_block(log)
+        if imported:
+            parts.append(imported[0])
+            provenance.append(imported[1])
+
+    history = list(
+        DialogueEntry.objects.filter(
+            dialogue=dialogue,
+            created_at__lt=before,
+            status=DialogueEntryStatus.DONE,
+        ).order_by("-created_at")[: _HISTORY_INJECT_TURNS * 2]
+    )
+    history.reverse()
+    lines = _format_turns(history, _HISTORY_INJECT_MAX_CHARS)
+    if lines:
+        parts.append(
+            "[This Dialogue so far — most recent turns]\n"
+            + "\n".join(lines)
+            + "\n[End of earlier turns — the Person's new message follows]"
+        )
+        provenance.append(f"last {len(lines)} turn(s)")
+
+    parts.append(f"Person: {message}")
+    note = "Opened with " + " + ".join(provenance) + "." if provenance else "Opened fresh."
+    return "\n\n".join(parts), note
+
+
+def _imported_log_block(log) -> tuple[str, str] | None:
     """
-    return _build_agent_prompt(system_prompt, messages)
-
-
-def _build_agent_prompt(system_prompt: str, messages: list[dict]) -> str:
-    """Flatten system prompt and visible conversation into a provider CLI prompt."""
-    parts = [system_prompt.strip(), ""]
-    for msg in messages:
-        role_label = "User" if msg["role"] == "user" else "Assistant"
-        parts.append(f"{role_label}: {msg['content'].strip()}")
-    parts.append("")
-    parts.append("Respond directly.")
-    return "\n".join(parts)
-
-
-def _session_to_messages(session) -> list[dict]:
+    When the InitiativeLog was filled by import_conversation and has no compact summary
+    yet, a window of the imported turns, so the agent has the source material.
     """
-    Convert existing AtriumSessionEntry records (in order) to Anthropic
-    messages format. The most-recently-saved user entry is already in DB
-    so it will be included here.
+    from initiatives.models import InitiativeLogEntry, InitiativeLogEntryKind
+
+    prose_entries = list(
+        InitiativeLogEntry.objects.filter(
+            initiative_log=log,
+            kind=InitiativeLogEntryKind.PROSE,
+        ).order_by("source_turn_index", "created_at")[:60]
+    )
+    turn_lines = []
+    char_budget = 12000
+    for e in prose_entries:
+        role_label = "Person" if e.authored_by not in ("claude", "system") else "Assistant"
+        line = f"{role_label}: {e.body.strip()}"
+        if len(line) > char_budget:
+            break
+        turn_lines.append(line)
+        char_budget -= len(line)
+    if not turn_lines:
+        return None
+    source_title = log.import_source.get("title", "imported conversation")
+    n_shown = len([line for line in turn_lines if line.startswith("Person:")])
+    n_total = InitiativeLogEntry.objects.filter(
+        initiative_log=log, kind=InitiativeLogEntryKind.PROSE
+    ).count()
+    block = (
+        f"[Imported conversation: {source_title} — showing {n_shown} of {n_total // 2} exchanges]\n"
+        + "\n".join(turn_lines)
+        + "\n[End imported conversation — this is the source material for curation]"
+    )
+    return block, f"imported log ({n_shown}/{n_total // 2} exchanges shown)"
+
+
+def build_catch_up_prompt(dialogue, message: str, *, since, before) -> str:
     """
-    entries = list(session.entries.order_by("created_at"))
-    messages = []
-    for entry in entries:
-        role = "user" if entry.role == "user" else "assistant"
-        messages.append({"role": role, "content": entry.content})
+    For an agent returning to this Dialogue: what was said since it last took part
+    (by the person and by any other agent), then the person's new message.
+    """
+    from atrium.models import DialogueEntry, DialogueEntryStatus
 
-    # Anthropic requires starting with a user turn and alternating roles.
-    # Collapse consecutive same-role turns.
-    if messages and messages[0]["role"] != "user":
-        messages = messages[1:]
+    missed = list(
+        DialogueEntry.objects.filter(
+            dialogue=dialogue,
+            created_at__gt=since,
+            created_at__lt=before,
+            status=DialogueEntryStatus.DONE,
+        ).order_by("created_at")
+    )
+    parts = []
+    lines = _format_turns(missed, _CATCH_UP_MAX_CHARS)
+    if lines:
+        parts.append(
+            "[Since your last turn in this Dialogue]\n"
+            + "\n".join(lines)
+            + "\n[End — the Person's new message follows]"
+        )
+    parts.append(_DOC_PROTOCOL_HINT + message)
+    return "\n\n".join(parts)
 
-    collapsed = []
-    for msg in messages:
-        if collapsed and collapsed[-1]["role"] == msg["role"]:
-            collapsed[-1]["content"] += "\n\n" + msg["content"]
-        else:
-            collapsed.append(dict(msg))
-    return collapsed
+
+def build_transcript(dialogue, max_chars: int = 40_000) -> str:
+    """The whole Dialogue as labelled lines, trimmed from the start when long."""
+    from atrium.models import DialogueEntryStatus
+
+    lines = [
+        f"{speaker_label(entry)}: {(entry.content or '').strip()}"
+        for entry in dialogue.entries.filter(status=DialogueEntryStatus.DONE).order_by("created_at")
+        if (entry.content or "").strip()
+    ]
+    transcript = "\n".join(lines)
+    if len(transcript) > max_chars:
+        transcript = transcript[-max_chars:]
+    return transcript
 
 
 # ---------------------------------------------------------------------------
-# Session / Initiative resolution helpers
+# Dialogue / Initiative resolution
 # ---------------------------------------------------------------------------
 
-# How many recent turns to inject on cold spawn (token-bounded below).
-_HISTORY_INJECT_TURNS = 10
-# Approximate token budget for injected history (tokens ≈ chars / 4).
-_HISTORY_INJECT_MAX_CHARS = 16_000  # ~4 000 tokens
-
-# Idle-threshold in minutes per cadence setting.
-_IDLE_THRESHOLDS = {"light": None, "steady": 30, "active": 10}
-# Turn-count thresholds per cadence setting (count of *assistant* entries).
-_TURN_THRESHOLDS = {"light": None, "steady": 8, "active": 4}
-
-
-def _pty_pid(session_id: str) -> int | None:
-    """Return the live Claude subprocess PID; function name is historical."""
-    from claude import service as claude_service
-    proc = claude_service._session_registry.get(session_id)
-    if proc is None:
-        return None
-    try:
-        return proc.pid
-    except Exception:
-        return None
-
-
-def _resolve_initiative_log(session):
+def _resolve_initiative_log(dialogue):
     """
-    Navigate from AtriumSession → Initiative → InitiativeLog.
+    Navigate from a Dialogue to its Initiative's InitiativeLog.
 
-    AtriumSession has a polymorphic sponsor GFK (Group or UserProfile).
-    The matching Initiative is the one whose sponsor GFK points to the same object.
-    Falls back to the member's personal Initiative when no sponsor is set.
+    Uses the Dialogue's own Initiative when set; else the Initiative whose sponsor is
+    the Dialogue's sponsor; else the member's personal Initiative.
     Returns (InitiativeLog, cadence) or (None, "steady").
     """
-    if session is None:
+    if dialogue is None:
         return None, "steady"
     try:
         from initiatives.models import InitiativeLog, Initiative
 
-        if session.initiative_id:
+        if dialogue.initiative_id:
             initiative = Initiative.objects.filter(
-                id=session.initiative_id, deleted_at__isnull=True
+                id=dialogue.initiative_id, deleted_at__isnull=True
             ).first()
-        elif session.sponsor_content_type_id and session.sponsor_object_id:
+        elif dialogue.sponsor_content_type_id and dialogue.sponsor_object_id:
             initiative = Initiative.objects.filter(
-                sponsor_content_type_id=session.sponsor_content_type_id,
-                sponsor_object_id=session.sponsor_object_id,
+                sponsor_content_type_id=dialogue.sponsor_content_type_id,
+                sponsor_object_id=dialogue.sponsor_object_id,
                 deleted_at__isnull=True,
             ).first()
         else:
-            # Personal session — find the member's personal Initiative.
             from django.contrib.contenttypes.models import ContentType
-            member = session.member
+            member = dialogue.member
             ct = ContentType.objects.get_for_model(member)
             initiative = Initiative.objects.filter(
                 sponsor_content_type=ct,
@@ -713,237 +306,119 @@ def _resolve_initiative_log(session):
         return None, "steady"
 
 
-def _build_orientation_context(session) -> str | None:
-    """
-    Build the orientation context string for a session reset.
-    Injects compact summary and session_context only — no turn history.
-    """
-    if session is None:
-        return None
-    try:
-        parts = []
-        log, _ = _resolve_initiative_log(session)
-        if log and log.compact_summary:
-            ts = log.compact_at.strftime("%Y-%m-%d") if log.compact_at else "prior"
-            parts.append(
-                f"[Compact summary — distilled {ts}]\n"
-                f"{log.compact_summary.strip()}\n"
-                f"[End compact summary]"
-            )
-        if session.session_context and session.session_context.strip():
-            parts.append(
-                f"[Session context]\n"
-                f"{session.session_context.strip()}\n"
-                f"[End session context]"
-            )
-        if not parts:
-            return None
-        return (
-            "[Session reset — starting fresh. The following is orientation context "
-            "for this new thread. No prior conversation history is available.]\n\n"
-            + "\n\n".join(parts)
-        )
-    except Exception as exc:
-        logger.warning("[atrium] _build_orientation_context failed: %s", exc)
-        return None
+# ---------------------------------------------------------------------------
+# Continuous Keeper (K-4): background compaction triggers
+# ---------------------------------------------------------------------------
 
-
-def _build_cold_spawn_context(session) -> tuple[str | None, str | None]:
-    """
-    Build the opening context string to inject when a cold spawn occurs.
-
-    Returns (context_str, provenance_note):
-      context_str    — formatted string to send as the first subprocess message
-      provenance_note — human-readable summary of what was injected (for UI badge)
-    """
-    if session is None:
-        return None, None
-
-    try:
-        from atrium.models import AtriumSessionEntry, AtriumSessionRole
-
-        log, _ = _resolve_initiative_log(session)
-
-        parts = []
-        provenance_parts = []
-
-        # --- document protocol (always first so subprocess learns it before history) ---
-        parts.append(
-            "[Atrium session context]\n"
-            + _DOC_SIGNAL_INSTRUCTION.strip()
-            + "\n[End session context]"
-        )
-
-        # --- compact summary block ---
-        if log and log.compact_summary:
-            ts = log.compact_at.strftime("%Y-%m-%d") if log.compact_at else "prior"
-            parts.append(
-                f"[Compact summary — distilled {ts}]\n"
-                f"{log.compact_summary.strip()}\n"
-                f"[End compact summary]"
-            )
-            provenance_parts.append(f"compact summary ({ts})")
-        elif log and log.import_source:
-            # No compact summary yet — inject a window of the imported InitiativeLog entries
-            # so Claude has source context for this session.
-            from initiatives.models import InitiativeLogEntry, InitiativeLogEntryKind
-            prose_entries = list(
-                InitiativeLogEntry.objects.filter(
-                    initiative_log=log,
-                    kind=InitiativeLogEntryKind.PROSE,
-                ).order_by("source_turn_index", "created_at")[:60]
-            )
-            if prose_entries:
-                turn_lines = []
-                char_budget = 12000
-                for e in prose_entries:
-                    role_label = "User" if e.authored_by not in ("claude", "system") else "Assistant"
-                    line = f"{role_label}: {e.body.strip()}"
-                    if len(line) > char_budget:
-                        break
-                    turn_lines.append(line)
-                    char_budget -= len(line)
-                if turn_lines:
-                    source_title = log.import_source.get("title", "imported conversation")
-                    n_shown = len([l for l in turn_lines if l.startswith("User:")])
-                    n_total = InitiativeLogEntry.objects.filter(
-                        initiative_log=log, kind=InitiativeLogEntryKind.PROSE
-                    ).count()
-                    parts.append(
-                        f"[Imported conversation: {source_title} — showing {n_shown} of {n_total // 2} exchanges]\n"
-                        + "\n".join(turn_lines)
-                        + "\n[End imported conversation — this is the source material for curation]"
-                    )
-                    provenance_parts.append(f"imported log ({n_shown}/{n_total // 2} exchanges shown)")
-
-        # --- recent turn history ---
-        entries = list(
-            AtriumSessionEntry.objects.filter(session=session)
-            .order_by("-created_at")[: _HISTORY_INJECT_TURNS * 2]
-        )
-        entries.reverse()  # oldest first
-
-        if entries:
-            turn_lines = []
-            char_budget = _HISTORY_INJECT_MAX_CHARS
-            for entry in entries:
-                role_label = "User" if entry.role == AtriumSessionRole.USER else "Assistant"
-                line = f"{role_label}: {entry.content.strip()}"
-                if len(line) > char_budget:
-                    break
-                turn_lines.append(line)
-                char_budget -= len(line)
-
-            if turn_lines:
-                n = len([l for l in turn_lines if l.startswith("User:")])
-                parts.append(
-                    f"[Recent conversation — last {n} exchange(s)]\n"
-                    + "\n".join(turn_lines)
-                    + "\n[End recent conversation — continue from here]"
-                )
-                provenance_parts.append(f"last {n} turn(s)")
-
-        context_str = "\n\n".join(parts)
-        provenance_note = (
-            "Resumed from " + " + ".join(provenance_parts) + "."
-            if provenance_parts
-            else "Session context loaded."
-        )
-        return context_str, provenance_note
-
-    except Exception as exc:
-        logger.warning("[atrium] _build_cold_spawn_context failed: %s", exc)
-        return None, None
-
-
-def _get_compact_summary(session) -> str | None:
-    """Return the InitiativeLog compact summary for injection (legacy single-field path)."""
-    context, _ = _build_cold_spawn_context(session)
-    return context
-
-
-def _store_compact_summary(session, summary: str) -> None:
-    """Store compact summary in the session's InitiativeLog."""
-    try:
-        from django.utils import timezone
-        log, _ = _resolve_initiative_log(session)
-        if log is None:
-            return
-        log.compact_summary = summary
-        log.compact_at = timezone.now()
-        log.save(update_fields=["compact_summary", "compact_at"])
-    except Exception as exc:
-        logger.warning("[atrium] _store_compact_summary failed: %s", exc)
-
-
-def _continuous_keeper_id(session) -> str:
+def _continuous_keeper_id(dialogue) -> str:
     """
     Keeper ADR AD-8-style parameterized instance id — one Continuous Keeper
-    "instance" per Atrium session, matching CountNagKeeper's own
-    dot-separated instance convention (e.g. count-nag-keeper.junk-pile).
+    "instance" per Dialogue, matching CountNagKeeper's own dot-separated
+    instance convention (e.g. count-nag-keeper.junk-pile).
     """
-    return f"continuous-keeper.{session.id}"
+    return f"continuous-keeper.{dialogue.id}"
 
 
-def _ensure_continuous_keeper_registered(session, cadence: str) -> None:
+def _ensure_continuous_keeper_registered(dialogue, cadence: str) -> None:
     """
-    K-4: register this session's Continuous Keeper with Clio (AD-3/AD-4 —
-    all Keepers register, no exceptions) the first time it becomes active
-    for a session. Idempotent — safe to call on every trigger check.
+    K-4: register this Dialogue's Continuous Keeper with Clio (AD-3/AD-4 —
+    all Keepers register, no exceptions) the first time it becomes active.
+    Idempotent — safe to call on every trigger check.
 
     No question_shapes: Continuous Keeper never answers routed questions
     (AD-2 permits this for proactive-only Keepers). closing_mode is "drop"
-    since a session-scoped registration has no lineage value once the
-    session ends (contrast RecencyKeeper etc., which are longer-lived).
+    since a Dialogue-scoped registration has no lineage value once it ends.
     """
     try:
         from clio import services as clio_services
 
         clio_services.ensure_keeper_registered(
-            keeper_id=_continuous_keeper_id(session),
+            keeper_id=_continuous_keeper_id(dialogue),
             keeper_name="Continuous Keeper",
             owner_subsystem="atrium",
             watch_scope=(
-                f"AtriumSessionEntry rows for session {session.id}; triggers on turn-count/idle "
+                f"DialogueEntry rows for Dialogue {dialogue.id}; triggers on turn-count/idle "
                 f"thresholds per Thermostat cadence (Phase 2D)."
             ),
             finding_cadence="proactive",
             closing_mode="drop",
-            instance_params={"session_id": str(session.id), "compact_cadence": cadence},
+            instance_params={"session_id": str(dialogue.id), "compact_cadence": cadence},
         )
     except Exception as exc:
         # Registration is Keeper-pattern bookkeeping, not correctness-critical
         # for the compaction itself (mirrors the ADR's own Celery-down stance).
-        logger.warning("[atrium] Continuous Keeper registration failed for session %s: %s", session.id, exc)
+        logger.warning("[atrium] Continuous Keeper registration failed for Dialogue %s: %s", dialogue.id, exc)
 
 
-def _trigger_keeper_if_due(session) -> None:
+def _queue_keeper_compact(dialogue, cadence: str) -> None:
+    _ensure_continuous_keeper_registered(dialogue, cadence)
+    from atrium.tasks import keeper_compact_task
+    keeper_compact_task.delay(str(dialogue.id))
+
+
+def _trigger_keeper_if_due(dialogue) -> None:
     """
-    Fire the Continuous Keeper task if the turn threshold for this session's
-    cadence has been reached. Called from the AtriumSessionEntry post_save signal.
+    Fire the Continuous Keeper task if the turn threshold for this Dialogue's
+    cadence has been reached. Called when a reply is finished (atrium/signals.py).
     """
     try:
-        log, cadence = _resolve_initiative_log(session)
+        log, cadence = _resolve_initiative_log(dialogue)
         threshold = _TURN_THRESHOLDS.get(cadence)
         if threshold is None:
             return  # "light" cadence — no turn-count trigger
 
-        from atrium.models import AtriumSessionEntry, AtriumSessionRole
+        from atrium.models import DialogueEntry, DialogueEntryStatus, DialogueRole
         since = getattr(log, "compact_at", None)
-        qs = AtriumSessionEntry.objects.filter(
-            session=session,
-            role=AtriumSessionRole.ASSISTANT,
+        qs = DialogueEntry.objects.filter(
+            dialogue=dialogue,
+            role=DialogueRole.ASSISTANT,
+            status=DialogueEntryStatus.DONE,
         )
         if since:
             qs = qs.filter(created_at__gt=since)
-        count = qs.count()
-        if count >= threshold:
-            _ensure_continuous_keeper_registered(session, cadence)
-            from atrium.tasks import keeper_compact_task
-            keeper_compact_task.delay(str(session.id))
+        if qs.count() >= threshold:
+            _queue_keeper_compact(dialogue, cadence)
     except Exception as exc:
         logger.warning("[atrium] _trigger_keeper_if_due failed: %s", exc)
 
+
+def _trigger_idle_keeper_if_due(dialogue) -> None:
+    """
+    Fire the Continuous Keeper task if the Dialogue has been idle past the cadence
+    threshold. Called when the person sends a message, before the turn is queued.
+
+    Dialogue.last_activity_at holds the time of the last finished turn, which is
+    what "idle since" means here. Backfilled onto the InitiativeLog's
+    last_session_end for any other consumer that expects it.
+    """
+    try:
+        from django.utils import timezone
+        log, cadence = _resolve_initiative_log(dialogue)
+        if log is None:
+            return
+        idle_minutes = _IDLE_THRESHOLDS.get(cadence)
+        if idle_minutes is None:
+            return  # "light" cadence — no idle trigger
+
+        last_end = dialogue.last_activity_at
+        if last_end is None:
+            return
+
+        if log.last_session_end != last_end:
+            log.last_session_end = last_end
+            log.save(update_fields=["last_session_end", "updated_at"])
+
+        last_compact = getattr(log, "compact_at", None)
+        idle_delta = (timezone.now() - last_end).total_seconds() / 60
+        if idle_delta >= idle_minutes and (last_compact is None or last_compact < last_end):
+            _queue_keeper_compact(dialogue, cadence)
+    except Exception as exc:
+        logger.warning("[atrium] _trigger_idle_keeper_if_due failed: %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# Document envelope
+# ---------------------------------------------------------------------------
 
 _DOCUMENT_OPEN_RE = _re.compile(r'<document(?:\s+title="([^"]*)")?[^>]*>', _re.DOTALL)
 
@@ -955,58 +430,15 @@ def _parse_document_envelope(text: str) -> tuple:
     If the envelope is absent or incomplete, returns ("message", "", text).
     Body is stripped of the envelope tags; document_title may be empty string.
     """
-    from atrium.models import AtriumSessionEntryType
+    from atrium.models import DialogueEntryType
     m = _DOCUMENT_OPEN_RE.search(text)
     if not m:
-        return AtriumSessionEntryType.MESSAGE, "", text
+        return DialogueEntryType.MESSAGE, "", text
     title = m.group(1) or ""
     body = text[m.end():]
     close_idx = body.rfind("</document>")
     if close_idx == -1:
         # Opened but never closed — stream was interrupted; fall back to message.
-        return AtriumSessionEntryType.MESSAGE, "", text
+        return DialogueEntryType.MESSAGE, "", text
     body = body[:close_idx].strip()
-    return AtriumSessionEntryType.DOCUMENT, title, body
-
-
-def _trigger_idle_keeper_if_due(session) -> None:
-    """
-    Fire the Continuous Keeper task if the session has been idle past the
-    cadence threshold. Called at the start of warm() on cold spawn.
-
-    InitiativeLog.last_session_end has no dedicated write path — Atrium has no
-    explicit session-close event (sessions use generic soft-delete, and
-    reset() terminates only to immediately respawn). AtriumSession.last_activity_at
-    (updated after every assistant turn, once the entry is saved) is a reliable
-    stand-in: at the exact point we discover `not was_alive`, it holds the
-    timestamp of this session's last real turn, which is what "idle since"
-    should mean here. Backfilled onto the InitiativeLog for any other consumer
-    that expects last_session_end to be populated.
-    """
-    try:
-        from django.utils import timezone
-        log, cadence = _resolve_initiative_log(session)
-        if log is None:
-            return
-        idle_minutes = _IDLE_THRESHOLDS.get(cadence)
-        if idle_minutes is None:
-            return  # "light" cadence — no idle trigger
-
-        last_end = session.last_activity_at
-        if last_end is None:
-            return
-
-        if log.last_session_end != last_end:
-            log.last_session_end = last_end
-            log.save(update_fields=["last_session_end", "updated_at"])
-
-        last_compact = getattr(log, "compact_at", None)
-        idle_delta = (timezone.now() - last_end).total_seconds() / 60
-        if idle_delta >= idle_minutes:
-            # Only re-compact if compact is stale (older than last_end).
-            if last_compact is None or last_compact < last_end:
-                _ensure_continuous_keeper_registered(session, cadence)
-                from atrium.tasks import keeper_compact_task
-                keeper_compact_task.delay(str(session.id))
-    except Exception as exc:
-        logger.warning("[atrium] _trigger_idle_keeper_if_due failed: %s", exc)
+    return DialogueEntryType.DOCUMENT, title, body

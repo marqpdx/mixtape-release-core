@@ -2,7 +2,7 @@
 #
 # Persona filters for Atrium dispatch layer sessions.
 # Each filter is a tone overlay appended to the base system prompt.
-# Selection is driven by AtriumSession.dial_mode.
+# Selection is driven by Dialogue.dial_mode.
 #
 # Filter content is canonical in:
 #   puddlejump/decisions/atrium-adr/filters/
@@ -125,7 +125,7 @@ _FILTERS: dict[str, str] = {
 
 def get_persona_filter(session) -> str | None:
     """
-    Return the persona filter text for the given AtriumSession, or None
+    Return the persona filter text for the given Dialogue, or None
     if the session's dial_mode has no associated filter.
     """
     if session is None:

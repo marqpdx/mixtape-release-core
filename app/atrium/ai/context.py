@@ -5,10 +5,10 @@
 # Sources (v1):
 #   - UserProfile fields: display_name, practice_area, quick_intro, skills,
 #     work_areas, who_are_you, why_are_you_here
-#   - Recent AtriumSession titles (last 5, excluding current session)
+#   - Recent Dialogue titles (last 5, excluding the current one)
 #
 # The built context is appended after session_context in the system prompt.
-# A preview is surfaced to the member via GET /api/atrium/sessions/<id>/context/.
+# A preview is surfaced to the member via GET /api/atrium/dialogues/<id>/context/.
 
 
 class ClioPersonalContextBuilder:
@@ -43,7 +43,7 @@ class ClioPersonalContextBuilder:
 
         recent_titles = self._recent_session_titles(session)
         if recent_titles:
-            lines.append(f"Recent sessions: {', '.join(recent_titles)}")
+            lines.append(f"Recent Dialogues: {', '.join(recent_titles)}")
 
         # Always at least the member name, so always non-empty
         return "\n".join(lines)
@@ -52,13 +52,13 @@ class ClioPersonalContextBuilder:
         """Human-readable list of context sources included in this build."""
         src = ["member profile"]
         if self._recent_session_titles(session):
-            src.append("recent sessions")
+            src.append("recent Dialogues")
         return src
 
     def _recent_session_titles(self, session) -> list[str]:
-        from atrium.models import AtriumSession
+        from atrium.models import Dialogue
         recent = (
-            AtriumSession.objects
+            Dialogue.objects
             .filter(member=session.member, deleted_at__isnull=True)
             .exclude(id=session.id)
             .order_by("-last_activity_at", "-created_at")

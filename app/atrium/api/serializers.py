@@ -2,16 +2,26 @@
 
 from rest_framework import serializers
 
-from atrium.models import AtriumSession, AtriumSessionEntry
+from atrium.models import Dialogue, DialogueEntry, Distillate
 
 
-class AtriumSessionEntrySerializer(serializers.ModelSerializer):
+class DialogueEntrySerializer(serializers.ModelSerializer):
     class Meta:
-        model = AtriumSessionEntry
-        fields = ["id", "role", "content", "entry_type", "document_title", "created_at"]
+        model = DialogueEntry
+        fields = [
+            "id",
+            "role",
+            "speaker",
+            "content",
+            "entry_type",
+            "document_title",
+            "status",
+            "error_code",
+            "created_at",
+        ]
 
 
-class AtriumSessionListSerializer(serializers.ModelSerializer):
+class DialogueListSerializer(serializers.ModelSerializer):
     entry_count = serializers.IntegerField(read_only=True)
     sponsor_type = serializers.SerializerMethodField()
     sponsor_slug = serializers.SerializerMethodField()
@@ -33,7 +43,7 @@ class AtriumSessionListSerializer(serializers.ModelSerializer):
         return None
 
     class Meta:
-        model = AtriumSession
+        model = Dialogue
         fields = [
             "id",
             "title",
@@ -50,3 +60,9 @@ class AtriumSessionListSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+
+class DistillateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Distillate
+        fields = ["id", "title", "body", "document_type", "status", "error_code", "created_at"]

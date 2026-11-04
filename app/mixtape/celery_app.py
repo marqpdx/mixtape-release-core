@@ -363,7 +363,13 @@ app.conf.task_routes = {
         "queue": "catalyst", "routing_key": "catalyst"
     },
     "atrium.tasks.keeper_compact_task": {
-        "queue": "catalyst", "routing_key": "catalyst"
+        "queue": "runtime", "routing_key": "runtime"  # the Dialogue owner's Claude account (ST-3 Part B)
+    },
+    "atrium.tasks.run_dialogue_turn": {
+        "queue": "runtime", "routing_key": "runtime"  # the Dialogue owner's account (ST-3 Part B)
+    },
+    "atrium.tasks.run_distill": {
+        "queue": "runtime", "routing_key": "runtime"  # the Dialogue owner's Claude account (ST-3 Part B)
     },
     "atrium.tasks.keepers.register_recency_keeper_task": {
         "queue": "catalyst", "routing_key": "catalyst"
