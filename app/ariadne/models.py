@@ -394,6 +394,10 @@ class RunCandidate(BaseModel):
     disposition = models.CharField(max_length=16, choices=Disposition.choices, default=Disposition.PENDING)
     disposition_reason = models.TextField(blank=True)
     disposition_at = models.DateTimeField(null=True, blank=True)
+    concept = models.ForeignKey(
+        Concept, on_delete=models.SET_NULL, null=True, blank=True, related_name="run_candidates",
+        help_text="Set when a curator accepts this candidate (P6) -- the Concept it was promoted to",
+    )
 
     class Meta:
         db_table = _table("run_candidate")
@@ -401,9 +405,15 @@ class RunCandidate(BaseModel):
 
 
 class EvidencePacket(BaseModel):
+    class SubjectKind(models.TextChoices):
+        CONCEPT = "concept", "Concept"
+        # Build spec §19.6: an Inquiry theme (P9) is the next value here --
+        # don't hard-code "concept" as the only subject a packet can have.
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     run = models.ForeignKey(DiscoveryRun, on_delete=models.CASCADE, related_name="evidence_packets")
     candidate_key = models.CharField(max_length=256)
+    subject_kind = models.CharField(max_length=16, choices=SubjectKind.choices, default=SubjectKind.CONCEPT)
     retrieval_config_hash = models.CharField(max_length=128, blank=True)
     source_revision_ids = models.JSONField(default=list, blank=True)
     passage_ids = models.JSONField(default=list, blank=True)

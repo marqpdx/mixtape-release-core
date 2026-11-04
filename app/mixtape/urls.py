@@ -169,6 +169,10 @@ urlpatterns = [
 if getattr(settings, "OCR_SPIKE_ENABLED", False):
     urlpatterns.append(path("api/spikes/ocr/", include("ocr_spike.api.urls")))
 
+if getattr(settings, "ARIADNE_ENABLED", False):
+    # P6 workbench + P6a Concept lookup (decisions/ariadne/, superuser-only).
+    urlpatterns.append(path("api/ariadne/", include("ariadne.api.urls")))
+
 # ============================================================================
 # DEFERRED ENDPOINTS (Add back in later phases):
 # - path("api/groups", include("groups.api.urls"))
