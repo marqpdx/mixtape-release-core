@@ -16,6 +16,17 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # Mechanical fix (2026-11-04, P6): this schema was previously only
+        # created by the separate `ariadne_create_schema` management
+        # command (P2), never by a migration -- fine for the dev DB where
+        # that command had already been run by hand, but it meant a fresh
+        # test database (which only runs migrations) could never create
+        # Ariadne's tables at all. Idempotent, so safe to add even where
+        # the schema already exists.
+        migrations.RunSQL(
+            sql='CREATE SCHEMA IF NOT EXISTS "ariadne";',
+            reverse_sql=migrations.RunSQL.noop,
+        ),
         migrations.CreateModel(
             name='Concept',
             fields=[

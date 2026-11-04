@@ -114,7 +114,11 @@ CONTOUR_ROOT = os.getenv(
 # canon-bundle-replica MCP path.
 ARIADNE_PUDDLEJUMP_PATH = os.getenv(
     "ARIADNE_PUDDLEJUMP_PATH",
-    str((BASE_DIR / ".." / "puddlejump").resolve()),
+    # Mechanical fix (2026-11-04, P6 handoff row 3): this default resolved
+    # to mixtape-release-core/puddlejump, not the sibling checkout --
+    # corpus.py's own fallback already walks up two levels like
+    # CONTOUR_ROOT above; this default now agrees with it.
+    str((BASE_DIR / ".." / ".." / "puddlejump").resolve()),
 )
 CLIO_KEEPER_ROUTE_TIMEOUT_SECONDS = int(os.getenv("CLIO_KEEPER_ROUTE_TIMEOUT_SECONDS", "15"))
 
@@ -219,7 +223,7 @@ if OCR_SPIKE_ENABLED:
 
 ARIADNE_ENABLED = env.bool("ARIADNE_ENABLED", default=False)
 if ARIADNE_ENABLED:
-    INSTALLED_APPS.append("ariadne")  # Ariadne — Puddlejump concept-discovery PoC (decisions/ariadne/), no models yet (P4)
+    INSTALLED_APPS.append("ariadne")  # Ariadne — Puddlejump concept-discovery PoC (decisions/ariadne/); P4-P6 schema + API, superuser-only
 
 INSTALLED_APPS += ["rest_framework_simplejwt.token_blacklist"]
 
