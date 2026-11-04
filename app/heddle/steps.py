@@ -86,7 +86,9 @@ def archive(state):
         state.setdefault("history", []).append({
             **identity(state), "attempt_id": state.get("attempt_id"), "status": "superseded", "previous_status": state["status"],
             "steps": copy.deepcopy(state.get("steps", [])), "findings": state.get("findings"),
-            "execution_id": state.get("execution_id"), "plan": state.get("plan")})
+            "execution_id": state.get("execution_id"), "plan": state.get("plan"),
+            "context": copy.deepcopy(state.get("context")),
+            "sources": copy.deepcopy(state.get("sources", []))})
     state["steps"] = []
 
 

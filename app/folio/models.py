@@ -25,6 +25,13 @@ class Folio(BaseContent):
     # Folio's public title capacity stays wider than BaseContent's default.
     title = models.CharField(max_length=255, blank=True, default="")
 
+    work_type = models.CharField(max_length=32, blank=True, default="", choices=[("fiction", "Fiction")])
+    context_revision = models.PositiveIntegerField(default=0)
+    prepared_context = models.JSONField(default=dict, blank=True)
+    orientation_confirmed_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="confirmed_folio_orientations")
+    orientation_confirmed_at = models.DateTimeField(null=True, blank=True)
+    orientation_confirmed_digest = models.CharField(max_length=64, blank=True, default="")
+
     class Meta(BaseContent.Meta):
         pass
 
@@ -222,3 +229,45 @@ class FolioNote(BaseModel):
 
     def __str__(self):
         return f"FolioNote<{self.id}> {self.source_type}:{self.status}"
+
+
+class FolioInterpretation(BaseModel):
+    """A captured note's reusable Heddle parent; findings stay on that parent."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    folio_note = models.ForeignKey(FolioNote, on_delete=models.PROTECT, related_name="interpretations")
+    action_run = models.OneToOneField("initiatives.ActionRun", on_delete=models.PROTECT, related_name="folio_interpretation")
+    initiated_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name="folio_interpretations")
+
+    class Meta(BaseModel.Meta):
+        constraints = [models.UniqueConstraint(fields=["folio_note", "initiated_by"], name="folio_note_person_reading")]
+
+
+class FolioSightingDecision(BaseModel):
+    """Explicit human action on one retained occurrence, never a candidate copy."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    interpretation = models.ForeignKey(FolioInterpretation, on_delete=models.PROTECT, related_name="decisions")
+    attempt_id = models.UUIDField()
+    sighting_id = models.CharField(max_length=255)
+    disposition = models.CharField(max_length=16, choices=[("dismiss", "Dismiss"), ("defer", "Keep"), ("link_entity", "Link Entity")])
+    actor = models.ForeignKey(User, on_delete=models.PROTECT, related_name="folio_sighting_decisions")
+    decided_at = models.DateTimeField(auto_now_add=True)
+    request_id = models.UUIDField()
+    request_digest = models.CharField(max_length=64)
+    original_context = models.JSONField()
+    reviewed_context = models.JSONField()
+    original_identity = models.JSONField()
+    reaffirmed = models.BooleanField(default=False)
+    clarification = models.TextField(blank=True, default="")
+    provisional_data = models.ForeignKey("sourcework.ProvisionalData", null=True, blank=True, on_delete=models.PROTECT, related_name="folio_decisions")
+    entity = models.ForeignKey("storyboard.Entity", null=True, blank=True, on_delete=models.PROTECT, related_name="folio_decisions")
+
+    class Meta(BaseModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["interpretation", "attempt_id", "sighting_id"], name="folio_sighting_occurrence_decision"),
+            models.UniqueConstraint(fields=["interpretation", "actor", "request_id"], name="folio_decision_request"),
+            models.CheckConstraint(condition=(
+                models.Q(disposition="dismiss", provisional_data__isnull=True, entity__isnull=True)
+                | models.Q(disposition="defer", provisional_data__isnull=False, entity__isnull=True)
+                | models.Q(disposition="link_entity", provisional_data__isnull=True, entity__isnull=False)
+            ), name="folio_decision_target"),
+        ]
