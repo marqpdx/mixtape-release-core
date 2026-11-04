@@ -1,5 +1,9 @@
 """P6 curation workbench + P6a Concept lookup -- API tests.
 
+P8's search/lens endpoints get a thin smoke test here (view wiring,
+validation, 404s); the actual hybrid-search merge logic is covered in
+test_search.py against the service layer directly.
+
 Exercises the real service-layer flow (record_decision,
 assemble_evidence_packet, packet_passage_detail) through the actual DRF
 views, against a minimal but real chain of Lens/LensVersion/CorpusSnapshot/
@@ -9,6 +13,7 @@ fixture instead of the full corpus.
 """
 
 import uuid
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -275,3 +280,44 @@ class AriadneWorkbenchTestCase(TestCase):
         self.client.force_authenticate(self.superuser)
         response = self.client.get("/api/ariadne/concepts/")
         self.assertEqual(response.status_code, 400)
+
+    def test_search_requires_a_query_param(self):
+        self.client.force_authenticate(self.superuser)
+        response = self.client.get("/api/ariadne/search/")
+        self.assertEqual(response.status_code, 400)
+
+    def test_search_rejects_non_superuser(self):
+        self.client.force_authenticate(self.member)
+        response = self.client.get("/api/ariadne/search/", {"q": "catalyst"})
+        self.assertEqual(response.status_code, 403)
+
+    def test_search_returns_results(self):
+        self.client.force_authenticate(self.superuser)
+        with patch("ariadne.api.views.search_services.hybrid_search", return_value=[{"passage_id": "x"}]):
+            response = self.client.get("/api/ariadne/search/", {"q": "catalyst"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["query"], "catalyst")
+        self.assertEqual(response.data["results"], [{"passage_id": "x"}])
+
+    def test_save_list_and_run_saved_search(self):
+        self.client.force_authenticate(self.superuser)
+
+        created = self.client.post(
+            "/api/ariadne/lenses/", {"name": "Fruition coverage", "query": "fruition"}, format="json",
+        )
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(created.data["query"], "fruition")
+
+        listed = self.client.get("/api/ariadne/lenses/")
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(len(listed.data), 1)
+
+        with patch("ariadne.api.views.search_services.run_saved_search", return_value=[{"passage_id": "x"}]):
+            run = self.client.get(f"/api/ariadne/lenses/{created.data['id']}/run/")
+        self.assertEqual(run.status_code, 200)
+        self.assertEqual(run.data["results"], [{"passage_id": "x"}])
+
+    def test_run_unknown_lens_404s(self):
+        self.client.force_authenticate(self.superuser)
+        response = self.client.get(f"/api/ariadne/lenses/{uuid.uuid4()}/run/")
+        self.assertEqual(response.status_code, 404)

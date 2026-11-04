@@ -3,8 +3,9 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from ariadne import search as search_services
 from ariadne import services
-from ariadne.models import Concept, DiscoveryRun, EvidencePacket, RunCandidate
+from ariadne.models import Concept, DiscoveryRun, EvidencePacket, Lens, RunCandidate
 
 from .permissions import IsSuperuser
 from .serializers import (
@@ -15,6 +16,7 @@ from .serializers import (
     EvidencePacketSerializer,
     PacketAssembleInputSerializer,
     RunCandidateSerializer,
+    SavedSearchInputSerializer,
 )
 
 
@@ -138,3 +140,63 @@ class ConceptLookupView(APIView):
         if concept is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(ConceptDetailSerializer(concept).data)
+
+
+class SearchView(APIView):
+    """P8 (build spec §19.1): hybrid search -- lexical + vector + concept
+    expansion. Not an Inquiry Run (§19.2, P9); just the search primitive."""
+
+    permission_classes = [permissions.IsAuthenticated, IsSuperuser]
+
+    def get(self, request):
+        query_text = request.query_params.get("q")
+        if not query_text:
+            return Response({"detail": "Provide ?q=<query text>"}, status=status.HTTP_400_BAD_REQUEST)
+        results = search_services.hybrid_search(query_text)
+        return Response({"query": query_text, "results": results})
+
+
+class SavedSearchListCreateView(APIView):
+    """A saved search is a Named Lens (§19.1) -- no new object."""
+
+    permission_classes = [permissions.IsAuthenticated, IsSuperuser]
+
+    def get(self, request):
+        lenses = search_services.list_saved_searches()
+        return Response(
+            [
+                {
+                    "id": str(lens.id),
+                    "name": lens.name,
+                    "query": lens.active_version.config["query"],
+                    "version": lens.active_version.version,
+                }
+                for lens in lenses
+            ]
+        )
+
+    def post(self, request):
+        input_serializer = SavedSearchInputSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        data = input_serializer.validated_data
+        lens_version = search_services.save_search_as_lens(
+            name=data["name"], query_text=data["query"], owner=request.user,
+        )
+        return Response(
+            {
+                "id": str(lens_version.lens_id),
+                "name": lens_version.lens.name,
+                "query": lens_version.config["query"],
+                "version": lens_version.version,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class SavedSearchRunView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsSuperuser]
+
+    def get(self, request, lens_id):
+        lens = get_object_or_404(Lens, id=lens_id)
+        results = search_services.run_saved_search(lens)
+        return Response({"query": lens.active_version.config["query"], "results": results})

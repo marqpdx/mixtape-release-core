@@ -8,6 +8,9 @@ from .views import (
     RunDecisionView,
     RunDetailView,
     RunPacketAssembleView,
+    SavedSearchListCreateView,
+    SavedSearchRunView,
+    SearchView,
 )
 
 urlpatterns = [
@@ -19,4 +22,7 @@ urlpatterns = [
     path("packets/<uuid:packet_id>/", PacketDetailView.as_view(), name="ariadne-packet-detail"),
     path("concepts/", ConceptLookupView.as_view(), name="ariadne-concept-lookup"),
     path("concepts/<uuid:concept_id>/", ConceptLookupView.as_view(), name="ariadne-concept-detail"),
+    path("search/", SearchView.as_view(), name="ariadne-search"),
+    path("lenses/", SavedSearchListCreateView.as_view(), name="ariadne-lens-list-create"),
+    path("lenses/<uuid:lens_id>/run/", SavedSearchRunView.as_view(), name="ariadne-lens-run"),
 ]
