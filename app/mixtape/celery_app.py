@@ -86,7 +86,9 @@ app.conf.task_queues = (
 #   ocr      → OCR spike document rendering and local OCR engine calls
 #   commons  → external integrations (Inkwell URL extraction)
 #   default_q → Livewire real-time events only (activity fanout, socket notifications)
-#   runtime  → person-runtime CLI calls (sign-in, check, sign-out); its worker alone may sudo (ST-3)
+#   runtime  → person-runtime CLI calls (sign-in, check, sign-out, Catalyst parsing); its worker
+#              alone may sudo (ST-3). Shuttle's reading and LinkedIn copy arrive on "catalyst" from
+#              Switchboard and forward themselves here (tenant_runtime.runtime_queue).
 app.conf.task_routes = {
     # --- Person runtimes → the runtime worker, the only one allowed sudo (ST-3) ---
     "tenant_runtime.run_tenant_claude_login": {"queue": "runtime", "routing_key": "runtime"},
@@ -349,13 +351,13 @@ app.conf.task_routes = {
     },
     # --- Catalyst: async parse pipeline (dedicated queue — claude -p subprocesses block 3-4 min/file) ---
     "catalyst.tasks.run_file_semantic_analysis": {
-        "queue": "catalyst", "routing_key": "catalyst"
+        "queue": "runtime", "routing_key": "runtime"  # the starter's Claude account (ST-3)
     },
     "catalyst.tasks.finalize_parse_job": {
         "queue": "catalyst", "routing_key": "catalyst"
     },
     "catalyst.tasks.materialize_register_entities": {
-        "queue": "catalyst", "routing_key": "catalyst"
+        "queue": "runtime", "routing_key": "runtime"  # the starter's Claude account (ST-3)
     },
     "writing.tasks.generate_linkedin_copy_with_claude_code": {
         "queue": "catalyst", "routing_key": "catalyst"

@@ -8,12 +8,17 @@ from __future__ import annotations
 from celery import shared_task
 
 from heddle import tasks as heddle_tasks
+from tenant_runtime.runtime_queue import forward_to_runtime
 
 from .contract import SHUTTLE_READING
 
 
-@shared_task(name="shuttle.run_cloud_interpretation", queue="catalyst", soft_time_limit=210, time_limit=240)
-def run_cloud_interpretation(*, action_run_id):
+@shared_task(bind=True, name="shuttle.run_cloud_interpretation", queue="catalyst", soft_time_limit=210, time_limit=240)
+def run_cloud_interpretation(self, *, action_run_id):
+    # Switchboard sends this to "catalyst"; the CLI runs as the person's pool user,
+    # which only the runtime worker may do (ST-3).
+    if forward_to_runtime(self, kwargs={"action_run_id": action_run_id}):
+        return
     heddle_tasks.run_cloud_interpretation(action_run_id=action_run_id, reading=SHUTTLE_READING,
         apply_fn=lambda child_id: apply_interpretation(child_id))
 

@@ -233,47 +233,54 @@ def send_catalyst_activation_email(self, prospect_id: int) -> None:
 
 # ── Tenant runtime pre-flight ─────────────────────────────────────────────────
 
-def _runtime_preflight(group, codex_cwd: str) -> tuple[str | None, str | None]:
-    """
-    Verify the tenant's Claude runtime is ready before any extraction job.
+CATALYST_CAPABILITY = "catalyst.parse"
 
-    Returns (linux_user, None) on success, (None, error_msg) when the runtime is
-    absent, not ready, or fails pre-flight — in which case the caller must not
-    write Codex files and should record the error against the job.
 
-    Side effect: if pre-flight detects auth_failure, transitions the runtime to
-    login_required so the admin knows they need to re-authenticate.
+def _runtime_preflight(user, label: str) -> tuple[str | None, str | None]:
     """
-    from django.contrib.contenttypes.models import ContentType
+    Check the Claude account of the person who started this work (ST-3, decision S3).
+
+    Returns (linux_user, None) on success, (None, error_msg) when that person has no
+    ready runtime or it fails pre-flight: the caller must then not write Codex files
+    and records the error against the job. Never a Group's runtime, never the server's
+    own login. Runs on the runtime worker, the only one that may use sudo.
+
+    Side effect: if pre-flight detects auth_failure, the runtime turns login_required
+    so the person sees they need to sign in again.
+    """
     from claude.service import run_blocking
     from tenant_runtime.models import TenantClaudeRuntime
+    from tenant_runtime.resolve import RuntimeUnavailable, person_runtime
 
-    ct = ContentType.objects.get_for_model(group)
-    runtime = TenantClaudeRuntime.objects.filter(
-        tenant_content_type=ct,
-        tenant_object_id=group.id,
-    ).first()
-
-    if not runtime:
-        # No runtime configured — run under the server process (legacy/dev path)
-        return None, None
-
-    if runtime.status != TenantClaudeRuntime.STATUS_READY:
-        return None, f"auth_failure: runtime status={runtime.status} for group={group.slug}"
+    if user is None:
+        return None, f"runtime_missing: no person to run as for {label}"
+    try:
+        runtime = person_runtime(user, CATALYST_CAPABILITY)
+    except RuntimeUnavailable as exc:
+        return None, f"{exc.code}: connect or sign in to your Claude account (Settings → AI accounts) for {label}"
 
     result = run_blocking(
         "say ok", run_as_user=runtime.linux_user, home_dir=runtime.home_dir, timeout=30, tools="",
     )
     if result.failure == "auth_failure":
         runtime.status = TenantClaudeRuntime.STATUS_LOGIN_REQUIRED
-        runtime.last_verification_error = "Pre-flight failed before extraction job."
+        runtime.last_verification_error = "Pre-flight failed before a Catalyst job."
         runtime.save(update_fields=["status", "last_verification_error", "updated_at"])
-        return None, f"auth_failure: pre-flight verification failed for group={group.slug}"
+        return None, f"auth_failure: pre-flight verification failed for {label}"
 
     if result.failure:
-        return None, f"preflight_error: {result.failure} for group={group.slug}"
+        return None, f"preflight_error: {result.failure} for {label}"
 
     return runtime.linux_user, None
+
+
+def _job_starter(job, started_by_id):
+    """The person who started this step: the one named by the view, else the job's creator."""
+    from django.contrib.auth import get_user_model
+
+    if started_by_id:
+        return get_user_model().objects.filter(pk=started_by_id).first()
+    return job.created_by
 
 
 def _operator_section_brief(job, filename: str, max_chars: int = 12_000) -> str:
@@ -482,7 +489,7 @@ def _mark_phase2_file_state(job_id: str, filename: str, state: str, task_id: str
     soft_time_limit=240,
     time_limit=300,
 )
-def run_file_semantic_analysis(self, job_id: str, filename: str) -> None:
+def run_file_semantic_analysis(self, job_id: str, filename: str, started_by_id: str | None = None) -> None:
     """
     Run semantic_analyze() on one uploaded file for a CatalystParseJob.
     Writes the AI result to phase2_results.files[filename].
@@ -536,7 +543,9 @@ def run_file_semantic_analysis(self, job_id: str, filename: str) -> None:
         ai_result = {"error": "file not found on disk", "count": 0}
     else:
         codex_cwd = str(Path(settings.CATALYST_CODEX_ROOT) / job.group.slug)
-        run_as_user, preflight_error = _runtime_preflight(job.group, codex_cwd)
+        run_as_user, preflight_error = _runtime_preflight(
+            _job_starter(job, started_by_id), f"group={job.group.slug}",
+        )
         if preflight_error:
             logger.warning("[catalyst-parse] Pre-flight failed for job=%s file=%s: %s", job_id, filename, preflight_error)
             ai_result = {"error": preflight_error, "count": 0}
@@ -1053,7 +1062,9 @@ def _bundle_entities_for_register(bundle: dict, register_slug: str) -> list[dict
     soft_time_limit=1800,
     time_limit=1860,
 )
-def materialize_register_entities(self, group_slug: str, register_slug: str, job_id: str) -> None:
+def materialize_register_entities(
+    self, group_slug: str, register_slug: str, job_id: str, started_by_id: str | None = None,
+) -> None:
     """
     Phase 3 — extract every named entity from the source files for one register,
     format as markdown, and write into the register's _index.md body.
@@ -1149,7 +1160,9 @@ def materialize_register_entities(self, group_slug: str, register_slug: str, job
 
     write_progress(status="starting")
 
-    run_as_user, preflight_error = _runtime_preflight(job.group, str(codex_root))
+    run_as_user, preflight_error = _runtime_preflight(
+        _job_starter(job, started_by_id), f"group={group_slug}",
+    )
     if preflight_error:
         logger.warning(
             "[catalyst-materialize] Pre-flight failed for group=%s register=%s job=%s: %s",

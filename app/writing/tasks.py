@@ -299,12 +299,32 @@ def enqueue_writing_piece_synopsis_task(piece_id: str):
     logger.info("[synopsis_ai] Enqueued summarize action_run=%s for piece=%s", action_run.id, piece_id)
 
 
+_LINKEDIN_RUNTIME_MESSAGES = {
+    "runtime_missing": "Connect your Claude account in Settings → AI accounts to write LinkedIn copy.",
+    "runtime_not_ready": "Your Claude account needs you to sign in again (Settings → AI accounts).",
+    "mode_not_allowed": "Your Claude account isn't set up for LinkedIn copy.",
+}
+
+
+def _action_run_initiator(action_run):
+    """The person who started the ActionRun, or None. Never a Group or the server."""
+    from django.contrib.auth import get_user_model
+    from django.core.exceptions import ValidationError
+
+    try:
+        return get_user_model().objects.filter(pk=action_run.initiator_id).first()
+    except (ValidationError, ValueError, TypeError):
+        return None
+
+
 @shared_task(
+    bind=True,
     name="writing.tasks.generate_linkedin_copy_with_claude_code",
     soft_time_limit=360,
     time_limit=390,
 )
 def generate_linkedin_copy_with_claude_code(
+    self,
     *,
     action_run_id: str,
     tenant_id: str,
@@ -314,12 +334,29 @@ def generate_linkedin_copy_with_claude_code(
     request_payload: dict,
     synopsis_payload: dict,
 ):
-    """Complete a governed LinkedIn ActionRun through tenant-scoped Claude Code."""
-    from django.contrib.contenttypes.models import ContentType
+    """
+    Complete a governed LinkedIn ActionRun on the initiator's own Claude account (ST-3).
 
-    from groups.models.group import Group
+    Never a Group's runtime and never the server's login: without the person's ready
+    runtime the ActionRun fails with a plain reason. Switchboard sends this to the
+    "catalyst" queue; it moves itself to the runtime worker, the only one that may
+    run the CLI as a pool user.
+    """
+    from tenant_runtime.runtime_queue import forward_to_runtime
+
+    if forward_to_runtime(self, kwargs={
+        "action_run_id": action_run_id,
+        "tenant_id": tenant_id,
+        "tenant_namespace": tenant_namespace,
+        "principal_user_id": principal_user_id,
+        "principal_service_token_id": principal_service_token_id,
+        "request_payload": request_payload,
+        "synopsis_payload": synopsis_payload,
+    }):
+        return {"status": "forwarded", "action_run_id": action_run_id}
+
     from initiatives.models import ActionRun, ActionRunStatus
-    from tenant_runtime.models import TenantClaudeRuntime
+    from tenant_runtime.resolve import RuntimeUnavailable, person_runtime
     from writing.linkedin_copy_service import generate_linkedin_copy
 
     try:
@@ -346,31 +383,15 @@ def generate_linkedin_copy_with_claude_code(
         if principal_user_id and action_run.initiator_id != str(principal_user_id):
             raise ValueError("ActionRun initiator does not match dispatched principal.")
 
-        run_as_user = None
-        home_dir = None
-        runtime = None
-        group = Group.objects.filter(pk=tenant_id, is_active=True).first()
-        if group:
-            group_ct = ContentType.objects.get_for_model(group)
-            runtime = TenantClaudeRuntime.objects.filter(
-                tenant_content_type=group_ct,
-                tenant_object_id=group.id,
-            ).first()
-
-        if runtime:
-            if runtime.status != TenantClaudeRuntime.STATUS_READY:
-                raise RuntimeError(f"Tenant Claude runtime is not ready ({runtime.status}).")
-            allowed_modes = set(runtime.allowed_ai_modes or [])
-            accepted_modes = {"linkedin_copy", "synopsis_linkedin", "writing.synopsis_linkedin"}
-            if allowed_modes and not allowed_modes.intersection(accepted_modes):
-                raise RuntimeError("Tenant Claude runtime does not permit LinkedIn copy generation.")
-            run_as_user = runtime.linux_user
-            home_dir = runtime.home_dir
-        else:
-            logger.warning(
-                "[linkedin-copy] no TenantClaudeRuntime for tenant=%s; using server Claude login",
-                tenant_id,
-            )
+        initiator = _action_run_initiator(action_run)
+        if initiator is None:
+            raise RuntimeError(_LINKEDIN_RUNTIME_MESSAGES["runtime_missing"])
+        try:
+            runtime = person_runtime(initiator, "writing.synopsis_linkedin")
+        except RuntimeUnavailable as exc:
+            raise RuntimeError(_LINKEDIN_RUNTIME_MESSAGES[exc.code]) from exc
+        run_as_user = runtime.linux_user
+        home_dir = runtime.home_dir
 
         result = generate_linkedin_copy(
             action_run_id=action_run_id,
