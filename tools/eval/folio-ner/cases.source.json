@@ -1,0 +1,1167 @@
+[
+  {
+    "id": "explicit-character",
+    "split": "tuning",
+    "text": "Character: Mara is a baker.",
+    "cues": [
+      {
+        "quote": "Character",
+        "type": "writing.character",
+        "negated": false,
+        "ambiguous": false
+      }
+    ],
+    "mentions": [
+      {
+        "quote": "Mara",
+        "type": "writing.character",
+        "optional": false
+      }
+    ],
+    "traps": [],
+    "shape_judgements": [
+      {
+        "shape_id": "writing.character",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "Mara"
+          }
+        ]
+      }
+    ],
+    "notes": "Synthetic Fiction context; annotation proposed for CTO review.",
+    "non_actions": [
+      "no_entity_creation",
+      "no_identity_merge",
+      "no_alias_learning",
+      "no_narrative_rewrite",
+      "no_placement_or_publication",
+      "no_geocoding"
+    ],
+    "ambiguities": [],
+    "review_status": "approved_as_written"
+  },
+  {
+    "id": "locale-alias",
+    "split": "tuning",
+    "text": "Locale: the abandoned station.",
+    "cues": [
+      {
+        "quote": "Locale",
+        "type": "writing.setting",
+        "negated": false,
+        "ambiguous": false
+      }
+    ],
+    "mentions": [
+      {
+        "quote": "abandoned station",
+        "type": "writing.setting",
+        "optional": false
+      }
+    ],
+    "traps": [],
+    "shape_judgements": [
+      {
+        "shape_id": "writing.setting",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "abandoned station"
+          }
+        ]
+      }
+    ],
+    "notes": "Synthetic Fiction context; annotation proposed for CTO review.",
+    "non_actions": [
+      "no_entity_creation",
+      "no_identity_merge",
+      "no_alias_learning",
+      "no_narrative_rewrite",
+      "no_placement_or_publication",
+      "no_geocoding"
+    ],
+    "ambiguities": [],
+    "review_status": "amended_per_cto"
+  },
+  {
+    "id": "location-alias",
+    "split": "paraphrase",
+    "text": "Location: Glass Harbor, where Mara grew up.",
+    "cues": [
+      {
+        "quote": "Location",
+        "type": "writing.setting",
+        "negated": false,
+        "ambiguous": false
+      }
+    ],
+    "mentions": [
+      {
+        "quote": "Glass Harbor",
+        "type": "writing.setting",
+        "optional": false
+      },
+      {
+        "quote": "Mara",
+        "type": "writing.character",
+        "optional": false
+      }
+    ],
+    "traps": [],
+    "shape_judgements": [
+      {
+        "shape_id": "writing.character",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "Mara"
+          }
+        ]
+      },
+      {
+        "shape_id": "writing.setting",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "Glass Harbor"
+          }
+        ]
+      }
+    ],
+    "notes": "Synthetic Fiction context; annotation proposed for CTO review.",
+    "non_actions": [
+      "no_entity_creation",
+      "no_identity_merge",
+      "no_alias_learning",
+      "no_narrative_rewrite",
+      "no_placement_or_publication",
+      "no_geocoding"
+    ],
+    "ambiguities": [],
+    "review_status": "approved_as_written"
+  },
+  {
+    "id": "multi-shape",
+    "split": "tuning",
+    "text": "Character: Mara. Locale: the abandoned station. The scene begins when Mara returns there.",
+    "cues": [
+      {
+        "quote": "Character",
+        "type": "writing.character",
+        "negated": false,
+        "ambiguous": false
+      },
+      {
+        "quote": "Locale",
+        "type": "writing.setting",
+        "negated": false,
+        "ambiguous": false
+      },
+      {
+        "quote": "scene",
+        "type": "writing.scene",
+        "negated": false,
+        "ambiguous": false
+      }
+    ],
+    "mentions": [
+      {
+        "quote": "Mara",
+        "occurrence": 1,
+        "type": "writing.character",
+        "optional": false
+      },
+      {
+        "quote": "abandoned station",
+        "type": "writing.setting",
+        "optional": false
+      },
+      {
+        "quote": "Mara",
+        "occurrence": 2,
+        "type": "writing.character",
+        "optional": false
+      }
+    ],
+    "traps": [],
+    "shape_judgements": [
+      {
+        "shape_id": "writing.character",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "Mara",
+            "occurrence": 1
+          },
+          {
+            "quote": "Mara",
+            "occurrence": 2
+          }
+        ]
+      },
+      {
+        "shape_id": "writing.setting",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "abandoned station"
+          }
+        ]
+      },
+      {
+        "shape_id": "writing.scene",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "The scene begins when Mara returns there."
+          }
+        ]
+      }
+    ],
+    "notes": "Synthetic Fiction context; annotation proposed for CTO review.",
+    "non_actions": [
+      "no_entity_creation",
+      "no_identity_merge",
+      "no_alias_learning",
+      "no_narrative_rewrite",
+      "no_placement_or_publication",
+      "no_geocoding"
+    ],
+    "ambiguities": [],
+    "review_status": "amended_per_cto"
+  },
+  {
+    "id": "ordinary-location",
+    "split": "contrast",
+    "text": "The location of the manuscript file changed.",
+    "cues": [
+      {
+        "quote": "location",
+        "type": "writing.setting",
+        "negated": false,
+        "ambiguous": true
+      }
+    ],
+    "mentions": [],
+    "traps": [
+      {
+        "quote": "location of the manuscript file",
+        "reason": "ordinary file location is not a fictional Setting"
+      }
+    ],
+    "shape_judgements": [],
+    "notes": "Do not interpret a file location as a fictional Setting.",
+    "non_actions": [
+      "no_entity_creation",
+      "no_identity_merge",
+      "no_alias_learning",
+      "no_narrative_rewrite",
+      "no_placement_or_publication",
+      "no_geocoding"
+    ],
+    "ambiguities": [],
+    "review_status": "approved_as_written"
+  },
+  {
+    "id": "negated-scene",
+    "split": "contrast",
+    "text": "This is not a scene yet; it is a reminder to research train stations.",
+    "cues": [
+      {
+        "quote": "scene",
+        "type": "writing.scene",
+        "negated": true,
+        "ambiguous": false
+      }
+    ],
+    "mentions": [],
+    "traps": [
+      {
+        "quote": "scene",
+        "reason": "explicit negation does not establish a Scene"
+      },
+      {
+        "quote": "train stations",
+        "reason": "generic research material, not a named fictional Setting"
+      }
+    ],
+    "shape_judgements": [
+      {
+        "shape_id": "writing.scene",
+        "judgement": "negated",
+        "evidence": [
+          {
+            "quote": "This is not a scene yet"
+          }
+        ]
+      }
+    ],
+    "notes": "Scene is negated; this is meta material, not a named Setting.",
+    "non_actions": [
+      "no_entity_creation",
+      "no_identity_merge",
+      "no_alias_learning",
+      "no_narrative_rewrite",
+      "no_placement_or_publication",
+      "no_geocoding"
+    ],
+    "ambiguities": [],
+    "review_status": "amended_per_cto"
+  },
+  {
+    "id": "uncertain-identity",
+    "split": "contrast",
+    "text": "Mara, or maybe Mira, returns to Glass Harbor.",
+    "cues": [],
+    "mentions": [
+      {
+        "quote": "Mara",
+        "type": "writing.character",
+        "uncertain": [
+          "alternative name"
+        ],
+        "optional": false
+      },
+      {
+        "quote": "Mira",
+        "type": "writing.character",
+        "uncertain": [
+          "alternative name"
+        ],
+        "optional": false
+      },
+      {
+        "quote": "Glass Harbor",
+        "type": "writing.setting",
+        "optional": false
+      }
+    ],
+    "traps": [],
+    "shape_judgements": [
+      {
+        "shape_id": "writing.character",
+        "judgement": "ambiguous",
+        "evidence": [
+          {
+            "quote": "Mara"
+          },
+          {
+            "quote": "Mira"
+          }
+        ]
+      },
+      {
+        "shape_id": "writing.setting",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "Glass Harbor"
+          }
+        ]
+      }
+    ],
+    "notes": "Preserve alternative naming; do not merge Mara and Mira as fact.",
+    "non_actions": [
+      "no_entity_creation",
+      "no_identity_merge",
+      "no_alias_learning",
+      "no_narrative_rewrite",
+      "no_placement_or_publication",
+      "no_geocoding"
+    ],
+    "ambiguities": [
+      {
+        "quote": "Mara, or maybe Mira",
+        "reason": "Alternative names; no identity merge is established."
+      }
+    ],
+    "review_status": "approved_as_written"
+  },
+  {
+    "id": "unicode",
+    "split": "paraphrase",
+    "text": "🌙 Character: Élodie. Locale: Île Verte.",
+    "cues": [
+      {
+        "quote": "Character",
+        "type": "writing.character",
+        "negated": false,
+        "ambiguous": false
+      },
+      {
+        "quote": "Locale",
+        "type": "writing.setting",
+        "negated": false,
+        "ambiguous": false
+      }
+    ],
+    "mentions": [
+      {
+        "quote": "Élodie",
+        "type": "writing.character",
+        "optional": false
+      },
+      {
+        "quote": "Île Verte",
+        "type": "writing.setting",
+        "optional": false
+      }
+    ],
+    "traps": [],
+    "shape_judgements": [
+      {
+        "shape_id": "writing.character",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "Élodie"
+          }
+        ]
+      },
+      {
+        "shape_id": "writing.setting",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "Île Verte"
+          }
+        ]
+      }
+    ],
+    "notes": "Synthetic Fiction context; annotation proposed for CTO review.",
+    "non_actions": [
+      "no_entity_creation",
+      "no_identity_merge",
+      "no_alias_learning",
+      "no_narrative_rewrite",
+      "no_placement_or_publication",
+      "no_geocoding"
+    ],
+    "ambiguities": [],
+    "review_status": "approved_as_written"
+  },
+  {
+    "id": "real-editor",
+    "split": "contrast",
+    "text": "My editor Julia asked where I stored the manuscript.",
+    "cues": [],
+    "mentions": [],
+    "traps": [
+      {
+        "quote": "Julia",
+        "reason": "real-world editor is not a fictional Character"
+      }
+    ],
+    "shape_judgements": [],
+    "notes": "Julia is a real editor, not established as a fictional Character.",
+    "non_actions": [
+      "no_entity_creation",
+      "no_identity_merge",
+      "no_alias_learning",
+      "no_narrative_rewrite",
+      "no_placement_or_publication",
+      "no_geocoding"
+    ],
+    "ambiguities": [],
+    "review_status": "approved_as_written"
+  },
+  {
+    "id": "negated-character",
+    "split": "contrast",
+    "text": "No character is named Mara here; Mara is the editor.",
+    "cues": [
+      {
+        "quote": "character",
+        "type": "writing.character",
+        "negated": true,
+        "ambiguous": false
+      }
+    ],
+    "mentions": [],
+    "traps": [
+      {
+        "quote": "Mara",
+        "occurrence": 1,
+        "reason": "negated fictional naming"
+      },
+      {
+        "quote": "Mara",
+        "occurrence": 2,
+        "reason": "real editor"
+      }
+    ],
+    "shape_judgements": [
+      {
+        "shape_id": "writing.character",
+        "judgement": "negated",
+        "evidence": [
+          {
+            "quote": "No character is named Mara here"
+          }
+        ]
+      }
+    ],
+    "notes": "Negation and real-editor context defeat blind name classification.",
+    "non_actions": [
+      "no_entity_creation",
+      "no_identity_merge",
+      "no_alias_learning",
+      "no_narrative_rewrite",
+      "no_placement_or_publication",
+      "no_geocoding"
+    ],
+    "ambiguities": [],
+    "review_status": "approved_as_written"
+  },
+  {
+    "id": "implicit-fiction",
+    "split": "holdout",
+    "text": "Mara waits at Glass Harbor.",
+    "cues": [],
+    "mentions": [
+      {
+        "quote": "Mara",
+        "type": "writing.character",
+        "optional": false
+      },
+      {
+        "quote": "Glass Harbor",
+        "type": "writing.setting",
+        "optional": false
+      }
+    ],
+    "traps": [],
+    "shape_judgements": [
+      {
+        "shape_id": "writing.character",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "Mara"
+          }
+        ]
+      },
+      {
+        "shape_id": "writing.setting",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "Glass Harbor"
+          }
+        ]
+      }
+    ],
+    "notes": "Known Fiction context supports names without explicit Shape cues. No scene classification scored as NER.",
+    "non_actions": [
+      "no_entity_creation",
+      "no_identity_merge",
+      "no_alias_learning",
+      "no_narrative_rewrite",
+      "no_placement_or_publication",
+      "no_geocoding"
+    ],
+    "ambiguities": [],
+    "review_status": "approved_as_written"
+  },
+  {
+    "id": "unconfirmed-alias",
+    "split": "tuning",
+    "text": "Character: Mara, whom I might call the baker, returns home.",
+    "cues": [
+      {
+        "quote": "Character",
+        "type": "writing.character",
+        "negated": false,
+        "ambiguous": false
+      }
+    ],
+    "mentions": [
+      {
+        "quote": "Mara",
+        "type": "writing.character",
+        "optional": false
+      },
+      {
+        "quote": "baker",
+        "type": "writing.character",
+        "uncertain": [
+          "tentative alias; identity link unconfirmed"
+        ],
+        "optional": true
+      }
+    ],
+    "traps": [],
+    "shape_judgements": [
+      {
+        "shape_id": "writing.character",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "Mara"
+          },
+          {
+            "quote": "baker"
+          }
+        ]
+      }
+    ],
+    "notes": "baker is optional descriptive gold: neither reward nor penalize an exact correctly typed hit; report it separately. No automatic alias learning or identity link.",
+    "non_actions": [
+      "no_entity_creation",
+      "no_identity_merge",
+      "no_alias_learning",
+      "no_narrative_rewrite",
+      "no_placement_or_publication",
+      "no_geocoding"
+    ],
+    "ambiguities": [
+      {
+        "quote": "might call the baker",
+        "reason": "Mention is source-bound; canonical identity and alias remain unconfirmed."
+      }
+    ],
+    "review_status": "amended_per_cto"
+  },
+  {
+    "id": "depot-paraphrase",
+    "split": "paraphrase",
+    "text": "Our locale is the old depot; Élodie waits there.",
+    "cues": [
+      {
+        "quote": "locale",
+        "type": "writing.setting",
+        "negated": false,
+        "ambiguous": false
+      }
+    ],
+    "mentions": [
+      {
+        "quote": "old depot",
+        "type": "writing.setting",
+        "optional": false
+      },
+      {
+        "quote": "Élodie",
+        "type": "writing.character",
+        "optional": false
+      }
+    ],
+    "traps": [],
+    "shape_judgements": [
+      {
+        "shape_id": "writing.character",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "Élodie"
+          }
+        ]
+      },
+      {
+        "shape_id": "writing.setting",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "old depot"
+          }
+        ]
+      }
+    ],
+    "notes": "Paraphrased cue and descriptive Setting name.",
+    "non_actions": [
+      "no_entity_creation",
+      "no_identity_merge",
+      "no_alias_learning",
+      "no_narrative_rewrite",
+      "no_placement_or_publication",
+      "no_geocoding"
+    ],
+    "ambiguities": [],
+    "review_status": "amended_per_cto"
+  },
+  {
+    "id": "nested-setting-names",
+    "split": "holdout",
+    "text": "Setting: New Glass Harbor station, near Glass Harbor.",
+    "cues": [
+      {
+        "quote": "Setting",
+        "type": "writing.setting",
+        "negated": false,
+        "ambiguous": false
+      }
+    ],
+    "mentions": [
+      {
+        "quote": "New Glass Harbor station",
+        "type": "writing.setting",
+        "optional": false
+      },
+      {
+        "quote": "Glass Harbor",
+        "type": "writing.setting",
+        "occurrence": 2,
+        "optional": false
+      }
+    ],
+    "traps": [],
+    "shape_judgements": [
+      {
+        "shape_id": "writing.setting",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "New Glass Harbor station"
+          },
+          {
+            "quote": "Glass Harbor",
+            "occurrence": 2
+          }
+        ]
+      }
+    ],
+    "notes": "Do not accidentally annotate the embedded first Glass Harbor occurrence as the second Setting.",
+    "non_actions": [
+      "no_entity_creation",
+      "no_identity_merge",
+      "no_alias_learning",
+      "no_narrative_rewrite",
+      "no_placement_or_publication",
+      "no_geocoding"
+    ],
+    "ambiguities": [],
+    "review_status": "approved_as_written"
+  },
+  {
+    "id": "repeated-name",
+    "split": "holdout",
+    "text": "Mara meets Mara at the station.",
+    "cues": [],
+    "mentions": [
+      {
+        "quote": "Mara",
+        "type": "writing.character",
+        "occurrence": 1,
+        "optional": false
+      },
+      {
+        "quote": "Mara",
+        "type": "writing.character",
+        "occurrence": 2,
+        "optional": false
+      },
+      {
+        "quote": "station",
+        "type": "writing.setting",
+        "optional": false
+      }
+    ],
+    "traps": [],
+    "shape_judgements": [
+      {
+        "shape_id": "writing.character",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "Mara",
+            "occurrence": 1
+          },
+          {
+            "quote": "Mara",
+            "occurrence": 2
+          }
+        ]
+      },
+      {
+        "shape_id": "writing.setting",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "station"
+          }
+        ]
+      }
+    ],
+    "notes": "Both occurrences are mentions; shared identity is unresolved, not an extraction conclusion.",
+    "non_actions": [
+      "no_entity_creation",
+      "no_identity_merge",
+      "no_alias_learning",
+      "no_narrative_rewrite",
+      "no_placement_or_publication",
+      "no_geocoding"
+    ],
+    "ambiguities": [
+      {
+        "quote": "Mara meets Mara",
+        "reason": "Same spelling does not settle whether the referents are identical."
+      }
+    ],
+    "review_status": "amended_per_cto"
+  },
+  {
+    "id": "decomposed-unicode",
+    "split": "paraphrase",
+    "text": "Character: Élodie. Setting: Café des Brumes.",
+    "cues": [
+      {
+        "quote": "Character",
+        "type": "writing.character",
+        "negated": false,
+        "ambiguous": false
+      },
+      {
+        "quote": "Setting",
+        "type": "writing.setting",
+        "negated": false,
+        "ambiguous": false
+      }
+    ],
+    "mentions": [
+      {
+        "quote": "Élodie",
+        "type": "writing.character",
+        "optional": false
+      },
+      {
+        "quote": "Café des Brumes",
+        "type": "writing.setting",
+        "optional": false
+      }
+    ],
+    "traps": [],
+    "shape_judgements": [
+      {
+        "shape_id": "writing.character",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "Élodie"
+          }
+        ]
+      },
+      {
+        "shape_id": "writing.setting",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "Café des Brumes"
+          }
+        ]
+      }
+    ],
+    "notes": "Deliberate mixed normalization: E + U+0301 in Élodie, precomposed U+00E9 in Café. Preserve both originals and code-point offsets; no normalization.",
+    "non_actions": [
+      "no_entity_creation",
+      "no_identity_merge",
+      "no_alias_learning",
+      "no_narrative_rewrite",
+      "no_placement_or_publication",
+      "no_geocoding"
+    ],
+    "ambiguities": [],
+    "review_status": "approved_as_written"
+  },
+  {
+    "id": "quoted-cue",
+    "split": "contrast",
+    "text": "The sign reads \"scene\"; it is not a scene description.",
+    "cues": [
+      {
+        "quote": "scene",
+        "type": "writing.scene",
+        "negated": false,
+        "ambiguous": true,
+        "occurrence": 1
+      },
+      {
+        "quote": "scene",
+        "type": "writing.scene",
+        "negated": true,
+        "ambiguous": false,
+        "occurrence": 2
+      }
+    ],
+    "mentions": [],
+    "traps": [
+      {
+        "quote": "scene",
+        "occurrence": 1,
+        "reason": "quoted word is not a Scene"
+      },
+      {
+        "quote": "scene",
+        "occurrence": 2,
+        "reason": "negated scene description"
+      }
+    ],
+    "shape_judgements": [
+      {
+        "shape_id": "writing.scene",
+        "judgement": "negated",
+        "evidence": [
+          {
+            "quote": "it is not a scene description"
+          }
+        ]
+      }
+    ],
+    "notes": "Quoted word and explicit negation do not establish a Scene.",
+    "non_actions": [
+      "no_entity_creation",
+      "no_identity_merge",
+      "no_alias_learning",
+      "no_narrative_rewrite",
+      "no_placement_or_publication",
+      "no_geocoding"
+    ],
+    "ambiguities": [],
+    "review_status": "approved_as_written"
+  },
+  {
+    "id": "project-marker",
+    "split": "holdout",
+    "text": "Track lantern as a marker. Character: Niko carries a lantern.",
+    "cues": [
+      {
+        "quote": "Character",
+        "type": "writing.character",
+        "negated": false,
+        "ambiguous": false
+      }
+    ],
+    "mentions": [
+      {
+        "quote": "Niko",
+        "type": "writing.character",
+        "optional": false
+      }
+    ],
+    "traps": [
+      {
+        "quote": "lantern",
+        "occurrence": 1,
+        "reason": "project marker is not a Character or Setting mention"
+      },
+      {
+        "quote": "lantern",
+        "occurrence": 2,
+        "reason": "ordinary object is outside initial Character/Setting/Scene NER labels"
+      }
+    ],
+    "shape_judgements": [
+      {
+        "shape_id": "writing.character",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "Niko"
+          }
+        ]
+      }
+    ],
+    "notes": "A requested project marker is separate from a Shape cue or Entity alias.",
+    "non_actions": [
+      "no_entity_creation",
+      "no_identity_merge",
+      "no_alias_learning",
+      "no_narrative_rewrite",
+      "no_placement_or_publication",
+      "no_geocoding"
+    ],
+    "ambiguities": [],
+    "review_status": "approved_as_written"
+  },
+  {
+    "id": "spoken-self-correction",
+    "split": "holdout",
+    "text": "Um, okay, so, like, I keep coming back to Mara — no, Mira, that's who I mean, and she's arriving at Glass Harbor after the last bus has gone and she has this paper bag that is already getting wet, and I don't think we need to know what's inside it yet because the important bit is that she stops before the lights on the water and almost turns around, you know, like she has rehearsed coming back for years but now that she's actually there she can't quite make herself walk on, and maybe someone has left a chair outside the locked door, I'm not sure about that part, I just want the return to feel a little embarrassing rather than heroic, with the bag tearing at the corner while she is trying to look as though she belongs there, so let's keep that hesitation and not give her a speech explaining it all yet.",
+    "cues": [],
+    "mentions": [
+      {
+        "quote": "Mara",
+        "type": "writing.character",
+        "optional": false
+      },
+      {
+        "quote": "Mira",
+        "type": "writing.character",
+        "optional": false
+      },
+      {
+        "quote": "Glass Harbor",
+        "type": "writing.setting",
+        "optional": false
+      }
+    ],
+    "traps": [],
+    "ambiguities": [
+      {
+        "quote": "Mara — no, Mira",
+        "reason": "Explicit self-correction favors Mira in the telling; both sourced name spans remain recognition evidence."
+      },
+      {
+        "quote": "I'm not sure about that part",
+        "reason": "The chair detail is tentative, not an established attribute."
+      }
+    ],
+    "shape_judgements": [
+      {
+        "shape_id": "writing.character",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "Mara"
+          },
+          {
+            "quote": "Mira"
+          }
+        ]
+      },
+      {
+        "shape_id": "writing.setting",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "Glass Harbor"
+          }
+        ]
+      },
+      {
+        "shape_id": "writing.scene",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "she stops before the lights on the water and almost turns around"
+          }
+        ]
+      }
+    ],
+    "notes": "812 code points; spoken fillers/run-on telling without headings. Preserve both name mentions and the explicit correction; no silent identity merge or cleanup.",
+    "non_actions": [
+      "no_entity_creation",
+      "no_identity_merge",
+      "no_alias_learning",
+      "no_narrative_rewrite",
+      "no_placement_or_publication",
+      "no_geocoding"
+    ],
+    "review_status": "authored_to_cto_spec"
+  },
+  {
+    "id": "spoken-no-cues",
+    "split": "paraphrase",
+    "text": "Okay, um, Elian is waiting at North Pier with a blue envelope and he keeps folding one corner, not opening it, and I think the wind should keep interrupting him so he has to start what he wants to say twice before anyone answers.",
+    "cues": [],
+    "mentions": [
+      {
+        "quote": "Elian",
+        "type": "writing.character",
+        "optional": false
+      },
+      {
+        "quote": "North Pier",
+        "type": "writing.setting",
+        "optional": false
+      }
+    ],
+    "traps": [],
+    "ambiguities": [],
+    "shape_judgements": [
+      {
+        "shape_id": "writing.character",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "Elian"
+          }
+        ]
+      },
+      {
+        "shape_id": "writing.setting",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "North Pier"
+          }
+        ]
+      },
+      {
+        "shape_id": "writing.scene",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "he keeps folding one corner, not opening it"
+          }
+        ]
+      }
+    ],
+    "notes": "229 code points; spoken-style fiction with no Character/Setting/Scene cue words.",
+    "non_actions": [
+      "no_entity_creation",
+      "no_identity_merge",
+      "no_alias_learning",
+      "no_narrative_rewrite",
+      "no_placement_or_publication",
+      "no_geocoding"
+    ],
+    "review_status": "authored_to_cto_spec"
+  },
+  {
+    "id": "possessive-multiword",
+    "split": "contrast",
+    "text": "Captain Ruiz's boat leaves the Saltmarsh quay at dawn.",
+    "cues": [],
+    "mentions": [
+      {
+        "quote": "Captain Ruiz",
+        "type": "writing.character",
+        "optional": false
+      },
+      {
+        "quote": "Saltmarsh quay",
+        "type": "writing.setting",
+        "optional": false
+      }
+    ],
+    "traps": [
+      {
+        "quote": "'s",
+        "reason": "possessive suffix is not part of the name or a separate mention"
+      }
+    ],
+    "ambiguities": [],
+    "shape_judgements": [
+      {
+        "shape_id": "writing.character",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "Captain Ruiz"
+          }
+        ]
+      },
+      {
+        "shape_id": "writing.setting",
+        "judgement": "supported",
+        "evidence": [
+          {
+            "quote": "Saltmarsh quay"
+          }
+        ]
+      }
+    ],
+    "notes": "Multi-word Character and Setting names; possessive 's stays outside Captain Ruiz, and the article stays outside Saltmarsh quay.",
+    "non_actions": [
+      "no_entity_creation",
+      "no_identity_merge",
+      "no_alias_learning",
+      "no_narrative_rewrite",
+      "no_placement_or_publication",
+      "no_geocoding"
+    ],
+    "review_status": "authored_to_cto_spec"
+  }
+]

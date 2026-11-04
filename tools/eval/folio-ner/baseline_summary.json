@@ -1,0 +1,138 @@
+{
+  "annotation_status": "cto_review_amended",
+  "baseline": "unchanged deterministic cue scaffold d0ee754e",
+  "case_review_statuses": {
+    "amended_per_cto": 6,
+    "approved_as_written": 12,
+    "authored_to_cto_spec": 3
+  },
+  "holdout": "not run",
+  "reports": {
+    "contrast": {
+      "case_count": 7,
+      "cues": {
+        "f1": 1.0,
+        "fn": 0,
+        "fp": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "tp": 5
+      },
+      "mentions": {
+        "f1": 0.0,
+        "fn": 5,
+        "fp": 0,
+        "precision": null,
+        "recall": 0.0,
+        "tp": 0
+      },
+      "optional_mentions": {
+        "gold_count": 0,
+        "hit_count": 0,
+        "hits": []
+      },
+      "ordinary_use_false_positive_count": 2,
+      "qualifier_error_count": 2,
+      "relaxed_cues": {
+        "f1": 1.0,
+        "fn": 0,
+        "fp": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "tp": 5
+      },
+      "relaxed_mentions": {
+        "f1": 0.0,
+        "fn": 5,
+        "fp": 0,
+        "precision": null,
+        "recall": 0.0,
+        "tp": 0
+      }
+    },
+    "paraphrase": {
+      "case_count": 5,
+      "cues": {
+        "f1": 1.0,
+        "fn": 0,
+        "fp": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "tp": 6
+      },
+      "mentions": {
+        "f1": 0.0,
+        "fn": 10,
+        "fp": 0,
+        "precision": null,
+        "recall": 0.0,
+        "tp": 0
+      },
+      "optional_mentions": {
+        "gold_count": 0,
+        "hit_count": 0,
+        "hits": []
+      },
+      "ordinary_use_false_positive_count": 0,
+      "qualifier_error_count": 0,
+      "relaxed_cues": {
+        "f1": 1.0,
+        "fn": 0,
+        "fp": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "tp": 6
+      },
+      "relaxed_mentions": {
+        "f1": 0.0,
+        "fn": 10,
+        "fp": 0,
+        "precision": null,
+        "recall": 0.0,
+        "tp": 0
+      }
+    },
+    "tuning": {
+      "case_count": 4,
+      "cues": {
+        "f1": 1.0,
+        "fn": 0,
+        "fp": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "tp": 6
+      },
+      "mentions": {
+        "f1": 0.0,
+        "fn": 6,
+        "fp": 0,
+        "precision": null,
+        "recall": 0.0,
+        "tp": 0
+      },
+      "optional_mentions": {
+        "gold_count": 1,
+        "hit_count": 0,
+        "hits": []
+      },
+      "ordinary_use_false_positive_count": 0,
+      "qualifier_error_count": 0,
+      "relaxed_cues": {
+        "f1": 1.0,
+        "fn": 0,
+        "fp": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "tp": 6
+      },
+      "relaxed_mentions": {
+        "f1": 0.0,
+        "fn": 6,
+        "fp": 0,
+        "precision": null,
+        "recall": 0.0,
+        "tp": 0
+      }
+    }
+  }
+}
