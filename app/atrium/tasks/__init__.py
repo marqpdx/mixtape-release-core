@@ -4,6 +4,7 @@
 # Dialogue owner's own account (ST-3 Part B), never on the server's login:
 #   run_dialogue_turn   — write one agent reply in a Dialogue (atrium/turns.py)
 #   run_distill         — produce a Distillate from a Dialogue
+#   run_compact         — write a checkpoint entry: the Dialogue so far, summarized
 #   keeper_compact_task — Continuous Keeper: summarize a Dialogue into its
 #                         InitiativeLog's compact_summary
 
@@ -44,12 +45,59 @@ Write only the document body — no title heading, no preamble. Use markdown.
 
 _MAX_TRANSCRIPT_CHARS = 40_000  # trim if very long
 
+_CHECKPOINT_PROMPT_TEMPLATE = """\
+The following is an Atrium Dialogue between a Person and one or more AI agents \
+(each line is labelled with who said it). Write a checkpoint: a summary that lets \
+any agent carry on the Dialogue without the transcript. Keep the decisions made, \
+what was agreed and what was rejected, named files, documents and concepts, open \
+questions, and where the work is heading. Be specific; use short paragraphs or bullets.
+
+Transcript:
+{transcript}
+
+Write only the checkpoint, no preamble.
+"""
+
 
 @shared_task(name="atrium.tasks.run_dialogue_turn", queue="runtime", soft_time_limit=420, time_limit=480)
 def run_dialogue_turn(entry_id: str) -> str:
     from atrium.turns import run_turn
 
     return run_turn(entry_id)
+
+
+@shared_task(name="atrium.tasks.run_compact", queue="runtime", soft_time_limit=240, time_limit=300)
+def run_compact(entry_id: str) -> str:
+    """Fill a pending checkpoint entry, on the owner's own Claude account (ST-3 Part B step 4)."""
+    from atrium import relay
+    from atrium.ai.service import build_transcript
+    from atrium.models import DialogueEntry, DialogueEntryStatus
+    from atrium.turns import TurnStop, _fail_entry, run_once
+
+    try:
+        entry = DialogueEntry.objects.select_related("dialogue", "dialogue__member").get(pk=entry_id)
+    except DialogueEntry.DoesNotExist:
+        return "missing"
+    if entry.status != DialogueEntryStatus.PENDING:
+        return entry.status
+
+    entry.status = DialogueEntryStatus.STREAMING
+    entry.save(update_fields=["status", "updated_at"])
+    relay.notify(entry.id)
+    transcript = build_transcript(
+        entry.dialogue, _MAX_TRANSCRIPT_CHARS, since_checkpoint=True, before=entry.created_at
+    )
+    try:
+        entry.content = run_once(entry.dialogue, _CHECKPOINT_PROMPT_TEMPLATE.format(transcript=transcript)).strip()
+    except TurnStop as stop:
+        logger.warning("[atrium] compact %s stopped: %s", entry_id, stop.code)
+        _fail_entry(entry, stop.code)
+        return "failed"
+    entry.status = DialogueEntryStatus.DONE
+    entry.error_code = ""
+    entry.save(update_fields=["content", "status", "error_code", "updated_at"])
+    relay.notify(entry.id)
+    return "done"
 
 
 @shared_task(name="atrium.tasks.run_distill", queue="runtime", soft_time_limit=240, time_limit=300)

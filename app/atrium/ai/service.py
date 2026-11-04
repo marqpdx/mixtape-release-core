@@ -47,7 +47,10 @@ SPEAKER_LABELS = {
 
 
 def speaker_label(entry) -> str:
-    from atrium.models import DialogueRole
+    from atrium.models import DialogueEntryType, DialogueRole
+
+    if entry.entry_type == DialogueEntryType.CHECKPOINT:
+        return "Checkpoint (summary of the Dialogue before this point)"
 
     if entry.role == DialogueRole.USER:
         return "Person"
@@ -137,13 +140,25 @@ def build_opening_prompt(dialogue, message: str, *, before) -> tuple[str, str]:
     `before` is the created_at of the person's entry: only what came before it counts
     as history. Returns (prompt, provenance note).
     """
-    from atrium.models import DialogueEntry, DialogueEntryStatus
+    from atrium.models import DialogueEntry, DialogueEntryStatus, DialogueEntryType
 
     parts = [_build_system_prompt(dialogue).strip()]
     provenance: list[str] = []
 
+    # After a compact, the checkpoint stands in for everything before it.
+    checkpoint = latest_checkpoint(dialogue, before=before)
+    if checkpoint:
+        parts.append(
+            "[Checkpoint — the Dialogue so far, summarized]\n"
+            + checkpoint.content.strip()
+            + "\n[End checkpoint]"
+        )
+        provenance.append("checkpoint")
+
     log, _ = _resolve_initiative_log(dialogue)
-    if log and log.compact_summary:
+    if checkpoint:
+        pass  # the checkpoint already carries the Dialogue's summary
+    elif log and log.compact_summary:
         ts = log.compact_at.strftime("%Y-%m-%d") if log.compact_at else "prior"
         parts.append(
             f"[Compact summary — distilled {ts}]\n{log.compact_summary.strip()}\n[End compact summary]"
@@ -155,13 +170,14 @@ def build_opening_prompt(dialogue, message: str, *, before) -> tuple[str, str]:
             parts.append(imported[0])
             provenance.append(imported[1])
 
-    history = list(
-        DialogueEntry.objects.filter(
-            dialogue=dialogue,
-            created_at__lt=before,
-            status=DialogueEntryStatus.DONE,
-        ).order_by("-created_at")[: _HISTORY_INJECT_TURNS * 2]
-    )
+    history_qs = DialogueEntry.objects.filter(
+        dialogue=dialogue,
+        created_at__lt=before,
+        status=DialogueEntryStatus.DONE,
+    ).exclude(entry_type=DialogueEntryType.CHECKPOINT)
+    if checkpoint:
+        history_qs = history_qs.filter(created_at__gt=checkpoint.created_at)
+    history = list(history_qs.order_by("-created_at")[: _HISTORY_INJECT_TURNS * 2])
     history.reverse()
     lines = _format_turns(history, _HISTORY_INJECT_MAX_CHARS)
     if lines:
@@ -219,7 +235,7 @@ def build_catch_up_prompt(dialogue, message: str, *, since, before) -> str:
     For an agent returning to this Dialogue: what was said since it last took part
     (by the person and by any other agent), then the person's new message.
     """
-    from atrium.models import DialogueEntry, DialogueEntryStatus
+    from atrium.models import DialogueEntry, DialogueEntryStatus, DialogueEntryType
 
     missed = list(
         DialogueEntry.objects.filter(
@@ -227,7 +243,7 @@ def build_catch_up_prompt(dialogue, message: str, *, since, before) -> str:
             created_at__gt=since,
             created_at__lt=before,
             status=DialogueEntryStatus.DONE,
-        ).order_by("created_at")
+        ).exclude(entry_type=DialogueEntryType.CHECKPOINT).order_by("created_at")
     )
     parts = []
     lines = _format_turns(missed, _CATCH_UP_MAX_CHARS)
@@ -241,13 +257,33 @@ def build_catch_up_prompt(dialogue, message: str, *, since, before) -> str:
     return "\n\n".join(parts)
 
 
-def build_transcript(dialogue, max_chars: int = 40_000) -> str:
-    """The whole Dialogue as labelled lines, trimmed from the start when long."""
+def latest_checkpoint(dialogue, *, before=None):
+    """The newest finished checkpoint (compact) in this Dialogue, optionally before a time."""
+    from atrium.models import DialogueEntryStatus, DialogueEntryType
+
+    qs = dialogue.entries.filter(entry_type=DialogueEntryType.CHECKPOINT, status=DialogueEntryStatus.DONE)
+    if before is not None:
+        qs = qs.filter(created_at__lt=before)
+    return qs.order_by("-created_at").first()
+
+
+def build_transcript(dialogue, max_chars: int = 40_000, *, since_checkpoint: bool = False, before=None) -> str:
+    """
+    The Dialogue as labelled lines, trimmed from the start when long. With
+    since_checkpoint, it starts at the newest checkpoint (its summary, then what followed).
+    """
     from atrium.models import DialogueEntryStatus
 
+    qs = dialogue.entries.filter(status=DialogueEntryStatus.DONE)
+    if before is not None:
+        qs = qs.filter(created_at__lt=before)
+    if since_checkpoint:
+        checkpoint = latest_checkpoint(dialogue, before=before)
+        if checkpoint:
+            qs = qs.filter(created_at__gte=checkpoint.created_at)
     lines = [
         f"{speaker_label(entry)}: {(entry.content or '').strip()}"
-        for entry in dialogue.entries.filter(status=DialogueEntryStatus.DONE).order_by("created_at")
+        for entry in qs.order_by("created_at")
         if (entry.content or "").strip()
     ]
     transcript = "\n".join(lines)

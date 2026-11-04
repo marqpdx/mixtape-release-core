@@ -335,20 +335,37 @@ class DialogueZeroTests(DialogueTestCase):
         self.assertEqual([row["id"] for row in rows], [str(inside.id)])
 
 
-class DialogueZeroTests(DialogueTestCase):
-    def test_opening_an_initiative_creates_its_dialogue_zero_once(self):
-        from django.contrib.contenttypes.models import ContentType
-        from initiatives.models import Initiative
-        from rest_framework.test import APIClient
+class CheckpointTests(DialogueTestCase):
+    def setUp(self):
+        super().setUp()
+        self.runtime = self._ready()
 
-        initiative = Initiative.objects.create(
-            title="Marketing",
-            sponsor_content_type=ContentType.objects.get_for_model(self.profile),
-            sponsor_object_id=self.profile.pk,
+    _start = RunTurnTests._start
+
+    def test_after_a_compact_the_next_turn_starts_fresh_from_the_checkpoint(self):
+        from atrium.tasks import run_compact
+
+        first = self._start("We chose Rust for the menu-bar tool.")
+        fake = _events(("provider_session", "sess-1"), ("delta", "Rust it is."))
+        with patch.object(turns, "_provider_events", fake):
+            turns.run_turn(str(first.id))
+
+        checkpoint = DialogueEntry.objects.create(
+            dialogue=self.dialogue,
+            role=DialogueRole.ASSISTANT,
+            entry_type=DialogueEntryType.CHECKPOINT,
+            status=DialogueEntryStatus.PENDING,
         )
-        client = APIClient()
-        client.force_authenticate(self.user)
-        url = f"/api/atrium/initiatives/{initiative.id}/dialogue-zero"
-        first = client.post(url)
-        self.assertEqual(first.status_code, 201)
-        self.assertEqual(client.post(url).data["id"], first.data["id"])
+        with patch.object(turns, "run_once", return_value="Decided: Rust.") as once:
+            self.assertEqual(run_compact(str(checkpoint.id)), "done")
+        self.assertIn("We chose Rust", once.call_args.args[1])
+        checkpoint.refresh_from_db()
+        self.assertEqual(checkpoint.content, "Decided: Rust.")
+
+        second = self._start("What next?")
+        with patch.object(turns, "_provider_events", fake):
+            turns.run_turn(str(second.id))
+        prompt = fake.calls[1]["prompt"]
+        self.assertIsNone(fake.calls[1]["resume_id"])
+        self.assertIn("Decided: Rust.", prompt)
+        self.assertNotIn("We chose Rust", prompt)
