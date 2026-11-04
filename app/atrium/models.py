@@ -37,6 +37,8 @@ class DialogueRole(models.TextChoices):
 class DialogueEntryType(models.TextChoices):
     MESSAGE = "message", "Message"
     DOCUMENT = "document", "Document"
+    # A compact: the Dialogue so far, summarized; later turns start from it.
+    CHECKPOINT = "checkpoint", "Checkpoint"
 
 
 class DialogueEntryStatus(models.TextChoices):
@@ -177,7 +179,7 @@ class DialogueEntry(BaseModel):
         choices=DialogueEntryType.choices,
         default=DialogueEntryType.MESSAGE,
         db_index=True,
-        help_text="message = prose bubble; document = rendered AtriumDocCard.",
+        help_text="message = prose bubble; document = rendered AtriumDocCard; checkpoint = a compact summary.",
     )
 
     document_title = models.CharField(

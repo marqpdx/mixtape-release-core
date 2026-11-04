@@ -246,7 +246,7 @@ def _signed_out(provider: str, runtime, errors: list[str]) -> bool:
 def run_turn(entry_id: str) -> str:
     """Write one reply. Returns its final status."""
     from atrium import relay
-    from atrium.ai.service import build_catch_up_prompt, build_opening_prompt, _parse_document_envelope
+    from atrium.ai.service import build_catch_up_prompt, build_opening_prompt, latest_checkpoint, _parse_document_envelope
     from atrium.models import (
         CloudAgentSession,
         CloudAgentSessionStatus,
@@ -294,6 +294,11 @@ def run_turn(entry_id: str) -> str:
     if agent.linux_user != runtime.linux_user:
         # A different account now: its saved session isn't reachable; start fresh.
         agent.linux_user = runtime.linux_user
+        agent.provider_session_id = ""
+        agent.seen_through = None
+    checkpoint = latest_checkpoint(dialogue, before=person_entry.created_at)
+    if checkpoint and agent.seen_through and checkpoint.created_at > agent.seen_through:
+        # Compacted since this agent's last turn: a fresh session, from the checkpoint.
         agent.provider_session_id = ""
         agent.seen_through = None
     cwd = dialogue_dir(dialogue)

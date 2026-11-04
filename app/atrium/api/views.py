@@ -486,9 +486,13 @@ class DialogueCompactView(APIView):
     """
     POST /api/atrium/dialogues/<dialogue_id>/compact
 
-    Queue a Continuous Keeper summary of this Dialogue now, on the owner's account;
-    it lands in the InitiativeLog's compact summary. Returns 202 { status: "queued" }.
-    (Mixtape-level compact checkpoints are ST-3 Part B step 4.)
+    Compact (ST-3 Part B step 4): add a checkpoint entry, the Dialogue so far
+    summarized on the owner's own account by the runtime worker. Later turns start
+    fresh provider sessions from it. Returns 202 { status: "queued", entry_id };
+    follow it with entries/<entry_id>/stream.
+
+    PATCH /api/atrium/dialogues/<dialogue_id>/compact { entry_id, content }
+    Edit a finished checkpoint; the next turn uses the edited text.
     """
 
     permission_classes = [IsAuthenticated]
@@ -497,16 +501,47 @@ class DialogueCompactView(APIView):
         dialogue = _own_dialogue(request, dialogue_id)
         if dialogue is None:
             return _not_found()
-        from atrium.ai.service import _queue_keeper_compact, _resolve_initiative_log
+        from atrium import relay
+        from atrium.models import DialogueEntryType, DialogueRole
+        from atrium.tasks import run_compact
 
-        log, cadence = _resolve_initiative_log(dialogue)
-        if log is None:
+        busy = dialogue.entries.filter(
+            status__in=[DialogueEntryStatus.PENDING, DialogueEntryStatus.STREAMING]
+        ).exists()
+        if busy:
             return Response(
-                {"detail": "This Dialogue has no Initiative to keep a summary in."},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                {"detail": "Wait for the reply in progress to finish."},
+                status=status.HTTP_409_CONFLICT,
             )
-        _queue_keeper_compact(dialogue, cadence)
-        return Response({"status": "queued", "summary": None}, status=status.HTTP_202_ACCEPTED)
+        entry = DialogueEntry.objects.create(
+            dialogue=dialogue,
+            role=DialogueRole.ASSISTANT,
+            entry_type=DialogueEntryType.CHECKPOINT,
+            status=DialogueEntryStatus.PENDING,
+        )
+        relay.notify(entry.id)
+        run_compact.delay(str(entry.id))
+        return Response({"status": "queued", "entry_id": str(entry.id)}, status=status.HTTP_202_ACCEPTED)
+
+    def patch(self, request, dialogue_id):
+        dialogue = _own_dialogue(request, dialogue_id)
+        if dialogue is None:
+            return _not_found()
+        from atrium.models import DialogueEntryType
+
+        content = (request.data.get("content") or "").strip()
+        entry = dialogue.entries.filter(
+            pk=request.data.get("entry_id"),
+            entry_type=DialogueEntryType.CHECKPOINT,
+            status=DialogueEntryStatus.DONE,
+        ).first()
+        if entry is None:
+            return _not_found()
+        if not content:
+            return Response({"detail": "A checkpoint can't be empty."}, status=status.HTTP_400_BAD_REQUEST)
+        entry.content = content
+        entry.save(update_fields=["content", "updated_at"])
+        return Response({"status": "saved", "entry_id": str(entry.id)})
 
 
 class DialogueDistillView(APIView):
