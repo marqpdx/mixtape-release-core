@@ -1,0 +1,7 @@
+{"case_id": "ordinary-location", "entities": []}
+{"case_id": "negated-scene", "entities": []}
+{"case_id": "uncertain-identity", "entities": [{"end": 19, "label": "PERSON", "score": null, "start": 15}, {"end": 44, "label": "GPE", "score": null, "start": 32}]}
+{"case_id": "real-editor", "entities": [{"end": 15, "label": "PERSON", "score": null, "start": 10}]}
+{"case_id": "negated-character", "entities": [{"end": 26, "label": "PERSON", "score": null, "start": 22}, {"end": 37, "label": "PERSON", "score": null, "start": 33}]}
+{"case_id": "quoted-cue", "entities": []}
+{"case_id": "possessive-multiword", "entities": [{"end": 12, "label": "PERSON", "score": null, "start": 8}]}

@@ -1,0 +1,5 @@
+{"case_id": "location-alias", "entities": [{"end": 34, "label": "PERSON", "score": null, "start": 30}]}
+{"case_id": "unicode", "entities": [{"end": 19, "label": "PERSON", "score": null, "start": 0}]}
+{"case_id": "depot-paraphrase", "entities": [{"end": 35, "label": "PERSON", "score": null, "start": 29}]}
+{"case_id": "decomposed-unicode", "entities": [{"end": 18, "label": "PERSON", "score": null, "start": 11}]}
+{"case_id": "spoken-no-cues", "entities": [{"end": 15, "label": "PERSON", "score": null, "start": 10}, {"end": 40, "label": "LOC", "score": null, "start": 30}]}

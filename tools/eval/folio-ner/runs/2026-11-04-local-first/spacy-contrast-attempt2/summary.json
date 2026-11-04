@@ -1,0 +1,325 @@
+{
+  "split": "contrast",
+  "case_count": 7,
+  "annotation_status": "cto_review_amended",
+  "case_review_statuses": {
+    "approved_as_written": 5,
+    "amended_per_cto": 1,
+    "authored_to_cto_spec": 1
+  },
+  "cues": {
+    "micro": {
+      "tp": 5,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "per_type": {
+      "writing.character": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "writing.scene": {
+        "tp": 3,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "writing.setting": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      }
+    },
+    "relaxed_overlap_micro": {
+      "tp": 5,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "relaxed_overlap_per_type": {
+      "writing.character": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "writing.scene": {
+        "tp": 3,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "writing.setting": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      }
+    },
+    "optional": {
+      "gold_count": 0,
+      "hit_count": 0,
+      "hits": []
+    },
+    "false_positives": [],
+    "false_negatives": [],
+    "type_errors": [],
+    "boundary_errors": []
+  },
+  "mentions": {
+    "micro": {
+      "tp": 2,
+      "fp": 4,
+      "fn": 3,
+      "precision": 0.3333333333333333,
+      "recall": 0.4,
+      "f1": 0.36363636363636365
+    },
+    "per_type": {
+      "writing.character": {
+        "tp": 1,
+        "fp": 4,
+        "fn": 2,
+        "precision": 0.2,
+        "recall": 0.3333333333333333,
+        "f1": 0.25
+      },
+      "writing.setting": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 1,
+        "precision": 1.0,
+        "recall": 0.5,
+        "f1": 0.6666666666666666
+      }
+    },
+    "relaxed_overlap_micro": {
+      "tp": 3,
+      "fp": 3,
+      "fn": 2,
+      "precision": 0.5,
+      "recall": 0.6,
+      "f1": 0.5454545454545454
+    },
+    "relaxed_overlap_per_type": {
+      "writing.character": {
+        "tp": 2,
+        "fp": 3,
+        "fn": 1,
+        "precision": 0.4,
+        "recall": 0.6666666666666666,
+        "f1": 0.5
+      },
+      "writing.setting": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 1,
+        "precision": 1.0,
+        "recall": 0.5,
+        "f1": 0.6666666666666666
+      }
+    },
+    "optional": {
+      "gold_count": 0,
+      "hit_count": 0,
+      "hits": []
+    },
+    "false_positives": [
+      {
+        "source_ref": "synthetic:real-editor",
+        "source_revision": 0,
+        "type": "writing.character",
+        "start": 10,
+        "end": 15,
+        "quote": "Julia"
+      },
+      {
+        "source_ref": "synthetic:negated-character",
+        "source_revision": 0,
+        "type": "writing.character",
+        "start": 22,
+        "end": 26,
+        "quote": "Mara"
+      },
+      {
+        "source_ref": "synthetic:negated-character",
+        "source_revision": 0,
+        "type": "writing.character",
+        "start": 33,
+        "end": 37,
+        "quote": "Mara"
+      },
+      {
+        "source_ref": "synthetic:possessive-multiword",
+        "source_revision": 0,
+        "type": "writing.character",
+        "start": 8,
+        "end": 12,
+        "quote": "Ruiz"
+      }
+    ],
+    "false_negatives": [
+      {
+        "source_ref": "synthetic:uncertain-identity",
+        "source_revision": 0,
+        "type": "writing.character",
+        "start": 0,
+        "end": 4,
+        "quote": "Mara"
+      },
+      {
+        "source_ref": "synthetic:possessive-multiword",
+        "source_revision": 0,
+        "type": "writing.character",
+        "start": 0,
+        "end": 12,
+        "quote": "Captain Ruiz"
+      },
+      {
+        "source_ref": "synthetic:possessive-multiword",
+        "source_revision": 0,
+        "type": "writing.setting",
+        "start": 31,
+        "end": 45,
+        "quote": "Saltmarsh quay"
+      }
+    ],
+    "type_errors": [],
+    "boundary_errors": [
+      {
+        "predicted": {
+          "source_ref": "synthetic:possessive-multiword",
+          "source_revision": 0,
+          "type": "writing.character",
+          "start": 8,
+          "end": 12,
+          "quote": "Ruiz"
+        },
+        "expected": {
+          "source_ref": "synthetic:possessive-multiword",
+          "source_revision": 0,
+          "type": "writing.character",
+          "start": 0,
+          "end": 12,
+          "quote": "Captain Ruiz"
+        }
+      }
+    ]
+  },
+  "qualifier_errors": [
+    {
+      "candidate": {
+        "source_ref": "synthetic:ordinary-location",
+        "source_revision": 0,
+        "type": "writing.setting",
+        "start": 4,
+        "end": 12,
+        "quote": "location"
+      },
+      "expected": {
+        "negated": false,
+        "ambiguous": true
+      },
+      "actual": {
+        "negated": false,
+        "ambiguous": false
+      }
+    },
+    {
+      "candidate": {
+        "source_ref": "synthetic:quoted-cue",
+        "source_revision": 0,
+        "type": "writing.scene",
+        "start": 16,
+        "end": 21,
+        "quote": "scene"
+      },
+      "expected": {
+        "negated": false,
+        "ambiguous": true
+      },
+      "actual": {
+        "negated": false,
+        "ambiguous": false
+      }
+    }
+  ],
+  "ordinary_use_false_positives": [
+    {
+      "candidate": {
+        "source_ref": "synthetic:ordinary-location",
+        "source_revision": 0,
+        "type": "writing.setting",
+        "start": 4,
+        "end": 12,
+        "quote": "location"
+      },
+      "reason": "ordinary file location is not a fictional Setting"
+    },
+    {
+      "candidate": {
+        "source_ref": "synthetic:real-editor",
+        "source_revision": 0,
+        "type": "writing.character",
+        "start": 10,
+        "end": 15,
+        "quote": "Julia"
+      },
+      "reason": "real-world editor is not a fictional Character"
+    },
+    {
+      "candidate": {
+        "source_ref": "synthetic:negated-character",
+        "source_revision": 0,
+        "type": "writing.character",
+        "start": 22,
+        "end": 26,
+        "quote": "Mara"
+      },
+      "reason": "negated fictional naming"
+    },
+    {
+      "candidate": {
+        "source_ref": "synthetic:negated-character",
+        "source_revision": 0,
+        "type": "writing.character",
+        "start": 33,
+        "end": 37,
+        "quote": "Mara"
+      },
+      "reason": "real editor"
+    },
+    {
+      "candidate": {
+        "source_ref": "synthetic:quoted-cue",
+        "source_revision": 0,
+        "type": "writing.scene",
+        "start": 16,
+        "end": 21,
+        "quote": "scene"
+      },
+      "reason": "quoted word is not a Scene"
+    }
+  ],
+  "note": "First local model comparison; generic spaCy mapping and fixed GLiNER labels, not confirmed Fiction interpretation."
+}

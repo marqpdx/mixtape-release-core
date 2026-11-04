@@ -1,0 +1,4 @@
+{"case_id": "explicit-character", "entities": []}
+{"case_id": "locale-alias", "entities": []}
+{"case_id": "multi-shape", "entities": [{"end": 74, "label": "PERSON", "score": null, "start": 70}]}
+{"case_id": "unconfirmed-alias", "entities": []}

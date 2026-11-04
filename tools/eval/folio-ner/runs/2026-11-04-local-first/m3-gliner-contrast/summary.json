@@ -1,0 +1,25 @@
+{
+  "split": "contrast",
+  "code_commit": "0551766f3dfe32a216e72fe1e6ec3edd36776676",
+  "code_sha256": "c2071dbb07f27f35406748466f77ed527894422b8855501d2b0122eb205e5080",
+  "unit_count": 14,
+  "correct": 9,
+  "confusion": {
+    "none -> none": 4,
+    "none -> writing.setting": 1,
+    "writing.character -> writing.character": 3,
+    "writing.setting -> writing.setting": 2,
+    "none -> writing.character": 3,
+    "none -> writing.scene": 1
+  },
+  "load_seconds": 8.917691083159298,
+  "inference_seconds": 0.8098998328205198,
+  "producer": {
+    "kind": "model",
+    "id": "urchade/gliner_small-v2.1",
+    "version": "0.2.30",
+    "model_revision": "4e091416cf7c3481db542c2a3d26156916f3a47f"
+  },
+  "cloud_calls": 0,
+  "note": "Oracle found spans; GLiNER containment baseline; not full M3 or end-to-end quality."
+}

@@ -1,0 +1,148 @@
+{
+  "split": "paraphrase",
+  "case_count": 5,
+  "annotation_status": "cto_review_amended",
+  "case_review_statuses": {
+    "approved_as_written": 3,
+    "amended_per_cto": 1,
+    "authored_to_cto_spec": 1
+  },
+  "cues": {
+    "micro": {
+      "tp": 6,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "per_type": {
+      "writing.character": {
+        "tp": 2,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "writing.setting": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      }
+    },
+    "relaxed_overlap_micro": {
+      "tp": 6,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "relaxed_overlap_per_type": {
+      "writing.character": {
+        "tp": 2,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "writing.setting": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      }
+    },
+    "optional": {
+      "gold_count": 0,
+      "hit_count": 0,
+      "hits": []
+    },
+    "false_positives": [],
+    "false_negatives": [],
+    "type_errors": [],
+    "boundary_errors": []
+  },
+  "mentions": {
+    "micro": {
+      "tp": 10,
+      "fp": 1,
+      "fn": 0,
+      "precision": 0.9090909090909091,
+      "recall": 1.0,
+      "f1": 0.9523809523809523
+    },
+    "per_type": {
+      "writing.character": {
+        "tp": 5,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "writing.setting": {
+        "tp": 5,
+        "fp": 1,
+        "fn": 0,
+        "precision": 0.8333333333333334,
+        "recall": 1.0,
+        "f1": 0.9090909090909091
+      }
+    },
+    "relaxed_overlap_micro": {
+      "tp": 10,
+      "fp": 1,
+      "fn": 0,
+      "precision": 0.9090909090909091,
+      "recall": 1.0,
+      "f1": 0.9523809523809523
+    },
+    "relaxed_overlap_per_type": {
+      "writing.character": {
+        "tp": 5,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "writing.setting": {
+        "tp": 5,
+        "fp": 1,
+        "fn": 0,
+        "precision": 0.8333333333333334,
+        "recall": 1.0,
+        "f1": 0.9090909090909091
+      }
+    },
+    "optional": {
+      "gold_count": 0,
+      "hit_count": 0,
+      "hits": []
+    },
+    "false_positives": [
+      {
+        "source_ref": "synthetic:depot-paraphrase",
+        "source_revision": 0,
+        "type": "writing.setting",
+        "start": 14,
+        "end": 27,
+        "quote": "the old depot"
+      }
+    ],
+    "false_negatives": [],
+    "type_errors": [],
+    "boundary_errors": []
+  },
+  "qualifier_errors": [],
+  "ordinary_use_false_positives": [],
+  "note": "First local model comparison; generic spaCy mapping and fixed GLiNER labels, not confirmed Fiction interpretation."
+}
