@@ -62,6 +62,20 @@ def ensure_collection() -> None:
     )
 
 
+def get_vectors(passage_ids: list[str]) -> dict[str, list[float]]:
+    """Fetch already-stored embeddings by Passage id, for P9's Map step
+    (deterministic clustering, build spec §19.2 step 3). Ids missing from
+    Qdrant (not yet embedded) are simply absent from the result -- callers
+    fall back to embedding their text on the fly."""
+    if not passage_ids:
+        return {}
+    ensure_collection()
+    points = get_qdrant_client().retrieve(
+        collection_name=settings.ARIADNE_QDRANT_COLLECTION, ids=passage_ids, with_vectors=True,
+    )
+    return {str(point.id): point.vector for point in points}
+
+
 def embed_pending_passages(batch_size: int = 64) -> int:
     """Embeds every Passage not yet embedded. Returns the count embedded.
     Safe to re-run: already-embedded passages are skipped via

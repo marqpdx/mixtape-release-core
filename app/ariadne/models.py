@@ -407,11 +407,19 @@ class RunCandidate(BaseModel):
 class EvidencePacket(BaseModel):
     class SubjectKind(models.TextChoices):
         CONCEPT = "concept", "Concept"
-        # Build spec §19.6: an Inquiry theme (P9) is the next value here --
-        # don't hard-code "concept" as the only subject a packet can have.
+        INQUIRY_THEME = "inquiry_theme", "Inquiry theme"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    run = models.ForeignKey(DiscoveryRun, on_delete=models.CASCADE, related_name="evidence_packets")
+    run = models.ForeignKey(
+        DiscoveryRun, on_delete=models.CASCADE, related_name="evidence_packets",
+        null=True, blank=True,
+        help_text="Set for subject_kind=concept. Exactly one of run/inquiry_run is set (P9, build spec §19.6).",
+    )
+    inquiry_run = models.ForeignKey(
+        "InquiryRun", on_delete=models.CASCADE, related_name="evidence_packets",
+        null=True, blank=True,
+        help_text="Set for subject_kind=inquiry_theme. Exactly one of run/inquiry_run is set.",
+    )
     candidate_key = models.CharField(max_length=256)
     subject_kind = models.CharField(max_length=16, choices=SubjectKind.choices, default=SubjectKind.CONCEPT)
     retrieval_config_hash = models.CharField(max_length=128, blank=True)
@@ -449,3 +457,146 @@ class CurationDecision(BaseModel):
     class Meta:
         db_table = _table("curation_decision")
         ordering = ["-created_at"]
+
+
+# ---------------------------------------------------------------------------
+# Inquiry Runs and the Review artifact (P9/P9a, build spec §19.2-19.3).
+#
+# The Frame and Draft steps are the first places Ariadne needs a
+# generative model call. No model task registry (§11) exists yet; both
+# route through Inkwell's existing local-model capability
+# (inkwell.client.service_generate) rather than new infrastructure --
+# decided with the CTO 2026-11-04 when scoping this phase.
+#
+# §19.3 (time-ordered development) is NOT built here: it depends on Phase
+# F's "dated concept events" (build spec §14, explicitly "(later)", not in
+# the current build order) -- Inquiry.standing_review orders by nothing
+# more than version/created_at.
+#
+# §19.2 step 6's "Accession" (addendum §4) is deliberately NOT built here
+# either -- Likeness/anchor/accession schema is under a standing hold
+# since P5 (2026-10-12). Inquiry.standing_review is a scoped substitute --
+# a plain pointer, same shape as Lens.active_version -- not the real
+# mechanism. Discussed with the CTO 2026-11-04 (P9's agent-inbox report):
+# P9 is the *first* real consumer wanting Accession-shaped behavior, not
+# the second-consumer signal the Spike Reconnaissance sibling-discipline
+# check looks for, so the full mechanism (branches, anchors, honing
+# ratio, shadow log) stays deferred. The one piece of step 6 kept here is
+# explicit lineage ("with lineage when a later Run supersedes it"):
+# InquiryReview.superseded_review, a single FK, set on accession.
+# ---------------------------------------------------------------------------
+
+class Inquiry(BaseModel):
+    class Status(models.TextChoices):
+        FRAMING = "framing", "Framing"
+        GATHERING = "gathering", "Gathering"
+        MAPPING = "mapping", "Mapping"
+        DRAFTING = "drafting", "Drafting"
+        CURATING = "curating", "Curating"
+        DONE = "done", "Done"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    question = models.TextField()
+    sub_questions = models.JSONField(
+        default=list, blank=True,
+        help_text='[{"text": str, "approved": bool, "search_terms": [str, ...]}, ...] -- §19.2 step 1',
+    )
+    lens = models.ForeignKey(Lens, on_delete=models.SET_NULL, null=True, blank=True, related_name="inquiries")
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.FRAMING)
+    standing_review = models.ForeignKey(
+        "InquiryReview", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="standing_for_inquiry",
+        help_text="Scoped substitute for §19.2 step 6's Accession -- see module note above.",
+    )
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+
+    class Meta:
+        db_table = _table("inquiry")
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.question[:80]
+
+
+class InquiryRun(BaseModel):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        RUNNING = "running", "Running"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    inquiry = models.ForeignKey(Inquiry, on_delete=models.CASCADE, related_name="runs")
+    corpus_snapshot = models.ForeignKey(CorpusSnapshot, on_delete=models.PROTECT, related_name="inquiry_runs")
+    gathered_passage_ids = models.JSONField(
+        default=list, blank=True,
+        help_text="Pool from Gather (§19.2 step 2), before Map clusters it into themes.",
+    )
+    model_versions = models.JSONField(default=dict, blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = _table("inquiry_run")
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"InquiryRun {self.id} ({self.status})"
+
+
+class InquiryTheme(BaseModel):
+    """§19.2 step 3 (Map): deterministic first -- embedding clusters over
+    the Gather pool. A model may only label a theme, never form it."""
+
+    class LabelSource(models.TextChoices):
+        DETERMINISTIC = "deterministic", "Deterministic"
+        MODEL = "model", "Model"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    run = models.ForeignKey(InquiryRun, on_delete=models.CASCADE, related_name="themes")
+    label = models.CharField(max_length=256, blank=True)
+    label_source = models.CharField(max_length=16, choices=LabelSource.choices, default=LabelSource.DETERMINISTIC)
+    passage_ids = models.JSONField(default=list, blank=True)
+    rank = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = _table("inquiry_theme")
+        ordering = ["run", "rank"]
+
+
+class InquiryReview(BaseModel):
+    """§19.2 steps 5-6: the Review artifact. `citations` carries one entry
+    per claim: {"id", "text", "passage_ids", "interpretation": bool,
+    "status": "proposed"|"accepted"|"struck"|"amended", "amended_text"}.
+    Curation (step 6, minus Accession -- see module note) mutates a
+    citation's status in place; the Markdown itself is regenerated from
+    `citations` on each curation action, never hand-edited."""
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        CURATED = "curated", "Curated"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    inquiry = models.ForeignKey(Inquiry, on_delete=models.CASCADE, related_name="reviews")
+    run = models.ForeignKey(InquiryRun, on_delete=models.CASCADE, related_name="reviews")
+    version = models.PositiveIntegerField(default=1)
+    body_markdown = models.TextField(blank=True)
+    citations = models.JSONField(default=list, blank=True)
+    uncited_claim_count = models.PositiveIntegerField(default=0)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.DRAFT)
+    superseded_review = models.ForeignKey(
+        "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="superseded_by",
+        help_text=(
+            "Set on accession when this review replaces an inquiry's prior standing review -- "
+            "explicit lineage for §19.2 step 6 ('with lineage when a later Run supersedes it'), "
+            "narrower than full Likeness/accession (CTO, 2026-11-04)."
+        ),
+    )
+
+    class Meta:
+        db_table = _table("inquiry_review")
+        ordering = ["inquiry", "-version"]
+
+    def __str__(self):
+        return f"Review v{self.version} for {self.inquiry_id} ({self.status})"
