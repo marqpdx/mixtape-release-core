@@ -1,7 +1,13 @@
 # atrium/api/views.py
+#
+# Atrium Dialogues (ST-3 Part B, 2026-11-04). A person's message is saved here and
+# the reply is written on the runtime worker, as the Dialogue owner's own account
+# (atrium/turns.py); the exchange and follow views relay it to the page as it is
+# written (atrium/relay.py). Nothing here runs a model.
 
 import json
 import logging
+import time
 
 from django.db.models import Count
 from django.http import StreamingHttpResponse
@@ -11,39 +17,155 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from atrium.ai.service import PUDDLEJUMP_GROUPS
 from atrium.models import (
-    AtriumSession,
-    AtriumSessionRole,
-    AtriumSessionStatus,
+    AtriumDialMode,
+    CloudAgentSession,
+    Dialogue,
+    DialogueEntry,
+    DialogueEntryStatus,
+    DialogueStatus,
     Distillate,
     DistillateDocumentType,
+    DistillateStatus,
 )
 from profiles.services.profiles import ensure_user_profile
 
-from .serializers import AtriumSessionEntrySerializer, AtriumSessionListSerializer
+from .serializers import DialogueEntrySerializer, DialogueListSerializer, DistillateSerializer
 
 logger = logging.getLogger(__name__)
 
+# What the page is told when a reply stops, by code. The person's message is kept.
+REPLY_STOP_MESSAGES = {
+    "runtime_missing": "Connect your AI account in Settings → AI accounts to use this agent.",
+    "runtime_not_ready": "Your AI account needs signing in again: Settings → AI accounts.",
+    "mode_not_allowed": "Atrium isn't turned on for your AI account.",
+    "provider_not_supported": "That agent isn't available in Atrium.",
+    "failed": "The agent stopped before finishing. Your message is saved; try again.",
+}
 
-class AtriumSessionListView(generics.ListAPIView):
+_SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+_FOLLOW_LIMIT_SECONDS = 600
+_KEEPALIVE_SECONDS = 15
+_WAIT_SECONDS = 1.0
+
+
+def _sse(payload: dict) -> bytes:
+    return b"data: " + json.dumps(payload).encode() + b"\n\n"
+
+
+def _own_dialogue(request, dialogue_id):
+    profile = ensure_user_profile(request.user)
+    return (
+        Dialogue.objects.select_related("sponsor_content_type", "member")
+        .filter(id=dialogue_id, member=profile, deleted_at__isnull=True)
+        .first()
+    )
+
+
+def _not_found():
+    return Response({"detail": "Dialogue not found."}, status=status.HTTP_404_NOT_FOUND)
+
+
+def follow_reply(entry_id, *, opening: dict | None = None):
     """
-    GET /api/atrium/sessions/
+    Yield a reply as SSE while the runtime worker writes it.
 
-    Returns the authenticated member's AtriumSessions, active-first then
-    by most-recent activity, capped at 50. Annotates entry_count for
-    the session list panel.
+    Events: turn (once, with the entry id and speaker), delta (new text), then either
+    final (the finished entry: its content may differ from the streamed text when a
+    document envelope was unwrapped) followed by done, or error (with its code).
+    """
+    from atrium import relay
+
+    if opening:
+        yield _sse(opening)
+    sent = 0
+    started = time.monotonic()
+    last_beat = started
+    with relay.listener(entry_id) as wait:
+        while True:
+            row = (
+                DialogueEntry.objects.filter(pk=entry_id)
+                .values("content", "status", "error_code", "entry_type", "document_title", "speaker")
+                .first()
+            )
+            if row is None:
+                yield _sse({"type": "error", "code": "failed", "detail": "The reply was removed."})
+                return
+            content = row["content"] or ""
+            if row["status"] in (DialogueEntryStatus.STREAMING, DialogueEntryStatus.PENDING) and len(content) > sent:
+                yield _sse({"type": "delta", "text": content[sent:]})
+                sent = len(content)
+            if row["status"] == DialogueEntryStatus.DONE:
+                yield _sse({
+                    "type": "final",
+                    "entry_id": str(entry_id),
+                    "speaker": row["speaker"],
+                    "content": content,
+                    "entry_type": row["entry_type"],
+                    "document_title": row["document_title"],
+                })
+                yield _sse({"type": "done"})
+                return
+            if row["status"] == DialogueEntryStatus.FAILED:
+                code = row["error_code"] or "failed"
+                yield _sse({
+                    "type": "error",
+                    "code": code,
+                    "detail": REPLY_STOP_MESSAGES.get(code, REPLY_STOP_MESSAGES["failed"]),
+                    "partial": content,
+                })
+                return
+            now = time.monotonic()
+            if now - started > _FOLLOW_LIMIT_SECONDS:
+                yield _sse({"type": "error", "code": "still_running", "detail": "Still working; reopen the Dialogue to see the reply."})
+                return
+            if now - last_beat > _KEEPALIVE_SECONDS:
+                yield b": keepalive\n\n"
+                last_beat = now
+            wait(_WAIT_SECONDS)
+
+
+def _exchange_response(request, dialogue):
+    from atrium.turns import DIALOGUE_PROVIDERS, start_turn
+
+    if dialogue.status == DialogueStatus.ARCHIVED:
+        return Response({"detail": "Dialogue is archived."}, status=status.HTTP_400_BAD_REQUEST)
+
+    message = (request.data.get("message") or "").strip()
+    if not message:
+        return Response({"detail": "message is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    provider = request.data.get("provider") or None
+    if provider is not None and provider not in DIALOGUE_PROVIDERS:
+        return Response(
+            {"detail": f"provider must be one of: {', '.join(DIALOGUE_PROVIDERS)}"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    reply = start_turn(dialogue, request.user, message, provider)
+    logger.info("atrium_exchange dialogue=%s entry=%s speaker=%s", dialogue.id, reply.id, reply.speaker)
+    opening = {"type": "turn", "entry_id": str(reply.id), "speaker": reply.speaker}
+    return StreamingHttpResponse(
+        follow_reply(reply.id, opening=opening),
+        content_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
+
+
+class DialogueListView(generics.ListAPIView):
+    """
+    GET /api/atrium/dialogues/
+
+    The member's Dialogues, active first then by most recent activity, capped at 50,
+    with entry_count. ?group_slug= for a Group's; ?personal=true for personal ones.
     """
 
     permission_classes = [IsAuthenticated]
-    serializer_class = AtriumSessionListSerializer
+    serializer_class = DialogueListSerializer
 
     def get_queryset(self):
         profile = ensure_user_profile(self.request.user)
-        qs = AtriumSession.objects.filter(
-            member=profile,
-            deleted_at__isnull=True,
-        )
+        qs = Dialogue.objects.filter(member=profile, deleted_at__isnull=True)
 
         group_slug = self.request.query_params.get("group_slug", "")
         if group_slug:
@@ -64,17 +186,18 @@ class AtriumSessionListView(generics.ListAPIView):
         )
 
 
-class AtriumSessionCreateView(generics.CreateAPIView):
+class DialogueCreateView(generics.CreateAPIView):
     """
-    POST /api/atrium/sessions/
+    POST /api/atrium/dialogues/new
 
-    Creates a new AtriumSession for the authenticated member.
-    Body: { title?: string, session_context?: string }
+    Body: { title?, session_context?, group_slug?, initiative_id?, ai_provider? }
     """
 
     permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
+        from atrium.turns import DIALOGUE_PROVIDERS
+
         profile = ensure_user_profile(request.user)
 
         sponsor_ct = None
@@ -92,19 +215,16 @@ class AtriumSessionCreateView(generics.CreateAPIView):
         initiative_id = request.data.get("initiative_id", "")
         if initiative_id:
             from initiatives.models import Initiative
-            initiative = Initiative.objects.filter(
-                id=initiative_id, deleted_at__isnull=True
-            ).first()
+            initiative = Initiative.objects.filter(id=initiative_id, deleted_at__isnull=True).first()
 
-        ai_provider = request.data.get("ai_provider", AtriumSession._meta.get_field("ai_provider").default)
-        valid_providers = {choice[0] for choice in AtriumSession._meta.get_field("ai_provider").choices}
-        if ai_provider not in valid_providers:
+        ai_provider = request.data.get("ai_provider") or Dialogue._meta.get_field("ai_provider").default
+        if ai_provider not in DIALOGUE_PROVIDERS:
             return Response(
-                {"detail": f"ai_provider must be one of: {', '.join(sorted(valid_providers))}"},
+                {"detail": f"ai_provider must be one of: {', '.join(DIALOGUE_PROVIDERS)}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        session = AtriumSession.objects.create(
+        dialogue = Dialogue.objects.create(
             member=profile,
             title=request.data.get("title", ""),
             session_context=request.data.get("session_context", ""),
@@ -113,64 +233,75 @@ class AtriumSessionCreateView(generics.CreateAPIView):
             sponsor_object_id=sponsor_id,
             initiative=initiative,
         )
-        return Response(
-            AtriumSessionListSerializer(session).data,
-            status=status.HTTP_201_CREATED,
-        )
+        return Response(DialogueListSerializer(dialogue).data, status=status.HTTP_201_CREATED)
 
 
-class AtriumSessionEntryListView(generics.ListAPIView):
+class DialogueEntryListView(generics.ListAPIView):
     """
-    GET /api/atrium/sessions/<session_id>/entries/
+    GET /api/atrium/dialogues/<dialogue_id>/entries/
 
-    Returns the persisted AtriumSessionEntry records for a session, in
-    chronological order. Used to restore conversation history when a
-    member reopens an existing session, and as the source for MillDraft
-    promotion (artifact landing, AT-D6).
+    The Dialogue's entries in order, including any reply still being written
+    (status pending or streaming: follow it with .../entries/<id>/stream).
     """
 
     permission_classes = [IsAuthenticated]
-    serializer_class = AtriumSessionEntrySerializer
+    serializer_class = DialogueEntrySerializer
 
     def get_queryset(self):
-        from atrium.models import AtriumSessionEntry
-
         profile = ensure_user_profile(self.request.user)
-        session_id = self.kwargs["session_id"]
-        return AtriumSessionEntry.objects.filter(
-            session_id=session_id,
-            session__member=profile,
-            session__deleted_at__isnull=True,
+        return DialogueEntry.objects.filter(
+            dialogue_id=self.kwargs["dialogue_id"],
+            dialogue__member=profile,
+            dialogue__deleted_at__isnull=True,
         ).order_by("created_at")
 
 
-class AtriumSessionInitiativeLogView(APIView):
+class DialogueEntryStreamView(APIView):
     """
-    GET /api/atrium/sessions/<session_id>/initiative-log/
+    GET /api/atrium/dialogues/<dialogue_id>/entries/<entry_id>/stream
 
-    Returns InitiativeLogEntry records (prose + ledger) for the session's pinned
-    initiative. Used by the initiative log panel to show imported conversation turns.
-    Returns [] when the session has no initiative_id.
+    Follow a reply that is still being written: after a reload, or from another
+    device. Same events as the exchange stream, from the start of the reply.
     """
 
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, session_id):
-        from initiatives.models import InitiativeLogEntry, InitiativeLogEntryKind
+    def get(self, request, dialogue_id, entry_id):
+        dialogue = _own_dialogue(request, dialogue_id)
+        if dialogue is None:
+            return _not_found()
+        entry = DialogueEntry.objects.filter(pk=entry_id, dialogue=dialogue).first()
+        if entry is None:
+            return Response({"detail": "Entry not found."}, status=status.HTTP_404_NOT_FOUND)
+        opening = {"type": "turn", "entry_id": str(entry.id), "speaker": entry.speaker}
+        return StreamingHttpResponse(
+            follow_reply(entry.id, opening=opening),
+            content_type="text/event-stream",
+            headers=_SSE_HEADERS,
+        )
 
-        profile = ensure_user_profile(request.user)
-        try:
-            session = AtriumSession.objects.get(
-                id=session_id, member=profile, deleted_at__isnull=True
-            )
-        except AtriumSession.DoesNotExist:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        if not session.initiative_id:
+class DialogueInitiativeLogView(APIView):
+    """
+    GET /api/atrium/dialogues/<dialogue_id>/initiative-log/
+
+    InitiativeLogEntry records (prose + ledger) for the Dialogue's Initiative.
+    Returns [] when the Dialogue has no Initiative.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, dialogue_id):
+        from initiatives.models import InitiativeLogEntry
+
+        dialogue = _own_dialogue(request, dialogue_id)
+        if dialogue is None:
+            return _not_found()
+        if not dialogue.initiative_id:
             return Response({"results": []})
 
         entries = InitiativeLogEntry.objects.filter(
-            initiative_log__initiative_id=session.initiative_id,
+            initiative_log__initiative_id=dialogue.initiative_id,
         ).order_by("created_at").values(
             "id", "kind", "body", "authored_by",
             "source_turn_index", "source_timestamp", "created_at",
@@ -179,573 +310,273 @@ class AtriumSessionInitiativeLogView(APIView):
         return Response({"results": list(entries)})
 
 
-class AtriumSessionContextView(APIView):
+class DialogueContextView(APIView):
     """
-    GET /api/atrium/sessions/<session_id>/context/
+    GET /api/atrium/dialogues/<dialogue_id>/context/
 
-    Returns the synthesized Clio personal context that will be injected into
-    the system prompt for this session. Surfaces to the member as a preview
-    panel — transparent about what Claude knows before each exchange.
-
-    Response: { context: string, sources: string[] }
+    The Clio personal context an agent is given in this Dialogue, as a preview:
+    transparent about what the agent knows. Response: { context, sources }
     """
 
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, session_id):
-        profile = ensure_user_profile(request.user)
-
-        try:
-            session = AtriumSession.objects.get(
-                id=session_id,
-                member=profile,
-                deleted_at__isnull=True,
-            )
-        except AtriumSession.DoesNotExist:
-            return Response({"detail": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
+    def get(self, request, dialogue_id):
+        dialogue = _own_dialogue(request, dialogue_id)
+        if dialogue is None:
+            return _not_found()
 
         from atrium.ai.context import ClioPersonalContextBuilder
         builder = ClioPersonalContextBuilder()
-        return Response({
-            "context": builder.build(session),
-            "sources": builder.sources(session),
-        })
+        return Response({"context": builder.build(dialogue), "sources": builder.sources(dialogue)})
 
 
-class AtriumSessionUpdateView(APIView):
+class DialogueUpdateView(APIView):
     """
-    PATCH /api/atrium/sessions/<session_id>/
+    PATCH /api/atrium/dialogues/<dialogue_id>/
 
-    Updates title and/or session_context on an AtriumSession.
-    Body: { title?: string, session_context?: string }
+    Body: { title?, session_context?, dial_mode?, ai_provider? }
     """
 
     permission_classes = [IsAuthenticated]
 
-    def patch(self, request, session_id):
-        profile = ensure_user_profile(request.user)
+    def patch(self, request, dialogue_id):
+        from atrium.turns import DIALOGUE_PROVIDERS
 
-        try:
-            session = AtriumSession.objects.get(
-                id=session_id,
-                member=profile,
-                deleted_at__isnull=True,
-            )
-        except AtriumSession.DoesNotExist:
-            return Response({"detail": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
+        dialogue = _own_dialogue(request, dialogue_id)
+        if dialogue is None:
+            return _not_found()
 
         update_fields = []
         if "title" in request.data:
-            session.title = request.data["title"]
+            dialogue.title = request.data["title"]
             update_fields.append("title")
         if "session_context" in request.data:
-            session.session_context = request.data["session_context"]
+            dialogue.session_context = request.data["session_context"]
             update_fields.append("session_context")
-        if "dial_mode" in request.data:
-            from atrium.models import AtriumDialMode
-            val = request.data["dial_mode"]
-            valid_values = {m.value for m in AtriumDialMode}
-            if val in valid_values:
-                session.dial_mode = val
-                update_fields.append("dial_mode")
-        if "ai_provider" in request.data:
-            valid_values = {choice[0] for choice in AtriumSession._meta.get_field("ai_provider").choices}
-            val = request.data["ai_provider"]
-            if val in valid_values:
-                session.ai_provider = val
-                update_fields.append("ai_provider")
+        if "dial_mode" in request.data and request.data["dial_mode"] in {m.value for m in AtriumDialMode}:
+            dialogue.dial_mode = request.data["dial_mode"]
+            update_fields.append("dial_mode")
+        if "ai_provider" in request.data and request.data["ai_provider"] in DIALOGUE_PROVIDERS:
+            dialogue.ai_provider = request.data["ai_provider"]
+            update_fields.append("ai_provider")
 
         if update_fields:
-            session.save(update_fields=update_fields)
+            dialogue.save(update_fields=update_fields + ["updated_at"])
 
-        return Response(
-            AtriumSessionListSerializer(session).data,
-            status=status.HTTP_200_OK,
-        )
+        return Response(DialogueListSerializer(dialogue).data, status=status.HTTP_200_OK)
 
 
-class AtriumSessionExchangeView(APIView):
+class DialogueExchangeView(APIView):
     """
-    POST /api/atrium/sessions/<session_id>/exchange
+    POST /api/atrium/dialogues/<dialogue_id>/exchange
 
-    Streams a Claude API response for the given user message.
-    Creates AtriumSessionEntry records for both turns.
-
-    Body: { message: string }
-    Response: text/event-stream SSE
-      data: {"type": "delta", "text": "..."}
-      data: {"type": "done"}
-      data: {"type": "error", "detail": "..."}  (on failure)
+    Body: { message, provider? } — provider is anthropic-claude-code or openai-codex
+    (default: the Dialogue's last). Saves the message, queues the reply on the runtime
+    worker, and streams it as it is written: text/event-stream with turn, delta,
+    final, done, or error {code, detail}.
     """
 
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, session_id):
-        profile = ensure_user_profile(request.user)
+    def post(self, request, dialogue_id):
+        dialogue = _own_dialogue(request, dialogue_id)
+        if dialogue is None:
+            return _not_found()
+        return _exchange_response(request, dialogue)
 
-        try:
-            session = AtriumSession.objects.select_related("sponsor_content_type").get(
-                id=session_id,
-                member=profile,
-                deleted_at__isnull=True,
-            )
-        except AtriumSession.DoesNotExist:
-            return Response({"detail": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        # Puddlejump-gated groups require staff access.
-        if session.sponsor_object_id:
-            sponsor = session.sponsor
-            sponsor_slug = getattr(sponsor, "slug", None)
-            if sponsor_slug in PUDDLEJUMP_GROUPS and not request.user.is_staff:
-                return Response(
-                    {"detail": "Staff access required for this group's Atrium."},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
+class DialogueWarmView(APIView):
+    """
+    POST /api/atrium/dialogues/<dialogue_id>/warm
 
-        if session.status == AtriumSessionStatus.ARCHIVED:
-            return Response(
-                {"detail": "Session is archived."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+    Nothing to warm: each turn starts its own process (ST-3 Part B). Kept so the page
+    can call it on open; returns a single `ready` event.
+    """
 
-        message = (request.data.get("message") or "").strip()
-        if not message:
-            return Response({"detail": "message is required."}, status=status.HTTP_400_BAD_REQUEST)
+    permission_classes = [IsAuthenticated]
 
-        try:
-            from atrium.ai.service import AtriumAIService
-            ai = AtriumAIService(session=session)
-        except Exception as exc:
-            logger.error("atrium_ai_service_init_failed session=%s error=%s", session_id, exc)
-            return Response(
-                {"detail": "AI service is currently unavailable."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
-        logger.info("atrium_exchange_start session=%s user=%s", session_id, request.user.username)
-
-        def stream():
-            try:
-                for chunk in ai.exchange_stream(session, message):
-                    yield chunk
-            except Exception:
-                logger.exception("atrium_exchange_stream_error session=%s", session_id)
-                yield (
-                    b"data: "
-                    + json.dumps({"type": "error", "detail": "An error occurred during the AI exchange."}).encode()
-                    + b"\n\n"
-                )
-
+    def post(self, request, dialogue_id):
+        if _own_dialogue(request, dialogue_id) is None:
+            return _not_found()
         return StreamingHttpResponse(
-            stream(),
+            iter([_sse({"type": "ready"})]),
             content_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-            },
+            headers=_SSE_HEADERS,
         )
 
 
-class AtriumSessionWarmView(APIView):
+class DialogueCompactView(APIView):
     """
-    POST /api/atrium/sessions/<session_id>/warm
+    POST /api/atrium/dialogues/<dialogue_id>/compact
 
-    Pre-warms the stream-json subprocess for a ClaudeCode session so the first
-    exchange is fast. Returns a text/event-stream with a single `type: ready`
-    event. Non-error for Anthropic-SDK sessions — just returns ready immediately.
-
-    Called by the frontend when the user opens or selects a session.
+    Queue a Continuous Keeper summary of this Dialogue now, on the owner's account;
+    it lands in the InitiativeLog's compact summary. Returns 202 { status: "queued" }.
+    (Mixtape-level compact checkpoints are ST-3 Part B step 4.)
     """
 
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, session_id):
-        profile = ensure_user_profile(request.user)
+    def post(self, request, dialogue_id):
+        dialogue = _own_dialogue(request, dialogue_id)
+        if dialogue is None:
+            return _not_found()
+        from atrium.ai.service import _queue_keeper_compact, _resolve_initiative_log
 
-        try:
-            session = AtriumSession.objects.select_related("sponsor_content_type").get(
-                id=session_id,
-                member=profile,
-                deleted_at__isnull=True,
+        log, cadence = _resolve_initiative_log(dialogue)
+        if log is None:
+            return Response(
+                {"detail": "This Dialogue has no Initiative to keep a summary in."},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
-        except AtriumSession.DoesNotExist:
-            return Response({"detail": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        if session.sponsor_object_id:
-            sponsor_slug = getattr(session.sponsor, "slug", None)
-            if sponsor_slug in PUDDLEJUMP_GROUPS and not request.user.is_staff:
-                return Response(
-                    {"detail": "Staff access required for this group's Atrium."},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-
-        try:
-            from atrium.ai.service import AtriumAIService
-            ai = AtriumAIService(session=session)
-        except Exception as exc:
-            logger.error("atrium_warm_init_failed session=%s error=%s", session_id, exc)
-            return Response({"detail": "AI service unavailable."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-
-        logger.info("atrium_warm session=%s user=%s", session_id, request.user.username)
-
-        return StreamingHttpResponse(
-            ai.warm(),
-            content_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
+        _queue_keeper_compact(dialogue, cadence)
+        return Response({"status": "queued", "summary": None}, status=status.HTTP_202_ACCEPTED)
 
 
-class AtriumSessionCompactView(APIView):
+class DialogueDistillView(APIView):
     """
-    POST /api/atrium/sessions/<session_id>/compact
+    POST /api/atrium/dialogues/<dialogue_id>/distill
 
-    Sends /compact to the session's stream-json subprocess. Stores the resulting
-    summary in InitiativeLog.compact_summary. Returns:
-      { "summary": "..." }  on success
-      { "detail": "..." }   on error/no live subprocess
+    Body: { title, document_type }. Creates the Distillate pending and writes it on the
+    runtime worker, on the owner's account. Returns 202 with the Distillate; poll
+    GET .../distillates/<id> until status is done or failed.
     """
 
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, session_id):
-        profile = ensure_user_profile(request.user)
+    def post(self, request, dialogue_id):
+        from atrium.ai.service import _resolve_initiative_log
+        from atrium.turns import TurnStop, owner_runtime
+        from cloud_agents.constants import PROVIDER_ANTHROPIC_CLAUDE_CODE
 
-        try:
-            session = AtriumSession.objects.select_related("sponsor_content_type").get(
-                id=session_id,
-                member=profile,
-                deleted_at__isnull=True,
-            )
-        except AtriumSession.DoesNotExist:
-            return Response({"detail": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        if session.sponsor_object_id:
-            sponsor_slug = getattr(session.sponsor, "slug", None)
-            if sponsor_slug in PUDDLEJUMP_GROUPS and not request.user.is_staff:
-                return Response(
-                    {"detail": "Staff access required for this group's Atrium."},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-
-        try:
-            from atrium.ai.service import AtriumAIService
-            ai = AtriumAIService(session=session)
-            summary = ai.compact(session)
-        except Exception as exc:
-            logger.error("atrium_compact_failed session=%s error=%s", session_id, exc)
-            return Response({"detail": "Compact failed."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        return Response({"summary": summary}, status=status.HTTP_200_OK)
-
-
-class AtriumSessionDistillView(APIView):
-    """
-    POST /api/atrium/sessions/<session_id>/distill
-
-    Generate a Distillate artifact from the session's conversation history.
-    Uses a one-shot `claude -p` call (same pattern as the Continuous Keeper)
-    with a prompt that asks Claude to produce a named document of the given type.
-
-    Body: { "title": str, "document_type": str }
-    Returns: { "id", "title", "body", "document_type", "created_at" }
-    """
-
-    permission_classes = [IsAuthenticated]
-
-    _DISTILL_PROMPT_TEMPLATE = """\
-You are a knowledge distiller. The following is a transcript of an AI-assisted \
-work session titled "{title}". Produce a {document_type_label} document with \
-the title "{title}".
-
-Guidelines for a {document_type_label}:
-{document_type_guidance}
-
-Session transcript:
-{transcript}
-
-Write only the document body — no title heading, no preamble. Use markdown.
-"""
-
-    _DOCUMENT_TYPE_GUIDANCE = {
-        DistillateDocumentType.FIELD_NOTE: (
-            "A field note is a short (1-3 paragraphs), direct record of what was observed, "
-            "decided, or learned. First-person voice. What happened, what was noticed, what's next."
-        ),
-        DistillateDocumentType.FINDING: (
-            "A finding states a conclusion derived from evidence. Structured: Background, "
-            "Evidence, Finding, Implication. Precise and factual — no hedging."
-        ),
-        DistillateDocumentType.POSITION_PAPER: (
-            "A position paper argues for a specific approach or decision. Structured: "
-            "Context, Position, Rationale, Trade-offs, Recommendation."
-        ),
-        DistillateDocumentType.DRAFT_ADR: (
-            "An ADR (Architecture Decision Record) documents a decision and its context. "
-            "Sections: Status (Draft), Context, Decision, Consequences."
-        ),
-        DistillateDocumentType.SUMMARY: (
-            "A summary captures the key points, decisions, and open questions from the session "
-            "in 2-4 paragraphs. Concise and scannable — bullet lists welcome."
-        ),
-        DistillateDocumentType.OTHER: (
-            "Produce a clear, well-structured document that captures the key substance of the session."
-        ),
-    }
-
-    _MAX_TRANSCRIPT_CHARS = 40_000
-
-    def post(self, request, session_id):
-        profile = ensure_user_profile(request.user)
-
-        try:
-            session = AtriumSession.objects.select_related("sponsor_content_type").get(
-                id=session_id,
-                member=profile,
-                deleted_at__isnull=True,
-            )
-        except AtriumSession.DoesNotExist:
-            return Response({"detail": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
+        dialogue = _own_dialogue(request, dialogue_id)
+        if dialogue is None:
+            return _not_found()
 
         title = (request.data.get("title") or "").strip()
-        document_type = (request.data.get("document_type") or DistillateDocumentType.SUMMARY)
-
+        document_type = request.data.get("document_type") or DistillateDocumentType.SUMMARY
         if not title:
             return Response({"detail": "title is required."}, status=status.HTTP_400_BAD_REQUEST)
-
         if document_type not in DistillateDocumentType.values:
             return Response(
                 {"detail": f"document_type must be one of: {', '.join(DistillateDocumentType.values)}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Resolve initiative via sponsor GFK (same pattern as _resolve_initiative_log)
-        from atrium.ai.service import _resolve_initiative_log
-        log, _ = _resolve_initiative_log(session)
+        log, _ = _resolve_initiative_log(dialogue)
         if log is None:
             return Response(
-                {"detail": "No initiative found for this session — Distillate requires an initiative context."},
+                {"detail": "No Initiative found for this Dialogue — a Distillate needs one."},
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
-
-        # Build transcript from session entries
-        entries = list(session.entries.order_by("created_at"))
-        lines = []
-        for entry in entries:
-            role_label = "User" if entry.role == AtriumSessionRole.USER else "Assistant"
-            lines.append(f"{role_label}: {entry.content.strip()}")
-        transcript = "\n".join(lines)
-        if len(transcript) > self._MAX_TRANSCRIPT_CHARS:
-            transcript = transcript[-self._MAX_TRANSCRIPT_CHARS:]
-
-        if not transcript:
-            return Response(
-                {"detail": "Session has no entries to distill."},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            )
-
-        document_type_label = dict(DistillateDocumentType.choices).get(document_type, document_type)
-        guidance = self._DOCUMENT_TYPE_GUIDANCE.get(document_type, self._DOCUMENT_TYPE_GUIDANCE[DistillateDocumentType.OTHER])
-
-        prompt = self._DISTILL_PROMPT_TEMPLATE.format(
-            title=title,
-            document_type_label=document_type_label,
-            document_type_guidance=guidance,
-            transcript=transcript,
-        )
-
-        from atrium.tasks import _run_claude_p
-        body = _run_claude_p(prompt)
-        if not body:
-            logger.error("atrium_distill_failed session=%s — claude -p returned empty", session_id)
-            return Response({"detail": "Distillate generation failed."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        if not dialogue.entries.filter(status=DialogueEntryStatus.DONE).exists():
+            return Response({"detail": "This Dialogue has nothing to distill yet."}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         distillate = Distillate.objects.create(
             initiative=log.initiative,
-            session=session,
+            dialogue=dialogue,
             title=title,
-            body=body,
             document_type=document_type,
+            status=DistillateStatus.PENDING,
         )
+        try:
+            owner_runtime(dialogue, PROVIDER_ANTHROPIC_CLAUDE_CODE)
+        except TurnStop as stop:
+            distillate.status = DistillateStatus.FAILED
+            distillate.error_code = stop.code
+            distillate.save(update_fields=["status", "error_code"])
+            data = DistillateSerializer(distillate).data
+            data["detail"] = REPLY_STOP_MESSAGES.get(stop.code, REPLY_STOP_MESSAGES["failed"])
+            return Response(data, status=status.HTTP_409_CONFLICT)
 
-        logger.info(
-            "atrium_distill session=%s distillate=%s type=%s",
-            session_id, distillate.id, document_type,
-        )
-
-        return Response(
-            {
-                "id": str(distillate.id),
-                "title": distillate.title,
-                "body": distillate.body,
-                "document_type": distillate.document_type,
-                "created_at": distillate.created_at.isoformat(),
-            },
-            status=status.HTTP_201_CREATED,
-        )
+        from atrium.tasks import run_distill
+        run_distill.apply_async(kwargs={"distillate_id": str(distillate.id)}, queue="runtime", routing_key="runtime")
+        logger.info("atrium_distill dialogue=%s distillate=%s type=%s", dialogue.id, distillate.id, document_type)
+        return Response(DistillateSerializer(distillate).data, status=status.HTTP_202_ACCEPTED)
 
 
-class AtriumSessionResetView(APIView):
+class DialogueDistillateView(APIView):
+    """GET /api/atrium/dialogues/<dialogue_id>/distillates/<distillate_id> — poll a Distillate."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, dialogue_id, distillate_id):
+        dialogue = _own_dialogue(request, dialogue_id)
+        if dialogue is None:
+            return _not_found()
+        distillate = Distillate.objects.filter(pk=distillate_id, dialogue=dialogue).first()
+        if distillate is None:
+            return Response({"detail": "Distillate not found."}, status=status.HTTP_404_NOT_FOUND)
+        data = DistillateSerializer(distillate).data
+        if distillate.status == DistillateStatus.FAILED:
+            data["detail"] = REPLY_STOP_MESSAGES.get(distillate.error_code, REPLY_STOP_MESSAGES["failed"])
+        return Response(data)
+
+
+class DialogueResetView(APIView):
     """
-    POST /api/atrium/sessions/<session_id>/reset
+    POST /api/atrium/dialogues/<dialogue_id>/reset
 
-    Terminates the live stream-json subprocess for this session and respawns
-    it with orientation-only context (compact summary + session_context; no
-    turn history). The AtriumSessionEntry archive in the DB is preserved.
-
-    Returns: { "status": "ready" }
-
-    This is a synchronous operation — the respawn blocks until the orientation
-    context is processed (~3-5s). Frontend should show a loading state.
+    Start every agent fresh in this Dialogue: their own sessions are dropped, and the
+    next turn opens with the Dialogue's own record. Entries are kept.
+    Returns { status: "ready" }.
     """
 
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, session_id):
-        profile = ensure_user_profile(request.user)
-
-        try:
-            session = AtriumSession.objects.select_related("sponsor_content_type").get(
-                id=session_id,
-                member=profile,
-                deleted_at__isnull=True,
-            )
-        except AtriumSession.DoesNotExist:
-            return Response({"detail": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        if session.sponsor_object_id:
-            sponsor_slug = getattr(session.sponsor, "slug", None)
-            if sponsor_slug in PUDDLEJUMP_GROUPS and not request.user.is_staff:
-                return Response(
-                    {"detail": "Staff access required for this group's Atrium."},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-
-        try:
-            from atrium.ai.service import AtriumAIService
-            ai = AtriumAIService(session=session)
-            ai.reset(session)
-        except Exception as exc:
-            logger.error("atrium_reset_failed session=%s error=%s", session_id, exc)
-            return Response({"detail": "Session reset failed."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        logger.info("atrium_reset session=%s user=%s", session_id, request.user.username)
+    def post(self, request, dialogue_id):
+        dialogue = _own_dialogue(request, dialogue_id)
+        if dialogue is None:
+            return _not_found()
+        CloudAgentSession.objects.filter(dialogue=dialogue, deleted_at__isnull=True).update(
+            provider_session_id="", seen_through=None, status="starting",
+        )
+        logger.info("atrium_reset dialogue=%s user=%s", dialogue.id, request.user.username)
         return Response({"status": "ready"}, status=status.HTTP_200_OK)
 
 
-class AtriumMeSessionView(APIView):
+def _personal_dialogue(profile):
+    dialogue = (
+        Dialogue.objects.filter(
+            member=profile,
+            sponsor_object_id__isnull=True,
+            status=DialogueStatus.ACTIVE,
+            deleted_at__isnull=True,
+        )
+        .order_by("-last_activity_at", "-created_at")
+        .first()
+    )
+    if dialogue is None:
+        dialogue = Dialogue.objects.create(member=profile, title="", session_context="")
+    return dialogue
+
+
+class AtriumMeDialogueView(APIView):
     """
-    GET /api/atrium/me/session
+    GET /api/atrium/me/dialogue
 
-    Resolves or creates the requesting user's personal AtriumSession (no sponsor).
-    Returns the session object. Creates a new active session if none exists.
-
-    Personal sessions have sponsor_object_id=null — the member is their own context.
-    This mirrors the initiatives me/sessions pattern and unblocks the mobile migration.
+    The member's personal Dialogue (no sponsor), created if none is active.
     """
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        profile = ensure_user_profile(request.user)
-
-        session = (
-            AtriumSession.objects.filter(
-                member=profile,
-                sponsor_object_id__isnull=True,
-                status=AtriumSessionStatus.ACTIVE,
-                deleted_at__isnull=True,
-            )
-            .order_by("-last_activity_at", "-created_at")
-            .first()
-        )
-
-        if session is None:
-            session = AtriumSession.objects.create(
-                member=profile,
-                title="",
-                session_context="",
-            )
-
-        return Response(AtriumSessionListSerializer(session).data, status=status.HTTP_200_OK)
+        dialogue = _personal_dialogue(ensure_user_profile(request.user))
+        return Response(DialogueListSerializer(dialogue).data, status=status.HTTP_200_OK)
 
 
-class AtriumMeSessionExchangeView(APIView):
+class AtriumMeDialogueExchangeView(APIView):
     """
-    POST /api/atrium/me/session/exchange
+    POST /api/atrium/me/dialogue/exchange
 
-    Streams a Claude API exchange on the user's personal AtriumSession.
-    Resolves the personal session first (same logic as AtriumMeSessionView),
-    then delegates to the standard exchange stream.
-
-    Body: { message: string }
-    Response: text/event-stream SSE — same format as /sessions/<id>/exchange
+    The exchange on the member's personal Dialogue; same body and events as
+    /dialogues/<id>/exchange.
     """
 
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        profile = ensure_user_profile(request.user)
-
-        session = (
-            AtriumSession.objects.filter(
-                member=profile,
-                sponsor_object_id__isnull=True,
-                status=AtriumSessionStatus.ACTIVE,
-                deleted_at__isnull=True,
-            )
-            .order_by("-last_activity_at", "-created_at")
-            .first()
-        )
-
-        if session is None:
-            session = AtriumSession.objects.create(
-                member=profile,
-                title="",
-                session_context="",
-            )
-
-        if session.status == AtriumSessionStatus.ARCHIVED:
-            return Response(
-                {"detail": "Session is archived."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        message = (request.data.get("message") or "").strip()
-        if not message:
-            return Response({"detail": "message is required."}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            from atrium.ai.service import AtriumAIService
-            ai = AtriumAIService(session=session)
-        except Exception as exc:
-            logger.error("atrium_me_exchange_ai_init_failed user=%s error=%s", request.user.username, exc)
-            return Response(
-                {"detail": "AI service is currently unavailable."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
-        logger.info("atrium_me_exchange_start session=%s user=%s", session.id, request.user.username)
-
-        def stream():
-            try:
-                for chunk in ai.exchange_stream(session, message):
-                    yield chunk
-            except Exception:
-                logger.exception("atrium_me_exchange_stream_error session=%s", session.id)
-                yield (
-                    b"data: "
-                    + json.dumps({"type": "error", "detail": "An error occurred during the AI exchange."}).encode()
-                    + b"\n\n"
-                )
-
-        return StreamingHttpResponse(
-            stream(),
-            content_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-            },
-        )
+        dialogue = _personal_dialogue(ensure_user_profile(request.user))
+        return _exchange_response(request, dialogue)
 
 
 class AtriumSponsorContextView(APIView):

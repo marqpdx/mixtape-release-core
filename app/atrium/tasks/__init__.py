@@ -1,8 +1,11 @@
 # atrium/tasks.py
 #
-# Celery tasks for the Atrium surface.
-# keeper_compact_task — Continuous Keeper: summarize recent AtriumSessionEntry
-# rows and store the result in InitiativeLog.compact_summary.
+# Celery tasks for the Atrium surface. All three run on the runtime worker, on the
+# Dialogue owner's own account (ST-3 Part B), never on the server's login:
+#   run_dialogue_turn   — write one agent reply in a Dialogue (atrium/turns.py)
+#   run_distill         — produce a Distillate from a Dialogue
+#   keeper_compact_task — Continuous Keeper: summarize a Dialogue into its
+#                         InitiativeLog's compact_summary
 
 import logging
 
@@ -25,98 +28,134 @@ Transcript:
 Write only the summary, no preamble.
 """
 
+_DISTILL_PROMPT_TEMPLATE = """\
+You are a knowledge distiller. The following is a transcript of an AI-assisted \
+work session titled "{title}". Produce a {document_type_label} document with \
+the title "{title}".
+
+Guidelines for a {document_type_label}:
+{document_type_guidance}
+
+Session transcript:
+{transcript}
+
+Write only the document body — no title heading, no preamble. Use markdown.
+"""
+
 _MAX_TRANSCRIPT_CHARS = 40_000  # trim if very long
 
 
-@shared_task(bind=True, max_retries=2, queue="catalyst")
+@shared_task(name="atrium.tasks.run_dialogue_turn", queue="runtime", soft_time_limit=420, time_limit=480)
+def run_dialogue_turn(entry_id: str) -> str:
+    from atrium.turns import run_turn
+
+    return run_turn(entry_id)
+
+
+@shared_task(name="atrium.tasks.run_distill", queue="runtime", soft_time_limit=240, time_limit=300)
+def run_distill(distillate_id: str) -> str:
+    """Fill a pending Distillate from its Dialogue, on the owner's own Claude account."""
+    from atrium.ai.service import build_transcript
+    from atrium.distill import DOCUMENT_TYPE_GUIDANCE
+    from atrium.models import Distillate, DistillateDocumentType, DistillateStatus
+    from atrium.turns import TurnStop, run_once
+
+    try:
+        distillate = Distillate.objects.select_related("dialogue", "dialogue__member").get(pk=distillate_id)
+    except Distillate.DoesNotExist:
+        return "missing"
+    if distillate.status != DistillateStatus.PENDING or distillate.dialogue is None:
+        return distillate.status
+
+    transcript = build_transcript(distillate.dialogue, _MAX_TRANSCRIPT_CHARS)
+    label = dict(DistillateDocumentType.choices).get(distillate.document_type, distillate.document_type)
+    prompt = _DISTILL_PROMPT_TEMPLATE.format(
+        title=distillate.title,
+        document_type_label=label,
+        document_type_guidance=DOCUMENT_TYPE_GUIDANCE.get(
+            distillate.document_type, DOCUMENT_TYPE_GUIDANCE[DistillateDocumentType.OTHER]
+        ),
+        transcript=transcript,
+    )
+    try:
+        distillate.body = run_once(distillate.dialogue, prompt)
+        distillate.status = DistillateStatus.DONE
+        distillate.error_code = ""
+    except TurnStop as stop:
+        logger.warning("[atrium] distill %s stopped: %s", distillate_id, stop.code)
+        distillate.status = DistillateStatus.FAILED
+        distillate.error_code = stop.code
+    distillate.save(update_fields=["body", "status", "error_code"])
+    return distillate.status
+
+
+@shared_task(bind=True, max_retries=2, queue="runtime")
 def keeper_compact_task(self, session_id: str) -> None:
     """
-    Continuous Keeper: summarize recent AtriumSessionEntry records for a session
-    and store the result in InitiativeLog.compact_summary.
+    Continuous Keeper: summarize a Dialogue and store the result in its
+    InitiativeLog's compact_summary. `session_id` is the Dialogue's id (the
+    keeper's instance parameters keep that name).
 
-    Uses a one-shot `claude -p` subprocess — distinct from the live session
-    subprocess, so it does not interfere with in-progress exchanges.
+    Runs on the Dialogue owner's own Claude account. When the account can't run
+    (none, signed out, not allowed), the summary waits for the next trigger: no
+    retry, and never the server's login.
     """
     try:
-        from atrium.models import AtriumSession, AtriumSessionEntry, AtriumSessionRole
-        from atrium.ai.service import _resolve_initiative_log
+        from atrium.ai.service import _resolve_initiative_log, build_transcript
+        from atrium.models import Dialogue
+        from atrium.turns import TurnStop, run_once
 
         try:
-            session = AtriumSession.objects.get(id=session_id, deleted_at__isnull=True)
-        except AtriumSession.DoesNotExist:
-            logger.warning("[keeper] session not found: %s", session_id)
+            dialogue = Dialogue.objects.select_related("member").get(id=session_id, deleted_at__isnull=True)
+        except Dialogue.DoesNotExist:
+            logger.warning("[keeper] Dialogue not found: %s", session_id)
             return
 
-        log, cadence = _resolve_initiative_log(session)
+        log, cadence = _resolve_initiative_log(dialogue)
         if log is None:
-            logger.warning("[keeper] no InitiativeLog for session %s", session_id)
+            logger.warning("[keeper] no InitiativeLog for Dialogue %s", session_id)
             return
 
-        entries = list(
-            AtriumSessionEntry.objects.filter(session=session).order_by("created_at")
-        )
-        if not entries:
+        transcript = build_transcript(dialogue, _MAX_TRANSCRIPT_CHARS)
+        if not transcript:
             return
 
-        lines = []
-        for entry in entries:
-            role_label = "User" if entry.role == AtriumSessionRole.USER else "Assistant"
-            lines.append(f"{role_label}: {entry.content.strip()}")
-        transcript = "\n".join(lines)
-        if len(transcript) > _MAX_TRANSCRIPT_CHARS:
-            transcript = transcript[-_MAX_TRANSCRIPT_CHARS:]
-
-        prompt = _SUMMARIZE_PROMPT_TEMPLATE.format(transcript=transcript)
-        summary = _run_claude_p(prompt)
-        if not summary:
-            logger.warning("[keeper] empty summary for session %s", session_id)
+        try:
+            summary = run_once(dialogue, _SUMMARIZE_PROMPT_TEMPLATE.format(transcript=transcript), timeout=120)
+        except TurnStop as stop:
+            logger.info("[keeper] summary for Dialogue %s skipped: %s", session_id, stop.code)
             return
 
         from django.utils import timezone
         log.compact_summary = summary
         log.compact_at = timezone.now()
         log.save(update_fields=["compact_summary", "compact_at"])
-        logger.info("[keeper] compact summary updated for session %s (%d chars)", session_id, len(summary))
+        logger.info("[keeper] compact summary updated for Dialogue %s (%d chars)", session_id, len(summary))
 
         # K-4: submit a proactive finding to Clio's registry. As of CLIO-1b
-        # (2026-09-28), sponsored by the session's member, so it can surface
+        # (2026-09-28), sponsored by the Dialogue's member, so it can surface
         # through that member's ClioState feed (notice tier).
         try:
             from django.contrib.contenttypes.models import ContentType
 
             from clio import services as clio_services
 
-            profile_ct_id = ContentType.objects.get_for_model(type(session.member)).id
+            profile_ct_id = ContentType.objects.get_for_model(type(dialogue.member)).id
             clio_services.submit_finding(
                 keeper_id=f"continuous-keeper.{session_id}",
                 finding_type="compact_summary_updated",
                 finding_body={
                     "session_id": session_id,
                     "summary_chars": len(summary),
-                    "message": "Your Atrium session summary was updated.",
+                    "message": "Your Atrium Dialogue summary was updated.",
                 },
                 suggested_clio_signal="notice",
                 sponsor_content_type_id=profile_ct_id,
-                sponsor_object_id=session.member_id,
+                sponsor_object_id=dialogue.member_id,
             )
         except Exception as exc:
-            logger.warning("[keeper] Clio finding submission failed for session %s: %s", session_id, exc)
+            logger.warning("[keeper] Clio finding submission failed for Dialogue %s: %s", session_id, exc)
 
     except Exception as exc:
-        logger.exception("[keeper] keeper_compact_task failed for session %s", session_id)
+        logger.exception("[keeper] keeper_compact_task failed for Dialogue %s", session_id)
         raise self.retry(exc=exc, countdown=60)
-
-
-def _run_claude_p(prompt: str) -> str | None:
-    """
-    Run a one-shot `claude -p` summarization call and return the text output.
-    Goes through the shared runner: no tools, an empty scratch directory,
-    and the API key stripped (ST-2).
-    """
-    from claude.service import NO_TOOLS, run_blocking
-
-    result = run_blocking(prompt, timeout=120, tools=NO_TOOLS, log_context={"phase": "keeper-summary"})
-    if result.failure:
-        logger.warning("[keeper] claude -p summarization failed: %s", result.failure)
-        return None
-    return result.output
