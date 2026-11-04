@@ -148,7 +148,7 @@ class AtriumSessionInitiativeLogView(APIView):
     """
     GET /api/atrium/sessions/<session_id>/initiative-log/
 
-    Returns ApertureLogEntry records (prose + ledger) for the session's pinned
+    Returns InitiativeLogEntry records (prose + ledger) for the session's pinned
     initiative. Used by the initiative log panel to show imported conversation turns.
     Returns [] when the session has no initiative_id.
     """
@@ -156,7 +156,7 @@ class AtriumSessionInitiativeLogView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, session_id):
-        from initiatives.models import ApertureLogEntry, ApertureLogEntryKind
+        from initiatives.models import InitiativeLogEntry, InitiativeLogEntryKind
 
         profile = ensure_user_profile(request.user)
         try:
@@ -169,8 +169,8 @@ class AtriumSessionInitiativeLogView(APIView):
         if not session.initiative_id:
             return Response({"results": []})
 
-        entries = ApertureLogEntry.objects.filter(
-            aperture_log__initiative_id=session.initiative_id,
+        entries = InitiativeLogEntry.objects.filter(
+            initiative_log__initiative_id=session.initiative_id,
         ).order_by("created_at").values(
             "id", "kind", "body", "authored_by",
             "source_turn_index", "source_timestamp", "created_at",
@@ -400,7 +400,7 @@ class AtriumSessionCompactView(APIView):
     POST /api/atrium/sessions/<session_id>/compact
 
     Sends /compact to the session's stream-json subprocess. Stores the resulting
-    summary in ApertureLog.compact_summary. Returns:
+    summary in InitiativeLog.compact_summary. Returns:
       { "summary": "..." }  on success
       { "detail": "..." }   on error/no live subprocess
     """
@@ -518,9 +518,9 @@ Write only the document body — no title heading, no preamble. Use markdown.
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Resolve initiative via sponsor GFK (same pattern as _resolve_aperture_log)
-        from atrium.ai.service import _resolve_aperture_log
-        log, _ = _resolve_aperture_log(session)
+        # Resolve initiative via sponsor GFK (same pattern as _resolve_initiative_log)
+        from atrium.ai.service import _resolve_initiative_log
+        log, _ = _resolve_initiative_log(session)
         if log is None:
             return Response(
                 {"detail": "No initiative found for this session — Distillate requires an initiative context."},

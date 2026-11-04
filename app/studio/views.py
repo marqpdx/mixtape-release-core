@@ -161,7 +161,7 @@ def _build_clio_prompt(user):
         return {
             "message": f"You have {count} unreviewed captures waiting.",
             "action_label": "Review now",
-            "action_context": f"signal:aperture_log:count:{count}",
+            "action_context": f"signal:initiative_log:count:{count}",
             "dismissible": True,
         }
 

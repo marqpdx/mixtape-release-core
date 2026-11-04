@@ -139,7 +139,7 @@ class ClaudeCodeAdapter:
         """
         Ensure the stream-json subprocess is spawned. Yields SSE events:
           type: ready        — subprocess was already live (same context)
-          type: reconstructed — cold spawn; history injected from DB + ApertureLog
+          type: reconstructed — cold spawn; history injected from DB + InitiativeLog
         """
         from django.conf import settings
         from claude import service as claude_service
@@ -450,7 +450,7 @@ class AtriumAIService:
 
     def compact(self, session) -> str | None:
         """
-        Run /compact in the stream-json subprocess and store the summary in ApertureLog.
+        Run /compact in the stream-json subprocess and store the summary in InitiativeLog.
         Returns the summary text.
         """
         if not hasattr(self._adapter, "compact"):
@@ -665,19 +665,19 @@ def _pty_pid(session_id: str) -> int | None:
         return None
 
 
-def _resolve_aperture_log(session):
+def _resolve_initiative_log(session):
     """
-    Navigate from AtriumSession → Initiative → ApertureLog.
+    Navigate from AtriumSession → Initiative → InitiativeLog.
 
     AtriumSession has a polymorphic sponsor GFK (Group or UserProfile).
     The matching Initiative is the one whose sponsor GFK points to the same object.
     Falls back to the member's personal Initiative when no sponsor is set.
-    Returns (ApertureLog, cadence) or (None, "steady").
+    Returns (InitiativeLog, cadence) or (None, "steady").
     """
     if session is None:
         return None, "steady"
     try:
-        from initiatives.models import ApertureLog, Initiative
+        from initiatives.models import InitiativeLog, Initiative
 
         if session.initiative_id:
             initiative = Initiative.objects.filter(
@@ -704,12 +704,12 @@ def _resolve_aperture_log(session):
         if initiative is None:
             return None, "steady"
 
-        log = ApertureLog.objects.filter(initiative=initiative).first()
+        log = InitiativeLog.objects.filter(initiative=initiative).first()
         cadence = getattr(log, "compact_cadence", "steady") if log else "steady"
         return log, cadence
 
     except Exception as exc:
-        logger.warning("[atrium] _resolve_aperture_log failed: %s", exc)
+        logger.warning("[atrium] _resolve_initiative_log failed: %s", exc)
         return None, "steady"
 
 
@@ -722,7 +722,7 @@ def _build_orientation_context(session) -> str | None:
         return None
     try:
         parts = []
-        log, _ = _resolve_aperture_log(session)
+        log, _ = _resolve_initiative_log(session)
         if log and log.compact_summary:
             ts = log.compact_at.strftime("%Y-%m-%d") if log.compact_at else "prior"
             parts.append(
@@ -762,7 +762,7 @@ def _build_cold_spawn_context(session) -> tuple[str | None, str | None]:
     try:
         from atrium.models import AtriumSessionEntry, AtriumSessionRole
 
-        log, _ = _resolve_aperture_log(session)
+        log, _ = _resolve_initiative_log(session)
 
         parts = []
         provenance_parts = []
@@ -784,13 +784,13 @@ def _build_cold_spawn_context(session) -> tuple[str | None, str | None]:
             )
             provenance_parts.append(f"compact summary ({ts})")
         elif log and log.import_source:
-            # No compact summary yet — inject a window of the imported ApertureLog entries
+            # No compact summary yet — inject a window of the imported InitiativeLog entries
             # so Claude has source context for this session.
-            from initiatives.models import ApertureLogEntry, ApertureLogEntryKind
+            from initiatives.models import InitiativeLogEntry, InitiativeLogEntryKind
             prose_entries = list(
-                ApertureLogEntry.objects.filter(
-                    aperture_log=log,
-                    kind=ApertureLogEntryKind.PROSE,
+                InitiativeLogEntry.objects.filter(
+                    initiative_log=log,
+                    kind=InitiativeLogEntryKind.PROSE,
                 ).order_by("source_turn_index", "created_at")[:60]
             )
             if prose_entries:
@@ -806,8 +806,8 @@ def _build_cold_spawn_context(session) -> tuple[str | None, str | None]:
                 if turn_lines:
                     source_title = log.import_source.get("title", "imported conversation")
                     n_shown = len([l for l in turn_lines if l.startswith("User:")])
-                    n_total = ApertureLogEntry.objects.filter(
-                        aperture_log=log, kind=ApertureLogEntryKind.PROSE
+                    n_total = InitiativeLogEntry.objects.filter(
+                        initiative_log=log, kind=InitiativeLogEntryKind.PROSE
                     ).count()
                     parts.append(
                         f"[Imported conversation: {source_title} — showing {n_shown} of {n_total // 2} exchanges]\n"
@@ -857,16 +857,16 @@ def _build_cold_spawn_context(session) -> tuple[str | None, str | None]:
 
 
 def _get_compact_summary(session) -> str | None:
-    """Return the ApertureLog compact summary for injection (legacy single-field path)."""
+    """Return the InitiativeLog compact summary for injection (legacy single-field path)."""
     context, _ = _build_cold_spawn_context(session)
     return context
 
 
 def _store_compact_summary(session, summary: str) -> None:
-    """Store compact summary in the session's ApertureLog."""
+    """Store compact summary in the session's InitiativeLog."""
     try:
         from django.utils import timezone
-        log, _ = _resolve_aperture_log(session)
+        log, _ = _resolve_initiative_log(session)
         if log is None:
             return
         log.compact_summary = summary
@@ -923,7 +923,7 @@ def _trigger_keeper_if_due(session) -> None:
     cadence has been reached. Called from the AtriumSessionEntry post_save signal.
     """
     try:
-        log, cadence = _resolve_aperture_log(session)
+        log, cadence = _resolve_initiative_log(session)
         threshold = _TURN_THRESHOLDS.get(cadence)
         if threshold is None:
             return  # "light" cadence — no turn-count trigger
@@ -974,18 +974,18 @@ def _trigger_idle_keeper_if_due(session) -> None:
     Fire the Continuous Keeper task if the session has been idle past the
     cadence threshold. Called at the start of warm() on cold spawn.
 
-    ApertureLog.last_session_end has no dedicated write path — Atrium has no
+    InitiativeLog.last_session_end has no dedicated write path — Atrium has no
     explicit session-close event (sessions use generic soft-delete, and
     reset() terminates only to immediately respawn). AtriumSession.last_activity_at
     (updated after every assistant turn, once the entry is saved) is a reliable
     stand-in: at the exact point we discover `not was_alive`, it holds the
     timestamp of this session's last real turn, which is what "idle since"
-    should mean here. Backfilled onto the ApertureLog for any other consumer
+    should mean here. Backfilled onto the InitiativeLog for any other consumer
     that expects last_session_end to be populated.
     """
     try:
         from django.utils import timezone
-        log, cadence = _resolve_aperture_log(session)
+        log, cadence = _resolve_initiative_log(session)
         if log is None:
             return
         idle_minutes = _IDLE_THRESHOLDS.get(cadence)

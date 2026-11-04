@@ -28,7 +28,7 @@ class ClioState(BaseModel):
     )
     last_surfaced_at = models.DateTimeField(null=True, blank=True)
     last_surfaced_signal = models.CharField(max_length=64, blank=True)
-    # 'aperture_log' | 'neglected_content' | 'recurring_action'
+    # 'initiative_log' | 'neglected_content' | 'recurring_action'
     last_dismissed_at = models.DateTimeField(null=True, blank=True)
     dismiss_mode = models.CharField(
         max_length=32,
@@ -181,7 +181,7 @@ class KeeperFinding(BaseModel):
     resolves an owner for, simply never surfaces through ClioState — a
     valid state, not an error. "Surfaced" reuses ClioState.last_surfaced_at
     as the cutoff (submitted_at > last_surfaced_at), the same convention
-    Signal 1 (ApertureLog) already uses — no separate surfaced_at flag.
+    Signal 1 (InitiativeLog) already uses — no separate surfaced_at flag.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

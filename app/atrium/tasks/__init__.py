@@ -2,7 +2,7 @@
 #
 # Celery tasks for the Atrium surface.
 # keeper_compact_task — Continuous Keeper: summarize recent AtriumSessionEntry
-# rows and store the result in ApertureLog.compact_summary.
+# rows and store the result in InitiativeLog.compact_summary.
 
 import logging
 
@@ -32,14 +32,14 @@ _MAX_TRANSCRIPT_CHARS = 40_000  # trim if very long
 def keeper_compact_task(self, session_id: str) -> None:
     """
     Continuous Keeper: summarize recent AtriumSessionEntry records for a session
-    and store the result in ApertureLog.compact_summary.
+    and store the result in InitiativeLog.compact_summary.
 
     Uses a one-shot `claude -p` subprocess — distinct from the live session
     subprocess, so it does not interfere with in-progress exchanges.
     """
     try:
         from atrium.models import AtriumSession, AtriumSessionEntry, AtriumSessionRole
-        from atrium.ai.service import _resolve_aperture_log
+        from atrium.ai.service import _resolve_initiative_log
 
         try:
             session = AtriumSession.objects.get(id=session_id, deleted_at__isnull=True)
@@ -47,9 +47,9 @@ def keeper_compact_task(self, session_id: str) -> None:
             logger.warning("[keeper] session not found: %s", session_id)
             return
 
-        log, cadence = _resolve_aperture_log(session)
+        log, cadence = _resolve_initiative_log(session)
         if log is None:
-            logger.warning("[keeper] no ApertureLog for session %s", session_id)
+            logger.warning("[keeper] no InitiativeLog for session %s", session_id)
             return
 
         entries = list(

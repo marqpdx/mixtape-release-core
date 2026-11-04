@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
-from initiatives.models import ApertureLog, ApertureLogEntry, Initiative
+from initiatives.models import InitiativeLog, InitiativeLogEntry, Initiative
 
 
 class Command(BaseCommand):
@@ -80,8 +80,8 @@ class Command(BaseCommand):
         for ini in initiatives:
             entry_count = 0
             try:
-                entry_count = ini.aperture_log.entries.count()
-            except ApertureLog.DoesNotExist:
+                entry_count = ini.initiative_log.entries.count()
+            except InitiativeLog.DoesNotExist:
                 pass
             self.stdout.write(
                 f"  [{ini.id}] {ini.title}  (status={ini.status}, entries={entry_count})"

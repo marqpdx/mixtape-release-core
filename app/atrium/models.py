@@ -118,7 +118,7 @@ class AtriumSession(BaseModel):
         null=True,
         blank=True,
         related_name="atrium_sessions",
-        help_text="When set, this session is scoped to a specific Initiative's ApertureLog.",
+        help_text="When set, this session is scoped to a specific Initiative's InitiativeLog.",
     )
 
     last_activity_at = models.DateTimeField(
@@ -241,7 +241,7 @@ class Distillate(models.Model):
     """
     A named knowledge artifact produced by the Distill action on an Atrium session.
 
-    Linked to the Initiative that owns the body of work (via ApertureLog / sponsor).
+    Linked to the Initiative that owns the body of work (via InitiativeLog / sponsor).
     The session field records which Atrium session generated it.
 
     AtriumSession IS the Pulse concept — no separate Pulse model. A session that

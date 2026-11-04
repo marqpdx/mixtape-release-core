@@ -11,9 +11,9 @@ from initiatives.models import (
     ActionRun,
     ActionRunStatus,
     Artifact,
-    ApertureLog,
-    ApertureLogEntry,
-    ApertureLogEntryKind,
+    InitiativeLog,
+    InitiativeLogEntry,
+    InitiativeLogEntryKind,
     CaptureMode,
     DistillationState,
     Initiative,
@@ -221,12 +221,12 @@ class RollingSummaryUpdateSerializer(serializers.Serializer):
     where_we_are_now = serializers.CharField(required=False, allow_blank=True)
 
 
-class ApertureLogEntrySerializer(serializers.ModelSerializer):
+class InitiativeLogEntrySerializer(serializers.ModelSerializer):
     class Meta:
-        model = ApertureLogEntry
+        model = InitiativeLogEntry
         fields = [
             "id",
-            "aperture_log",
+            "initiative_log",
             "kind",
             "body",
             "emph_note",
@@ -244,7 +244,7 @@ class ApertureLogEntrySerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
-            "aperture_log",
+            "initiative_log",
             "ledger_event_type",
             "ledger_data",
             "spawned_seed_content_type",
@@ -258,16 +258,16 @@ class ApertureLogEntrySerializer(serializers.ModelSerializer):
         ]
 
     def validate_kind(self, value):
-        if value in (ApertureLogEntryKind.LEDGER, ApertureLogEntryKind.SEED_SPAWN, ApertureLogEntryKind.RUN_BOUNDARY):
+        if value in (InitiativeLogEntryKind.LEDGER, InitiativeLogEntryKind.SEED_SPAWN, InitiativeLogEntryKind.RUN_BOUNDARY):
             raise serializers.ValidationError("Ledger, seed_spawn, and run_boundary entries are system-generated only.")
         return value
 
 
-class ApertureLogSerializer(serializers.ModelSerializer):
-    entries = ApertureLogEntrySerializer(many=True, read_only=True)
+class InitiativeLogSerializer(serializers.ModelSerializer):
+    entries = InitiativeLogEntrySerializer(many=True, read_only=True)
 
     class Meta:
-        model = ApertureLog
+        model = InitiativeLog
         fields = ["id", "initiative", "last_handoff_at", "created_at", "updated_at", "entries"]
         read_only_fields = ["id", "initiative", "last_handoff_at", "created_at", "updated_at"]
 

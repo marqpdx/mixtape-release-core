@@ -301,7 +301,7 @@ class InvitationService:
             user.roles.add(member_role)
             user.save()
 
-            # Initialize member: UserProfile, Crossroads membership, Personal Initiative + ApertureLog
+            # Initialize member: UserProfile, Crossroads membership, Personal Initiative + InitiativeLog
             MemberStartupService.run(user=user)
 
         else:

@@ -23,9 +23,9 @@ HANDOVER_LOCK_TTL = 300  # 5 minutes — debounce window between consecutive run
 )
 def handover_task(self, log_id: str):
     """
-    Lock-debounced task that generates an AI handover draft for an ApertureLog.
+    Lock-debounced task that generates an AI handover draft for an InitiativeLog.
 
-    Triggered by post_save on ApertureLogEntry (any non-handoff entry). Acquires a
+    Triggered by post_save on InitiativeLogEntry (any non-handoff entry). Acquires a
     5-minute cache lock so rapid bursts don't cause redundant generation — the first
     call wins, subsequent calls within the window are no-ops. The lock expires and
     the next new entry triggers a fresh run.
@@ -45,21 +45,21 @@ def handover_task(self, log_id: str):
 
 def _generate_handover_draft(log_id: str) -> None:
     from django.utils import timezone
-    from initiatives.models import ApertureLog, ApertureLogEntryKind
+    from initiatives.models import InitiativeLog, InitiativeLogEntryKind
 
     try:
-        aperture_log = ApertureLog.objects.select_related("initiative").get(id=log_id)
-    except ApertureLog.DoesNotExist:
-        logger.warning("handover_task: ApertureLog %s not found", log_id)
+        initiative_log = InitiativeLog.objects.select_related("initiative").get(id=log_id)
+    except InitiativeLog.DoesNotExist:
+        logger.warning("handover_task: InitiativeLog %s not found", log_id)
         return
 
-    window_from = aperture_log.last_handoff_at or aperture_log.created_at
+    window_from = initiative_log.last_handoff_at or initiative_log.created_at
     window_to = timezone.now()
 
     entries = list(
-        aperture_log.entries
+        initiative_log.entries
         .filter(created_at__gt=window_from, deleted_at__isnull=True)
-        .exclude(kind=ApertureLogEntryKind.HANDOFF)
+        .exclude(kind=InitiativeLogEntryKind.HANDOFF)
         .order_by("created_at")
     )
 
@@ -77,7 +77,7 @@ def _generate_handover_draft(log_id: str) -> None:
         for e in entries
     ]
 
-    initiative = aperture_log.initiative
+    initiative = initiative_log.initiative
     try:
         from inkwell.client import InkwellUnavailableError, synthesize
         result = synthesize(
@@ -104,7 +104,7 @@ def _generate_handover_draft(log_id: str) -> None:
         "entry_count": len(entries),
         "model": result.get("model", "inkwell/synthesize"),
     }
-    ApertureLog.objects.filter(pk=log_id).update(handover_draft=draft)
+    InitiativeLog.objects.filter(pk=log_id).update(handover_draft=draft)
     logger.info(
         "handover_task: draft written log=%s entries=%d",
         log_id, len(entries),

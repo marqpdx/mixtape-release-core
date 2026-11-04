@@ -18,9 +18,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from initiatives.models import (
-    ApertureLog,
-    ApertureLogEntry,
-    ApertureLogEntryKind,
+    InitiativeLog,
+    InitiativeLogEntry,
+    InitiativeLogEntryKind,
     Artifact,
     Initiative,
     Note,
@@ -204,30 +204,30 @@ class MeSessionExchangeView(APIView):
         )
 
     def _handle_run_command(self, initiative, user):
-        aperture_log, _ = ApertureLog.objects.get_or_create(initiative=initiative)
+        initiative_log, _ = InitiativeLog.objects.get_or_create(initiative=initiative)
 
         last_boundary = (
-            ApertureLogEntry.objects
-            .filter(aperture_log=aperture_log, kind=ApertureLogEntryKind.RUN_BOUNDARY)
+            InitiativeLogEntry.objects
+            .filter(initiative_log=initiative_log, kind=InitiativeLogEntryKind.RUN_BOUNDARY)
             .order_by("-created_at")
             .first()
         )
         if last_boundary:
-            entry_count = ApertureLogEntry.objects.filter(
-                aperture_log=aperture_log,
+            entry_count = InitiativeLogEntry.objects.filter(
+                initiative_log=initiative_log,
                 created_at__gt=last_boundary.created_at,
-            ).exclude(kind=ApertureLogEntryKind.RUN_BOUNDARY).count()
+            ).exclude(kind=InitiativeLogEntryKind.RUN_BOUNDARY).count()
         else:
-            entry_count = ApertureLogEntry.objects.filter(
-                aperture_log=aperture_log,
-            ).exclude(kind=ApertureLogEntryKind.RUN_BOUNDARY).count()
+            entry_count = InitiativeLogEntry.objects.filter(
+                initiative_log=initiative_log,
+            ).exclude(kind=InitiativeLogEntryKind.RUN_BOUNDARY).count()
 
         now = timezone.now()
         label = f"Run — {now.strftime('%B %-d, %-I:%M%p').lower()} · {entry_count} {'entry' if entry_count == 1 else 'entries'}"
 
-        ApertureLogEntry.objects.create(
-            aperture_log=aperture_log,
-            kind=ApertureLogEntryKind.RUN_BOUNDARY,
+        InitiativeLogEntry.objects.create(
+            initiative_log=initiative_log,
+            kind=InitiativeLogEntryKind.RUN_BOUNDARY,
             body=label,
             is_system_generated=True,
             authored_by="system",

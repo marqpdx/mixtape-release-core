@@ -741,10 +741,10 @@ class Handoff(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# ApertureLog + ApertureLogEntry
+# InitiativeLog + InitiativeLogEntry
 # ---------------------------------------------------------------------------
 
-class ApertureLogEntryKind(models.TextChoices):
+class InitiativeLogEntryKind(models.TextChoices):
     PROSE = "prose", "Prose"
     LEDGER = "ledger", "Ledger"
     HANDOFF = "handoff", "Handoff"
@@ -763,7 +763,7 @@ class LedgerEventType(models.TextChoices):
     MATERIAL_LATE_BOUND = "material_late_bound", "Material late-bound"
 
 
-class ApertureLog(BaseModel):
+class InitiativeLog(BaseModel):
     """
     The authoritative narrative spine of an Initiative.
     One per Initiative, created automatically alongside it.
@@ -774,12 +774,12 @@ class ApertureLog(BaseModel):
     initiative = models.OneToOneField(
         Initiative,
         on_delete=models.CASCADE,
-        related_name="aperture_log",
+        related_name="initiative_log",
     )
     last_handoff_at = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="Denormalized — updated on every ApertureLogEntry with kind='handoff'.",
+        help_text="Denormalized — updated on every InitiativeLogEntry with kind='handoff'.",
     )
     handover_draft = models.JSONField(
         null=True,
@@ -833,25 +833,25 @@ class ApertureLog(BaseModel):
         pass
 
     def __str__(self):
-        return f"ApertureLog for {self.initiative_id}"
+        return f"InitiativeLog for {self.initiative_id}"
 
 
-class ApertureLogEntry(BaseModel):
+class InitiativeLogEntry(BaseModel):
     """
-    Individual entries in an ApertureLog stream. Either human-authored or system-generated.
+    Individual entries in an InitiativeLog stream. Either human-authored or system-generated.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
-    aperture_log = models.ForeignKey(
-        ApertureLog,
+    initiative_log = models.ForeignKey(
+        InitiativeLog,
         on_delete=models.CASCADE,
         related_name="entries",
     )
     kind = models.CharField(
         max_length=20,
-        choices=ApertureLogEntryKind.choices,
-        default=ApertureLogEntryKind.PROSE,
+        choices=InitiativeLogEntryKind.choices,
+        default=InitiativeLogEntryKind.PROSE,
     )
     body = models.TextField(
         blank=True,
@@ -921,7 +921,7 @@ class ApertureLogEntry(BaseModel):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="aperture_log_entries",
+        related_name="initiative_log_entries",
         help_text="Null for system-generated entries.",
     )
     archived_at = models.DateTimeField(null=True, blank=True, default=None)
@@ -929,19 +929,19 @@ class ApertureLogEntry(BaseModel):
     class Meta(BaseModel.Meta):
         ordering = ["created_at"]
         indexes = [
-            models.Index(fields=["aperture_log", "created_at"]),
-            models.Index(fields=["aperture_log", "kind"]),
-            models.Index(fields=["aperture_log", "kind", "emph_is_summary_candidate"]),
+            models.Index(fields=["initiative_log", "created_at"]),
+            models.Index(fields=["initiative_log", "kind"]),
+            models.Index(fields=["initiative_log", "kind", "emph_is_summary_candidate"]),
         ]
 
     def __str__(self):
-        return f"ApertureLogEntry [{self.kind}] on {self.aperture_log_id}"
+        return f"InitiativeLogEntry [{self.kind}] on {self.initiative_log_id}"
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
-        if self.kind == ApertureLogEntryKind.HANDOFF:
+        if self.kind == InitiativeLogEntryKind.HANDOFF:
             # Sync last_handoff_at and clear the consumed draft
-            ApertureLog.objects.filter(pk=self.aperture_log_id).update(
+            InitiativeLog.objects.filter(pk=self.initiative_log_id).update(
                 last_handoff_at=self.created_at,
                 handover_draft=None,
             )

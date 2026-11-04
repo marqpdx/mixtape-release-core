@@ -6,17 +6,23 @@ from django.urls import path
 from . import views, views_me
 
 # ---------------------------------------------------------------------------
-# Aperture-log endpoints — included at api/initiatives/
+# InitiativeLog endpoints — included at api/initiatives/
 # ---------------------------------------------------------------------------
 
-aperture_patterns = [
-    path("search", views.ApertureInitiativeTypeaheadView.as_view(), name="initiative-search"),
+initiative_log_patterns = [
+    path("search", views.InitiativeTypeaheadView.as_view(), name="initiative-search"),
     path("personal", views.PersonalInitiativeCreateView.as_view(), name="initiative-personal-create"),
-    path("<uuid:initiative_id>/aperture-log", views.ApertureLogView.as_view(), name="aperture-log"),
-    path("<uuid:initiative_id>/aperture-log/entries", views.ApertureLogEntryCreateView.as_view(), name="aperture-log-entries"),
-    path("<uuid:initiative_id>/aperture-log/entries/<uuid:entry_id>", views.ApertureLogEntryDetailView.as_view(), name="aperture-log-entry-detail"),
-    path("<uuid:initiative_id>/aperture-log/handoffs", views.ApertureLogHandoffsView.as_view(), name="aperture-log-handoffs"),
-    path("<uuid:initiative_id>/aperture-log/handover-draft", views.ApertureLogHandoverDraftView.as_view(), name="aperture-log-handover-draft"),
+    path("<uuid:initiative_id>/log", views.InitiativeLogView.as_view(), name="initiative-log"),
+    path("<uuid:initiative_id>/log/entries", views.InitiativeLogEntryCreateView.as_view(), name="initiative-log-entries"),
+    path("<uuid:initiative_id>/log/entries/<uuid:entry_id>", views.InitiativeLogEntryDetailView.as_view(), name="initiative-log-entry-detail"),
+    path("<uuid:initiative_id>/log/handoffs", views.InitiativeLogHandoffsView.as_view(), name="initiative-log-handoffs"),
+    path("<uuid:initiative_id>/log/handover-draft", views.InitiativeLogHandoverDraftView.as_view(), name="initiative-log-handover-draft"),
+    # Former ApertureLog paths, kept only until the renamed frontend is deployed (ST-3 Part B, 2026-11-04). Remove after.
+    path("<uuid:initiative_id>/aperture-log", views.InitiativeLogView.as_view()),
+    path("<uuid:initiative_id>/aperture-log/entries", views.InitiativeLogEntryCreateView.as_view()),
+    path("<uuid:initiative_id>/aperture-log/entries/<uuid:entry_id>", views.InitiativeLogEntryDetailView.as_view()),
+    path("<uuid:initiative_id>/aperture-log/handoffs", views.InitiativeLogHandoffsView.as_view()),
+    path("<uuid:initiative_id>/aperture-log/handover-draft", views.InitiativeLogHandoverDraftView.as_view()),
 ]
 
 action_run_patterns = [

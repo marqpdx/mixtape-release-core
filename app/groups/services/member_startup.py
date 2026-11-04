@@ -22,7 +22,7 @@ from django.db import transaction
 
 from groups.models import GroupMembership
 from groups.models.group import Group
-from initiatives.models import ApertureLog, Initiative, InitiativeStatus
+from initiatives.models import InitiativeLog, Initiative, InitiativeStatus
 from profiles.models import UserProfile
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ class MemberStartupResult:
     user_profile: UserProfile
     crossroads_membership: GroupMembership
     personal_initiative: Initiative
-    aperture_log: ApertureLog
+    initiative_log: InitiativeLog
     was_new: bool
 
 
@@ -46,7 +46,7 @@ class MemberStartupService:
       1. Create UserProfile (if not exists)
       2. Add member to Crossroads (if not already a member)
       3. Create Personal Initiative (if not exists)
-      4. Create ApertureLog for Personal Initiative (if not exists)
+      4. Create InitiativeLog for Personal Initiative (if not exists)
     """
 
     @staticmethod
@@ -92,8 +92,8 @@ class MemberStartupService:
         if initiative_created:
             was_new = True
 
-        # Step 4 — ApertureLog
-        aperture_log, _ = ApertureLog.objects.get_or_create(
+        # Step 4 — InitiativeLog
+        initiative_log, _ = InitiativeLog.objects.get_or_create(
             initiative=initiative,
         )
 
@@ -101,6 +101,6 @@ class MemberStartupService:
             user_profile=profile,
             crossroads_membership=membership,
             personal_initiative=initiative,
-            aperture_log=aperture_log,
+            initiative_log=initiative_log,
             was_new=was_new,
         )
