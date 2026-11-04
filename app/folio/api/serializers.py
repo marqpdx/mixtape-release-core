@@ -9,7 +9,7 @@ from folio.shapes import Shape
 class FolioSerializer(serializers.ModelSerializer):
     class Meta:
         model = Folio
-        fields = ["id", "slug", "slug_history", "title", "created_at", "updated_at"]
+        fields = ["id", "slug", "slug_history", "title", "work_type", "context_revision", "orientation_confirmed_at", "orientation_confirmed_digest", "created_at", "updated_at"]
         read_only_fields = ["id", "slug", "slug_history", "created_at", "updated_at"]
 
 
@@ -57,7 +57,16 @@ class FolioInceptionCreateSerializer(serializers.Serializer):
 
 
 class FolioTitlePatchSerializer(serializers.Serializer):
-    title = serializers.CharField(allow_blank=True, trim_whitespace=False)
+    title = serializers.CharField(allow_blank=True, trim_whitespace=False, max_length=255, required=False)
+    work_type = serializers.ChoiceField(choices=["", "fiction"], required=False)
+    expected_revision = serializers.IntegerField(min_value=0, required=False)
+
+    def validate(self, attrs):
+        if not ({"title", "work_type"} & attrs.keys()):
+            raise serializers.ValidationError("Provide title and/or work_type.")
+        if "work_type" in attrs and "expected_revision" not in attrs:
+            raise serializers.ValidationError("Changing work_type requires expected_revision.")
+        return attrs
 
 
 class FolioMaterialCandidatePatchSerializer(serializers.Serializer):
@@ -70,6 +79,28 @@ class FolioMaterialCandidatePatchSerializer(serializers.Serializer):
 
 class FolioCreateSerializer(serializers.Serializer):
     title = serializers.CharField(allow_blank=True, required=False, default="", max_length=255)
+    work_type = serializers.ChoiceField(choices=["", "fiction"], required=False, default="")
+
+
+class FolioContextCommandSerializer(serializers.Serializer):
+    def to_internal_value(self, data):
+        if hasattr(data, "keys"):
+            unknown = set(data.keys()) - set(self.fields)
+            if unknown:
+                raise serializers.ValidationError({key: "Unknown field." for key in sorted(unknown)})
+        return super().to_internal_value(data)
+
+
+class FolioContextPrepareSerializer(FolioContextCommandSerializer):
+    request_id = serializers.UUIDField()
+    expected_revision = serializers.IntegerField(min_value=0)
+
+
+class FolioOrientationConfirmSerializer(FolioContextCommandSerializer):
+    request_id = serializers.UUIDField()
+    expected_digest = serializers.RegexField(r"^[a-f0-9]{64}$")
+    title = serializers.CharField(allow_blank=True, trim_whitespace=False, max_length=255)
+    work_type = serializers.ChoiceField(choices=["fiction"])
 
 
 class FolioNoteSerializer(serializers.ModelSerializer):

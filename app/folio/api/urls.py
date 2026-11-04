@@ -6,6 +6,8 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    path("folios/<uuid:folio_id>/interpretation-context", views.FolioInterpretationContextView.as_view(), name="folio-interpretation-context"),
+    path("folios/<uuid:folio_id>/orientation/confirm", views.FolioOrientationConfirmView.as_view(), name="folio-orientation-confirm"),
     path("inceptions", views.FolioInceptionListCreateView.as_view(), name="folio-inception-list-create"),
     path("inceptions/<uuid:inception_id>", views.FolioInceptionDetailView.as_view(), name="folio-inception-detail"),
     path(

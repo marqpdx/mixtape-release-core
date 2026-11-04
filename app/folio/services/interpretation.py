@@ -51,27 +51,52 @@ def current_context(folio):
     return {"revision": folio.context_revision, **context_snapshot(folio)}
 
 
+def _replay(folio, request_id, fingerprint):
+    entry = folio.prepared_context.get("commands", {}).get(str(request_id))
+    if entry:
+        if entry["fingerprint"] != fingerprint:
+            raise InterpretationError("request_conflict", 409)
+        return entry["result"]
+
+
+def _remember(folio, request_id, fingerprint, result):
+    if request_id is None:
+        return result
+    stored = folio.prepared_context
+    commands = dict(stored.get("commands", {}))
+    if len(commands) >= 100:
+        raise InterpretationError("context_command_limit", 413)
+    commands[str(request_id)] = {"fingerprint": fingerprint, "result": result}
+    folio.prepared_context = {"snapshot": stored.get("snapshot", stored), "commands": commands}
+    folio.save(update_fields=["prepared_context", "updated_at"])
+    return result
+
+
 def _prepare(folio):
     current = context_snapshot(folio)
-    if current != folio.prepared_context:
+    if current != folio.prepared_context.get("snapshot", folio.prepared_context):
         folio.context_revision += 1
-        folio.prepared_context = current
+        folio.prepared_context = {"snapshot": current, "commands": folio.prepared_context.get("commands", {})}
         folio.save(update_fields=["context_revision", "prepared_context", "updated_at"])
     return {"revision": folio.context_revision, **current}
 
 
 @transaction.atomic
-def prepare_context(*, author, folio_id, expected_revision):
+def prepare_context(*, author, folio_id, expected_revision, request_id=None):
     folio = owned_folio(author, folio_id, lock=True)
+    fingerprint = digest({"command": "prepare", "expected_revision": expected_revision})
+    previous = _replay(folio, request_id, fingerprint) if request_id else None
+    if previous is not None:
+        return previous
     if folio.context_revision != expected_revision:
         raise InterpretationError("context_conflict", 409)
-    return _prepare(folio)
+    return _remember(folio, request_id, fingerprint, _prepare(folio))
 
 
 @transaction.atomic
-def change_orientation(*, author, folio_id, expected_revision, title=None, work_type=None):
+def change_orientation(*, author, folio_id, expected_revision=None, title=None, work_type=None):
     folio = owned_folio(author, folio_id, lock=True)
-    if folio.context_revision != expected_revision:
+    if expected_revision is not None and folio.context_revision != expected_revision:
         raise InterpretationError("context_conflict", 409)
     if work_type is not None and work_type not in ("", "fiction"):
         raise InterpretationError("unsupported_work_type", 422)
@@ -95,8 +120,13 @@ def change_orientation(*, author, folio_id, expected_revision, title=None, work_
 
 
 @transaction.atomic
-def confirm_orientation(*, author, folio_id, expected_digest, title, work_type):
+def confirm_orientation(*, author, folio_id, expected_digest, title, work_type, request_id=None):
     folio = owned_folio(author, folio_id, lock=True)
+    fingerprint = digest({"command": "confirm", "expected_digest": expected_digest,
+                          "title": title, "work_type": work_type})
+    previous = _replay(folio, request_id, fingerprint) if request_id else None
+    if previous is not None:
+        return previous
     context = current_context(folio)
     if digest(context) != expected_digest or title != folio.title or work_type != folio.work_type:
         raise InterpretationError("context_conflict", 409)
@@ -106,7 +136,7 @@ def confirm_orientation(*, author, folio_id, expected_digest, title, work_type):
     folio.orientation_confirmed_at = timezone.now()
     folio.orientation_confirmed_digest = digest({"title": title, "work_type": work_type})
     folio.save(update_fields=["orientation_confirmed_by", "orientation_confirmed_at", "orientation_confirmed_digest", "updated_at"])
-    return context
+    return _remember(folio, request_id, fingerprint, context)
 
 
 @transaction.atomic
