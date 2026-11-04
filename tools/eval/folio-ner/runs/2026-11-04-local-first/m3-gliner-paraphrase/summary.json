@@ -1,0 +1,21 @@
+{
+  "split": "paraphrase",
+  "code_commit": "0551766f3dfe32a216e72fe1e6ec3edd36776676",
+  "code_sha256": "c2071dbb07f27f35406748466f77ed527894422b8855501d2b0122eb205e5080",
+  "unit_count": 10,
+  "correct": 10,
+  "confusion": {
+    "writing.setting -> writing.setting": 5,
+    "writing.character -> writing.character": 5
+  },
+  "load_seconds": 11.88185879192315,
+  "inference_seconds": 1.1262389170005918,
+  "producer": {
+    "kind": "model",
+    "id": "urchade/gliner_small-v2.1",
+    "version": "0.2.30",
+    "model_revision": "4e091416cf7c3481db542c2a3d26156916f3a47f"
+  },
+  "cloud_calls": 0,
+  "note": "Oracle found spans; GLiNER containment baseline; not full M3 or end-to-end quality."
+}

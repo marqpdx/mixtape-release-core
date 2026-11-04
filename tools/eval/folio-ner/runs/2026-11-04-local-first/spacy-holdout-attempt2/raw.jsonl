@@ -1,0 +1,5 @@
+{"case_id": "implicit-fiction", "entities": [{"end": 26, "label": "FAC", "score": null, "start": 14}]}
+{"case_id": "nested-setting-names", "entities": [{"end": 52, "label": "FAC", "score": null, "start": 40}]}
+{"case_id": "repeated-name", "entities": [{"end": 15, "label": "PERSON", "score": null, "start": 11}]}
+{"case_id": "project-marker", "entities": [{"end": 42, "label": "PERSON", "score": null, "start": 38}]}
+{"case_id": "spoken-self-correction", "entities": [{"end": 46, "label": "GPE", "score": null, "start": 42}, {"end": 57, "label": "PERSON", "score": null, "start": 53}, {"end": 112, "label": "FAC", "score": null, "start": 100}]}

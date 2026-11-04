@@ -1,0 +1,195 @@
+{
+  "split": "tuning",
+  "case_count": 4,
+  "annotation_status": "cto_review_amended",
+  "case_review_statuses": {
+    "approved_as_written": 1,
+    "amended_per_cto": 3
+  },
+  "cues": {
+    "micro": {
+      "tp": 6,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "per_type": {
+      "writing.character": {
+        "tp": 3,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "writing.scene": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "writing.setting": {
+        "tp": 2,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      }
+    },
+    "relaxed_overlap_micro": {
+      "tp": 6,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "relaxed_overlap_per_type": {
+      "writing.character": {
+        "tp": 3,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "writing.scene": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "writing.setting": {
+        "tp": 2,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      }
+    },
+    "optional": {
+      "gold_count": 0,
+      "hit_count": 0,
+      "hits": []
+    },
+    "false_positives": [],
+    "false_negatives": [],
+    "type_errors": [],
+    "boundary_errors": []
+  },
+  "mentions": {
+    "micro": {
+      "tp": 6,
+      "fp": 3,
+      "fn": 0,
+      "precision": 0.6666666666666666,
+      "recall": 1.0,
+      "f1": 0.8
+    },
+    "per_type": {
+      "writing.character": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "writing.scene": {
+        "tp": 0,
+        "fp": 1,
+        "fn": 0,
+        "precision": 0.0,
+        "recall": null,
+        "f1": 0.0
+      },
+      "writing.setting": {
+        "tp": 2,
+        "fp": 2,
+        "fn": 0,
+        "precision": 0.5,
+        "recall": 1.0,
+        "f1": 0.6666666666666666
+      }
+    },
+    "relaxed_overlap_micro": {
+      "tp": 6,
+      "fp": 3,
+      "fn": 0,
+      "precision": 0.6666666666666666,
+      "recall": 1.0,
+      "f1": 0.8
+    },
+    "relaxed_overlap_per_type": {
+      "writing.character": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "writing.scene": {
+        "tp": 0,
+        "fp": 1,
+        "fn": 0,
+        "precision": 0.0,
+        "recall": null,
+        "f1": 0.0
+      },
+      "writing.setting": {
+        "tp": 2,
+        "fp": 2,
+        "fn": 0,
+        "precision": 0.5,
+        "recall": 1.0,
+        "f1": 0.6666666666666666
+      }
+    },
+    "optional": {
+      "gold_count": 1,
+      "hit_count": 0,
+      "hits": []
+    },
+    "false_positives": [
+      {
+        "source_ref": "synthetic:locale-alias",
+        "source_revision": 0,
+        "type": "writing.setting",
+        "start": 8,
+        "end": 29,
+        "quote": "the abandoned station"
+      },
+      {
+        "source_ref": "synthetic:multi-shape",
+        "source_revision": 0,
+        "type": "writing.setting",
+        "start": 25,
+        "end": 46,
+        "quote": "the abandoned station"
+      },
+      {
+        "source_ref": "synthetic:multi-shape",
+        "source_revision": 0,
+        "type": "writing.scene",
+        "start": 52,
+        "end": 57,
+        "quote": "scene"
+      }
+    ],
+    "false_negatives": [],
+    "type_errors": [],
+    "boundary_errors": []
+  },
+  "qualifier_errors": [],
+  "ordinary_use_false_positives": [],
+  "note": "First local model comparison; generic spaCy mapping and fixed GLiNER labels, not confirmed Fiction interpretation."
+}

@@ -1,0 +1,164 @@
+{
+  "split": "holdout",
+  "case_count": 5,
+  "annotation_status": "cto_review_amended",
+  "case_review_statuses": {
+    "approved_as_written": 3,
+    "amended_per_cto": 1,
+    "authored_to_cto_spec": 1
+  },
+  "cues": {
+    "micro": {
+      "tp": 2,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "per_type": {
+      "writing.character": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "writing.setting": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      }
+    },
+    "relaxed_overlap_micro": {
+      "tp": 2,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "relaxed_overlap_per_type": {
+      "writing.character": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "writing.setting": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      }
+    },
+    "optional": {
+      "gold_count": 0,
+      "hit_count": 0,
+      "hits": []
+    },
+    "false_positives": [],
+    "false_negatives": [],
+    "type_errors": [],
+    "boundary_errors": []
+  },
+  "mentions": {
+    "micro": {
+      "tp": 11,
+      "fp": 3,
+      "fn": 0,
+      "precision": 0.7857142857142857,
+      "recall": 1.0,
+      "f1": 0.88
+    },
+    "per_type": {
+      "writing.character": {
+        "tp": 6,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "writing.setting": {
+        "tp": 5,
+        "fp": 3,
+        "fn": 0,
+        "precision": 0.625,
+        "recall": 1.0,
+        "f1": 0.7692307692307693
+      }
+    },
+    "relaxed_overlap_micro": {
+      "tp": 11,
+      "fp": 3,
+      "fn": 0,
+      "precision": 0.7857142857142857,
+      "recall": 1.0,
+      "f1": 0.88
+    },
+    "relaxed_overlap_per_type": {
+      "writing.character": {
+        "tp": 6,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "writing.setting": {
+        "tp": 5,
+        "fp": 3,
+        "fn": 0,
+        "precision": 0.625,
+        "recall": 1.0,
+        "f1": 0.7692307692307693
+      }
+    },
+    "optional": {
+      "gold_count": 0,
+      "hit_count": 0,
+      "hits": []
+    },
+    "false_positives": [
+      {
+        "source_ref": "synthetic:nested-setting-names",
+        "source_revision": 0,
+        "type": "writing.setting",
+        "start": 9,
+        "end": 25,
+        "quote": "New Glass Harbor"
+      },
+      {
+        "source_ref": "synthetic:nested-setting-names",
+        "source_revision": 0,
+        "type": "writing.setting",
+        "start": 13,
+        "end": 25,
+        "quote": "Glass Harbor"
+      },
+      {
+        "source_ref": "synthetic:repeated-name",
+        "source_revision": 0,
+        "type": "writing.setting",
+        "start": 19,
+        "end": 30,
+        "quote": "the station"
+      }
+    ],
+    "false_negatives": [],
+    "type_errors": [],
+    "boundary_errors": []
+  },
+  "qualifier_errors": [],
+  "ordinary_use_false_positives": [],
+  "note": "First local model comparison; generic spaCy mapping and fixed GLiNER labels, not confirmed Fiction interpretation."
+}

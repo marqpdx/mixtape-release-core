@@ -1,0 +1,7 @@
+{"case_id": "ordinary-location", "entities": []}
+{"case_id": "negated-scene", "entities": [{"end": 68, "label": "setting", "score": 0.5231976509094238, "start": 54, "text": "train stations"}]}
+{"case_id": "uncertain-identity", "entities": [{"end": 4, "label": "character", "score": 0.9766088128089905, "start": 0, "text": "Mara"}, {"end": 19, "label": "character", "score": 0.9088943600654602, "start": 15, "text": "Mira"}, {"end": 44, "label": "setting", "score": 0.9046534299850464, "start": 32, "text": "Glass Harbor"}]}
+{"case_id": "real-editor", "entities": [{"end": 15, "label": "character", "score": 0.6132084131240845, "start": 10, "text": "Julia"}]}
+{"case_id": "negated-character", "entities": [{"end": 26, "label": "character", "score": 0.9661720395088196, "start": 22, "text": "Mara"}, {"end": 37, "label": "character", "score": 0.9708002209663391, "start": 33, "text": "Mara"}]}
+{"case_id": "quoted-cue", "entities": [{"end": 21, "label": "scene", "score": 0.7816294431686401, "start": 16, "text": "scene"}]}
+{"case_id": "possessive-multiword", "entities": [{"end": 12, "label": "character", "score": 0.9033957719802856, "start": 0, "text": "Captain Ruiz"}, {"end": 45, "label": "setting", "score": 0.813972532749176, "start": 31, "text": "Saltmarsh quay"}]}

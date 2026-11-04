@@ -1,0 +1,40 @@
+{
+  "code_commit": "103ed442512e57acf56d1a52c11898ea90ba58f0",
+  "code_sha256": {
+    "model_adapters.py": "026c6a0c36260e7cae5c5ebb953fe4537a2deec6ded19a729a322b1402de5279",
+    "run_m2.py": "1c45e568acb2730af27fb3a4d408d47c29ec2470ebb61a25d75d9202a30d7e5d",
+    "m2-requirements.lock": "9a6d32c4644650a7d6535425e973af933ff70c7d1c9427f23d04d08e4b1c22ae"
+  },
+  "dataset_sha256": "354a6deeb2bb9c04387c27860ccf9cdfa21f0b75a7f305eab4759ba5832ff627",
+  "model_manifest_digest": "a9b721a80f3090e1d3a06f27b17e82ca1d44cd8f88a73ef10a87b68ea49a3e89",
+  "producer": {
+    "kind": "model",
+    "id": "spacy/en_core_web_sm",
+    "version": "3.8.18",
+    "model_revision": "3.8.0"
+  },
+  "label_map": {
+    "PERSON": "writing.character",
+    "GPE": "writing.setting",
+    "LOC": "writing.setting",
+    "FAC": "writing.setting"
+  },
+  "threshold": null,
+  "flat_ner": false,
+  "load_seconds": 1.3405452920123935,
+  "inference_seconds": [
+    0.003473374992609024,
+    0.0035748339723795652,
+    0.003035541856661439,
+    0.003050833009183407,
+    0.0028973331209272146,
+    0.003140167100355029,
+    0.00256137503311038
+  ],
+  "peak_rss_bytes_macos": 922468352,
+  "cloud_calls": 0,
+  "private_cases": 0,
+  "device": "cpu",
+  "torch_threads": 2,
+  "bundle_digest": "08cb9feb832b0b0ad4d52ab5220ca97b8a27a506d9dbf0030a4665e3a8bb482e"
+}
