@@ -518,7 +518,8 @@ class StartAnalysisView(APIView):
                 continue
             task_result = run_file_semantic_analysis.apply_async(
                 args=[str(job.id), filename],
-                queue="catalyst",
+                kwargs={"started_by_id": str(request.user.pk)},
+                queue="runtime",  # runs on the starter's Claude account (ST-3)
             )
             phase2_results["analysis_queue"]["files"].append({
                 "filename": filename,
@@ -526,7 +527,7 @@ class StartAnalysisView(APIView):
                 "status": "queued",
             })
             logger.info(
-                "[catalyst] Phase 2 queued — job=%s file=%s task_id=%s queue=catalyst",
+                "[catalyst] Phase 2 queued — job=%s file=%s task_id=%s queue=runtime",
                 job.id,
                 filename,
                 task_result.id,
@@ -1132,7 +1133,8 @@ class RegisterMaterializeView(APIView):
 
         task = materialize_register_entities.apply_async(
             args=[slug, register_slug, str(job_id)],
-            queue="catalyst",
+            kwargs={"started_by_id": str(request.user.pk)},
+            queue="runtime",  # runs on the starter's Claude account (ST-3)
         )
         logger.info(
             "[catalyst] materialize queued: group=%s register=%s job=%s task=%s by %s",
