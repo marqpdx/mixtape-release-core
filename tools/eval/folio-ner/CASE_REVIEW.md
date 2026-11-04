@@ -734,4 +734,3 @@ Shape judgments (separate from mention scoring):
 - writing.setting: supported; evidence `Saltmarsh quay`
 
 Expected non-actions: no_entity_creation, no_identity_merge, no_alias_learning, no_narrative_rewrite, no_placement_or_publication, no_geocoding.
-
