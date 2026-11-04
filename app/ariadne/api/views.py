@@ -3,17 +3,29 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from ariadne import inquiry as inquiry_services
 from ariadne import search as search_services
 from ariadne import services
-from ariadne.models import Concept, DiscoveryRun, EvidencePacket, Lens, RunCandidate
+from ariadne.inquiry import ModelConsentRequired
+from ariadne.models import Concept, DiscoveryRun, EvidencePacket, Inquiry, InquiryReview, InquiryRun, InquiryTheme, Lens, RunCandidate
 
 from .permissions import IsSuperuser
 from .serializers import (
+    ApproveSubQuestionsInputSerializer,
     ConceptDetailSerializer,
+    CurateCitationInputSerializer,
     CurationDecisionInputSerializer,
     DiscoveryRunSerializer,
+    DraftReviewInputSerializer,
     EvidencePacketDetailSerializer,
     EvidencePacketSerializer,
+    FrameInputSerializer,
+    InquiryCreateInputSerializer,
+    InquiryReviewSerializer,
+    InquiryRunSerializer,
+    InquirySerializer,
+    InquiryThemeSerializer,
+    LabelThemeInputSerializer,
     PacketAssembleInputSerializer,
     RunCandidateSerializer,
     SavedSearchInputSerializer,
@@ -200,3 +212,187 @@ class SavedSearchRunView(APIView):
         lens = get_object_or_404(Lens, id=lens_id)
         results = search_services.run_saved_search(lens)
         return Response({"query": lens.active_version.config["query"], "results": results})
+
+
+# ---------------------------------------------------------------------------
+# P9/P9a -- Inquiry Runs and the Review artifact (build spec §19.2-19.3)
+# ---------------------------------------------------------------------------
+
+class InquiryListCreateView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsSuperuser]
+
+    def get(self, request):
+        inquiries = Inquiry.objects.order_by("-created_at")
+        return Response(InquirySerializer(inquiries, many=True).data)
+
+    def post(self, request):
+        input_serializer = InquiryCreateInputSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        inquiry = inquiry_services.create_inquiry(
+            question=input_serializer.validated_data["question"], actor=request.user,
+        )
+        return Response(InquirySerializer(inquiry).data, status=status.HTTP_201_CREATED)
+
+
+class InquiryDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsSuperuser]
+
+    def get(self, request, inquiry_id):
+        inquiry = get_object_or_404(Inquiry, id=inquiry_id)
+        return Response(InquirySerializer(inquiry).data)
+
+
+class InquiryFrameView(APIView):
+    """§19.2 step 1: propose or supply sub-questions. use_model=true is
+    this pass's stand-in for ST-3 consent -- Frame never calls a model
+    unless the caller opts in explicitly."""
+
+    permission_classes = [permissions.IsAuthenticated, IsSuperuser]
+
+    def post(self, request, inquiry_id):
+        inquiry = get_object_or_404(Inquiry, id=inquiry_id)
+        input_serializer = FrameInputSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        data = input_serializer.validated_data
+        try:
+            inquiry = inquiry_services.frame_inquiry(
+                inquiry, sub_questions=data["sub_questions"], use_model=data["use_model"],
+            )
+        except ModelConsentRequired as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(InquirySerializer(inquiry).data)
+
+
+class InquiryApproveSubQuestionsView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsSuperuser]
+
+    def post(self, request, inquiry_id):
+        inquiry = get_object_or_404(Inquiry, id=inquiry_id)
+        input_serializer = ApproveSubQuestionsInputSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        inquiry = inquiry_services.approve_sub_questions(
+            inquiry, approved_texts=input_serializer.validated_data["approved_texts"],
+        )
+        return Response(InquirySerializer(inquiry).data)
+
+
+class InquiryGatherView(APIView):
+    """§19.2 step 2: hybrid retrieval per approved sub-question."""
+
+    permission_classes = [permissions.IsAuthenticated, IsSuperuser]
+
+    def post(self, request, inquiry_id):
+        inquiry = get_object_or_404(Inquiry, id=inquiry_id)
+        try:
+            run = inquiry_services.gather_for_inquiry(inquiry)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(InquiryRunSerializer(run).data, status=status.HTTP_201_CREATED)
+
+
+class InquiryRunDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsSuperuser]
+
+    def get(self, request, run_id):
+        run = get_object_or_404(InquiryRun, id=run_id)
+        return Response(InquiryRunSerializer(run).data)
+
+
+class InquiryRunMapView(APIView):
+    """§19.2 step 3: deterministic clustering over the Gather pool."""
+
+    permission_classes = [permissions.IsAuthenticated, IsSuperuser]
+
+    def post(self, request, run_id):
+        run = get_object_or_404(InquiryRun, id=run_id)
+        themes = inquiry_services.map_inquiry_run(run)
+        return Response(InquiryThemeSerializer(themes, many=True).data, status=status.HTTP_201_CREATED)
+
+    def get(self, request, run_id):
+        run = get_object_or_404(InquiryRun, id=run_id)
+        themes = run.themes.order_by("rank")
+        return Response(InquiryThemeSerializer(themes, many=True).data)
+
+
+class InquiryThemeLabelView(APIView):
+    """Optional model step: label a theme already formed deterministically."""
+
+    permission_classes = [permissions.IsAuthenticated, IsSuperuser]
+
+    def post(self, request, theme_id):
+        theme = get_object_or_404(InquiryTheme, id=theme_id)
+        input_serializer = LabelThemeInputSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        try:
+            theme = inquiry_services.label_theme(theme, use_model=input_serializer.validated_data["use_model"])
+        except ModelConsentRequired as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(InquiryThemeSerializer(theme).data)
+
+
+class InquiryThemePacketView(APIView):
+    """§19.2 step 4: one evidence packet per theme."""
+
+    permission_classes = [permissions.IsAuthenticated, IsSuperuser]
+
+    def post(self, request, theme_id):
+        theme = get_object_or_404(InquiryTheme, id=theme_id)
+        packet = inquiry_services.assemble_theme_packet(theme)
+        return Response(EvidencePacketSerializer(packet).data, status=status.HTTP_201_CREATED)
+
+
+class InquiryRunDraftView(APIView):
+    """§19.2 step 5: draft the cited Review. use_model is required --
+    this is the one step that must generate prose, never deterministic."""
+
+    permission_classes = [permissions.IsAuthenticated, IsSuperuser]
+
+    def post(self, request, run_id):
+        run = get_object_or_404(InquiryRun, id=run_id)
+        input_serializer = DraftReviewInputSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        try:
+            review = inquiry_services.draft_review(run, use_model=input_serializer.validated_data["use_model"])
+        except ModelConsentRequired as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(InquiryReviewSerializer(review).data, status=status.HTTP_201_CREATED)
+
+
+class InquiryReviewDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsSuperuser]
+
+    def get(self, request, review_id):
+        review = get_object_or_404(InquiryReview, id=review_id)
+        return Response(InquiryReviewSerializer(review).data)
+
+
+class InquiryReviewCurateView(APIView):
+    """§19.2 step 6, minus Accession: accept, amend or strike one claim."""
+
+    permission_classes = [permissions.IsAuthenticated, IsSuperuser]
+
+    def post(self, request, review_id):
+        review = get_object_or_404(InquiryReview, id=review_id)
+        input_serializer = CurateCitationInputSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        data = input_serializer.validated_data
+        try:
+            review = inquiry_services.curate_citation(
+                review, citation_id=data["citation_id"], action=data["action"], amended_text=data["amended_text"],
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(InquiryReviewSerializer(review).data)
+
+
+class InquiryReviewAccessionView(APIView):
+    """§19.2 step 6's Accession -- scoped substitute, see inquiry.py's
+    module note: a plain standing-review pointer, not the real
+    Likeness/accession mechanism."""
+
+    permission_classes = [permissions.IsAuthenticated, IsSuperuser]
+
+    def post(self, request, review_id):
+        review = get_object_or_404(InquiryReview, id=review_id)
+        inquiry = inquiry_services.accession_review(review)
+        return Response(InquirySerializer(inquiry).data)

@@ -321,3 +321,82 @@ class AriadneWorkbenchTestCase(TestCase):
         self.client.force_authenticate(self.superuser)
         response = self.client.get(f"/api/ariadne/lenses/{uuid.uuid4()}/run/")
         self.assertEqual(response.status_code, 404)
+
+
+class AriadneInquiryViewsTestCase(TestCase):
+    """P9/P9a view wiring -- the actual Frame/Gather/Map/Draft/Curate
+    behavior is covered against the service layer in test_inquiry.py;
+    this is a thin smoke test of the endpoints themselves."""
+
+    def setUp(self):
+        self.superuser = User.objects.create_user(
+            username="su3", email="su3@example.com", password="x", is_superuser=True, is_staff=True,
+        )
+        self.member = User.objects.create_user(username="member3", email="member3@example.com", password="x")
+        self.client = APIClient()
+
+    def test_create_inquiry_rejects_non_superuser(self):
+        self.client.force_authenticate(self.member)
+        response = self.client.post("/api/ariadne/inquiries/", {"question": "Q"}, format="json")
+        self.assertEqual(response.status_code, 403)
+
+    def test_create_and_fetch_inquiry(self):
+        self.client.force_authenticate(self.superuser)
+        created = self.client.post("/api/ariadne/inquiries/", {"question": "How did Fruition develop?"}, format="json")
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(created.data["status"], "framing")
+
+        fetched = self.client.get(f"/api/ariadne/inquiries/{created.data['id']}/")
+        self.assertEqual(fetched.status_code, 200)
+        self.assertEqual(fetched.data["question"], "How did Fruition develop?")
+
+    def test_frame_without_model_consent_returns_400(self):
+        self.client.force_authenticate(self.superuser)
+        created = self.client.post("/api/ariadne/inquiries/", {"question": "Q"}, format="json")
+        response = self.client.post(f"/api/ariadne/inquiries/{created.data['id']}/frame/", {}, format="json")
+        self.assertEqual(response.status_code, 400)
+
+    def test_frame_and_approve_flow(self):
+        self.client.force_authenticate(self.superuser)
+        created = self.client.post("/api/ariadne/inquiries/", {"question": "Q"}, format="json")
+        inquiry_id = created.data["id"]
+
+        framed = self.client.post(
+            f"/api/ariadne/inquiries/{inquiry_id}/frame/",
+            {"sub_questions": [{"text": "Q1", "approved": False, "search_terms": ["q1"]}]},
+            format="json",
+        )
+        self.assertEqual(framed.status_code, 200)
+
+        approved = self.client.post(
+            f"/api/ariadne/inquiries/{inquiry_id}/approve-sub-questions/",
+            {"approved_texts": ["Q1"]},
+            format="json",
+        )
+        self.assertEqual(approved.status_code, 200)
+        self.assertEqual(approved.data["status"], "gathering")
+
+    def test_draft_without_model_consent_returns_400(self):
+        from ariadne.models import CorpusSnapshot, Inquiry, InquiryRun
+
+        inquiry = Inquiry.objects.create(question="Q")
+        snapshot = CorpusSnapshot.objects.create(manifest_hash="x", source_revision_ids=[], captured_at=timezone.now())
+        run = InquiryRun.objects.create(inquiry=inquiry, corpus_snapshot=snapshot)
+
+        self.client.force_authenticate(self.superuser)
+        response = self.client.post(f"/api/ariadne/inquiry-runs/{run.id}/draft/", {}, format="json")
+        self.assertEqual(response.status_code, 400)
+
+    def test_accession_sets_standing_review(self):
+        from ariadne.models import CorpusSnapshot, Inquiry, InquiryRun, InquiryReview
+
+        inquiry = Inquiry.objects.create(question="Q")
+        snapshot = CorpusSnapshot.objects.create(manifest_hash="x", source_revision_ids=[], captured_at=timezone.now())
+        run = InquiryRun.objects.create(inquiry=inquiry, corpus_snapshot=snapshot)
+        review = InquiryReview.objects.create(inquiry=inquiry, run=run, version=1)
+
+        self.client.force_authenticate(self.superuser)
+        response = self.client.post(f"/api/ariadne/inquiry-reviews/{review.id}/accession/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["standing_review_id"], str(review.id))
+        self.assertEqual(response.data["status"], "done")
