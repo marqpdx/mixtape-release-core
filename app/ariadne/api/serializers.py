@@ -61,6 +61,11 @@ class PacketAssembleInputSerializer(serializers.Serializer):
     candidate_key = serializers.CharField(max_length=256)
 
 
+class SavedSearchInputSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=256)
+    query = serializers.CharField(max_length=512)
+
+
 class ConceptAliasSerializer(serializers.ModelSerializer):
     class Meta:
         model = ConceptAlias
