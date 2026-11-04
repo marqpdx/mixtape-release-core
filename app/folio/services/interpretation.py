@@ -39,8 +39,10 @@ def context_snapshot(folio):
         raise InterpretationError("context_too_large", 413)
     for entity in entities:
         entity["id"] = str(entity["id"])
+    from folio.interpretation.strategy import context_dependencies
     snapshot = {"folio_id": str(folio.pk), "work_type": folio.work_type,
-                "title": folio.title, "entities": entities}
+                "title": folio.title, "entities": entities,
+                **context_dependencies(), "title_is_writer_set": bool(folio.title)}
     import json
     if len(json.dumps(snapshot, ensure_ascii=False)) > MAX_CONTEXT_CHARS:
         raise InterpretationError("context_too_large", 413)

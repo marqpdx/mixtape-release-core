@@ -219,6 +219,17 @@ class FolioNote(BaseModel):
             models.Index(fields=["folio", "created_at"]),
         ]
 
+    def save(self, *args, **kwargs):
+        from django.db import transaction
+        with transaction.atomic():
+            previous = type(self).objects.select_for_update().filter(pk=self.pk).first() if self.pk else None
+            if previous and previous.interpretations.exists():
+                written = set(kwargs.get("update_fields") or ["raw_text", "transcript_text", "source_type"])
+                for field in ("raw_text", "transcript_text", "source_type"):
+                    if field in written and getattr(previous, field) != getattr(self, field):
+                        raise ValueError("Captured Folio source is immutable after a reading begins; append a correction instead.")
+            super().save(*args, **kwargs)
+
     @property
     def text(self) -> str:
         return self.raw_text if self.source_type == FolioNoteSource.TEXT else self.transcript_text

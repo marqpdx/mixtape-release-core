@@ -18,6 +18,7 @@ import logging
 import requests
 from celery import shared_task
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 
 from concord.services.whisper import transcribe_audio
@@ -66,6 +67,9 @@ def transcribe_folio_note_task(self, note_id: str):
         logger.error("[folio-notes] FolioNote %s not found", note_id)
         return {"status": "missing"}
 
+    if note.interpretations.exists():
+        return {"status": "skipped", "reason": "source_already_read"}
+
     if note.source_type != FolioNoteSource.VOICE:
         return {"status": "skipped", "reason": "not_voice"}
 
@@ -77,21 +81,25 @@ def transcribe_folio_note_task(self, note_id: str):
 
     try:
         result = transcribe_audio(note.audio_file.file_path)
-        note.transcript_text = (result.text or "").strip()
-        note.transcript_model = result.model_name or ""
-        note.transcript_backend = result.backend or ""
-        note.transcript_created_at = timezone.now()
-        note.transcript_error = ""
-        note.status = FolioNoteStatus.READY
-        note.save(update_fields=[
-            "transcript_text",
-            "transcript_model",
-            "transcript_backend",
-            "transcript_created_at",
-            "transcript_error",
-            "status",
-            "updated_at",
-        ])
+        with transaction.atomic():
+            note = FolioNote.objects.select_for_update().get(pk=note_id)
+            if note.interpretations.exists():
+                return {"status": "skipped", "reason": "source_already_read"}
+            note.transcript_text = (result.text or "").strip()
+            note.transcript_model = result.model_name or ""
+            note.transcript_backend = result.backend or ""
+            note.transcript_created_at = timezone.now()
+            note.transcript_error = ""
+            note.status = FolioNoteStatus.READY
+            note.save(update_fields=[
+                "transcript_text",
+                "transcript_model",
+                "transcript_backend",
+                "transcript_created_at",
+                "transcript_error",
+                "status",
+                "updated_at",
+            ])
         _notify(note, "folio_note:transcribed")
         if note.transcript_text:
             if settings.FOLIO_AUTO_TENDING_ENABLED:
