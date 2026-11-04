@@ -52,7 +52,7 @@ def render():
             quotes='; '.join('`'+a['quote']+'`' for a in j['evidence'])
             review.append(f'- {j["shape_id"]}: {j["judgement"]}; evidence {quotes}')
         review += ['', 'Expected non-actions: '+', '.join(case['non_actions'])+'.','']
-    (ROOT/'CASE_REVIEW.md').write_text('\n'.join(review)+'\n')
+    (ROOT/'CASE_REVIEW.md').write_text('\n'.join(review).rstrip()+'\n')
     reports = {}
     for split in ('tuning','contrast','paraphrase'):
         report = evaluate(cases,[recognize(c['request']) for c in cases if c['split']==split],split)
