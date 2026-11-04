@@ -226,9 +226,14 @@ class FolioTitleDetailView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        folio.title = serializer.validated_data["title"]
-        folio.save()
-        return Response(FolioSerializer(folio).data)
+        from folio.services.interpretation import change_orientation
+        from heddle.errors import InterpretationError
+        try:
+            result = change_orientation(author=request.user, folio_id=folio.pk, **serializer.validated_data)
+        except InterpretationError as exc:
+            return Response({"error": exc.code}, status=exc.status)
+        folio.refresh_from_db()
+        return Response({**FolioSerializer(folio).data, "rereading_suggestion": result["rereading_suggestion"]})
 
 
 def _get_owned_candidate(request, candidate_id):
@@ -306,7 +311,7 @@ class FolioListCreateView(APIView):
         serializer = FolioCreateSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        folio = Folio.objects.create(title=serializer.validated_data["title"], sponsor=request.user, author=request.user, submitted_by=request.user)
+        folio = Folio.objects.create(**serializer.validated_data, sponsor=request.user, author=request.user, submitted_by=request.user)
         return Response(FolioSerializer(folio).data, status=status.HTTP_201_CREATED)
 
 
@@ -562,3 +567,48 @@ class WriterEntityListView(APIView):
         return Response([
             {"id": str(e.id), "kind": e.kind, "name": e.name, "aliases": e.aliases} for e in entities
         ])
+
+
+class FolioInterpretationContextView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, folio_id):
+        from folio.services.interpretation import current_context
+        from heddle.errors import InterpretationError
+        folio = get_object_or_404(member_folios(request.user), pk=folio_id)
+        try:
+            return Response(_folio_context_response(current_context(folio)))
+        except InterpretationError as exc:
+            return Response({"error": exc.code}, status=exc.status)
+
+    def post(self, request, folio_id):
+        from .serializers import FolioContextPrepareSerializer
+        from folio.services.interpretation import prepare_context
+        return _folio_context_command(request, folio_id, FolioContextPrepareSerializer, prepare_context)
+
+
+class FolioOrientationConfirmView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, folio_id):
+        from .serializers import FolioOrientationConfirmSerializer
+        from folio.services.interpretation import confirm_orientation
+        return _folio_context_command(request, folio_id, FolioOrientationConfirmSerializer, confirm_orientation)
+
+
+def _folio_context_response(context):
+    from heddle.bundle import digest
+    return {"context": context, "context_digest": digest(context)}
+
+
+def _folio_context_command(request, folio_id, serializer_type, operation):
+    from heddle.errors import InterpretationError
+    # Resolve authority before validating or replaying a command.
+    get_object_or_404(member_folios(request.user), pk=folio_id)
+    serializer = serializer_type(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    try:
+        result = operation(author=request.user, folio_id=folio_id, **serializer.validated_data)
+        return Response(_folio_context_response(result))
+    except InterpretationError as exc:
+        return Response({"error": exc.code}, status=exc.status)
