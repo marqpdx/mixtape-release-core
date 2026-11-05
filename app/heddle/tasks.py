@@ -92,7 +92,7 @@ def run_cloud_interpretation(*, action_run_id, reading: Reading, apply_fn):
             result_payload={"result": {"findings": parsed, "provenance": {
                 "provider": "anthropic-claude-code", "model": None,
                 "prompt_version": reading.prompt_version, "elapsed_ms": gen.elapsed_ms,
-                "usage": gen.usage}}}, completed_at=timezone.now())
+                "usage": gen.usage, "refinement_note": gen.refinement_note}}}, completed_at=timezone.now())
         apply_fn(str(child.pk))
     except InterpretationError as exc:
         fail(child.pk, exc.code, apply_fn=apply_fn)
@@ -138,6 +138,7 @@ def apply_interpretation(action_run_id, *, reading: Reading):
                     "provenance": {"provider": provenance.get("provider", "inkwell"),
                         "model": provenance.get("model"), "prompt_version": reading.prompt_version,
                         "elapsed_ms": provenance.get("elapsed_ms"), "usage": provenance.get("usage"),
+                        "refinement_note": provenance.get("refinement_note"),
                         "contract_version": reading.version, "units": {unit: reading.version for unit in reading.units}}})
             except (KeyError, TypeError, ValueError, ValidationError):
                 state.update(status="failed", error="invalid_output", findings=None)
