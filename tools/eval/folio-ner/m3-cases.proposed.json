@@ -1,0 +1,543 @@
+{
+  "status": "proposal_only",
+  "unit_contract": "m3_span_role/0.1.0-draft",
+  "review_required_before_any_run": true,
+  "models_run_on_new_cases": false,
+  "context": {
+    "work_type": "fiction",
+    "contour_bundle_digest": "08cb9feb832b0b0ad4d52ab5220ca97b8a27a506d9dbf0030a4665e3a8bb482e",
+    "shape_versions": {
+      "writing.character": "0.1.0",
+      "writing.setting": "0.1.0",
+      "writing.scene": "0.1.0"
+    }
+  },
+  "existing_cases_sha256": "354a6deeb2bb9c04387c27860ccf9cdfa21f0b75a7f305eab4759ba5832ff627",
+  "blindness_note": "Eight fresh_holdout cases are unrun by candidate models; authored in this session, not an independently curated external test set. Freeze after CTO review, then no tuning against their outcomes.",
+  "legacy_scene_replay_review": [
+    {
+      "case_id": "multi-shape",
+      "prior_split": "tuning",
+      "source_sha256": "443803012199027b269d2e887b5f7a7df08a8b20e9739083a95be7a30d6f0418",
+      "evidence": [
+        {
+          "end": 89,
+          "quote": "The scene begins when Mara returns there.",
+          "start": 48
+        }
+      ],
+      "status": "historical_replay_not_fresh_blind",
+      "review_note": "Reviewed Shape support, not previously measured as a Scene mention; confirm selected span grain for M3."
+    },
+    {
+      "case_id": "spoken-self-correction",
+      "prior_split": "holdout",
+      "source_sha256": "5b30ca1a90b3512c36667547034d162177b9cf7ae7f6153dc700e02b711a79cb",
+      "evidence": [
+        {
+          "end": 350,
+          "quote": "she stops before the lights on the water and almost turns around",
+          "start": 286
+        }
+      ],
+      "status": "historical_replay_not_fresh_blind",
+      "review_note": "Reviewed Shape support, not previously measured as a Scene mention; confirm selected span grain for M3."
+    },
+    {
+      "case_id": "spoken-no-cues",
+      "prior_split": "paraphrase",
+      "source_sha256": "c08e61eb027cb94152c7b234063a252cc6d631abe3ecf6f027fb58786aba9289",
+      "evidence": [
+        {
+          "end": 109,
+          "quote": "he keeps folding one corner, not opening it",
+          "start": 66
+        }
+      ],
+      "status": "historical_replay_not_fresh_blind",
+      "review_note": "Reviewed Shape support, not previously measured as a Scene mention; confirm selected span grain for M3."
+    }
+  ],
+  "units": [
+    {
+      "id": "m3-character-inez",
+      "split": "review",
+      "review_status": "proposed_cto_review_required",
+      "source_ref": "synthetic:m3-character-inez",
+      "source_revision": 0,
+      "text": "Character: Inez repairs the flood gates in this story. My sister Nora suggested the name.",
+      "source_sha256": "049c06e04352ad1b310a861a6014d125d8c90ef7c11f84cafdc721a12ea549ee",
+      "target": {
+        "start": 11,
+        "end": 15,
+        "quote": "Inez"
+      },
+      "expected_label": "writing.character",
+      "evidence_proposals": [
+        {
+          "start": 11,
+          "end": 15,
+          "quote": "Inez"
+        }
+      ],
+      "rationale": "The writer explicitly assigns Inez a fictional role; Nora is external context.",
+      "invariants": [
+        "no_source_rewrite",
+        "no_entity_creation",
+        "no_alias_learning",
+        "no_publication",
+        "no_cloud_call"
+      ]
+    },
+    {
+      "id": "m3-setting-ferry-hall",
+      "split": "review",
+      "review_status": "proposed_cto_review_required",
+      "source_ref": "synthetic:m3-setting-ferry-hall",
+      "source_revision": 0,
+      "text": "The locale is the glass-roofed ferry hall, where the characters wait before sunrise.",
+      "source_sha256": "0aa1d71926f69a37a9925834e008ff00322db92c081245d3e8187621964ca0d6",
+      "target": {
+        "start": 18,
+        "end": 41,
+        "quote": "glass-roofed ferry hall"
+      },
+      "expected_label": "writing.setting",
+      "evidence_proposals": [
+        {
+          "start": 18,
+          "end": 41,
+          "quote": "glass-roofed ferry hall"
+        }
+      ],
+      "rationale": "Locale is a cue; the phrase names a story setting.",
+      "invariants": [
+        "no_source_rewrite",
+        "no_entity_creation",
+        "no_alias_learning",
+        "no_publication",
+        "no_cloud_call"
+      ]
+    },
+    {
+      "id": "m3-scene-rain",
+      "split": "review",
+      "review_status": "proposed_cto_review_required",
+      "source_ref": "synthetic:m3-scene-rain",
+      "source_revision": 0,
+      "text": "Opening scene: Rain pounds the tin roof as Bela pulls a soaked envelope from under the locked door.",
+      "source_sha256": "618b4f0022fa98d6bb0ac2f5ddcb1bfe00a2cd1bc1a7f0837a42a0ced3d81394",
+      "target": {
+        "start": 15,
+        "end": 99,
+        "quote": "Rain pounds the tin roof as Bela pulls a soaked envelope from under the locked door."
+      },
+      "expected_label": "writing.scene",
+      "evidence_proposals": [
+        {
+          "start": 15,
+          "end": 99,
+          "quote": "Rain pounds the tin roof as Bela pulls a soaked envelope from under the locked door."
+        }
+      ],
+      "rationale": "A selected narrative passage with an action; preserve it verbatim.",
+      "invariants": [
+        "no_source_rewrite",
+        "no_entity_creation",
+        "no_alias_learning",
+        "no_publication",
+        "no_cloud_call"
+      ]
+    },
+    {
+      "id": "m3-none-proofreader",
+      "split": "review",
+      "review_status": "proposed_cto_review_required",
+      "source_ref": "synthetic:m3-none-proofreader",
+      "source_revision": 0,
+      "text": "My proofreader Caleb suggested cutting this chapter; Caleb is not a person in the fiction.",
+      "source_sha256": "e93fcf6d69d3749b40ae4d4fb887e4afd9a14d47a98df6193c0f6e1cbafccd03",
+      "target": {
+        "start": 15,
+        "end": 20,
+        "quote": "Caleb"
+      },
+      "expected_label": "none",
+      "evidence_proposals": [
+        {
+          "start": 0,
+          "end": 90,
+          "quote": "My proofreader Caleb suggested cutting this chapter; Caleb is not a person in the fiction."
+        }
+      ],
+      "rationale": "An explicitly external collaborator, despite the Fiction context.",
+      "invariants": [
+        "no_source_rewrite",
+        "no_entity_creation",
+        "no_alias_learning",
+        "no_publication",
+        "no_cloud_call"
+      ]
+    },
+    {
+      "id": "m3-character-fictional-editor",
+      "split": "contrast",
+      "review_status": "proposed_cto_review_required",
+      "source_ref": "synthetic:m3-character-fictional-editor",
+      "source_revision": 0,
+      "text": "Within the fiction, Suri is the editor of the island newspaper and hides letters in its press.",
+      "source_sha256": "8e2bc8dfa390a1a3c53ba70733a8689815242f5d47f29999d9ea98714142ef0a",
+      "target": {
+        "start": 20,
+        "end": 24,
+        "quote": "Suri"
+      },
+      "expected_label": "writing.character",
+      "evidence_proposals": [
+        {
+          "start": 20,
+          "end": 24,
+          "quote": "Suri"
+        }
+      ],
+      "rationale": "Editor is a story role here; do not adopt a blanket editor-is-external rule.",
+      "invariants": [
+        "no_source_rewrite",
+        "no_entity_creation",
+        "no_alias_learning",
+        "no_publication",
+        "no_cloud_call"
+      ]
+    },
+    {
+      "id": "m3-setting-archive",
+      "split": "contrast",
+      "review_status": "proposed_cto_review_required",
+      "source_ref": "synthetic:m3-setting-archive",
+      "source_revision": 0,
+      "text": "In the fiction, the Archive is an underground reading room. The manuscript itself is in my archive folder.",
+      "source_sha256": "7db3be126e16905983fd5d26119b72386cceab383a356f16c530ba09025523a6",
+      "target": {
+        "start": 20,
+        "end": 27,
+        "quote": "Archive"
+      },
+      "expected_label": "writing.setting",
+      "evidence_proposals": [
+        {
+          "start": 20,
+          "end": 27,
+          "quote": "Archive"
+        }
+      ],
+      "rationale": "A fictional referent must be distinguished from a storage folder.",
+      "invariants": [
+        "no_source_rewrite",
+        "no_entity_creation",
+        "no_alias_learning",
+        "no_publication",
+        "no_cloud_call"
+      ]
+    },
+    {
+      "id": "m3-scene-dialogue",
+      "split": "contrast",
+      "review_status": "proposed_cto_review_required",
+      "source_ref": "synthetic:m3-scene-dialogue",
+      "source_revision": 0,
+      "text": "Here is the scene: At midnight, Orla slides the empty cup toward Venn and whispers, \"You kept the key.\"",
+      "source_sha256": "96397a80e57c1d2dd9865593b1fcc5e4076b812e5990a6c0bc6b38617ec0c37c",
+      "target": {
+        "start": 19,
+        "end": 103,
+        "quote": "At midnight, Orla slides the empty cup toward Venn and whispers, \"You kept the key.\""
+      },
+      "expected_label": "writing.scene",
+      "evidence_proposals": [
+        {
+          "start": 19,
+          "end": 103,
+          "quote": "At midnight, Orla slides the empty cup toward Venn and whispers, \"You kept the key.\""
+        }
+      ],
+      "rationale": "A narrative passage containing dialogue; no paraphrase or extra story.",
+      "invariants": [
+        "no_source_rewrite",
+        "no_entity_creation",
+        "no_alias_learning",
+        "no_publication",
+        "no_cloud_call"
+      ]
+    },
+    {
+      "id": "m3-none-heading",
+      "split": "contrast",
+      "review_status": "proposed_cto_review_required",
+      "source_ref": "synthetic:m3-none-heading",
+      "source_revision": 0,
+      "text": "I typed \"scene\" as a heading in the planning sheet; there is no scene written under it yet.",
+      "source_sha256": "bc6bce71de1ad1b8fb851ec86404bfaf65b0c07ac2c095476a8ec98d2d822607",
+      "target": {
+        "start": 9,
+        "end": 14,
+        "quote": "scene"
+      },
+      "expected_label": "none",
+      "evidence_proposals": [
+        {
+          "start": 0,
+          "end": 91,
+          "quote": "I typed \"scene\" as a heading in the planning sheet; there is no scene written under it yet."
+        }
+      ],
+      "rationale": "A quoted heading is not itself a Scene passage.",
+      "invariants": [
+        "no_source_rewrite",
+        "no_entity_creation",
+        "no_alias_learning",
+        "no_publication",
+        "no_cloud_call"
+      ]
+    },
+    {
+      "id": "m3-character-juno",
+      "split": "fresh_holdout",
+      "review_status": "proposed_cto_review_required",
+      "source_ref": "synthetic:m3-character-juno",
+      "source_revision": 0,
+      "text": "Inside this story, Juno checks the station clock with a screwdriver and then pockets its hands.",
+      "source_sha256": "933ea4b181acb619fd75f7af3cce644301417f245b16079be94417f4f45d7d1c",
+      "target": {
+        "start": 19,
+        "end": 23,
+        "quote": "Juno"
+      },
+      "expected_label": "writing.character",
+      "evidence_proposals": [
+        {
+          "start": 19,
+          "end": 23,
+          "quote": "Juno"
+        }
+      ],
+      "rationale": "The statement explicitly places the named person inside the story.",
+      "invariants": [
+        "no_source_rewrite",
+        "no_entity_creation",
+        "no_alias_learning",
+        "no_publication",
+        "no_cloud_call"
+      ]
+    },
+    {
+      "id": "m3-character-edda",
+      "split": "fresh_holdout",
+      "review_status": "proposed_cto_review_required",
+      "source_ref": "synthetic:m3-character-edda",
+      "source_revision": 0,
+      "text": "Edda keeps the last orange in her coat and refuses to tell the guard where she found it.",
+      "source_sha256": "cef195bde8470ed5d5e463b7c883036be61cc1d428f497a383eef83f37ab4cc0",
+      "target": {
+        "start": 0,
+        "end": 4,
+        "quote": "Edda"
+      },
+      "expected_label": "writing.character",
+      "evidence_proposals": [
+        {
+          "start": 0,
+          "end": 4,
+          "quote": "Edda"
+        }
+      ],
+      "rationale": "Fiction context plus a named acting person; no character cue is required.",
+      "invariants": [
+        "no_source_rewrite",
+        "no_entity_creation",
+        "no_alias_learning",
+        "no_publication",
+        "no_cloud_call"
+      ]
+    },
+    {
+      "id": "m3-setting-saltglass",
+      "split": "fresh_holdout",
+      "review_status": "proposed_cto_review_required",
+      "source_ref": "synthetic:m3-setting-saltglass",
+      "source_revision": 0,
+      "text": "At every sunrise, the brass lift rattles through Saltglass Tower while the night workers hurry down.",
+      "source_sha256": "a5da33ebd1f1a123c4b8856878b055b5c1702e013c857a77eec83d93d7b8eefc",
+      "target": {
+        "start": 49,
+        "end": 64,
+        "quote": "Saltglass Tower"
+      },
+      "expected_label": "writing.setting",
+      "evidence_proposals": [
+        {
+          "start": 49,
+          "end": 64,
+          "quote": "Saltglass Tower"
+        }
+      ],
+      "rationale": "A named fictional place in narrative, without an explicit Setting cue.",
+      "invariants": [
+        "no_source_rewrite",
+        "no_entity_creation",
+        "no_alias_learning",
+        "no_publication",
+        "no_cloud_call"
+      ]
+    },
+    {
+      "id": "m3-setting-decomposed-cafe",
+      "split": "fresh_holdout",
+      "review_status": "proposed_cto_review_required",
+      "source_ref": "synthetic:m3-setting-decomposed-cafe",
+      "source_revision": 0,
+      "text": "The locale is Café des Brumes, and the meeting happens at its back table.",
+      "source_sha256": "d2475d7b5314b2d1396ee7f3443176b1c51c5706d245e3c2eef2df64882540b5",
+      "target": {
+        "start": 14,
+        "end": 30,
+        "quote": "Café des Brumes"
+      },
+      "expected_label": "writing.setting",
+      "evidence_proposals": [
+        {
+          "start": 14,
+          "end": 30,
+          "quote": "Café des Brumes"
+        }
+      ],
+      "rationale": "Decomposed accent is intentional; offsets and stored spelling must not normalize.",
+      "invariants": [
+        "no_source_rewrite",
+        "no_entity_creation",
+        "no_alias_learning",
+        "no_publication",
+        "no_cloud_call"
+      ]
+    },
+    {
+      "id": "m3-scene-sleet",
+      "split": "fresh_holdout",
+      "review_status": "proposed_cto_review_required",
+      "source_ref": "synthetic:m3-scene-sleet",
+      "source_revision": 0,
+      "text": "Sleet taps the skylight while Ren kneels beside the overturned cradle and listens for the bell.",
+      "source_sha256": "b9415e93c7a120dba295faae4e5b51d590b58ba476287070fccf7d8183dcadfd",
+      "target": {
+        "start": 0,
+        "end": 95,
+        "quote": "Sleet taps the skylight while Ren kneels beside the overturned cradle and listens for the bell."
+      },
+      "expected_label": "writing.scene",
+      "evidence_proposals": [
+        {
+          "start": 0,
+          "end": 95,
+          "quote": "Sleet taps the skylight while Ren kneels beside the overturned cradle and listens for the bell."
+        }
+      ],
+      "rationale": "The whole selected sentence is a fictional narrative moment, without a scene cue.",
+      "invariants": [
+        "no_source_rewrite",
+        "no_entity_creation",
+        "no_alias_learning",
+        "no_publication",
+        "no_cloud_call"
+      ]
+    },
+    {
+      "id": "m3-scene-spoken-moment",
+      "split": "fresh_holdout",
+      "review_status": "proposed_cto_review_required",
+      "source_ref": "synthetic:m3-scene-spoken-moment",
+      "source_revision": 0,
+      "text": "Okay, the moment I want is this: Uma reaches across the counter, takes the broken compass, and tells Hal, \"We leave at dusk.\"",
+      "source_sha256": "f77e2262d26a828849bee86de90c7736cd25bd6411f21a68d78909876be7d5ff",
+      "target": {
+        "start": 33,
+        "end": 125,
+        "quote": "Uma reaches across the counter, takes the broken compass, and tells Hal, \"We leave at dusk.\""
+      },
+      "expected_label": "writing.scene",
+      "evidence_proposals": [
+        {
+          "start": 33,
+          "end": 125,
+          "quote": "Uma reaches across the counter, takes the broken compass, and tells Hal, \"We leave at dusk.\""
+        }
+      ],
+      "rationale": "Spoken framing plus verbatim action/dialogue; select the narrative, not the preamble.",
+      "invariants": [
+        "no_source_rewrite",
+        "no_entity_creation",
+        "no_alias_learning",
+        "no_publication",
+        "no_cloud_call"
+      ]
+    },
+    {
+      "id": "m3-none-cousin",
+      "split": "fresh_holdout",
+      "review_status": "proposed_cto_review_required",
+      "source_ref": "synthetic:m3-none-cousin",
+      "source_revision": 0,
+      "text": "My cousin Leon read the draft on Tuesday; he is helping me check it and is not in the story.",
+      "source_sha256": "69b4ee4342aa82accb589d64ef8a0d5a959bde1a3b6a817a22a5d5950bc6b6e3",
+      "target": {
+        "start": 10,
+        "end": 14,
+        "quote": "Leon"
+      },
+      "expected_label": "none",
+      "evidence_proposals": [
+        {
+          "start": 0,
+          "end": 92,
+          "quote": "My cousin Leon read the draft on Tuesday; he is helping me check it and is not in the story."
+        }
+      ],
+      "rationale": "A real reviewer remains external even inside a Fiction Folio note.",
+      "invariants": [
+        "no_source_rewrite",
+        "no_entity_creation",
+        "no_alias_learning",
+        "no_publication",
+        "no_cloud_call"
+      ]
+    },
+    {
+      "id": "m3-none-research",
+      "split": "fresh_holdout",
+      "review_status": "proposed_cto_review_required",
+      "source_ref": "synthetic:m3-none-research",
+      "source_revision": 0,
+      "text": "Remind me to research rainforests next week; I have not chosen any of them as a story location.",
+      "source_sha256": "cbff8cf9e633f97e0fb53fcba8adc75fcc7526ab70262dabc99ec34eadf074ca",
+      "target": {
+        "start": 22,
+        "end": 33,
+        "quote": "rainforests"
+      },
+      "expected_label": "none",
+      "evidence_proposals": [
+        {
+          "start": 0,
+          "end": 95,
+          "quote": "Remind me to research rainforests next week; I have not chosen any of them as a story location."
+        }
+      ],
+      "rationale": "Research subject is not a confirmed or proposed fictional Setting in this telling.",
+      "invariants": [
+        "no_source_rewrite",
+        "no_entity_creation",
+        "no_alias_learning",
+        "no_publication",
+        "no_cloud_call"
+      ]
+    }
+  ]
+}
