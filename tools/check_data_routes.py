@@ -13,7 +13,9 @@ It fails when, outside the approved places listed in tools/data-routes.toml:
   2. code launches the claude or codex CLI itself instead of through the shared
      runners (claude/service.py, codex/service.py);
   3. a call to the shared Claude runner does not name its tools (`tools=`);
-  4. an http(s) host appears in code that is not on the allowlist.
+  4. an http(s) host appears in code that is not on the allowlist;
+  5. a call to the shared Claude or Codex runner does not name the person's
+     runtime (`run_as_user=`): no run on the server's own login (ST-3 Part C).
 
 Limits: hosts built from settings or the environment (Inkwell, Stackroom, Switchboard)
 are not seen here; the Argus block data-routes-01 checks the deployed settings.
@@ -41,6 +43,7 @@ CLOUD_SDKS = {"anthropic", "openai"}
 CLAUDE_RUNNER_FUNCS = {
     "run_blocking", "run_session_blocking", "get_or_spawn", "send_to_session", "stream", "compact_pty",
 }
+CODEX_RUNNER_FUNCS = {"run_blocking", "resume_blocking", "stream_exec"}
 CLI_NAMES = {"claude", "codex"}
 CLI_BIN_HELPERS = {"_claude_bin", "_codex_bin"}
 HOST_RE = re.compile(r"https?://([A-Za-z0-9.-]+)")
@@ -67,6 +70,8 @@ class FileCheck(ast.NodeVisitor):
         self.problems: list[str] = []
         self.runner_aliases: set[str] = set()   # `from claude import service as X`
         self.runner_names: set[str] = set()     # `from claude.service import run_blocking`
+        self.codex_aliases: set[str] = set()    # `from codex import service as X`
+        self.codex_names: set[str] = set()      # `from codex.service import run_blocking`
 
     def _flag(self, node: ast.AST, message: str) -> None:
         self.problems.append(f"{self.rel}:{getattr(node, 'lineno', 0)}: {message}")
@@ -79,6 +84,8 @@ class FileCheck(ast.NodeVisitor):
                 self._flag(node, f"imports cloud SDK '{top}' outside the approved places")
             if alias.name == "claude.service":
                 self.runner_aliases.add(alias.asname or "claude")
+            if alias.name == "codex.service":
+                self.codex_aliases.add(alias.asname or "codex")
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
@@ -89,6 +96,14 @@ class FileCheck(ast.NodeVisitor):
             for alias in node.names:
                 if alias.name == "service":
                     self.runner_aliases.add(alias.asname or "service")
+        if node.module == "codex":
+            for alias in node.names:
+                if alias.name == "service":
+                    self.codex_aliases.add(alias.asname or "service")
+        if node.module == "codex.service":
+            for alias in node.names:
+                if alias.name in CODEX_RUNNER_FUNCS:
+                    self.codex_names.add(alias.asname or alias.name)
         if node.module == "claude.service":
             for alias in node.names:
                 if alias.name in CLAUDE_RUNNER_FUNCS:
@@ -119,6 +134,16 @@ class FileCheck(ast.NodeVisitor):
         if is_runner_call and not any(k.arg == "tools" for k in node.keywords):
             if not _matches(self.rel, self.allow["cli_launchers"]):
                 self._flag(node, "calls the Claude runner without naming its tools (tools=...)")
+        # 5. every runner call names the person's runtime (ST-3 Part C)
+        is_codex_call = (
+            (isinstance(func, ast.Attribute) and func.attr in CODEX_RUNNER_FUNCS
+             and isinstance(func.value, ast.Name) and func.value.id in self.codex_aliases)
+            or (isinstance(func, ast.Name) and func.id in self.codex_names)
+        )
+        names_person = any(k.arg in ("run_as_user", None) for k in node.keywords)
+        if (is_runner_call or is_codex_call) and not names_person:
+            if not _matches(self.rel, self.allow["cli_launchers"]):
+                self._flag(node, "calls a runner without naming the person's runtime (run_as_user=...)")
         self.generic_visit(node)
 
     # 4. outbound hosts

@@ -12,11 +12,16 @@ import os
 import subprocess
 import unittest
 from unittest.mock import MagicMock, patch
+from django.test import SimpleTestCase, override_settings
+
+from cloud_agents.subprocess import PersonRuntimeRequired
 
 from claude import service as claude_service
 
 
-class TestRunBlocking(unittest.TestCase):
+# The bare runner, opted in to run without a person's runtime (ST-3 Part C).
+@override_settings(AI_RUNNER_ALLOW_SERVER_LOGIN=True)
+class TestRunBlocking(SimpleTestCase):
     def test_returns_stdout_on_success(self):
         mock_result = MagicMock()
         mock_result.returncode = 0
@@ -101,7 +106,9 @@ class TestRunBlocking(unittest.TestCase):
         self.assertEqual(args[0][:6], ["sudo", "-n", "-H", "-u", "tob-catalyst", "--"])
 
 
-class TestLockdown(unittest.TestCase):
+# The bare runner, opted in to run without a person's runtime (ST-3 Part C).
+@override_settings(AI_RUNNER_ALLOW_SERVER_LOGIN=True)
+class TestLockdown(SimpleTestCase):
     """ST-2: no tools unless named, empty scratch cwd, no MCP/hooks/saved session."""
 
     def setUp(self):
@@ -199,7 +206,9 @@ class TestLockdown(unittest.TestCase):
         self.assertTrue(os.path.isdir("/tmp"))  # a caller's cwd is never removed
 
 
-class TestStream(unittest.TestCase):
+# The bare runner, opted in to run without a person's runtime (ST-3 Part C).
+@override_settings(AI_RUNNER_ALLOW_SERVER_LOGIN=True)
+class TestStream(SimpleTestCase):
     """
     Integration smoke test — skip unless `claude` binary is on PATH.
     Run manually: pytest app/claude/tests/test_service.py -k streaming -s
@@ -258,3 +267,27 @@ class TestAuthCommands(unittest.TestCase):
         argv = claude_service.login_argv("mxr-abc")
         self.assertEqual(argv[:6], ["sudo", "-n", "-H", "-u", "mxr-abc", "--"])
         self.assertEqual(argv[-2:], ["auth", "login"])
+
+
+class TestRefusesWithoutPersonRuntime(SimpleTestCase):
+    """ST-3 Part C: no run on the server's own login; the refusal goes to the server log."""
+
+    @patch("claude.service.subprocess.run")
+    def test_run_blocking_refuses_and_logs(self, mock_run):
+        with self.assertLogs("cloud_agents.subprocess", level="ERROR") as logs:
+            with self.assertRaises(PersonRuntimeRequired):
+                claude_service.run_blocking("hello")
+        mock_run.assert_not_called()
+        self.assertIn("claude.run_blocking", logs.output[0])
+
+    @patch("claude.service.subprocess.Popen")
+    def test_session_spawn_refuses(self, mock_popen):
+        with self.assertRaises(PersonRuntimeRequired):
+            claude_service.get_or_spawn("partc-session")
+        mock_popen.assert_not_called()
+
+    @patch("claude.service.subprocess.run")
+    def test_named_runtime_user_is_allowed(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="ok", stderr="")
+        claude_service.run_blocking("hello", run_as_user="mxr-01")
+        self.assertEqual(mock_run.call_args.args[0][:5], ["sudo", "-n", "-H", "-u", "mxr-01"])

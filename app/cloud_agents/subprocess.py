@@ -35,6 +35,34 @@ def provider_env(
     return env
 
 
+class PersonRuntimeRequired(RuntimeError):
+    """A provider CLI was asked to run without a person's runtime (Service Trust ST-3 Part C)."""
+
+
+def require_person(linux_user: str | None, where: str) -> None:
+    """
+    Refuse to run a provider CLI as the server's own login.
+
+    Every run names the person's runtime user (R6 closed, ST-3 Part C). A refusal
+    is a bug in the caller, not something the person can fix, so it goes to the
+    server log with the caller named and raises; nothing is shown in Settings.
+    A test that exercises the bare runner opts in with
+    @override_settings(AI_RUNNER_ALLOW_SERVER_LOGIN=True).
+    """
+    if linux_user:
+        return
+    from django.conf import settings
+
+    if getattr(settings, "AI_RUNNER_ALLOW_SERVER_LOGIN", False):
+        return
+    import logging
+
+    logging.getLogger(__name__).error(
+        "[runner] refused: %s was called without run_as_user (no person's runtime)", where,
+    )
+    raise PersonRuntimeRequired(f"{where} needs a person's runtime (run_as_user)")
+
+
 def run_as_argv(linux_user: str | None, argv: list[str]) -> list[str]:
     """
     Prefix argv so it runs as a runtime's Linux user.
