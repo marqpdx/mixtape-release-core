@@ -788,6 +788,16 @@ class InitiativeLog(BaseModel):
         help_text="AI-generated handover draft written by handover_task. Cleared after a handoff entry is approved.",
     )
 
+    # The Initiative's curated memory (CTO, 2026-11-04; design-st3b §13): what matters
+    # for this work, written by the person. Every Atrium Dialogue in the Initiative opens
+    # with it. Moved up from the Dialogue's memory seed. Its name (Brief, Ground,
+    # Groundwork) is still the CTO's to choose.
+    memory = models.TextField(
+        blank=True,
+        default="",
+        help_text="The Initiative's curated memory: every Atrium Dialogue in it opens with this.",
+    )
+
     # Phase 2C — Atrium session compaction
     compact_summary = models.TextField(
         null=True,
