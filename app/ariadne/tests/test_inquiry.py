@@ -299,6 +299,7 @@ class DraftCloudApprovedTestCase(TestCase):
             runtime=self.fake_runtime,
             parsed={"claims": [{"text": "A cloud claim.", "passage_ids": [str(self.p1.id)]}]},
             failure=None, usage={"input_tokens": 10, "output_tokens": 5}, elapsed_ms=1200,
+            refinement_note="Shorter excerpts would help.",
         )
         review = inquiry_services.draft_review(self.run, use_model=True, cloud_approved=True, actor=self.actor)
         self.assertEqual(len(review.draft_calls), 1)
@@ -308,6 +309,7 @@ class DraftCloudApprovedTestCase(TestCase):
         self.assertTrue(call["prompt_digest"])
         self.assertEqual(call["usage"], {"input_tokens": 10, "output_tokens": 5})
         self.assertEqual(call["elapsed_ms"], 1200)
+        self.assertEqual(call["refinement_note"], "Shorter excerpts would help.")
         self.assertEqual(review.citations[0]["passage_ids"], [str(self.p1.id)])
 
     @patch("cloud_agents.generate.generate")

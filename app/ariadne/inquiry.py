@@ -418,6 +418,7 @@ def draft_review(
                 "failure": gen.failure,
                 "elapsed_ms": gen.elapsed_ms,
                 "usage": gen.usage,
+                "refinement_note": gen.refinement_note,
             })
             if gen.failure:
                 raise CloudDraftFailed(gen.failure)

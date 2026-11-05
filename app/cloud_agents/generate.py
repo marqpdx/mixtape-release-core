@@ -29,6 +29,16 @@ from typing import Literal
 from tenant_runtime.resolve import person_runtime as resolve_person_runtime
 
 
+_REFINEMENT_NOTE_INSTRUCTION = (
+    "\n\nAlso include a top-level \"refinement_note\" string field in your JSON "
+    "output, beside your other required fields: one or two sentences on how "
+    "this ask itself could be improved (clearer excerpts, a better-framed "
+    "question, anything else about the prompt, not its answer) -- or an "
+    "empty string if you have nothing to add. This is separate from, and "
+    "never changes, what you were actually asked for."
+)
+
+
 @dataclass
 class CloudGenerationResult:
     runtime: object
@@ -36,6 +46,7 @@ class CloudGenerationResult:
     failure: Literal["auth_failure", "timeout", "error", "empty", "invalid_json"] | None
     usage: dict | None
     elapsed_ms: int | None
+    refinement_note: str | None = None
 
 
 def generate(
@@ -47,12 +58,19 @@ def generate(
     then run `prompt` with no tools and parse its JSON output. Execution and
     parsing failures are returned on the result (`.failure`), not raised, so a
     caller can still act on the resolved runtime afterward (Heddle's
-    `verify_claude_runtime` on an auth failure needs it)."""
+    `verify_claude_runtime` on an auth failure needs it).
+
+    Every prompt also asks for an optional `refinement_note` (position paper
+    §6a, added to this CR 2026-11-05): a sentence or two on how the *ask*
+    could be improved, never the answer. It's extracted and stripped here,
+    before the caller ever sees `.parsed` -- it cannot affect a result, its
+    citations, or its validation, and a missing or empty note never fails
+    anything."""
     from claude.service import run_blocking
 
     runtime = resolve_person_runtime(author, capability, provider)
     result = run_blocking(
-        prompt,
+        prompt + _REFINEMENT_NOTE_INSTRUCTION,
         run_as_user=runtime.linux_user,
         home_dir=runtime.home_dir,
         tools="",
@@ -69,6 +87,10 @@ def generate(
         return CloudGenerationResult(
             runtime=runtime, parsed=None, failure="invalid_json", usage=result.usage, elapsed_ms=result.elapsed_ms,
         )
+    refinement_note = None
+    if isinstance(parsed, dict):
+        refinement_note = parsed.pop("refinement_note", None) or None
     return CloudGenerationResult(
         runtime=runtime, parsed=parsed, failure=None, usage=result.usage, elapsed_ms=result.elapsed_ms,
+        refinement_note=refinement_note,
     )
