@@ -99,8 +99,9 @@ space. Fail over-budget input explicitly; do not drop evidence, change backend
 or increase a model setting silently. Per-unit safety timeout is recorded as a
 failed/unknown result, never automatic cloud escalation or a retry permission.
 
-No batching decision changes the unit boundary. The broader Field Note's consent
-bookkeeping and monthly registry/cadence are not adopted by this experiment.
+No batching decision changes the unit boundary. The ratified decomposition/localization position governs the unit artifacts and
+consent boundaries; this experiment does not implement the monthly inventory
+or change its ownership.
 The local-only author's material remains local-only; no private note is in this
 proposal. A future Claude comparison needs its own explicit approval and runtime.
 
@@ -126,19 +127,28 @@ private notes, Claude comparison, local production rollout or phone integration.
 BA2 still owns host fit; Blue owns local execution/API policy; Puddlejump places
 Contour. The recognition-and-human-correction slice can progress independently.
 
-## Reading the November 5 design notes
+## Reading the November 5 design notes and subsequent ratification
 
-Read zz/design-note-inquiry-draft-many-small.md and
-zz/field-note-decompose-now-cloud-first-localize-later.md in Puddlejump as
-requested by the CTO. The first records the agreed Ariadne per-theme fix; this
-NER work makes no Ariadne change. The broader Field Note is proposed and its
-owner/registry questions remain open. Its real prompt/schema/context artifacts
-reinforce this unit design, but do not authorize cross-pipeline policy, blanket
-consent reuse, a new registry or any cloud work for the local-only author.
+The CTO asked us to read the two notes while they were in zz/. Since this draft
+was committed, Puddlejump ratified and placed them in 6cb9184, then moved agent
+handoffs under zz/_handoffs/ in 8eaf22f. Current sources:
 
-No need to wait for placement to prepare the already-approved M3 draft cases and
-comparator proposal. Their review gates remain. Decomposition reduces prompt
-growth; it does not prove every individual unit fits. The actual per-unit token
-preflight remains mandatory, independent of model/host choice. Cloud fulfillment
-under a person's consent may be appropriate elsewhere; it changes nothing about
-local-only refusal here.
+- decisions/ariadne/design-note-inquiry-draft-many-small.md (accepted per-theme fix).
+- decisions/positions/position-decompose-now-localize-later.md (ratified general practice).
+- decisions/model-vetting/step-model-fit.md (shared step/model evidence table).
+- decisions/heddle-adr/heddle-cr-01-cloud-generation-core.md (ratified shared cloud core).
+- zz/_handoffs/handoff-2026-11-05-mobile-folio-contract-decided-next.md (our approved bounds).
+
+The monthly inventory belongs to Argus; candidate evaluation goes to evaluation
+handoffs. We supply evidence, not another registry or an unrequested monthly job.
+The local NER/classification rows remain piloting/partial; a proposed Qwen file
+is not a measured fit result. Future cloud comparisons must use the person's own
+runtime, with no tools and a record per call, under explicit applicable consent.
+The local-only author's data remains local-only; no cloud comparator is authorized
+by either the general position or this proposal.
+
+No need to wait for placement to prepare these already-approved review artifacts.
+Their case/model approval gates remain. Decomposition reduces prompt growth; it
+does not prove every individual unit fits. Actual per-unit token preflight is
+mandatory independent of model or host. No Ariadne, cloud runner or production
+policy implementation is made by this evaluation proposal.
