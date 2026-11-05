@@ -50,7 +50,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Literal
 
-from cloud_agents.subprocess import run_as_argv
+from cloud_agents.subprocess import require_person, run_as_argv
 
 logger = logging.getLogger(__name__)
 
@@ -220,8 +220,10 @@ def run_blocking(
     with HOME set explicitly so ~/.claude/ credentials resolve correctly.
     tools: "" (default) disables all tools; name them to allow some.
     cwd: omit for an empty scratch directory (the default and the safe choice).
-    Raises nothing — logs warnings on any error.
+    Raises PersonRuntimeRequired without run_as_user (ST-3 Part C); otherwise
+    raises nothing — logs warnings on any error.
     """
+    require_person(run_as_user, "claude.run_blocking")
     bin_path = _claude_bin()
     logger.info(
         "[claude] run_blocking: cwd=%s tools=%r timeout=%ds run_as_user=%s",
@@ -311,6 +313,7 @@ def stream(prompt: str, cwd: str | None = None, tools: str = NO_TOOLS) -> Genera
     Caller is responsible for lifecycle management (no hard timeout here).
     Cleans up the process on error via try/finally.
     """
+    require_person(None, "claude.stream")
     bin_path = _claude_bin()
     logger.info("[claude] stream: cwd=%s tools=%r", cwd or "(scratch)", tools)
     scratch = None if cwd else _make_scratch_dir(None)
@@ -392,6 +395,7 @@ def get_or_spawn(
     tools / cwd: as for run_blocking; a scratch cwd lives as long as the session.
     allow_slash_commands: Atrium needs /compact; batch callers do not.
     """
+    require_person(run_as_user, "claude.get_or_spawn")
     with _session_lock(session_id):
         existing = _session_registry.get(session_id)
         if existing is not None and _is_alive(existing):

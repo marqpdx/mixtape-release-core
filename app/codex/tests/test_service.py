@@ -5,6 +5,9 @@ import os
 import subprocess
 import unittest
 from unittest.mock import MagicMock, patch
+from django.test import SimpleTestCase, override_settings
+
+from cloud_agents.subprocess import PersonRuntimeRequired
 
 from codex import service as codex_service
 
@@ -44,7 +47,9 @@ class TestCodexJsonlParser(unittest.TestCase):
         self.assertEqual(result.failure, "auth_failure")
 
 
-class TestCodexRunBlocking(unittest.TestCase):
+# The bare runner, opted in to run without a person's runtime (ST-3 Part C).
+@override_settings(AI_RUNNER_ALLOW_SERVER_LOGIN=True)
+class TestCodexRunBlocking(SimpleTestCase):
     def test_run_blocking_uses_json_read_only_stdin_and_strips_openai_env(self):
         mock_result = MagicMock()
         mock_result.returncode = 0
@@ -123,3 +128,13 @@ class TestCodexRunBlocking(unittest.TestCase):
 
         self.assertIsNone(result.output)
         self.assertEqual(result.failure, "timeout")
+
+
+class TestCodexRefusesWithoutPersonRuntime(SimpleTestCase):
+    """ST-3 Part C: Codex never runs on the server's own login either."""
+
+    @patch("codex.service.subprocess.run")
+    def test_run_blocking_refuses(self, mock_run):
+        with self.assertRaises(PersonRuntimeRequired):
+            codex_service.run_blocking("hello", cwd="/tmp")
+        mock_run.assert_not_called()

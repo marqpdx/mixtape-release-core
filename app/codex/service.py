@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from cloud_agents.policies import AgentExecutionPolicy, resolve_policy
-from cloud_agents.subprocess import provider_env, run_as_argv
+from cloud_agents.subprocess import provider_env, require_person, run_as_argv
 
 
 logger = logging.getLogger(__name__)
@@ -216,6 +216,7 @@ def run_blocking(
     home_dir: str | None = None,
     ephemeral: bool = False,
 ) -> CodexResult:
+    require_person(run_as_user, "codex.run_blocking")
     started_at = time.monotonic()
     argv = _exec_argv(
         cwd=cwd,
@@ -261,6 +262,7 @@ def resume_blocking(
     output_schema: str | None = None,
     home_dir: str | None = None,
 ) -> CodexResult:
+    require_person(run_as_user, "codex.resume_blocking")
     started_at = time.monotonic()
     argv = _exec_argv(
         cwd=cwd,
@@ -311,6 +313,7 @@ def stream_exec(
     provider_session_id: str | None = None,
     home_dir: str | None = None,
 ) -> Generator[tuple[str, str], None, CodexResult]:
+    require_person(run_as_user, "codex.stream_exec")
     argv = _exec_argv(
         cwd=cwd,
         policy=policy,
@@ -426,6 +429,7 @@ def terminate_session(local_process_id_or_session_id: str) -> None:
 
 
 def login_status(run_as_user: str | None = None, home_dir: str | None = None) -> CodexResult:
+    require_person(run_as_user, "codex.login_status")
     cmd = run_as_argv(
         run_as_user,
         [_codex_bin(), "login", "status", "-c", 'cli_auth_credentials_store="file"'],
@@ -452,6 +456,7 @@ def login_status(run_as_user: str | None = None, home_dir: str | None = None) ->
 
 
 def logout(run_as_user: str | None = None, home_dir: str | None = None) -> CodexResult:
+    require_person(run_as_user, "codex.logout")
     cmd = run_as_argv(
         run_as_user,
         [_codex_bin(), "logout", "-c", 'cli_auth_credentials_store="file"'],
