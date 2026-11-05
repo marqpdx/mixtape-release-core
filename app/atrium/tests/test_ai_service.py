@@ -397,3 +397,21 @@ class InitiativeMemoryTests(DialogueTestCase):
         second = Dialogue.objects.get(pk=client.post("/api/atrium/dialogues/new", {}, format="json").data["id"])
         prompt, _ = atrium_service.build_opening_prompt(second, "hello", before=timezone.now())
         self.assertIn("We write in Rust.", prompt)
+
+
+class DialogueSearchTests(DialogueTestCase):
+    def test_search_finds_my_dialogue_by_what_was_said_not_someone_elses(self):
+        from rest_framework.test import APIClient
+
+        mine = Dialogue.objects.create(member=self.profile, title="Tools")
+        DialogueEntry.objects.create(dialogue=mine, role=DialogueRole.USER, content="Which Rust crates for a menu-bar app?")
+        Dialogue.objects.create(member=self.profile, title="Garden")
+        other = get_user_model().objects.create_user(username="bo", email="bo@example.com", password="x")
+        theirs = Dialogue.objects.create(member=ensure_user_profile(other), title="Rust")
+        DialogueEntry.objects.create(dialogue=theirs, role=DialogueRole.USER, content="Rust everywhere")
+
+        client = APIClient()
+        client.force_authenticate(self.user)
+        results = client.get("/api/atrium/search", {"q": "rust"}).data["results"]
+        self.assertEqual([row["id"] for row in results], [str(mine.id)])
+        self.assertIn("«Rust»", results[0]["snippet"])

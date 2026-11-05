@@ -323,6 +323,72 @@ class InitiativeOpenView(APIView):
         )
 
 
+class DialogueSearchView(APIView):
+    """
+    GET /api/atrium/search?q=…
+
+    Find a Dialogue ("what was that dialogue about Rust tools?"): Postgres full-text
+    search over the person's own Dialogue titles and finished entries (design-st3b §6,
+    step 5). Returns up to 20 Dialogues, best first, each with its Initiative and a
+    highlighted snippet. Hybrid recall (Ariadne P8) is later.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from django.contrib.postgres.search import SearchHeadline, SearchQuery, SearchRank, SearchVector
+
+        q = (request.query_params.get("q") or "").strip()
+        if len(q) < 2:
+            return Response({"results": []})
+        profile = ensure_user_profile(request.user)
+        query = SearchQuery(q, search_type="websearch", config="english")
+
+        entries = (
+            DialogueEntry.objects.filter(
+                dialogue__member=profile,
+                dialogue__deleted_at__isnull=True,
+                status=DialogueEntryStatus.DONE,
+            )
+            .annotate(rank=SearchRank(SearchVector("content", config="english"), query))
+            .filter(rank__gt=0)
+            .order_by("-rank")[:200]
+        )
+        best: dict = {}
+        for entry in entries:
+            if entry.dialogue_id not in best:
+                best[entry.dialogue_id] = (entry.rank, entry.id)
+        titled = (
+            Dialogue.objects.filter(member=profile, deleted_at__isnull=True)
+            .annotate(rank=SearchRank(SearchVector("title", config="english"), query))
+            .filter(rank__gt=0)
+            .values_list("id", "rank")
+        )
+        for dialogue_id, rank in titled:
+            prior = best.get(dialogue_id)
+            # A title match counts for more than a passing mention.
+            best[dialogue_id] = (rank * 2 + (prior[0] if prior else 0), prior[1] if prior else None)
+
+        ranked = sorted(best.items(), key=lambda item: item[1][0], reverse=True)[:20]
+        snippets = dict(
+            DialogueEntry.objects.filter(id__in=[v[1] for _, v in ranked if v[1]])
+            .annotate(snippet=SearchHeadline(
+                "content", query, config="english", start_sel="«", stop_sel="»", max_words=24, min_words=8,
+            ))
+            .values_list("id", "snippet")
+        )
+        dialogues = Dialogue.objects.in_bulk([dialogue_id for dialogue_id, _ in ranked])
+        results = []
+        for dialogue_id, (_rank, entry_id) in ranked:
+            dialogue = dialogues.get(dialogue_id)
+            if dialogue is None:
+                continue
+            row = DialogueListSerializer(dialogue).data
+            row["snippet"] = snippets.get(entry_id, "")
+            results.append(row)
+        return Response({"results": results})
+
+
 class DialogueMemoryView(APIView):
     """
     GET / PATCH /api/atrium/dialogues/<dialogue_id>/memory  { memory }
