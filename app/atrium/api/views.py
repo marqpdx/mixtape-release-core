@@ -9,7 +9,7 @@ import json
 import logging
 import time
 
-from django.db.models import Count
+from django.db.models import F, Count
 from django.http import StreamingHttpResponse
 
 from rest_framework import generics, status
@@ -220,6 +220,11 @@ class DialogueCreateView(generics.CreateAPIView):
         if initiative_id:
             from initiatives.models import Initiative
             initiative = Initiative.objects.filter(id=initiative_id, deleted_at__isnull=True).first()
+        if initiative is None and sponsor_id is None:
+            # A personal Dialogue lives in the member's Initiative Zero.
+            from atrium.initiative_zero import initiative_zero
+
+            initiative = initiative_zero(request.user)
 
         ai_provider = request.data.get("ai_provider") or Dialogue._meta.get_field("ai_provider").default
         if ai_provider not in DIALOGUE_PROVIDERS:
@@ -268,45 +273,50 @@ def _can_open_initiative(user, initiative) -> bool:
     return False
 
 
-class InitiativeDialogueZeroView(APIView):
-    """
-    POST /api/atrium/initiatives/<initiative_id>/dialogue-zero
+def _open_in_initiative(profile, initiative):
+    """The person's most recent Dialogue in an Initiative, or a new one. Returns (dialogue, created)."""
+    from django.contrib.contenttypes.models import ContentType
 
-    Open an Initiative in Atrium: its Dialogue Zero, the person's first Dialogue in it,
-    created when there is none (CTO, 2026-11-04). For many Initiatives it's the only
-    Dialogue. Returns the Dialogue.
+    from groups.models.group import Group
+
+    dialogue = (
+        Dialogue.objects.filter(member=profile, initiative=initiative, deleted_at__isnull=True)
+        .order_by(F("last_activity_at").desc(nulls_last=True), "-created_at")
+        .first()
+    )
+    if dialogue is not None:
+        return dialogue, False
+    group_ct = ContentType.objects.get_for_model(Group)
+    is_group = initiative.sponsor_content_type_id == group_ct.id
+    dialogue = Dialogue.objects.create(
+        member=profile,
+        initiative=initiative,
+        sponsor_content_type=group_ct if is_group else None,
+        sponsor_object_id=initiative.sponsor_object_id if is_group else None,
+    )
+    return dialogue, True
+
+
+class InitiativeOpenView(APIView):
+    """
+    POST /api/atrium/initiatives/<initiative_id>/open
+
+    Open an Initiative in Atrium: the person's most recent Dialogue in it, or a new one
+    when there is none. There is no Dialogue Zero (CTO, 2026-11-04): Dialogues stay
+    light, and the first gets the ball rolling. Returns the Dialogue (201 when new).
+    (Also served at the old .../dialogue-zero path until the page is deployed.)
     """
 
     permission_classes = [IsAuthenticated]
 
     def post(self, request, initiative_id):
-        from django.contrib.contenttypes.models import ContentType
-
-        from groups.models.group import Group
         from initiatives.models import Initiative
 
         initiative = Initiative.objects.filter(id=initiative_id, deleted_at__isnull=True).first()
         if initiative is None or not _can_open_initiative(request.user, initiative):
             return Response({"detail": "Initiative not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        profile = ensure_user_profile(request.user)
-        dialogue = (
-            Dialogue.objects.filter(member=profile, initiative=initiative, deleted_at__isnull=True)
-            .order_by("created_at")
-            .first()
-        )
-        created = False
-        if dialogue is None:
-            group_ct = ContentType.objects.get_for_model(Group)
-            is_group = initiative.sponsor_content_type_id == group_ct.id
-            dialogue = Dialogue.objects.create(
-                member=profile,
-                initiative=initiative,
-                title="Dialogue Zero",
-                sponsor_content_type=group_ct if is_group else None,
-                sponsor_object_id=initiative.sponsor_object_id if is_group else None,
-            )
-            created = True
+        dialogue, created = _open_in_initiative(ensure_user_profile(request.user), initiative)
         return Response(
             DialogueListSerializer(dialogue).data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
@@ -654,12 +664,41 @@ def _personal_dialogue(profile):
             status=DialogueStatus.ACTIVE,
             deleted_at__isnull=True,
         )
-        .order_by("-last_activity_at", "-created_at")
+        .order_by(F("last_activity_at").desc(nulls_last=True), "-created_at")
         .first()
     )
     if dialogue is None:
-        dialogue = Dialogue.objects.create(member=profile, title="", session_context="")
+        from atrium.initiative_zero import initiative_zero
+
+        dialogue = Dialogue.objects.create(
+            member=profile, title="", session_context="", initiative=initiative_zero(profile.user)
+        )
     return dialogue
+
+
+class AtriumStartView(APIView):
+    """
+    GET /api/atrium/me/start
+
+    Where personal Atrium opens: the member's most recently active Dialogue outside a
+    Group, so the Initiative last worked in; else Initiative Zero's most recent
+    Dialogue, or a new one there (CTO, 2026-11-04).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from atrium.initiative_zero import initiative_zero
+
+        profile = ensure_user_profile(request.user)
+        dialogue = (
+            Dialogue.objects.filter(member=profile, sponsor_object_id__isnull=True, deleted_at__isnull=True)
+            .order_by(F("last_activity_at").desc(nulls_last=True), "-created_at")
+            .first()
+        )
+        if dialogue is None:
+            dialogue, _ = _open_in_initiative(profile, initiative_zero(request.user))
+        return Response(DialogueListSerializer(dialogue).data, status=status.HTTP_200_OK)
 
 
 class AtriumMeDialogueView(APIView):

@@ -285,7 +285,7 @@ class NoServerLoginTests(SimpleTestCase):
             self.assertEqual(app.conf.task_routes[name]["queue"], "runtime", name)
 
 
-class DialogueZeroTests(DialogueTestCase):
+class OpenInitiativeTests(DialogueTestCase):
     def _initiative(self, sponsor):
         from django.contrib.contenttypes.models import ContentType
         from initiatives.models import Initiative
@@ -301,22 +301,32 @@ class DialogueZeroTests(DialogueTestCase):
 
         client = APIClient()
         client.force_authenticate(user or self.user)
-        return client.post(f"/api/atrium/initiatives/{initiative.id}/dialogue-zero")
+        return client.post(f"/api/atrium/initiatives/{initiative.id}/open")
 
-    def test_opening_an_initiative_creates_its_dialogue_zero_once(self):
+    def test_opening_an_empty_initiative_starts_one_dialogue(self):
         initiative = self._initiative(self.profile)
         first = self._open(initiative)
         self.assertEqual(first.status_code, 201)
-        self.assertEqual(first.data["title"], "Dialogue Zero")
         again = self._open(initiative)
         self.assertEqual(again.status_code, 200)
         self.assertEqual(again.data["id"], first.data["id"])
 
-    def test_dialogue_zero_is_the_first_dialogue_in_the_initiative(self):
+    def test_opening_lands_on_the_most_recent_dialogue(self):
         initiative = self._initiative(self.profile)
-        earliest = Dialogue.objects.create(member=self.profile, initiative=initiative, title="Plans")
-        Dialogue.objects.create(member=self.profile, initiative=initiative, title="Later")
-        self.assertEqual(self._open(initiative).data["id"], str(earliest.id))
+        Dialogue.objects.create(member=self.profile, initiative=initiative, title="Plans")
+        recent = Dialogue.objects.create(
+            member=self.profile, initiative=initiative, title="Later", last_activity_at=timezone.now()
+        )
+        self.assertEqual(self._open(initiative).data["id"], str(recent.id))
+
+    def test_a_personal_dialogue_lives_in_initiative_zero_and_atrium_starts_there(self):
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        client.force_authenticate(self.user)
+        made = client.post("/api/atrium/dialogues/new", {}, format="json").data
+        self.assertTrue(made["initiative_is_personal"])
+        self.assertEqual(client.get("/api/atrium/me/start").data["id"], made["id"])
 
     def test_someone_elses_initiative_is_not_found(self):
         other = get_user_model().objects.create_user(username="bo", email="bo@example.com", password="x")
