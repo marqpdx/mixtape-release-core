@@ -26,6 +26,7 @@ class DialogueListSerializer(serializers.ModelSerializer):
     sponsor_type = serializers.SerializerMethodField()
     sponsor_slug = serializers.SerializerMethodField()
     initiative_title = serializers.SerializerMethodField()
+    initiative_is_personal = serializers.SerializerMethodField()
 
     def get_sponsor_type(self, obj):
         if obj.sponsor_content_type_id:
@@ -36,6 +37,10 @@ class DialogueListSerializer(serializers.ModelSerializer):
         if obj.sponsor_object_id and obj.sponsor:
             return getattr(obj.sponsor, "slug", None)
         return None
+
+    def get_initiative_is_personal(self, obj):
+        """True for Initiative Zero, the member's default Initiative (shown as "Personal")."""
+        return bool(obj.initiative_id and getattr(obj.initiative, "is_personal", False))
 
     def get_initiative_title(self, obj):
         if obj.initiative_id:
@@ -54,6 +59,7 @@ class DialogueListSerializer(serializers.ModelSerializer):
             "sponsor_slug",
             "initiative_id",
             "initiative_title",
+            "initiative_is_personal",
             "status",
             "last_activity_at",
             "entry_count",
