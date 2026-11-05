@@ -14,6 +14,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 
+from cloud_agents.generate import CloudGenerationResult
 from ariadne import inquiry as inquiry_services
 from ariadne.models import (
     CorpusSnapshot,
@@ -211,6 +212,132 @@ class DraftTestCase(TestCase):
         self.assertTrue(review.citations[0]["interpretation"])
         self.assertEqual(review.uncited_claim_count, 1)
         self.assertIn("interpretation, uncited", review.body_markdown)
+
+
+class DraftManySmallTestCase(TestCase):
+    """Draft issues one model call per theme (zz/design-note-inquiry-draft-
+    many-small.md), found necessary live when a 24-theme run's single
+    run-wide prompt exceeded a real model's context window."""
+
+    def setUp(self):
+        self.inquiry = inquiry_services.create_inquiry(question="How did Fruition develop?")
+        snapshot = CorpusSnapshot.objects.create(manifest_hash="x", source_revision_ids=[], captured_at=timezone.now())
+        self.p1 = _make_passage("a.md", "Fruition grew from the Spatial ADR's field physics.")
+        self.p2 = _make_passage("b.md", "On Coherence names terrain and gravity.")
+        self.run = InquiryRun.objects.create(
+            inquiry=self.inquiry,
+            corpus_snapshot=snapshot,
+            gathered_passage_ids=[str(self.p1.id), str(self.p2.id)],
+        )
+        self.theme1 = InquiryTheme.objects.create(run=self.run, passage_ids=[str(self.p1.id)], rank=0)
+        self.theme2 = InquiryTheme.objects.create(run=self.run, passage_ids=[str(self.p2.id)], rank=1)
+
+    @patch("ariadne.inquiry.service_generate")
+    def test_one_call_per_theme(self, mock_generate):
+        mock_generate.return_value = {
+            "result": {"claims": [{"text": "A claim.", "passage_ids": []}]}
+        }
+        inquiry_services.draft_review(self.run, use_model=True)
+        self.assertEqual(mock_generate.call_count, 2)
+
+    @patch("ariadne.inquiry.service_generate")
+    def test_claims_from_both_themes_are_kept_with_distinct_ids(self, mock_generate):
+        mock_generate.side_effect = [
+            {"result": {"claims": [{"text": "Claim from theme 1.", "passage_ids": [str(self.p1.id)]}]}},
+            {"result": {"claims": [{"text": "Claim from theme 2.", "passage_ids": [str(self.p2.id)]}]}},
+        ]
+        review = inquiry_services.draft_review(self.run, use_model=True)
+        self.assertEqual(len(review.citations), 2)
+        self.assertEqual(review.citations[0]["id"], "c0")
+        self.assertEqual(review.citations[1]["id"], "c1")
+        self.assertEqual(review.citations[0]["passage_ids"], [str(self.p1.id)])
+        self.assertEqual(review.citations[1]["passage_ids"], [str(self.p2.id)])
+        self.assertEqual(review.uncited_claim_count, 0)
+
+    @patch("ariadne.inquiry.service_generate")
+    def test_sibling_theme_passage_id_is_rejected(self, mock_generate):
+        """A passage real to the run but belonging to another theme was
+        never shown to this call's prompt -- citing it is as invalid as
+        inventing an id, since that theme's own excerpts are the only
+        pool this call actually saw."""
+        mock_generate.side_effect = [
+            {"result": {"claims": [{"text": "Claim citing theme 2's passage.", "passage_ids": [str(self.p2.id)]}]}},
+            {"result": {"claims": [{"text": "Claim from theme 2.", "passage_ids": [str(self.p2.id)]}]}},
+        ]
+        review = inquiry_services.draft_review(self.run, use_model=True)
+        self.assertEqual(review.citations[0]["passage_ids"], [])
+        self.assertTrue(review.citations[0]["interpretation"])
+        self.assertEqual(review.citations[0]["rejected_passage_ids"], [str(self.p2.id)])
+        self.assertEqual(review.citations[1]["passage_ids"], [str(self.p2.id)])
+        self.assertEqual(review.uncited_claim_count, 1)
+
+
+class DraftCloudApprovedTestCase(TestCase):
+    """cloud_approved is a separate, explicit consent from use_model
+    (Heddle CR-01 §4) -- routes each per-theme call through the shared
+    cloud_agents.generate core instead of local Inkwell, and logs each
+    call against one per-Inquiry consent event (charter §3.4)."""
+
+    def setUp(self):
+        self.inquiry = inquiry_services.create_inquiry(question="How did Fruition develop?")
+        snapshot = CorpusSnapshot.objects.create(manifest_hash="x", source_revision_ids=[], captured_at=timezone.now())
+        self.p1 = _make_passage("a.md", "Fruition grew from the Spatial ADR's field physics.")
+        self.run = InquiryRun.objects.create(
+            inquiry=self.inquiry, corpus_snapshot=snapshot, gathered_passage_ids=[str(self.p1.id)],
+        )
+        InquiryTheme.objects.create(run=self.run, passage_ids=[str(self.p1.id)], rank=0)
+        self.actor = User.objects.create_user(username="cto-draft-cloud", password="x")
+        self.fake_runtime = type("FakeRuntime", (), {"linux_user": "mx-run-7"})()
+
+    def test_cloud_approved_requires_an_actor(self):
+        with self.assertRaises(ValueError):
+            inquiry_services.draft_review(self.run, use_model=True, cloud_approved=True)
+
+    @patch("cloud_agents.generate.generate")
+    def test_cloud_call_is_logged_with_consent_account_and_cost(self, mock_generate):
+        mock_generate.return_value = CloudGenerationResult(
+            runtime=self.fake_runtime,
+            parsed={"claims": [{"text": "A cloud claim.", "passage_ids": [str(self.p1.id)]}]},
+            failure=None, usage={"input_tokens": 10, "output_tokens": 5}, elapsed_ms=1200,
+        )
+        review = inquiry_services.draft_review(self.run, use_model=True, cloud_approved=True, actor=self.actor)
+        self.assertEqual(len(review.draft_calls), 1)
+        call = review.draft_calls[0]
+        self.assertEqual(call["account"], "mx-run-7")
+        self.assertIsNotNone(call["consent_id"])
+        self.assertTrue(call["prompt_digest"])
+        self.assertEqual(call["usage"], {"input_tokens": 10, "output_tokens": 5})
+        self.assertEqual(call["elapsed_ms"], 1200)
+        self.assertEqual(review.citations[0]["passage_ids"], [str(self.p1.id)])
+
+    @patch("cloud_agents.generate.generate")
+    def test_cloud_execution_failure_is_logged_then_raised(self, mock_generate):
+        mock_generate.return_value = CloudGenerationResult(
+            runtime=self.fake_runtime, parsed=None, failure="timeout", usage=None, elapsed_ms=None,
+        )
+        with self.assertRaises(inquiry_services.CloudDraftFailed) as ctx:
+            inquiry_services.draft_review(self.run, use_model=True, cloud_approved=True, actor=self.actor)
+        self.assertEqual(ctx.exception.code, "timeout")
+
+    @patch("cloud_agents.generate.generate")
+    def test_cloud_output_not_matching_the_claims_schema_raises(self, mock_generate):
+        """Unlike local Inkwell's grammar-constrained generation, a cloud
+        model's output isn't shape-constrained server-side -- Draft must
+        validate it against the claims schema itself."""
+        mock_generate.return_value = CloudGenerationResult(
+            runtime=self.fake_runtime, parsed={"not_claims_at_all": True}, failure=None, usage=None, elapsed_ms=10,
+        )
+        with self.assertRaises(inquiry_services.CloudDraftFailed) as ctx:
+            inquiry_services.draft_review(self.run, use_model=True, cloud_approved=True, actor=self.actor)
+        self.assertEqual(ctx.exception.code, "invalid_output")
+
+    @patch("cloud_agents.generate.generate")
+    @patch("ariadne.inquiry.service_generate")
+    def test_local_path_never_calls_the_cloud_core(self, mock_local, mock_cloud):
+        mock_local.return_value = {"result": {"claims": [{"text": "Local claim.", "passage_ids": [str(self.p1.id)]}]}}
+        review = inquiry_services.draft_review(self.run, use_model=True)
+        mock_cloud.assert_not_called()
+        self.assertEqual(review.draft_calls, [])
 
 
 class CurateAndAccessionTestCase(TestCase):

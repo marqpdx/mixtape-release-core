@@ -7,7 +7,6 @@ Reading."""
 from __future__ import annotations
 
 import copy
-import json
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
@@ -15,10 +14,10 @@ from django.utils import timezone
 from jsonschema import ValidationError
 
 from initiatives.models import ActionRun, ActionRunStatus
+from tenant_runtime.resolve import RuntimeUnavailable
 
 from .contract import Reading, source_digest
 from .errors import InterpretationError
-from .lifecycle import person_runtime
 from .validation import validate_result
 
 
@@ -70,17 +69,20 @@ def run_cloud_interpretation(*, action_run_id, reading: Reading, apply_fn):
         if reading.steps:
             from .ordered import verify_worker
             verify_worker(reading, parent, state, child, data, author)
-        runtime = person_runtime(author, reading=reading)
-        from claude.service import run_blocking
-        result = run_blocking(data["prompt"],
-            run_as_user=runtime.linux_user, home_dir=runtime.home_dir, timeout=180, tools="")
-        if result.failure == "auth_failure":
+        from cloud_agents.generate import generate
+        try:
+            gen = generate(author=author, capability=reading.capability, prompt=data["prompt"], timeout=180)
+        except RuntimeUnavailable as exc:
+            raise InterpretationError(exc.code, 403 if exc.code == "mode_not_allowed" else 409) from exc
+        if gen.failure == "auth_failure":
             # Signed out since the last check: Settings says "Sign in again" at once (ST-3).
             from tenant_runtime.tasks import verify_claude_runtime
-            verify_claude_runtime(runtime)
-        if result.failure:
-            raise InterpretationError(result.failure if result.failure in {"auth_failure", "timeout"} else "execution_failed")
-        parsed = json.loads(result.output or "")
+            verify_claude_runtime(gen.runtime)
+        if gen.failure == "invalid_json":
+            raise InterpretationError("invalid_output")
+        if gen.failure:
+            raise InterpretationError(gen.failure if gen.failure in {"auth_failure", "timeout"} else "execution_failed")
+        parsed = gen.parsed
         if reading.steps:
             from .ordered import validate_model_output
             validate_model_output(reading, child, parsed)
@@ -89,8 +91,8 @@ def run_cloud_interpretation(*, action_run_id, reading: Reading, apply_fn):
         ActionRun.objects.filter(pk=child.pk).update(status=ActionRunStatus.SUCCEEDED,
             result_payload={"result": {"findings": parsed, "provenance": {
                 "provider": "anthropic-claude-code", "model": None,
-                "prompt_version": reading.prompt_version, "elapsed_ms": result.elapsed_ms,
-                "usage": result.usage}}}, completed_at=timezone.now())
+                "prompt_version": reading.prompt_version, "elapsed_ms": gen.elapsed_ms,
+                "usage": gen.usage}}}, completed_at=timezone.now())
         apply_fn(str(child.pk))
     except InterpretationError as exc:
         fail(child.pk, exc.code, apply_fn=apply_fn)

@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 from ariadne import inquiry as inquiry_services
 from ariadne import search as search_services
 from ariadne import services
-from ariadne.inquiry import ModelConsentRequired
+from ariadne.inquiry import CloudDraftFailed, ModelConsentRequired
 from ariadne.models import Concept, DiscoveryRun, EvidencePacket, Inquiry, InquiryReview, InquiryRun, InquiryTheme, Lens, RunCandidate
 
 from .permissions import IsSuperuser
@@ -352,9 +352,16 @@ class InquiryRunDraftView(APIView):
         input_serializer = DraftReviewInputSerializer(data=request.data)
         input_serializer.is_valid(raise_exception=True)
         try:
-            review = inquiry_services.draft_review(run, use_model=input_serializer.validated_data["use_model"])
+            review = inquiry_services.draft_review(
+                run,
+                use_model=input_serializer.validated_data["use_model"],
+                cloud_approved=input_serializer.validated_data["cloud_approved"],
+                actor=request.user,
+            )
         except ModelConsentRequired as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except CloudDraftFailed as exc:
+            return Response({"detail": exc.code}, status=status.HTTP_502_BAD_GATEWAY)
         return Response(InquiryReviewSerializer(review).data, status=status.HTTP_201_CREATED)
 
 

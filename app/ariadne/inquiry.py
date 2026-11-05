@@ -28,8 +28,11 @@ before this phase started:
 
 from __future__ import annotations
 
+import hashlib
 import math
+import uuid
 
+import jsonschema
 from django.utils import timezone
 
 from inkwell.client import service_generate
@@ -297,82 +300,160 @@ def assemble_theme_packet(theme: InquiryTheme) -> EvidencePacket:
 # Step 5: Draft
 # ---------------------------------------------------------------------------
 
-def draft_review(run: InquiryRun, *, use_model: bool = False) -> InquiryReview:
+_DRAFT_CLAIMS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "claims": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "passage_ids": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["text", "passage_ids"],
+            },
+        },
+    },
+    "required": ["claims"],
+}
+
+
+class CloudDraftFailed(Exception):
+    """A cloud-fulfilled Draft call failed (code: one of
+    cloud_agents.generate.CloudGenerationResult.failure, or 'invalid_output'
+    when the parsed JSON doesn't match the claims schema)."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+def _draft_prompt(question: str, excerpts: list[str]) -> str:
+    return (
+        f"Question: {question}\n\n"
+        "Excerpts (cite by the bracketed id, exactly as given):\n" + "\n".join(excerpts) + "\n\n"
+        "Write claims contributing to a literature review answering the question, using only "
+        "these excerpts. Every factual claim must cite one or more of the bracketed passage ids "
+        "that support it. A claim with no supporting excerpt should have an empty passage_ids "
+        "list -- it will be shown as your own interpretation."
+    )
+
+
+def draft_review(
+    run: InquiryRun, *, use_model: bool = False, cloud_approved: bool = False, actor=None,
+) -> InquiryReview:
     """A Review whose every claim cites one or more passages by id. §9
     4E's rule applied directly: a claim citing a passage id outside the
-    Gather pool has that id stripped, not downgraded with a soft note --
-    it cannot have come from material this Run actually saw. A claim left
-    with zero citations after stripping is rendered as interpretation,
-    never as a cited fact."""
+    *excerpts that call actually saw* has that id stripped, not downgraded
+    with a soft note -- it cannot have come from material this Run
+    actually saw. A claim left with zero citations after stripping is
+    rendered as interpretation, never as a cited fact.
+
+    One model call per theme, not one call for the whole run (Many Small
+    -- zz/design-note-inquiry-draft-many-small.md): a single run-wide
+    prompt scales with theme count and hits a real model's context window
+    at real corpus scale (14,761 requested tokens against a 4,096 window,
+    found live 2026-11-05). Each call's valid-citation pool is that
+    theme's own excerpts, not the whole run's Gather pool -- a passage id
+    belonging to a sibling theme the model never saw this call is exactly
+    as invalid as an invented one.
+
+    use_model is not cloud_approved (Heddle CR-01 §4): use_model alone
+    stays local Inkwell, exactly as before. cloud_approved=True is a
+    separate, explicit consent to leave the local boundary -- it runs
+    every per-theme call on `actor`'s own cloud runtime (charter §3.1)
+    instead, through the thin shared core (cloud_agents.generate),
+    requiring `actor`. One consent event covers the whole call (the one
+    ask, per the Field Note's §3b), logged on every per-theme call it
+    covers: account, a digest of what was asked (never the raw prompt, by
+    the same discipline as Heddle's source_digest), and what came back
+    (charter §3.4)."""
     if not use_model:
         raise ModelConsentRequired(
             "Draft needs use_model=True (§19.5 consent) -- it is the one step that must generate prose."
         )
+    if cloud_approved and actor is None:
+        raise ValueError("cloud_approved needs the person whose own runtime it will run on")
 
-    pool_ids = set(run.gathered_passage_ids)
     passages = {
         str(p.id): p
         for p in Passage.objects.filter(id__in=run.gathered_passage_ids).select_related("revision__document")
     }
 
-    excerpts = []
+    citations: list[dict] = []
+    draft_calls: list[dict] = []
+    uncited_count = 0
+    claim_index = 0
+    consent_id = uuid.uuid4() if cloud_approved else None
+
     for theme in run.themes.order_by("rank"):
+        theme_excerpts = []
+        theme_pool_ids: set[str] = set()
         for pid in theme.passage_ids[:8]:
             passage = passages.get(pid)
             if passage:
-                excerpts.append(f"[{pid}] ({passage.revision.document.title}): {passage.text[:500]}")
+                theme_excerpts.append(f"[{pid}] ({passage.revision.document.title}): {passage.text[:500]}")
+                theme_pool_ids.add(pid)
 
-    schema = {
-        "type": "object",
-        "properties": {
-            "claims": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "text": {"type": "string"},
-                        "passage_ids": {"type": "array", "items": {"type": "string"}},
-                    },
-                    "required": ["text", "passage_ids"],
-                },
-            },
-        },
-        "required": ["claims"],
-    }
-    result = service_generate(
-        prompt=(
-            f"Question: {run.inquiry.question}\n\n"
-            "Excerpts (cite by the bracketed id, exactly as given):\n" + "\n".join(excerpts) + "\n\n"
-            "Write a literature review answering the question. Every factual claim must cite "
-            "one or more of the bracketed passage ids that support it. A claim with no supporting "
-            "excerpt should have an empty passage_ids list -- it will be shown as your own interpretation."
-        ),
-        system_prompt="Output only the schema's JSON. Never invent a passage id not given in the excerpts.",
-        schema=schema,
-        max_tokens=1536,
-    )
-    claims = result.get("result", {}).get("claims", [])
+        if not theme_excerpts:
+            continue
 
-    citations = []
-    uncited_count = 0
-    for i, claim in enumerate(claims):
-        requested_ids = claim.get("passage_ids", [])
-        cited_ids = [pid for pid in requested_ids if pid in pool_ids]
-        rejected_ids = [pid for pid in requested_ids if pid not in pool_ids]
-        interpretation = len(cited_ids) == 0
-        if interpretation:
-            uncited_count += 1
-        citation = {
-            "id": f"c{i}",
-            "text": claim.get("text", ""),
-            "passage_ids": cited_ids,
-            "interpretation": interpretation,
-            "status": "proposed",
-            "amended_text": None,
-        }
-        if rejected_ids:
-            citation["rejected_passage_ids"] = rejected_ids
-        citations.append(citation)
+        prompt = _draft_prompt(run.inquiry.question, theme_excerpts)
+
+        if cloud_approved:
+            from cloud_agents.generate import generate
+
+            gen = generate(
+                author=actor, capability="ariadne.inquiry_draft", prompt=prompt + (
+                    "\n\nOutput only JSON matching this schema, nothing else: "
+                    f"{_DRAFT_CLAIMS_SCHEMA}"
+                ), timeout=180,
+            )
+            draft_calls.append({
+                "theme_id": str(theme.id),
+                "consent_id": str(consent_id),
+                "account": gen.runtime.linux_user,
+                "prompt_digest": hashlib.sha256(prompt.encode()).hexdigest(),
+                "failure": gen.failure,
+                "elapsed_ms": gen.elapsed_ms,
+                "usage": gen.usage,
+            })
+            if gen.failure:
+                raise CloudDraftFailed(gen.failure)
+            try:
+                jsonschema.validate(gen.parsed, _DRAFT_CLAIMS_SCHEMA)
+            except jsonschema.ValidationError as exc:
+                raise CloudDraftFailed("invalid_output") from exc
+            result = {"result": gen.parsed}
+        else:
+            result = service_generate(
+                prompt=prompt,
+                system_prompt="Output only the schema's JSON. Never invent a passage id not given in the excerpts.",
+                schema=_DRAFT_CLAIMS_SCHEMA,
+                max_tokens=512,
+            )
+        claims = result.get("result", {}).get("claims", [])
+
+        for claim in claims:
+            requested_ids = claim.get("passage_ids", [])
+            cited_ids = [pid for pid in requested_ids if pid in theme_pool_ids]
+            rejected_ids = [pid for pid in requested_ids if pid not in theme_pool_ids]
+            interpretation = len(cited_ids) == 0
+            if interpretation:
+                uncited_count += 1
+            citation = {
+                "id": f"c{claim_index}",
+                "text": claim.get("text", ""),
+                "passage_ids": cited_ids,
+                "interpretation": interpretation,
+                "status": "proposed",
+                "amended_text": None,
+            }
+            if rejected_ids:
+                citation["rejected_passage_ids"] = rejected_ids
+            citations.append(citation)
+            claim_index += 1
 
     body_markdown = _render_review_markdown(run.inquiry.question, citations, passages)
 
@@ -386,6 +467,7 @@ def draft_review(run: InquiryRun, *, use_model: bool = False) -> InquiryReview:
         citations=citations,
         uncited_claim_count=uncited_count,
         status=InquiryReview.Status.DRAFT,
+        draft_calls=draft_calls,
     )
     run.inquiry.status = Inquiry.Status.CURATING
     run.inquiry.save(update_fields=["status", "updated_at"])

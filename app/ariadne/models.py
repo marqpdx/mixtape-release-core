@@ -585,6 +585,15 @@ class InquiryReview(BaseModel):
     citations = models.JSONField(default=list, blank=True)
     uncited_claim_count = models.PositiveIntegerField(default=0)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.DRAFT)
+    draft_calls = models.JSONField(
+        default=list, blank=True,
+        help_text=(
+            "One entry per per-theme Draft call that ran cloud_approved=True (Heddle CR-01 §4): "
+            "{theme_id, consent_id, account, prompt_digest, failure, elapsed_ms, usage}. Empty "
+            "when Draft ran local (use_model only) -- the charter §3.4 record of what was asked, "
+            "under whose consent, on which account, and what came back."
+        ),
+    )
     superseded_review = models.ForeignKey(
         "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="superseded_by",
         help_text=(

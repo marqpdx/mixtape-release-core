@@ -31,6 +31,7 @@ PERSON_DEFAULT_MODES = [
     "writing.synopsis_linkedin",
     "catalyst.parse",
     "atrium.dialogue",
+    "ariadne.inquiry_draft",
 ]
 
 
