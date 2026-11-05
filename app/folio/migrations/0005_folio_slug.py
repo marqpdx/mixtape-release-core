@@ -17,13 +17,14 @@ def backfill_sponsors_and_slugs(apps, schema_editor):
     Folio = apps.get_model("folio", "Folio")
     ContentType = apps.get_model("contenttypes", "ContentType")
     db = schema_editor.connection.alias
+    # Greenfield rollout: discard creatorless prototype Folios and their
+    # dependent records rather than inventing a sponsor. This is irreversible.
+    Folio.objects.using(db).filter(created_by_id__isnull=True).delete()
     app_label, model_name = settings.AUTH_USER_MODEL.split(".")
     member_type, _ = ContentType.objects.using(db).get_or_create(
         app_label=app_label, model=model_name.lower())
     used = {}
     for row in Folio.objects.using(db).order_by("created_at", "id").iterator():
-        if row.created_by_id is None:
-            raise RuntimeError("A legacy Folio has no creator. Assign its sponsor before migrating.")
         row.sponsor_content_type_id = member_type.pk
         row.sponsor_object_id = row.created_by_id
         row.author_id = row.created_by_id
@@ -49,6 +50,12 @@ def backfill_sponsors_and_slugs(apps, schema_editor):
             used.setdefault(str(row.created_by_id), set()).add(placeholder)
         row.save(using=db, update_fields=["sponsor_content_type", "sponsor_object_id",
             "author", "submitted_by", "slug", "slug_history"])
+
+    # PostgreSQL cannot alter the table with deferred FK trigger events from
+    # the backfill still queued. Check them now, keeping the migration atomic.
+    if schema_editor.connection.vendor == "postgresql":
+        schema_editor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+        schema_editor.execute("SET CONSTRAINTS ALL DEFERRED")
 
 
 class Migration(migrations.Migration):

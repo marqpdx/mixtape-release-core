@@ -96,6 +96,47 @@ class FolioSlugTests(TestCase):
 
 
 class FolioSponsorMigrationTests(TransactionTestCase):
+    def test_creatorless_prototypes_and_dependents_are_removed(self):
+        before = [("folio", "0004_alter_folionote_confirmed_shape_and_more")]
+        after = [("folio", "0005_folio_slug")]
+        MigrationExecutor(connection).migrate(before)
+        try:
+            state = MigrationExecutor(connection).loader.project_state(before).apps
+            OldFolio = state.get_model("folio", "Folio")
+            Note = state.get_model("folio", "FolioNote")
+            Inception = state.get_model("folio", "FolioInception")
+            Candidate = state.get_model("folio", "FolioMaterialCandidate")
+            owner = get_user_model().objects.create_user(username="legacy_retained")
+            retained = OldFolio.objects.create(title="Same", created_by_id=owner.pk)
+            kept_note = Note.objects.create(
+                folio=retained, created_by_id=owner.pk, source_type="text", raw_text="Keep this")
+            orphan = OldFolio.objects.create(title="Same")
+            # A child's creator must not become the parent Folio's sponsor.
+            removed_note = Note.objects.create(
+                folio=orphan, created_by_id=owner.pk, source_type="text", raw_text="Prototype")
+            inception = Inception.objects.create(
+                folio=orphan, created_by_id=owner.pk, raw_text="Prototype")
+            candidate = Candidate.objects.create(
+                inception=inception, candidate_type="subject", source_span_start=0,
+                source_span_end=9, source_text="Prototype")
+
+            MigrationExecutor(connection).migrate(after)
+            migrated = MigrationExecutor(connection).loader.project_state(after).apps
+            CurrentFolio = migrated.get_model("folio", "Folio")
+            current = CurrentFolio.objects.get(pk=retained.pk)
+            self.assertFalse(CurrentFolio.objects.filter(pk=orphan.pk).exists())
+            self.assertEqual(current.sponsor_object_id, owner.pk)
+            self.assertEqual(current.slug, "same")
+            CurrentNote = migrated.get_model("folio", "FolioNote")
+            self.assertTrue(CurrentNote.objects.filter(pk=kept_note.pk).exists())
+            self.assertFalse(CurrentNote.objects.filter(pk=removed_note.pk).exists())
+            self.assertFalse(migrated.get_model("folio", "FolioInception").objects.filter(pk=inception.pk).exists())
+            self.assertFalse(migrated.get_model("folio", "FolioMaterialCandidate").objects.filter(pk=candidate.pk).exists())
+            self.assertTrue(get_user_model().objects.filter(pk=owner.pk).exists())
+        finally:
+            restore = MigrationExecutor(connection)
+            restore.migrate(restore.loader.graph.leaf_nodes())
+
     def test_replacement_maps_legacy_creator_and_scopes_duplicate_titles(self):
         before = [("folio", "0004_alter_folionote_confirmed_shape_and_more")]
         after = [("folio", "0005_folio_slug")]
