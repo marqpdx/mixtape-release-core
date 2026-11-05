@@ -21,6 +21,7 @@ from .views import (
     DialogueWarmView,
     InitiativeOpenView,
     DialogueMemoryView,
+    DialogueSearchView,
     AtriumStartView,
 )
 
@@ -28,6 +29,7 @@ urlpatterns = [
     path("me/dialogue", AtriumMeDialogueView.as_view(), name="atrium-me-dialogue"),
     path("me/dialogue/exchange", AtriumMeDialogueExchangeView.as_view(), name="atrium-me-dialogue-exchange"),
     path("sponsor-context/", AtriumSponsorContextView.as_view(), name="atrium-sponsor-context"),
+    path("search", DialogueSearchView.as_view(), name="atrium-search"),
     path("me/start", AtriumStartView.as_view(), name="atrium-me-start"),
     path("initiatives/<uuid:initiative_id>/open", InitiativeOpenView.as_view(), name="atrium-initiative-open"),
     # Old path, until the page using /open is deployed.
