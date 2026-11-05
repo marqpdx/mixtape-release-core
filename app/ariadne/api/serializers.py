@@ -160,6 +160,7 @@ class LabelThemeInputSerializer(serializers.Serializer):
 
 class DraftReviewInputSerializer(serializers.Serializer):
     use_model = serializers.BooleanField(default=False)
+    cloud_approved = serializers.BooleanField(default=False)
 
 
 class InquiryReviewSerializer(serializers.ModelSerializer):
@@ -167,7 +168,7 @@ class InquiryReviewSerializer(serializers.ModelSerializer):
         model = InquiryReview
         fields = [
             "id", "inquiry_id", "run_id", "version", "body_markdown", "citations",
-            "uncited_claim_count", "status", "superseded_review_id", "created_at",
+            "uncited_claim_count", "status", "superseded_review_id", "draft_calls", "created_at",
         ]
 
 
