@@ -105,7 +105,13 @@ def _build_system_prompt(dialogue) -> str:
     if persona_filter:
         parts.append(f"\n\n{persona_filter}")
 
-    if dialogue.session_context and dialogue.session_context.strip():
+    # The Initiative's memory, written by the person (the memory seed moved up from the
+    # Dialogue, CTO 2026-11-04). A Dialogue with no Initiative keeps its own seed.
+    log, _ = _resolve_initiative_log(dialogue)
+    memory = (getattr(log, "memory", "") or "").strip()
+    if memory:
+        parts.append(f"\n\nInitiative memory (kept by the person; what matters for this work):\n{memory}")
+    elif dialogue.session_context and dialogue.session_context.strip():
         parts.append(f"\n\nSession context:\n{dialogue.session_context.strip()}")
 
     personal_ctx = ClioPersonalContextBuilder().build(dialogue)

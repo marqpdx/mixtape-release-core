@@ -379,3 +379,21 @@ class CheckpointTests(DialogueTestCase):
         self.assertIsNone(fake.calls[1]["resume_id"])
         self.assertIn("Decided: Rust.", prompt)
         self.assertNotIn("We chose Rust", prompt)
+
+
+class InitiativeMemoryTests(DialogueTestCase):
+    def test_the_initiative_memory_opens_every_dialogue_in_it(self):
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        client.force_authenticate(self.user)
+        first = client.post("/api/atrium/dialogues/new", {}, format="json").data
+        saved = client.patch(
+            f"/api/atrium/dialogues/{first['id']}/memory", {"memory": "We write in Rust."}, format="json"
+        )
+        self.assertEqual(saved.status_code, 200)
+        self.assertTrue(saved.data["initiative_is_personal"])
+
+        second = Dialogue.objects.get(pk=client.post("/api/atrium/dialogues/new", {}, format="json").data["id"])
+        prompt, _ = atrium_service.build_opening_prompt(second, "hello", before=timezone.now())
+        self.assertIn("We write in Rust.", prompt)

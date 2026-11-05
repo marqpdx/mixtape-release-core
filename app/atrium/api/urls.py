@@ -20,6 +20,7 @@ from .views import (
     DialogueUpdateView,
     DialogueWarmView,
     InitiativeOpenView,
+    DialogueMemoryView,
     AtriumStartView,
 )
 
@@ -40,6 +41,7 @@ urlpatterns = [
     path("dialogues/<uuid:dialogue_id>/context/", DialogueContextView.as_view(), name="atrium-dialogue-context"),
     path("dialogues/<uuid:dialogue_id>/exchange", DialogueExchangeView.as_view(), name="atrium-dialogue-exchange"),
     path("dialogues/<uuid:dialogue_id>/warm", DialogueWarmView.as_view(), name="atrium-dialogue-warm"),
+    path("dialogues/<uuid:dialogue_id>/memory", DialogueMemoryView.as_view(), name="atrium-dialogue-memory"),
     path("dialogues/<uuid:dialogue_id>/compact", DialogueCompactView.as_view(), name="atrium-dialogue-compact"),
     path("dialogues/<uuid:dialogue_id>/distill", DialogueDistillView.as_view(), name="atrium-dialogue-distill"),
     path("dialogues/<uuid:dialogue_id>/distillates/<uuid:distillate_id>", DialogueDistillateView.as_view(), name="atrium-dialogue-distillate"),

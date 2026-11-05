@@ -323,6 +323,52 @@ class InitiativeOpenView(APIView):
         )
 
 
+class DialogueMemoryView(APIView):
+    """
+    GET / PATCH /api/atrium/dialogues/<dialogue_id>/memory  { memory }
+
+    The memory of the Initiative this Dialogue belongs to: every Dialogue in the
+    Initiative opens with it (design-st3b §13). 422 when the Dialogue has no Initiative.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def _log(self, request, dialogue_id):
+        from atrium.ai.service import _resolve_initiative_log
+
+        dialogue = _own_dialogue(request, dialogue_id)
+        if dialogue is None:
+            return None, _not_found()
+        log, _ = _resolve_initiative_log(dialogue)
+        if log is None:
+            return None, Response(
+                {"detail": "This Dialogue has no Initiative to keep a memory in."},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+        return log, None
+
+    def _body(self, log):
+        initiative = log.initiative
+        return {
+            "initiative_id": str(initiative.id),
+            "initiative_title": initiative.title,
+            "initiative_is_personal": bool(initiative.is_personal),
+            "memory": log.memory,
+        }
+
+    def get(self, request, dialogue_id):
+        log, stop = self._log(request, dialogue_id)
+        return stop or Response(self._body(log))
+
+    def patch(self, request, dialogue_id):
+        log, stop = self._log(request, dialogue_id)
+        if stop:
+            return stop
+        log.memory = (request.data.get("memory") or "").strip()
+        log.save(update_fields=["memory", "updated_at"])
+        return Response(self._body(log))
+
+
 class DialogueEntryListView(generics.ListAPIView):
     """
     GET /api/atrium/dialogues/<dialogue_id>/entries/
