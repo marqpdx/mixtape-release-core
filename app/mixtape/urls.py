@@ -6,6 +6,7 @@ from django.urls import include, path
 from rest_framework import routers
 
 from accounts.api.views import UserViewSet
+from feedback.api import views as feedback_views
 from groups.api.files_views import MeFilesListView, MeFileDeleteView
 from initiatives.api.urls import action_run_patterns, agent_object_patterns, initiative_log_patterns, me_patterns, mobile_command_patterns, radar_patterns, worktable_group_patterns
 from prospects.api.urls import intake_patterns, internal_patterns
@@ -96,6 +97,7 @@ urlpatterns = [
     path("api/chat/", include("chat.api.urls")),
     path("api/commons/", include("commons.api.urls")),
     path("api/classifications/", include("classifications.api.urls")),
+    path("api/contact", feedback_views.site_contact, name="site-contact"),  # Crossroads Contact us
     path("api/feedback/", include("feedback.api.urls")),
     path("api/files/", include("files.api.urls")),
     path("api/collections/", include("curation.urls")),  # Collection curation layer (CP5)

@@ -247,6 +247,139 @@ def mindful_brilliance_contact(request) -> Response:
     return Response({"message": "Message received."}, status=status.HTTP_200_OK)
 
 
+CONTACT_EMAIL = "connect@crossroads.place"
+
+WORKING_PAPER_RESPONSE_TYPES = {
+    "correction": "Correction",
+    "question": "Question",
+    "idea": "Idea",
+    "collaborate": "Interested in working together",
+}
+
+
+def _field(request, key: str, limit: int) -> str:
+    """One line of text from the request, trimmed, capped, with no line breaks."""
+    value = str(request.data.get(key, "") or "").strip()
+    return " ".join(value.split())[:limit]
+
+
+def _contact_errors(name: str, email: str, message: str) -> str | None:
+    if not name:
+        return "Name is required."
+    if not email:
+        return "Email is required."
+    if "@" not in email or "." not in email.split("@")[-1]:
+        return "Invalid email address."
+    if not message:
+        return "Message is required."
+    return None
+
+
+def _send_contact_email(*, subject: str, template_base: str, context: dict, reply_to: str, where: str) -> Response:
+    import logging
+    from utils.email.send_transactional_email import send_transactional_email
+
+    try:
+        send_transactional_email(
+            subject=subject,
+            to_emails=[CONTACT_EMAIL],
+            template_base=template_base,
+            context=context,
+            reply_to=reply_to,
+        )
+    except Exception as e:
+        logging.getLogger(__name__).error("%s email failed: %s", where, e)
+        return Response(
+            {"detail": "Could not send your message. Please try again."},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+    return Response({"message": "Message received."}, status=status.HTTP_200_OK)
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+@authentication_classes([])
+@throttle_classes([FeedbackIPThrottle])
+def site_contact(request) -> Response:
+    """
+    Crossroads Contact us form (apps/crossroads contact page).
+    No DB persistence — sends email to connect@crossroads.place.
+    A filled `website` field is the honeypot: accepted quietly, not sent.
+    """
+    if _field(request, "website", 200):
+        return Response({"message": "Message received."}, status=status.HTTP_200_OK)
+
+    name = _field(request, "name", 200)
+    email = _field(request, "email", 254)
+    subject = _field(request, "subject", 200)
+    message = str(request.data.get("message", "") or "").strip()[:5000]
+
+    error = _contact_errors(name, email, message)
+    if error:
+        return Response({"detail": error}, status=status.HTTP_400_BAD_REQUEST)
+
+    return _send_contact_email(
+        subject=f"Crossroads contact: {subject or name}",
+        template_base="email/site_contact",
+        context={"name": name, "email": email, "subject": subject, "message": message},
+        reply_to=email,
+        where="site_contact",
+    )
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+@authentication_classes([])
+@throttle_classes([FeedbackIPThrottle])
+def working_paper_response(request) -> Response:
+    """
+    Response form on a Working Paper page (crossroads.place/working-papers/...).
+    No DB persistence — sends email to connect@crossroads.place.
+    The paper's title, version and packet come from the page, not the reader.
+    """
+    if _field(request, "website", 200):
+        return Response({"message": "Message received."}, status=status.HTTP_200_OK)
+
+    name = _field(request, "name", 200)
+    email = _field(request, "email", 254)
+    organization = _field(request, "organization", 200)
+    response_type = _field(request, "response_type", 32)
+    message = str(request.data.get("message", "") or "").strip()[:5000]
+    may_credit = request.data.get("may_credit") in (True, "true", "on", "1")
+    paper_title = _field(request, "paper_title", 200)
+    paper_version = _field(request, "paper_version", 32)
+    packet = _field(request, "packet", 100)
+    page_url = _field(request, "page_url", 500)
+
+    error = _contact_errors(name, email, message)
+    if not error and response_type not in WORKING_PAPER_RESPONSE_TYPES:
+        error = "Choose a kind of response."
+    if not error and not paper_title:
+        error = "Missing paper title."
+    if error:
+        return Response({"detail": error}, status=status.HTTP_400_BAD_REQUEST)
+
+    version = f" v{paper_version}" if paper_version else ""
+    return _send_contact_email(
+        subject=f"Working paper response: {paper_title}{version}",
+        template_base="email/working_paper_response",
+        context={
+            "name": name,
+            "email": email,
+            "organization": organization,
+            "response_type": WORKING_PAPER_RESPONSE_TYPES[response_type],
+            "message": message,
+            "may_credit": may_credit,
+            "paper_title": paper_title,
+            "paper_version": paper_version,
+            "packet": packet,
+            "page_url": page_url,
+        },
+        reply_to=email,
+        where="working_paper_response",
+    )
+
+
 @api_view(["PATCH", "DELETE"])
 @permission_classes([IsAuthenticated])
 @authentication_classes([OAuth2Authentication, JWTAuthentication])

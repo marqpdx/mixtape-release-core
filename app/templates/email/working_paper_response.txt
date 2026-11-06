@@ -1,0 +1,15 @@
+Working paper response — {{ paper_title }}{% if paper_version %} v{{ paper_version }}{% endif %}
+-----------------------------------------
+Kind:         {{ response_type }}
+From:         {{ name }}
+Email:        {{ email }}
+{% if organization %}Organization: {{ organization }}
+{% endif %}Credit:       {% if may_credit %}May be quoted or credited{% else %}Not for quoting or credit{% endif %}
+{% if packet %}Packet:       {{ packet }}
+{% endif %}{% if page_url %}Page:         {{ page_url }}
+{% endif %}
+Message:
+{{ message }}
+
+-----------------------------------------
+Reply directly to this email to respond.

@@ -14,4 +14,5 @@ urlpatterns = [
     path("upload-attachment", views.upload_feedback_attachment, name="feedback-upload-attachment"),
     path("voice-status/<str:voice_upload_id>", views.feedback_voice_status, name="feedback-voice-status"),
     path("mindful-brilliance/contact", views.mindful_brilliance_contact, name="mb-contact"),
+    path("working-papers/respond", views.working_paper_response, name="working-paper-response"),
 ]
