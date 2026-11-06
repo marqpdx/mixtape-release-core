@@ -1,0 +1,12 @@
+{
+  "model_weights_in_git": false,
+  "artifact_sha256": {
+    "LICENSE": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e",
+    "README.md": "fa1fede7f775a20f111cc098c00900092020572ce78976970a5b0ad9ca211999",
+    "qwen2.5-0.5b-instruct-q4_k_m.gguf": "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db"
+  },
+  "runtime_probe_incident": "Before model initialization, a combined import/llama_print_system_info probe segfaulted. Import alone passed outside the sandbox; system info after Llama initialization passed. No inference or score existed at the failed probe.",
+  "build_provenance_limit": "Cached wheel; original compiler/build flags and vendored llama.cpp commit not available. Native library hashes and observed system features are in producer.json. n_gpu_layers=0 for all measured calls.",
+  "measured_code": "b675650f — Freeze approved M3 cases and add local Qwen span-role evaluator",
+  "inputs": "Synthetic approved seed cases only; no private note, server deployment or cloud call."
+}
