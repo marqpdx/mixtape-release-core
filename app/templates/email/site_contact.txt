@@ -1,0 +1,11 @@
+New contact message — Crossroads website
+-----------------------------------------
+From:         {{ name }}
+Email:        {{ email }}
+{% if subject %}Subject:      {{ subject }}
+{% endif %}
+Message:
+{{ message }}
+
+-----------------------------------------
+Reply directly to this email to respond.
