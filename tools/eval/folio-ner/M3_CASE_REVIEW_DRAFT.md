@@ -1,6 +1,6 @@
-# M3 cases — CTO review draft
+# M3 cases — approved seed set
 
-2026-11-05 · NER Eval · proposed, no new inference or download
+2026-11-06 · NER Eval · approved by CTO 2026-11-05, frozen before inference
 
 The existing M1 corpus and all measured outputs remain unchanged. Three existing supported Scene Shape judgements are replay candidates, not fresh holdouts. The 16 new units contain four of each label: Character, Setting, Scene and none. Splits: four review examples, four contrasts, eight reserved unrun holdouts.
 
@@ -14,7 +14,7 @@ Review the expected role of the **selected span**, not one label for the whole n
 
 These were approved as supported Shape judgements; review whether their selected evidence is the right M3 target grain. Do not infer Scene quality from the earlier name-mention scores.
 
-## Fresh units — not yet approved
+## Approved units
 
 ### m3-character-inez · review
 
@@ -82,7 +82,7 @@ Proposed: **none**. A quoted heading is not itself a Scene passage.
 
 ### m3-character-juno · fresh_holdout
 
-Inside this story, Juno checks the station clock with a screwdriver and then pockets its hands.
+Inside this story, Juno checks the station clock with a screwdriver and then pockets their hands.
 
 Target [19, 23): Juno
 
@@ -146,6 +146,6 @@ Proposed: **none**. Research subject is not a confirmed or proposed fictional Se
 
 ## Review and freeze
 
-The author of these cases has seen them. “Fresh” means no candidate model has run on them and no outcome has influenced a model/prompt change; it does not mean externally authored. CTO review/amendment precedes freezing source/annotation/context hashes. After a scored holdout pass, retain it as historical evidence and obtain fresh blind cases for tuning decisions.
+The author of these cases has seen them. “Fresh” means no candidate model has run on them and no outcome has influenced a model/prompt change; it does not mean externally authored. CTO review is complete; Juno was amended to “pockets their hands”. The corpus file hash is recorded per run. After a scored holdout pass, retain it as historical evidence and obtain fresh blind cases for tuning decisions.
 
 Do not score or feed holdouts into examples, prompt tuning or threshold selection before approval. The real 949-character note remains excluded. The decomposed unit must materialize target, bounded context, selected vocabulary, prompt/schema and identities before dispatch, not hide several semantic questions in a whole-Folio call.

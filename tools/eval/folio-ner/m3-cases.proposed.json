@@ -1,7 +1,7 @@
 {
-  "status": "proposal_only",
+  "status": "approved_frozen",
   "unit_contract": "m3_span_role/0.1.0-draft",
-  "review_required_before_any_run": true,
+  "review_required_before_any_run": false,
   "models_run_on_new_cases": false,
   "context": {
     "work_type": "fiction",
@@ -62,7 +62,7 @@
     {
       "id": "m3-character-inez",
       "split": "review",
-      "review_status": "proposed_cto_review_required",
+      "review_status": "approved_cto_2026-11-05",
       "source_ref": "synthetic:m3-character-inez",
       "source_revision": 0,
       "text": "Character: Inez repairs the flood gates in this story. My sister Nora suggested the name.",
@@ -92,7 +92,7 @@
     {
       "id": "m3-setting-ferry-hall",
       "split": "review",
-      "review_status": "proposed_cto_review_required",
+      "review_status": "approved_cto_2026-11-05",
       "source_ref": "synthetic:m3-setting-ferry-hall",
       "source_revision": 0,
       "text": "The locale is the glass-roofed ferry hall, where the characters wait before sunrise.",
@@ -122,7 +122,7 @@
     {
       "id": "m3-scene-rain",
       "split": "review",
-      "review_status": "proposed_cto_review_required",
+      "review_status": "approved_cto_2026-11-05",
       "source_ref": "synthetic:m3-scene-rain",
       "source_revision": 0,
       "text": "Opening scene: Rain pounds the tin roof as Bela pulls a soaked envelope from under the locked door.",
@@ -152,7 +152,7 @@
     {
       "id": "m3-none-proofreader",
       "split": "review",
-      "review_status": "proposed_cto_review_required",
+      "review_status": "approved_cto_2026-11-05",
       "source_ref": "synthetic:m3-none-proofreader",
       "source_revision": 0,
       "text": "My proofreader Caleb suggested cutting this chapter; Caleb is not a person in the fiction.",
@@ -182,7 +182,7 @@
     {
       "id": "m3-character-fictional-editor",
       "split": "contrast",
-      "review_status": "proposed_cto_review_required",
+      "review_status": "approved_cto_2026-11-05",
       "source_ref": "synthetic:m3-character-fictional-editor",
       "source_revision": 0,
       "text": "Within the fiction, Suri is the editor of the island newspaper and hides letters in its press.",
@@ -212,7 +212,7 @@
     {
       "id": "m3-setting-archive",
       "split": "contrast",
-      "review_status": "proposed_cto_review_required",
+      "review_status": "approved_cto_2026-11-05",
       "source_ref": "synthetic:m3-setting-archive",
       "source_revision": 0,
       "text": "In the fiction, the Archive is an underground reading room. The manuscript itself is in my archive folder.",
@@ -242,7 +242,7 @@
     {
       "id": "m3-scene-dialogue",
       "split": "contrast",
-      "review_status": "proposed_cto_review_required",
+      "review_status": "approved_cto_2026-11-05",
       "source_ref": "synthetic:m3-scene-dialogue",
       "source_revision": 0,
       "text": "Here is the scene: At midnight, Orla slides the empty cup toward Venn and whispers, \"You kept the key.\"",
@@ -272,7 +272,7 @@
     {
       "id": "m3-none-heading",
       "split": "contrast",
-      "review_status": "proposed_cto_review_required",
+      "review_status": "approved_cto_2026-11-05",
       "source_ref": "synthetic:m3-none-heading",
       "source_revision": 0,
       "text": "I typed \"scene\" as a heading in the planning sheet; there is no scene written under it yet.",
@@ -302,11 +302,11 @@
     {
       "id": "m3-character-juno",
       "split": "fresh_holdout",
-      "review_status": "proposed_cto_review_required",
+      "review_status": "approved_cto_2026-11-05",
       "source_ref": "synthetic:m3-character-juno",
       "source_revision": 0,
-      "text": "Inside this story, Juno checks the station clock with a screwdriver and then pockets its hands.",
-      "source_sha256": "933ea4b181acb619fd75f7af3cce644301417f245b16079be94417f4f45d7d1c",
+      "text": "Inside this story, Juno checks the station clock with a screwdriver and then pockets their hands.",
+      "source_sha256": "9d0effb20a95bf02b6f1145c658f7b3d1231e55c29e01254a4b8f851378ee7d0",
       "target": {
         "start": 19,
         "end": 23,
@@ -332,7 +332,7 @@
     {
       "id": "m3-character-edda",
       "split": "fresh_holdout",
-      "review_status": "proposed_cto_review_required",
+      "review_status": "approved_cto_2026-11-05",
       "source_ref": "synthetic:m3-character-edda",
       "source_revision": 0,
       "text": "Edda keeps the last orange in her coat and refuses to tell the guard where she found it.",
@@ -362,7 +362,7 @@
     {
       "id": "m3-setting-saltglass",
       "split": "fresh_holdout",
-      "review_status": "proposed_cto_review_required",
+      "review_status": "approved_cto_2026-11-05",
       "source_ref": "synthetic:m3-setting-saltglass",
       "source_revision": 0,
       "text": "At every sunrise, the brass lift rattles through Saltglass Tower while the night workers hurry down.",
@@ -392,7 +392,7 @@
     {
       "id": "m3-setting-decomposed-cafe",
       "split": "fresh_holdout",
-      "review_status": "proposed_cto_review_required",
+      "review_status": "approved_cto_2026-11-05",
       "source_ref": "synthetic:m3-setting-decomposed-cafe",
       "source_revision": 0,
       "text": "The locale is Café des Brumes, and the meeting happens at its back table.",
@@ -422,7 +422,7 @@
     {
       "id": "m3-scene-sleet",
       "split": "fresh_holdout",
-      "review_status": "proposed_cto_review_required",
+      "review_status": "approved_cto_2026-11-05",
       "source_ref": "synthetic:m3-scene-sleet",
       "source_revision": 0,
       "text": "Sleet taps the skylight while Ren kneels beside the overturned cradle and listens for the bell.",
@@ -452,7 +452,7 @@
     {
       "id": "m3-scene-spoken-moment",
       "split": "fresh_holdout",
-      "review_status": "proposed_cto_review_required",
+      "review_status": "approved_cto_2026-11-05",
       "source_ref": "synthetic:m3-scene-spoken-moment",
       "source_revision": 0,
       "text": "Okay, the moment I want is this: Uma reaches across the counter, takes the broken compass, and tells Hal, \"We leave at dusk.\"",
@@ -482,7 +482,7 @@
     {
       "id": "m3-none-cousin",
       "split": "fresh_holdout",
-      "review_status": "proposed_cto_review_required",
+      "review_status": "approved_cto_2026-11-05",
       "source_ref": "synthetic:m3-none-cousin",
       "source_revision": 0,
       "text": "My cousin Leon read the draft on Tuesday; he is helping me check it and is not in the story.",
@@ -512,7 +512,7 @@
     {
       "id": "m3-none-research",
       "split": "fresh_holdout",
-      "review_status": "proposed_cto_review_required",
+      "review_status": "approved_cto_2026-11-05",
       "source_ref": "synthetic:m3-none-research",
       "source_revision": 0,
       "text": "Remind me to research rainforests next week; I have not chosen any of them as a story location.",
@@ -539,5 +539,6 @@
         "no_cloud_call"
       ]
     }
-  ]
+  ],
+  "approval": "CTO 2026-11-05; handoff-2026-11-05-mobile-folio-contract-decided-next.md"
 }
