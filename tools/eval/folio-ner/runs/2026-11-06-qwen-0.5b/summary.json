@@ -1,0 +1,48 @@
+{
+  "rows": [
+    {
+      "split": "review",
+      "n": 4,
+      "correct": 0,
+      "invalid": 1,
+      "abstained": 0,
+      "confusion": {
+        "writing.character -> writing.scene": 1,
+        "writing.setting -> writing.scene": 1,
+        "writing.scene -> invalid": 1,
+        "none -> writing.scene": 1
+      }
+    },
+    {
+      "split": "contrast",
+      "n": 4,
+      "correct": 0,
+      "invalid": 3,
+      "abstained": 0,
+      "confusion": {
+        "writing.character -> invalid": 1,
+        "writing.setting -> invalid": 1,
+        "writing.scene -> invalid": 1,
+        "none -> writing.scene": 1
+      }
+    },
+    {
+      "split": "fresh_holdout",
+      "n": 8,
+      "correct": 0,
+      "invalid": 5,
+      "abstained": 0,
+      "confusion": {
+        "writing.character -> writing.scene": 1,
+        "writing.character -> invalid": 1,
+        "writing.setting -> writing.scene": 2,
+        "writing.scene -> invalid": 2,
+        "none -> invalid": 2
+      }
+    }
+  ],
+  "tier0": "passed",
+  "peak_rss_bytes": 1094696960,
+  "mean_unit_seconds": 4.786516567488434,
+  "note": "Small synthetic seed set, supplied target spans; not end-to-end NER or production fit."
+}
