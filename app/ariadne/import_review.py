@@ -54,6 +54,14 @@ def import_review_package(package: dict) -> InquiryReview:
     review_data = _require(package, "review")
     theme_rows = package.get("themes", [])
 
+    # Handoff 2026-11-07, item 3: the guard must not live only in
+    # ariadne_publish_review -- the import endpoint is the trust boundary.
+    if review_data.get("status") != InquiryReview.Status.CURATED:
+        raise ReviewImportError(
+            f"Review {review_data.get('id')!r} is {review_data.get('status')!r}, not CURATED -- "
+            "only accessioned Reviews can be published."
+        )
+
     inquiry, _ = Inquiry.objects.update_or_create(
         id=inquiry_data["id"],
         defaults={
