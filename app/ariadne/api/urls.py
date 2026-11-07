@@ -17,6 +17,7 @@ from .views import (
     InquiryThemePacketView,
     LatestRunView,
     PacketDetailView,
+    ReviewImportView,
     RunCandidateListView,
     RunDecisionView,
     RunDetailView,
@@ -64,4 +65,5 @@ urlpatterns = [
         InquiryReviewAccessionView.as_view(),
         name="ariadne-inquiry-review-accession",
     ),
+    path("inquiry-reviews/import/", ReviewImportView.as_view(), name="ariadne-inquiry-review-import"),
 ]

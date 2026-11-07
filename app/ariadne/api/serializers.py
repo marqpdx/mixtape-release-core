@@ -176,3 +176,11 @@ class CurateCitationInputSerializer(serializers.Serializer):
     citation_id = serializers.CharField()
     action = serializers.ChoiceField(choices=["accept", "amend", "strike"])
     amended_text = serializers.CharField(required=False, allow_null=True, allow_blank=True, default=None)
+
+
+class ReviewImportInputSerializer(serializers.Serializer):
+    """Build plan §6 piece 2. Top-level shape only -- `import_review_package`
+    (ariadne/import_review.py) validates the package's required fields and
+    raises `ReviewImportError` (caught by the view) on anything missing."""
+
+    package = serializers.DictField()
