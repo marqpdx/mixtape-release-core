@@ -7,8 +7,13 @@ prove the round-trip shape and the id-based upsert/replace semantics;
 it does not stand up a second real database.
 """
 
-from django.test import TestCase
+import time
+
+import jwt
+from django.test import TestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
+from rest_framework.test import APIClient
 
 from ariadne import inquiry as inquiry_services
 from ariadne.export import build_review_export_package
@@ -127,3 +132,97 @@ class ImportReviewPackageTestCase(TestCase):
         del bad_package["review"]
         with self.assertRaises(ReviewImportError):
             import_review_package(bad_package)
+
+    def test_non_curated_review_is_refused(self):
+        draft_package = dict(self.package)
+        draft_package["review"] = {**self.package["review"], "status": InquiryReview.Status.DRAFT}
+        with self.assertRaises(ReviewImportError):
+            import_review_package(draft_package)
+
+
+_ARIADNE_PUBLISH_SETTINGS = dict(
+    ARIADNE_PUBLISH_JWT_SECRET="test-ariadne-publish-secret",
+    ARIADNE_PUBLISH_JWT_ALG="HS256",
+    ARIADNE_PUBLISH_JWT_ISS="cass-ariadne",
+    ARIADNE_PUBLISH_JWT_AUD="crossroads-ariadne-import",
+)
+
+
+def _mint(secret, *, iss="cass-ariadne", aud="crossroads-ariadne-import", scopes=("ariadne:publish",)):
+    now = int(time.time())
+    return jwt.encode(
+        {
+            "sub": "cass-ariadne-export", "scopes": list(scopes),
+            "iat": now, "nbf": now, "exp": now + 300, "iss": iss, "aud": aud,
+        },
+        secret, algorithm="HS256",
+    )
+
+
+@override_settings(ARIADNE_ENABLED=True, **_ARIADNE_PUBLISH_SETTINGS)
+class ReviewImportViewAuthTestCase(TestCase):
+    """Handoff 2026-11-07, item 4: this flow's authentication must verify
+    only against ARIADNE_PUBLISH_JWT_* -- never SERVICE_JWT_SECRET, never
+    the wrong audience, and never silently when its own secret is unset."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.inquiry = inquiry_services.create_inquiry(question="How did Fruition develop?")
+        self.snapshot = CorpusSnapshot.objects.create(
+            manifest_hash="sha256:y", source_revision_ids=[], captured_at=timezone.now(),
+        )
+        self.passage = _make_passage("b.md", "Other evidence.")
+        self.run = InquiryRun.objects.create(
+            inquiry=self.inquiry, corpus_snapshot=self.snapshot, gathered_passage_ids=[str(self.passage.id)],
+        )
+        self.review = InquiryReview.objects.create(
+            inquiry=self.inquiry, run=self.run, version=1,
+            citations=[
+                {
+                    "id": "c0", "text": "A claim.", "passage_ids": [str(self.passage.id)],
+                    "interpretation": False, "status": "accepted", "amended_text": None,
+                },
+            ],
+        )
+        inquiry_services.accession_review(self.review)
+        self.review.refresh_from_db()
+        self.package = build_review_export_package(self.review)
+        self.url = reverse("ariadne-inquiry-review-import")
+
+    def _post(self, token):
+        return self.client.post(
+            self.url, data={"package": self.package}, format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+    def test_token_signed_with_service_jwt_secret_is_refused(self):
+        token = _mint("not-the-ariadne-secret")
+        response = self._post(token)
+        self.assertIn(response.status_code, (401, 403))
+
+    def test_token_with_wrong_audience_is_refused(self):
+        token = _mint("test-ariadne-publish-secret", aud="some-other-service")
+        response = self._post(token)
+        self.assertIn(response.status_code, (401, 403))
+
+    @override_settings(ARIADNE_ENABLED=True, ARIADNE_PUBLISH_JWT_SECRET=None)
+    def test_unset_secret_refuses_every_request_rather_than_falling_back(self):
+        # Minted with what *would* be a valid secret if the fallback existed.
+        token = _mint("test-ariadne-publish-secret")
+        response = self._post(token)
+        self.assertIn(response.status_code, (401, 403))
+
+    def test_non_curated_review_returns_400(self):
+        token = _mint("test-ariadne-publish-secret")
+        bad_package = dict(self.package)
+        bad_package["review"] = {**self.package["review"], "status": InquiryReview.Status.DRAFT}
+        response = self.client.post(
+            self.url, data={"package": bad_package}, format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_correctly_signed_token_is_accepted(self):
+        token = _mint("test-ariadne-publish-secret")
+        response = self._post(token)
+        self.assertEqual(response.status_code, 201)

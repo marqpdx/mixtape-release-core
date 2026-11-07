@@ -6,10 +6,10 @@ from rest_framework.views import APIView
 from ariadne import inquiry as inquiry_services
 from ariadne import search as search_services
 from ariadne import services
+from ariadne.auth import AriadnePublishAuthentication
 from ariadne.import_review import ReviewImportError, import_review_package
 from ariadne.inquiry import CloudDraftFailed, ModelConsentRequired
 from ariadne.models import Concept, DiscoveryRun, EvidencePacket, Inquiry, InquiryReview, InquiryRun, InquiryTheme, Lens, RunCandidate
-from livewire.auth import InternalServiceAuthentication
 from livewire.permissions import HasAriadnePublishScope
 
 from .permissions import IsSuperuser
@@ -416,7 +416,7 @@ class ReviewImportView(APIView):
     authenticated, not session-authenticated -- the caller is Cass, not a
     logged-in person (design note §5.2)."""
 
-    authentication_classes = [InternalServiceAuthentication]
+    authentication_classes = [AriadnePublishAuthentication]
     permission_classes = [HasAriadnePublishScope]
 
     def post(self, request):

@@ -8,13 +8,14 @@ Crossroads' own database -- the "by hand" in the design note's §5.1
 decision. Automatic publish-on-accession is a later refinement, not
 built here.
 
-Credentials: mints a short-lived service JWT with `settings.SERVICE_JWT_SECRET`,
-matching every other ad hoc service-to-service caller in this codebase
-(`initiatives/services/agent_parse.py`, `agent_research.py`) rather than
-inventing a new scheme (design note §5.4 item 4) -- interim, pending ST-9's
-consolidation (`puddlejump/zz/build-plan-service-trust.md`). That secret
-must be the same value on Cass and Crossroads for this to verify; flagged
-to the CTO for ST-9's inventory step since today it's core-internal only.
+Credentials: mints with its own `ARIADNE_PUBLISH_JWT_SECRET`, never
+`SERVICE_JWT_SECRET` -- superseding the plan's original §5 (CTO,
+2026-11-07; `decisions/ariadne/build-plan-cass-to-crossroads-result-flow.md`
+Headnote). `SERVICE_JWT_SECRET` verifies every internal service token, so
+a copy of it on Cass would let anyone there mint a production token for
+any service and scope; this flow's secret is scoped to exactly this one
+call, held only by Cass and Crossroads. ST-9 folds it into the one
+minting module later (`puddlejump/zz/build-plan-service-trust.md`).
 
 Usage:
   python manage.py ariadne_publish_review --review <uuid>
@@ -35,18 +36,24 @@ from ariadne.models import Inquiry, InquiryReview
 
 
 def _mint_ariadne_publish_token(subject: str = "cass-ariadne-export") -> str:
+    secret = getattr(settings, "ARIADNE_PUBLISH_JWT_SECRET", None)
+    if not secret:
+        raise CommandError(
+            "ARIADNE_PUBLISH_JWT_SECRET is not configured -- this flow signs with its own "
+            "secret, never SERVICE_JWT_SECRET (fail closed, not a fallback)."
+        )
     now = int(time.time())
-    ttl = int(getattr(settings, "SERVICE_JWT_TTL_SECONDS", 600))
+    ttl = int(getattr(settings, "ARIADNE_PUBLISH_JWT_TTL_SECONDS", 300))
     claims = {
         "sub": subject,
         "scopes": ["ariadne:publish"],
         "iat": now,
         "nbf": now,
         "exp": now + ttl,
-        "iss": getattr(settings, "SERVICE_JWT_ISS", "mixtape"),
-        "aud": getattr(settings, "SERVICE_JWT_AUD", "django-api"),
+        "iss": getattr(settings, "ARIADNE_PUBLISH_JWT_ISS", "cass-ariadne"),
+        "aud": getattr(settings, "ARIADNE_PUBLISH_JWT_AUD", "crossroads-ariadne-import"),
     }
-    return jwt.encode(claims, settings.SERVICE_JWT_SECRET, algorithm=getattr(settings, "SERVICE_JWT_ALG", "HS256"))
+    return jwt.encode(claims, secret, algorithm=getattr(settings, "ARIADNE_PUBLISH_JWT_ALG", "HS256"))
 
 
 class Command(BaseCommand):

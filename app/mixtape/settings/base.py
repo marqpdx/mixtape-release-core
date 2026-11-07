@@ -552,6 +552,19 @@ SERVICE_JWT_ISS = os.getenv("SERVICE_JWT_ISS", "mixtape")
 SERVICE_JWT_AUD = os.getenv("SERVICE_JWT_AUD", "django-api")
 SERVICE_JWT_TTL_SECONDS = int(os.getenv("SERVICE_JWT_TTL_SECONDS", "600"))
 
+# Ariadne Cass-to-Crossroads publish flow (decisions/ariadne/
+# build-plan-cass-to-crossroads-result-flow.md, Headnote 2026-11-07) --
+# its own secret, never SERVICE_JWT_SECRET: that one secret verifies every
+# internal service token, so a copy of it on Cass would let anyone there
+# mint a production token for any service and scope. Held only by Cass
+# and Crossroads; unset on either means the import endpoint refuses every
+# request (fail closed), not a fall back to SERVICE_JWT_SECRET.
+ARIADNE_PUBLISH_JWT_SECRET = os.getenv("ARIADNE_PUBLISH_JWT_SECRET")
+ARIADNE_PUBLISH_JWT_ALG = os.getenv("ARIADNE_PUBLISH_JWT_ALG", "HS256")
+ARIADNE_PUBLISH_JWT_ISS = os.getenv("ARIADNE_PUBLISH_JWT_ISS", "cass-ariadne")
+ARIADNE_PUBLISH_JWT_AUD = os.getenv("ARIADNE_PUBLISH_JWT_AUD", "crossroads-ariadne-import")
+ARIADNE_PUBLISH_JWT_TTL_SECONDS = int(os.getenv("ARIADNE_PUBLISH_JWT_TTL_SECONDS", "300"))
+
 LIVEWIRE_JWT_SECRET = os.getenv("LIVEWIRE_JWT_SECRET")
 LIVEWIRE_JWT_ALG = os.getenv("LIVEWIRE_JWT_ALG", "HS256")
 LIVEWIRE_JWT_ISS = os.getenv("LIVEWIRE_JWT_ISS", "mixtape")
