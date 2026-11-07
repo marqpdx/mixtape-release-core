@@ -407,6 +407,11 @@ SERVICE_JWT_AUD_IR = os.getenv("SERVICE_JWT_AUD_IR", "django-ir")  # <-- Phase 1
 
 STACKROOM_BASE_URL = os.getenv("STACKROOM_BASE_URL", "http://127.0.0.1:8012")
 
+# Ariadne Cass-to-Crossroads result flow (decisions/ariadne/
+# build-plan-cass-to-crossroads-result-flow.md) -- only set on Cass, where
+# `ariadne_publish_review` runs; unused on Crossroads itself.
+CROSSROADS_BASE_URL = os.getenv("CROSSROADS_BASE_URL")
+
 # Atrium read-only bridge (Stage 1/1b, decisions/atrium-adr/atrium-readonly-bridge-addendum.md)
 # ATRIUM_CANON_USER_ID is the Stackroom canon-bundle owner (the CTO's personal
 # Puddlejump canon replica) — not a Mixtape Django User pk. Must match whatever

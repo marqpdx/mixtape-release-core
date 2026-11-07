@@ -6,8 +6,11 @@ from rest_framework.views import APIView
 from ariadne import inquiry as inquiry_services
 from ariadne import search as search_services
 from ariadne import services
+from ariadne.import_review import ReviewImportError, import_review_package
 from ariadne.inquiry import CloudDraftFailed, ModelConsentRequired
 from ariadne.models import Concept, DiscoveryRun, EvidencePacket, Inquiry, InquiryReview, InquiryRun, InquiryTheme, Lens, RunCandidate
+from livewire.auth import InternalServiceAuthentication
+from livewire.permissions import HasAriadnePublishScope
 
 from .permissions import IsSuperuser
 from .serializers import (
@@ -27,6 +30,7 @@ from .serializers import (
     InquiryThemeSerializer,
     LabelThemeInputSerializer,
     PacketAssembleInputSerializer,
+    ReviewImportInputSerializer,
     RunCandidateSerializer,
     SavedSearchInputSerializer,
 )
@@ -403,3 +407,23 @@ class InquiryReviewAccessionView(APIView):
         review = get_object_or_404(InquiryReview, id=review_id)
         inquiry = inquiry_services.accession_review(review)
         return Response(InquirySerializer(inquiry).data)
+
+
+class ReviewImportView(APIView):
+    """Build plan §6 piece 2: Crossroads' side of the Cass result flow.
+    Accepts one export package (`ariadne.export.build_review_export_package`
+    on Cass) and writes it as Crossroads' own published copy. Service-
+    authenticated, not session-authenticated -- the caller is Cass, not a
+    logged-in person (design note §5.2)."""
+
+    authentication_classes = [InternalServiceAuthentication]
+    permission_classes = [HasAriadnePublishScope]
+
+    def post(self, request):
+        input_serializer = ReviewImportInputSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        try:
+            review = import_review_package(input_serializer.validated_data["package"])
+        except ReviewImportError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(InquiryReviewSerializer(review).data, status=status.HTTP_201_CREATED)

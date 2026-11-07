@@ -40,3 +40,7 @@ class HasAuthorizationReadScope(_HasServiceScope):
 
 class HasMcpResolveScope(_HasServiceScope):
     required_scope = "mcp:resolve"
+
+
+class HasAriadnePublishScope(_HasServiceScope):
+    required_scope = "ariadne:publish"
