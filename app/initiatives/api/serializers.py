@@ -353,9 +353,54 @@ class ActionRunPatchSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Status must transition to running, succeeded, or failed.")
         return value
 
+    def _is_bound_dispatch_proof(self, attrs):
+        """SW-9 proof is execution metadata, never an arbitrary running result.
+
+        Switchboard first marks the run running, then records its gate decision
+        before queuing the cloud worker. Core's prior person/source-bound consent
+        must already exist; this PATCH cannot grant that consent.
+        """
+        result = attrs.get("result_payload")
+        if (attrs.get("status") != ActionRunStatus.RUNNING or
+                not isinstance(result, dict) or set(result) != {"dispatch"}):
+            return False
+        proof = result["dispatch"]
+        if (not isinstance(proof, dict) or set(proof) !=
+                {"cloud_approved", "source_digest", "revision", "capability"}):
+            return False
+        run = self.instance
+        approval = run.approval_payload or {}
+        request = run.request_payload or {}
+        if not isinstance(request, dict):
+            return False
+        payload = request.get("capability_payload") or {}
+        if not isinstance(approval, dict) or not isinstance(payload, dict):
+            return False
+        capability = proof.get("capability")
+        digest = proof.get("source_digest")
+        revision = proof.get("revision")
+        return (
+            capability == "shuttle_weave_interpret" and
+            run.tool_name == f"capability.{capability}" and
+            run.service_name == "switchboard" and run.execution_mode == "cloud" and
+            run.cloud_approved is True and proof.get("cloud_approved") is True and
+            isinstance(digest, str) and len(digest) == 64 and
+            all(char in "0123456789abcdef" for char in digest) and
+            type(revision) is int and revision >= 0 and
+            run.parent_action_id is not None and
+            approval.get("author_id") == run.initiator_id and
+            approval.get("weave_action_run_id") == str(run.parent_action_id) and
+            approval.get("execution_action_run_id") == str(run.pk) and
+            approval.get("capability") == capability and
+            approval.get("source_digest") == digest == payload.get("source_digest") and
+            approval.get("revision") == revision == payload.get("revision") and
+            (not run.result_payload or run.result_payload == result)
+        )
+
     def validate(self, attrs):
         instance = self.instance
         status_value = attrs.get("status")
+        dispatch_proof = self._is_bound_dispatch_proof(attrs)
         allowed_transitions = {
             ActionRunStatus.PENDING: {
                 ActionRunStatus.RUNNING,
@@ -367,13 +412,15 @@ class ActionRunPatchSerializer(serializers.ModelSerializer):
                 ActionRunStatus.FAILED,
             },
         }
+        if dispatch_proof and instance.status == ActionRunStatus.RUNNING:
+            allowed_transitions[ActionRunStatus.RUNNING].add(ActionRunStatus.RUNNING)
         if status_value not in allowed_transitions.get(instance.status, set()):
             raise serializers.ValidationError(
                 f"ActionRun may not transition from {instance.status} to {status_value}."
             )
 
         if status_value == ActionRunStatus.RUNNING:
-            if attrs.get("result_payload"):
+            if attrs.get("result_payload") and not dispatch_proof:
                 raise serializers.ValidationError({"result_payload": "Running runs cannot include result payload."})
             if attrs.get("error_payload"):
                 raise serializers.ValidationError({"error_payload": "Running runs cannot include error payload."})
