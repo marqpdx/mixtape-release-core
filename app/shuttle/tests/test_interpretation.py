@@ -164,9 +164,18 @@ class InterpretationTests(TestCase):
             elif isinstance(value,list):
                 for nested in value: rebind(nested)
         rebind(findings)
-        child.status=ActionRunStatus.RUNNING
-        child.result_payload={'dispatch':{'cloud_approved':True,'source_digest':state['source_digest'],'revision':0}}
-        child.save()
+        # Exercise Switchboard's actual start + gate-proof PATCH contract before
+        # the worker consumes it, rather than writing proof directly to the ORM.
+        from initiatives.api.serializers import ActionRunPatchSerializer
+        for update in [
+            {'status': 'running'},
+            {'status': 'running', 'result_payload': {'dispatch': {
+                'cloud_approved': True, 'source_digest': state['source_digest'],
+                'revision': 0, 'capability': CAPABILITY}}},
+        ]:
+            serializer = ActionRunPatchSerializer(child, data=update, partial=True)
+            self.assertTrue(serializer.is_valid(), serializer.errors)
+            child = serializer.save()
         from claude.service import ClaudeResult
         with patch('claude.service.run_blocking',return_value=ClaudeResult(output=json.dumps(findings),elapsed_ms=10)) as model:
             run_cloud_interpretation(action_run_id=str(child.pk))

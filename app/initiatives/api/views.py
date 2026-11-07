@@ -2,6 +2,7 @@
 
 import logging
 
+from django.db import transaction
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -274,8 +275,9 @@ class ActionRunDetailView(APIView):
         action_run = get_object_or_404(ActionRun, pk=action_run_id)
         return Response(ActionRunDetailSerializer(action_run).data)
 
+    @transaction.atomic
     def patch(self, request, action_run_id):
-        action_run = get_object_or_404(ActionRun, pk=action_run_id)
+        action_run = get_object_or_404(ActionRun.objects.select_for_update(), pk=action_run_id)
         serializer = ActionRunPatchSerializer(action_run, data=request.data, partial=True)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
