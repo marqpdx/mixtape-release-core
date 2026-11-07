@@ -107,7 +107,6 @@ pytz==2025.2
 PyYAML==6.0.3
 qdrant-client==1.16.1
 RapidFuzz==3.14.6
-redis==7.1.0
 regex==2025.11.3
 requests==2.32.5
 s3transfer==0.15.0
