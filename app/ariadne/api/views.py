@@ -1,4 +1,6 @@
+from accounts.api.authentication import DenylistJWTAuthentication
 from django.shortcuts import get_object_or_404
+from oauth2_provider.contrib.rest_framework import OAuth2Authentication
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -6,7 +8,7 @@ from rest_framework.views import APIView
 from ariadne import inquiry as inquiry_services
 from ariadne import search as search_services
 from ariadne import services
-from ariadne.auth import AriadnePublishAuthentication
+from ariadne.auth import AriadnePublishAuthentication, ConceptLookupServiceAuthentication
 from ariadne.import_review import ReviewImportError, import_review_package
 from ariadne.inquiry import CloudDraftFailed, ModelConsentRequired
 from ariadne.models import Concept, DiscoveryRun, EvidencePacket, Inquiry, InquiryReview, InquiryRun, InquiryTheme, Lens, RunCandidate
@@ -130,9 +132,16 @@ class ConceptLookupView(APIView):
     name or alias, with its evidence. Superuser-gated, same as the rest of
     Ariadne -- this is what the three waiting consumers (Meridian's layer
     3, the Twist, the shared knowledge-mapping substrate) will eventually
-    reach through Switchboard's MCP surface, once a handoff registers it
-    there (not done in this pass)."""
+    reach through Switchboard's MCP surface -- registered 2026-11-08
+    (handoff-2026-11-05-blue-ariadne-p9-live-p6a-folio-review.md row 2).
 
+    `ConceptLookupServiceAuthentication` is added alongside the project's
+    default session/OAuth2 authenticators, not in place of them: a
+    superuser signed in through the UI and Switchboard calling on a real
+    superuser's behalf both resolve to the same `IsSuperuser` check against
+    a real `request.user` -- no separate gate for the service path."""
+
+    authentication_classes = [OAuth2Authentication, DenylistJWTAuthentication, ConceptLookupServiceAuthentication]
     permission_classes = [permissions.IsAuthenticated, IsSuperuser]
 
     def get(self, request, concept_id=None):

@@ -565,6 +565,13 @@ ARIADNE_PUBLISH_JWT_ISS = os.getenv("ARIADNE_PUBLISH_JWT_ISS", "cass-ariadne")
 ARIADNE_PUBLISH_JWT_AUD = os.getenv("ARIADNE_PUBLISH_JWT_AUD", "crossroads-ariadne-import")
 ARIADNE_PUBLISH_JWT_TTL_SECONDS = int(os.getenv("ARIADNE_PUBLISH_JWT_TTL_SECONDS", "300"))
 
+# P6a Concept lookup via Switchboard (handoff-2026-11-05-blue-ariadne-p9-live-
+# p6a-folio-review.md row 2) -- reuses SERVICE_JWT_SECRET (ConceptLookupServiceAuthentication
+# maps sub to a real Django user the same way ServiceJWTAuthentication does),
+# but its own audience, so a token minted for this one call can't pass as any
+# other SERVICE_JWT_SECRET-signed service token.
+CONCEPT_LOOKUP_JWT_AUD = os.getenv("CONCEPT_LOOKUP_JWT_AUD", "switchboard-concept-lookup")
+
 LIVEWIRE_JWT_SECRET = os.getenv("LIVEWIRE_JWT_SECRET")
 LIVEWIRE_JWT_ALG = os.getenv("LIVEWIRE_JWT_ALG", "HS256")
 LIVEWIRE_JWT_ISS = os.getenv("LIVEWIRE_JWT_ISS", "mixtape")
