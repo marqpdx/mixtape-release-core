@@ -12,11 +12,13 @@ the same objects the real 2026-10-12 Discovery Run persisted, just a small
 fixture instead of the full corpus.
 """
 
+import time
 import uuid
 from unittest.mock import patch
 
+import jwt
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -400,3 +402,67 @@ class AriadneInquiryViewsTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["standing_review_id"], str(review.id))
         self.assertEqual(response.data["status"], "done")
+
+
+def _mint_concept_lookup_token(secret, *, sub, aud="switchboard-concept-lookup", iss="mixtape"):
+    now = int(time.time())
+    return jwt.encode(
+        {"sub": sub, "iat": now, "nbf": now, "exp": now + 300, "iss": iss, "aud": aud},
+        secret,
+        algorithm="HS256",
+    )
+
+
+@override_settings(SERVICE_JWT_SECRET="test-service-secret", CONCEPT_LOOKUP_JWT_AUD="switchboard-concept-lookup")
+class ConceptLookupServiceAuthTestCase(TestCase):
+    """handoff-2026-11-05-blue-ariadne-p9-live-p6a-folio-review.md row 2:
+    Switchboard reaches Concept lookup on a real person's behalf, scoped by
+    its own audience so a token minted for this call can't pass anywhere
+    else SERVICE_JWT_SECRET is trusted."""
+
+    def setUp(self):
+        self.superuser = User.objects.create_user(
+            username="su", email="su@example.com", password="x", is_staff=True, is_superuser=True,
+        )
+        self.non_superuser = User.objects.create_user(
+            username="regular", email="regular@example.com", password="x",
+        )
+        self.client = APIClient()
+        self.concept = Concept.objects.create(preferred_label="catalyst", status=Concept.Status.CURATED)
+
+    def _get(self, token):
+        # X-Service-Token, not Authorization: Bearer -- a Bearer header is
+        # intercepted by DenylistJWTAuthentication (listed first) and fails
+        # there with 401 before this authenticator ever runs, since SimpleJWT
+        # raises on a bad signature rather than returning None to let the
+        # next authenticator try. Switchboard's real client already uses
+        # X-Service-Token for exactly this reason.
+        return self.client.get(
+            f"/api/ariadne/concepts/{self.concept.id}/", HTTP_X_SERVICE_TOKEN=token,
+        )
+
+    def test_token_for_a_real_superuser_is_accepted(self):
+        token = _mint_concept_lookup_token("test-service-secret", sub=str(self.superuser.pk))
+        response = self._get(token)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["preferred_label"], "catalyst")
+
+    def test_token_for_a_non_superuser_is_refused(self):
+        token = _mint_concept_lookup_token("test-service-secret", sub=str(self.non_superuser.pk))
+        response = self._get(token)
+        self.assertEqual(response.status_code, 403)
+
+    def test_token_with_the_generic_service_audience_is_refused(self):
+        # A token shaped like every other ServiceJWTAuthentication caller
+        # (chat, dispatch) must not also work here -- that's the whole point
+        # of giving this call its own audience.
+        token = _mint_concept_lookup_token(
+            "test-service-secret", sub=str(self.superuser.pk), aud="django-api",
+        )
+        response = self._get(token)
+        self.assertIn(response.status_code, (401, 403))
+
+    def test_unknown_subject_is_refused(self):
+        token = _mint_concept_lookup_token("test-service-secret", sub=str(uuid.uuid4()))
+        response = self._get(token)
+        self.assertIn(response.status_code, (401, 403))
