@@ -1,0 +1,41 @@
+# Contour drift — core's shipped Contour bundle still matches Puddlejump (CTO, 2026-11-09).
+# Heddle reads app/heddle/contour_bundle.json at runtime; it is generated from
+# puddlejump/reference/contour. Drift went unnoticed 2026-11-03 to 11-09.
+# Runs daily as well as on push, because drift usually starts on the
+# Puddlejump side, where core sees no push. Fix: regenerate the bundle
+# (python -m heddle.generate_bundle --contour-root …) and commit it.
+#
+# Needs the repository secret PUDDLEJUMP_READ_TOKEN: a fine-grained token
+# with read-only Contents access to marqpdx/crossroads-puddlejump.
+name: contour-drift
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 13 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: marqpdx/crossroads-puddlejump
+          ref: main
+          path: puddlejump
+          token: ${{ secrets.PUDDLEJUMP_READ_TOKEN }}
+          sparse-checkout: reference/contour
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the generator's two dependencies (pinned as in requirements-prod.txt)
+        run: pip install "jsonschema==4.26.0" "PyYAML==6.0.3"
+      - name: Check the bundle against Puddlejump main
+        working-directory: app
+        run: python -m heddle.generate_bundle --contour-root "$GITHUB_WORKSPACE/puddlejump/reference/contour" --check
