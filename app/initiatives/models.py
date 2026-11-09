@@ -295,6 +295,21 @@ class Initiative(BaseModel):
         related_name="created_initiatives",
     )
 
+    # --- Surface link (ADR-0064 D3) ---
+    surface = models.ForeignKey(
+        "surfaces.SurfaceProfile",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="initiatives",
+        help_text=(
+            "An Initiative belongs to exactly one Surface (D3). Nullable only for the "
+            "migration window; every Initiative is backfilled to a Surface (existing ones "
+            "to Atrium) in the same migration that adds this field. PROTECT: a Surface "
+            "profile in use is never silently deleted out from under its Initiatives."
+        ),
+    )
+
     class Meta(BaseModel.Meta):
         ordering = ["-updated_at"]
         indexes = [

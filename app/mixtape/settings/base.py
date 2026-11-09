@@ -188,6 +188,7 @@ INSTALLED_APPS = [
     "prospects",       # Prospect intake — small business CRM
     "atelier",         # Atelier — intermediate shaping layer
     "initiatives",     # Initiatives — group-scoped AI-assisted inquiry sessions
+    "surfaces",        # Surface profiles — ADR-0064, agents carried by a Surface
     "workbench",       # Workbench curation — WorkingItem assembly and promotion
     "curation",        # Django-native Collection curation layer (CP5)
     "puddlejump",      # Puddlejump — personal and group file library
