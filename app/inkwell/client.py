@@ -23,7 +23,18 @@ def _base_url() -> str:
     return getattr(settings, "INKWELL_BASE_URL", "https://inkwell.crossroads.place").rstrip("/")
 
 
-def _mint_inkwell_service_token() -> str:
+def _mint_inkwell_service_token(subject: str = "django") -> str:
+    """The one minter for every core -> Inkwell /service/* call (ST-9,
+    token practices spike zz/spike-jwt-and-token-practices.md T1/F3,
+    2026-11-10). Two other copies of this used to exist in
+    initiatives/services/agent_parse.py and agent_research.py, signing with
+    the general-purpose SERVICE_JWT_SECRET instead of
+    INKWELL_SERVICE_JWT_SECRET -- a different secret than the one Inkwell
+    actually verifies against, so every agent-parse/summarize/research call
+    through them got a 401. `subject` defaults to "django" (this module's
+    own calls); agent_parse/agent_research pass "switchboard", matching
+    what they sent before. Fails closed: INKWELL_SERVICE_JWT_SECRET unset
+    means every caller raises, never a fall back to SERVICE_JWT_SECRET."""
     secret = getattr(settings, "INKWELL_SERVICE_JWT_SECRET", None)
     if not secret:
         raise InkwellUnavailableError(
@@ -33,7 +44,7 @@ def _mint_inkwell_service_token() -> str:
     ttl = int(getattr(settings, "SERVICE_JWT_TTL_SECONDS", 600))
     return jwt.encode(
         {
-            "sub": "django",
+            "sub": subject,
             "iat": now,
             "nbf": now,
             "exp": now + ttl,
