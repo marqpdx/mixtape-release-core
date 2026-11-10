@@ -1,5 +1,5 @@
 {
-  "digest": "a91c0331dae2bdec3b2578c00b3e732e6597f18b61488345653c6f393d44572e",
+  "digest": "838159d50cf2f406af5cd3226b06b0f72a7598c1d1efc971af6b9fd499daacab",
   "files": {
     "argus/README.md": {
       "sha256": "a7793623dde68ff3b7ac636bb5ef46b4d0b96521f8f92a3e477c3b4a1d3defdc",
@@ -223,7 +223,7 @@
     }
   },
   "format_version": 1,
-  "library_version": "0.4.5",
+  "library_version": "0.4.6",
   "schemas": {
     "argus.findings@0.1.0": "argus/findings.schema.json",
     "shuttle.adjacency@0.1.0": "shuttle/adjacency.schema.json",
@@ -380,5 +380,5 @@
       }
     ]
   },
-  "source_commit": "97ffa0bf4dc3f99e1b55280df76a29be63fd3111"
+  "source_commit": "e8831f1a696bd30cc2a383088ab693e336e6b486"
 }
