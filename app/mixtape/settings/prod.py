@@ -14,9 +14,13 @@ env = environ.Env()
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-# Load environment variables
-load_dotenv(BASE_DIR / ".env")
-load_dotenv(BASE_DIR / ".env.prod", override=True)
+# Load environment variables from the one production env file, at the root
+# of the code checkout (on Crossroads, /var/www/crossroads/app/.env.prod).
+# The systemd units load the same file with EnvironmentFile=, so in the
+# services this changes nothing; it is here so a hand-run manage.py sees the
+# same settings. No override: what systemd or the shell already set wins.
+# Same layout as Switchboard (/var/www/switchboard/app/.env.prod).
+load_dotenv(BASE_DIR.parent / ".env.prod")
 
 # Import base settings
 from .base import *
