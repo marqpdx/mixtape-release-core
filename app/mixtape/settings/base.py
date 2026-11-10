@@ -573,6 +573,21 @@ ARIADNE_PUBLISH_JWT_TTL_SECONDS = int(os.getenv("ARIADNE_PUBLISH_JWT_TTL_SECONDS
 # other SERVICE_JWT_SECRET-signed service token.
 CONCEPT_LOOKUP_JWT_AUD = os.getenv("CONCEPT_LOOKUP_JWT_AUD", "switchboard-concept-lookup")
 
+# ADR-0064 AC-5, core -> Cass's Switchboard (decisions/surface-profile-adr/
+# surface-profile-status.md, 2026-11-10 Headnote). The mirror image of
+# ARIADNE_PUBLISH_JWT_SECRET above: there Cass mints and Crossroads verifies;
+# here Crossroads (this settings module) mints and Cass's Switchboard
+# verifies (app/services/argus_run_auth.py in mixtape-release-switchboard).
+# Deliberately not SERVICE_JWT_SECRET: that one secret authenticates every
+# internal caller of *core* (chat, dispatch, Inkwell, Livewire) and is never
+# used in this direction. Its own secret, held only by Crossroads and Cass;
+# unset means every mint attempt fails loudly rather than falling back.
+ARGUS_RUN_JWT_SECRET = os.getenv("ARGUS_RUN_JWT_SECRET")
+ARGUS_RUN_JWT_ALG = os.getenv("ARGUS_RUN_JWT_ALG", "HS256")
+ARGUS_RUN_JWT_ISS = os.getenv("ARGUS_RUN_JWT_ISS", "crossroads-core")
+ARGUS_RUN_JWT_AUD = os.getenv("ARGUS_RUN_JWT_AUD", "cass-switchboard-argus")
+ARGUS_RUN_JWT_TTL_SECONDS = int(os.getenv("ARGUS_RUN_JWT_TTL_SECONDS", "120"))
+
 LIVEWIRE_JWT_SECRET = os.getenv("LIVEWIRE_JWT_SECRET")
 LIVEWIRE_JWT_ALG = os.getenv("LIVEWIRE_JWT_ALG", "HS256")
 LIVEWIRE_JWT_ISS = os.getenv("LIVEWIRE_JWT_ISS", "mixtape")
