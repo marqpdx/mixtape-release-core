@@ -91,3 +91,9 @@ work_effort: [ADR, build plan, or initiative name]
 this log months from now. Name the models, endpoints, or surfaces involved.
 Avoid vague summaries like "fixed some bugs."]
 ```
+
+---
+
+## One Writer for Puddlejump's Shared Records
+
+**One writer for Puddlejump's shared records (strict; CTO, 2026-11-10).** Only the Puddlejump session writes: `build-log.md`, `build-log-inbox/`, `HELP_FIDELITY.md`, the **Resolution** of any agent-inbox entry or handoff, the Sheafs (`zz/sheafs.md`, `zz/sheaf-*.md`), `zz/ongoing-vps.md` and `zz/secrets-inventory.md`. Every other agent writes one Puddlejump file per unit of work, its own `agent-inbox/YYYY-MM-DD-<agent>-<topic>.md`, carrying its build-log entries, Help Fidelity lines and proposed updates; Puddlejump files them, checks them against the commits and appends the Resolution. (An ADR's status row for your own phase stays yours, per the ADR Status Protocol.) **Never sign anything "(Puddlejump)"** unless you are the Puddlejump session. An exception needs the CTO's explicit permission **for that one unit**, quoted in your update ("The CTO authorized me to file …"); it does not carry over to the next unit, and a general rule such as *Shared Work Between Agents* is not that permission. If you wrote one of these records by mistake, say so in your update and leave it for Puddlejump; don't revert or rewrite it yourself. Why: two writers on 2026-11-10 left the same logs half-filed from two sides, so the one consistent picture the CTO relies on depended on luck.
