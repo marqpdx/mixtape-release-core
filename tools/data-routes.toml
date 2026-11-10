@@ -91,3 +91,34 @@ hosts = ["www.linkedin.com"]
 route = "none (link recognition)"
 reason = "Spotify links are recognised in music fields; core does not call Spotify"
 hosts = ["open.spotify.com"]
+
+# --- Surface profile tool grants (R4, charter-amendment-surface-profiles.md) ------
+#
+# Each Surface profile's tools, as a CTO-approved decision (ADR-0064 + its
+# charter amendment). SurfaceProfile itself stores no tool list (surfaces/models.py);
+# this table is the one reviewed place a grant lives. CI (check_data_routes.py)
+# checks this table's own internal consistency: a non-read_only tool never names
+# "crossroads" in `reaches` (R2), and `write_grant` is one of R3's four rungs.
+# It cannot yet check "no profile grants a tool outside this table" -- no other
+# code reads a Surface's tools at all, member or builder, so there is nothing
+# to cross-check against until a runtime consumer exists.
+
+[[surface_tool]]
+surface = "argus"
+tool = "argus.start_run"
+kind = "G"
+read_only = false
+reaches = ["cass"]
+write_grant = "own_records"
+route = "R11 (new: Crossroads core -> Cass's Switchboard over WireGuard; AC-3 pending)"
+reason = "Starts a run of an Argus block on Cass, under the starting builder's own login (ADR-0064 D8); its own run record goes to the argus-runs branch (R3's own-records rung), never anywhere else."
+
+[[surface_tool]]
+surface = "argus"
+tool = "argus.list_blocks"
+kind = "U"
+read_only = true
+reaches = ["cass"]
+write_grant = "none"
+route = "R11"
+reason = "Reads Puddlejump's audit-blocks list and a block's declared finding_types from Cass, so Crossroads never needs its own Puddlejump checkout (ADR-0064 S4 mitigation 2, resolved 2026-11-09, surface-profile-adr.md Headnote)."

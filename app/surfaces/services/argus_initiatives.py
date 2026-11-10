@@ -1,18 +1,11 @@
 # surfaces/services/argus_initiatives.py
 #
 # ADR-0064 D3: each Argus block gets its own Initiative, sponsored by the
-# Argus Team, linked to the Argus Surface profile.
-#
-# D3's text names `seed_context` as where "the block's id and settings"
-# would live, but that field already carries a different, established
-# meaning in the current model ("Snapshot of the source Initiative's
-# rolling_summary at fork time" -- initiatives.models.Initiative.
-# seed_context). Overloading it would collide with existing fork support,
-# so this looks a block's Initiative up by a title convention instead
-# ("Argus: {block_slug}", unique in practice because only this function
-# ever creates one) and flags the discrepancy here rather than deciding
-# the ADR's wording silently: Puddlejump/the CTO may want D3 amended to
-# name a real field, or a new one added, instead.
+# Argus Team, linked to the Argus Surface profile. D3 was amended 2026-11-09
+# to name a real field, Initiative.block_slug (nullable, unique within its
+# Surface) -- a title is a name, and D5 already says the Argus Team is found
+# "by a fixed marker, never by its name"; the same principle holds here.
+# This replaces the earlier title-convention lookup ("Argus: {block_slug}").
 
 from __future__ import annotations
 
@@ -28,18 +21,14 @@ def ensure_block_initiative(block_slug: str, *, site_owner) -> Initiative:
     team = ensure_argus_team(site_owner=site_owner)
     profile = SurfaceProfile.objects.get(slug="argus")
     group_ct = ContentType.objects.get_for_model(Group)
-    title = f"Argus: {block_slug}"
 
-    initiative = Initiative.objects.filter(
-        sponsor_content_type=group_ct,
-        sponsor_object_id=team.id,
-        title=title,
-    ).first()
+    initiative = Initiative.objects.filter(surface=profile, block_slug=block_slug).first()
     if initiative:
         return initiative
 
     initiative = Initiative.objects.create(
-        title=title,
+        title=f"Argus: {block_slug}",
+        block_slug=block_slug,
         sponsor_content_type=group_ct,
         sponsor_object_id=team.id,
         surface=profile,
