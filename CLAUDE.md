@@ -73,6 +73,8 @@ Two authentication classes cover all internal service-to-service calls. Do not i
 
 *Promoted from `puddlejump/zz/_deprecated/auth-notes.md` (confirmed valid 2026-08-01).*
 
+**Exception: a call crossing Crossroads/Cass gets its own secret, not `SERVICE_JWT_SECRET`** (2026-11-07, extended 2026-11-10). `SERVICE_JWT_SECRET` authenticates *every* internal caller of core; a copy of it on a second host (Cass) would let anyone there mint a valid token for any of this section's callers, not just the one that needed it. The two instances so far each hold their own secret, own audience, and fail closed if unset rather than falling back to the shared one: `ARIADNE_PUBLISH_JWT_SECRET` (Cass mints, core verifies — `app/ariadne/auth.py`, `AriadnePublishAuthentication`) and `ARGUS_RUN_JWT_SECRET` (core mints, Cass's Switchboard verifies — `app/surfaces/services/argus_run_auth.py`; the verifier lives in `mixtape-release-switchboard/app/services/argus_run_auth.py`, ADR-0064 AC-5). This is additive to the two authenticators above, not a third general-purpose one: a new Crossroads↔Cass direction gets its own narrowly-scoped secret on this same pattern, it doesn't reuse `SERVICE_JWT_SECRET` or either of these two.
+
 ---
 
 File content:
