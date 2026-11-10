@@ -14,10 +14,11 @@ from pathlib import Path
 import yaml
 from jsonschema import Draft7Validator
 
-from .bundle import BUNDLE_PATH, digest
+from .bundle import BUNDLE_PATH, check_schema_references, digest
 
 SHELVES = ("writing", "shuttle", "argus")
 STRATEGY = "writing.fiction_note_reading"
+OPTIONAL_STRATEGIES = frozenset({"writing.fiction_note_recognition"})
 
 
 def generate(root, source_commit):
@@ -27,6 +28,8 @@ def generate(root, source_commit):
     def add(path):
         path = path.resolve()
         relative = path.relative_to(root).as_posix()
+        if relative.startswith("_proposed/"):
+            raise ValueError("Proposed Contour files are not active dependencies")
         text = path.read_bytes().decode("utf-8")
         files[relative] = {"sha256": hashlib.sha256(text.encode()).hexdigest(), "text": text}
         return relative
@@ -55,19 +58,49 @@ def generate(root, source_commit):
             if key in schemas and files[schemas[key]]["text"] != files[relative]["text"]:
                 raise ValueError(f"Conflicting retained schema: {key}")
             schemas.setdefault(key, relative)
-    strategies = [e for group in manifest["strategies"] for e in group.get("entries", []) if e["id"] == STRATEGY]
-    if len(strategies) != 1:
+    # A pinned old Strategy may still need its original cue descriptor after
+    # the shelf's current Shape metadata advances to a new schema version.
+    for shelf in selected:
+        for path in sorted((root / shelf["id"] / "versions").glob("*.shape.yaml")):
+            add(path)
+    definitions = manifest.get("schema_definitions", [])
+    definition_index = {}
+    for definition in definitions:
+        relative = definition["schema_file"]
+        if not relative.startswith("shared/") or ".." in Path(relative).parts:
+            raise ValueError("Shared definitions must come from the canonical shared shelf")
+        path = root / relative
+        schema = json.loads(path.read_text())
+        Draft7Validator.check_schema(schema)
+        key = f'{definition["id"]}@{definition["version"]}'
+        expected_id = f'urn:contour:{definition["id"]}:{definition["version"]}'
+        if key in definition_index or schema.get("$id") != expected_id:
+            raise ValueError("Shared definition identity missing, duplicated or inconsistent")
+        definition_index[key] = add(path)
+    entries = [e for group in manifest["strategies"] for e in group.get("entries", [])]
+    strategies = [e for e in entries if e["id"] in {STRATEGY, *OPTIONAL_STRATEGIES}]
+    if sum(e["id"] == STRATEGY for e in strategies) != 1:
         raise ValueError("Folio Strategy missing or ambiguous")
-    strategy = strategies[0]
-    for field in ("contract_file", "prose_file"):
-        prefix = "puddlejump/reference/contour/"
-        if not strategy[field].startswith(prefix):
-            raise ValueError("Unexpected Strategy source path")
-        add(root / strategy[field][len(prefix):])
-    return {"format_version": 1, "source_commit": source_commit,
+    if len({e["id"] for e in strategies}) != len(strategies):
+        raise ValueError("Folio Strategy missing or ambiguous")
+    for strategy in strategies:
+        for field in ("contract_file", "prose_file"):
+            prefix = "puddlejump/reference/contour/"
+            if not strategy[field].startswith(prefix):
+                raise ValueError("Unexpected Strategy source path")
+            relative = strategy[field][len(prefix):]
+            if ".." in Path(relative).parts or relative.startswith("_proposed/"):
+                raise ValueError("Strategy must come from an active canonical shelf")
+            add(root / relative)
+    result = {"format_version": 1, "source_commit": source_commit,
             "library_version": str(manifest["library_version"]),
             "selection": {"verticals": selected, "strategies": strategies},
             "schemas": schemas, "files": dict(sorted(files.items()))}
+    if definitions:
+        result["selection"]["schema_definitions"] = definitions
+        result["definitions"] = definition_index
+    check_schema_references(result)
+    return result
 
 
 def main():

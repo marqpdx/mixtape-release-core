@@ -7,12 +7,12 @@ from uuid import uuid4
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
-from jsonschema import Draft7Validator, ValidationError
+from jsonschema import ValidationError
 
 from initiatives.models import ActionRun, ActionRunStatus, ActionRunExecutionMode, ActionRunInitiatorType
 
 from . import steps
-from .bundle import digest
+from .bundle import digest, schema_validator
 from .errors import InterpretationError
 
 
@@ -156,7 +156,7 @@ def verify_worker(reading, parent, state, child, data, author):
 def validate_model_output(reading, child, output):
     data = child.request_payload["capability_payload"]
     step = next(s for s in reading.steps if s.id == data["step_id"])
-    Draft7Validator(step.response_schema).validate(output)
+    schema_validator(step.response_schema).validate(output)
     if step.validate:
         step.validate(output)
 
