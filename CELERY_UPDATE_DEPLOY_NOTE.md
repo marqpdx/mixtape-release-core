@@ -1,5 +1,7 @@
 # Celery Update Deploy Note
 
+> **Note (2026-11-10):** On Crossroads, `crossroads-celery-switchboard` and `crossroads-celery-synopsis-results` were never installed, and their unit files are removed from this repo. The `switchboard` queue is served by Switchboard's own worker (`crossroads-switchboard-worker`, `--queues switchboard`); core's app has none of its tasks. No `synopsis_results` queue exists on the broker (vhost `crossroads`, checked 2026-11-10), so nothing has used that path; if Inkwell's synopsis flow is turned on, give the queue a worker first. This note stays as written below.
+
 Repo: `mixtape-release-core`
 Date: 2026-08-24
 Scope: Celery local launchers, task routing, and server worker coverage
