@@ -60,7 +60,7 @@ from initiatives.api.serializers import (
     TaskSerializer,
 )
 from initiatives.api.permissions import HasOrchestrationWriteScope
-from livewire.auth import InternalServiceAuthentication
+from switchboard.auth import SwitchboardCoreAuthentication
 from initiatives.services import (
     AgentParseError,
     execute_agent_command,
@@ -248,7 +248,7 @@ class SessionListCreateView(APIView):
 
 
 class ActionRunListCreateView(APIView):
-    authentication_classes = [InternalServiceAuthentication]
+    authentication_classes = [SwitchboardCoreAuthentication]
     permission_classes = [HasOrchestrationWriteScope]
 
     def post(self, request):
@@ -263,7 +263,7 @@ class ActionRunListCreateView(APIView):
 class ActionRunDetailView(APIView):
     def get_authenticators(self):
         if self.request.method == "PATCH":
-            return [InternalServiceAuthentication()]
+            return [SwitchboardCoreAuthentication()]
         return super().get_authenticators()
 
     def get_permissions(self):

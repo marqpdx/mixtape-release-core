@@ -567,11 +567,9 @@ ARIADNE_PUBLISH_JWT_AUD = os.getenv("ARIADNE_PUBLISH_JWT_AUD", "crossroads-ariad
 ARIADNE_PUBLISH_JWT_TTL_SECONDS = int(os.getenv("ARIADNE_PUBLISH_JWT_TTL_SECONDS", "300"))
 
 # P6a Concept lookup via Switchboard (handoff-2026-11-05-blue-ariadne-p9-live-
-# p6a-folio-review.md row 2) -- reuses SERVICE_JWT_SECRET (ConceptLookupServiceAuthentication
-# maps sub to a real Django user the same way ServiceJWTAuthentication does),
-# but its own audience, so a token minted for this one call can't pass as any
-# other SERVICE_JWT_SECRET-signed service token.
-CONCEPT_LOOKUP_JWT_AUD = os.getenv("CONCEPT_LOOKUP_JWT_AUD", "switchboard-concept-lookup")
+# p6a-folio-review.md row 2) moved onto SWITCHBOARD_CORE_JWT_SECRETS below
+# as a 5th scoped endpoint, 2026-11-10 (ADR-0064 AC-5a). CONCEPT_LOOKUP_JWT_AUD
+# removed with it.
 
 # ADR-0064 AC-5, core -> Cass's Switchboard (decisions/surface-profile-adr/
 # surface-profile-status.md, 2026-11-10 Headnote). The mirror image of
@@ -587,6 +585,27 @@ ARGUS_RUN_JWT_ALG = os.getenv("ARGUS_RUN_JWT_ALG", "HS256")
 ARGUS_RUN_JWT_ISS = os.getenv("ARGUS_RUN_JWT_ISS", "crossroads-core")
 ARGUS_RUN_JWT_AUD = os.getenv("ARGUS_RUN_JWT_AUD", "cass-switchboard-argus")
 ARGUS_RUN_JWT_TTL_SECONDS = int(os.getenv("ARGUS_RUN_JWT_TTL_SECONDS", "120"))
+
+# ADR-0064 AC-5a, Switchboard -> core (CTO-approved direction, 2026-11-10,
+# resolving the gap Blue flagged while building ARGUS_RUN_JWT_SECRET above).
+# Replaces SERVICE_JWT_SECRET for exactly the five Switchboard-facing calls
+# named in app/switchboard/auth.py's docstring. Deliberately not one shared
+# secret: Crossroads' own Switchboard and Cass's (once AC-1 deploys it)
+# each hold their own secret value, keyed by `kid` in the token header, so
+# revoking one deployment's credential never requires rotating the
+# other's (Puddlejump's AC-5a review). Unset or an unrecognized kid means
+# refuse, never a fall back to SERVICE_JWT_SECRET.
+SWITCHBOARD_CORE_JWT_SECRETS = {
+    kid: secret
+    for kid, secret in {
+        "crossroads-switchboard": os.getenv("SWITCHBOARD_CORE_JWT_SECRET_CROSSROADS"),
+        "cass-switchboard": os.getenv("SWITCHBOARD_CORE_JWT_SECRET_CASS"),
+    }.items()
+    if secret
+}
+SWITCHBOARD_CORE_JWT_ALG = os.getenv("SWITCHBOARD_CORE_JWT_ALG", "HS256")
+SWITCHBOARD_CORE_JWT_ISS = os.getenv("SWITCHBOARD_CORE_JWT_ISS", "mixtape")
+SWITCHBOARD_CORE_JWT_AUD = os.getenv("SWITCHBOARD_CORE_JWT_AUD", "switchboard-core")
 
 LIVEWIRE_JWT_SECRET = os.getenv("LIVEWIRE_JWT_SECRET")
 LIVEWIRE_JWT_ALG = os.getenv("LIVEWIRE_JWT_ALG", "HS256")

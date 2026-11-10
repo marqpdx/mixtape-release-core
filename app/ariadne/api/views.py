@@ -8,7 +8,8 @@ from rest_framework.views import APIView
 from ariadne import inquiry as inquiry_services
 from ariadne import search as search_services
 from ariadne import services
-from ariadne.auth import AriadnePublishAuthentication, ConceptLookupServiceAuthentication
+from ariadne.auth import AriadnePublishAuthentication
+from switchboard.auth import SwitchboardCoreAuthentication
 from ariadne.import_review import ReviewImportError, import_review_package
 from ariadne.inquiry import CloudDraftFailed, ModelConsentRequired
 from ariadne.models import Concept, DiscoveryRun, EvidencePacket, Inquiry, InquiryReview, InquiryRun, InquiryTheme, Lens, RunCandidate
@@ -135,13 +136,16 @@ class ConceptLookupView(APIView):
     reach through Switchboard's MCP surface -- registered 2026-11-08
     (handoff-2026-11-05-blue-ariadne-p9-live-p6a-folio-review.md row 2).
 
-    `ConceptLookupServiceAuthentication` is added alongside the project's
+    `SwitchboardCoreAuthentication` is added alongside the project's
     default session/OAuth2 authenticators, not in place of them: a
     superuser signed in through the UI and Switchboard calling on a real
     superuser's behalf both resolve to the same `IsSuperuser` check against
-    a real `request.user` -- no separate gate for the service path."""
+    a real `request.user` -- no separate gate for the service path. Moved
+    off `ConceptLookupServiceAuthentication`/`SERVICE_JWT_SECRET` onto
+    `SWITCHBOARD_CORE_JWT_SECRETS` as a 5th scoped endpoint, 2026-11-10
+    (ADR-0064 AC-5a) -- see `switchboard/auth.py`."""
 
-    authentication_classes = [OAuth2Authentication, DenylistJWTAuthentication, ConceptLookupServiceAuthentication]
+    authentication_classes = [OAuth2Authentication, DenylistJWTAuthentication, SwitchboardCoreAuthentication]
     permission_classes = [permissions.IsAuthenticated, IsSuperuser]
 
     def get(self, request, concept_id=None):

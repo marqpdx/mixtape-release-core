@@ -404,21 +404,28 @@ class AriadneInquiryViewsTestCase(TestCase):
         self.assertEqual(response.data["status"], "done")
 
 
-def _mint_concept_lookup_token(secret, *, sub, aud="switchboard-concept-lookup", iss="mixtape"):
+def _mint_concept_lookup_token(
+    secret, *, sub, aud="switchboard-core", iss="mixtape", kid="crossroads-switchboard", scopes=("concept:lookup",),
+):
     now = int(time.time())
     return jwt.encode(
-        {"sub": sub, "iat": now, "nbf": now, "exp": now + 300, "iss": iss, "aud": aud},
+        {"sub": sub, "iat": now, "nbf": now, "exp": now + 300, "iss": iss, "aud": aud, "scopes": list(scopes)},
         secret,
         algorithm="HS256",
+        headers={"kid": kid} if kid is not None else {},
     )
 
 
-@override_settings(SERVICE_JWT_SECRET="test-service-secret", CONCEPT_LOOKUP_JWT_AUD="switchboard-concept-lookup")
+@override_settings(
+    SWITCHBOARD_CORE_JWT_SECRETS={"crossroads-switchboard": "test-switchboard-core-secret"},
+    SWITCHBOARD_CORE_JWT_AUD="switchboard-core",
+)
 class ConceptLookupServiceAuthTestCase(TestCase):
-    """handoff-2026-11-05-blue-ariadne-p9-live-p6a-folio-review.md row 2:
+    """handoff-2026-11-05-blue-ariadne-p9-live-p6a-folio-review.md row 2,
+    folded onto SWITCHBOARD_CORE_JWT_SECRETS 2026-11-10 (ADR-0064 AC-5a):
     Switchboard reaches Concept lookup on a real person's behalf, scoped by
-    its own audience so a token minted for this call can't pass anywhere
-    else SERVICE_JWT_SECRET is trusted."""
+    the `concept:lookup` claim so a token minted for this call can't pass
+    at any of the other four Switchboard-facing endpoints."""
 
     def setUp(self):
         self.superuser = User.objects.create_user(
@@ -442,27 +449,50 @@ class ConceptLookupServiceAuthTestCase(TestCase):
         )
 
     def test_token_for_a_real_superuser_is_accepted(self):
-        token = _mint_concept_lookup_token("test-service-secret", sub=str(self.superuser.pk))
+        token = _mint_concept_lookup_token("test-switchboard-core-secret", sub=str(self.superuser.pk))
         response = self._get(token)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["preferred_label"], "catalyst")
 
     def test_token_for_a_non_superuser_is_refused(self):
-        token = _mint_concept_lookup_token("test-service-secret", sub=str(self.non_superuser.pk))
+        token = _mint_concept_lookup_token("test-switchboard-core-secret", sub=str(self.non_superuser.pk))
         response = self._get(token)
         self.assertEqual(response.status_code, 403)
 
     def test_token_with_the_generic_service_audience_is_refused(self):
-        # A token shaped like every other ServiceJWTAuthentication caller
-        # (chat, dispatch) must not also work here -- that's the whole point
-        # of giving this call its own audience.
+        # A token shaped like every other SwitchboardCoreAuthentication
+        # caller with the wrong audience must not work here.
         token = _mint_concept_lookup_token(
-            "test-service-secret", sub=str(self.superuser.pk), aud="django-api",
+            "test-switchboard-core-secret", sub=str(self.superuser.pk), aud="django-api",
+        )
+        response = self._get(token)
+        self.assertIn(response.status_code, (401, 403))
+
+    def test_token_without_the_concept_lookup_scope_is_refused(self):
+        # Isolation from the other four routes comes from the scope claim,
+        # not a separate audience -- a token minted for e.g. orchestration
+        # must not resolve to a real user here.
+        token = _mint_concept_lookup_token(
+            "test-switchboard-core-secret", sub=str(self.superuser.pk), scopes=["orchestration:write"],
         )
         response = self._get(token)
         self.assertIn(response.status_code, (401, 403))
 
     def test_unknown_subject_is_refused(self):
-        token = _mint_concept_lookup_token("test-service-secret", sub=str(uuid.uuid4()))
+        token = _mint_concept_lookup_token("test-switchboard-core-secret", sub=str(uuid.uuid4()))
+        response = self._get(token)
+        self.assertIn(response.status_code, (401, 403))
+
+    def test_unknown_kid_is_refused(self):
+        token = _mint_concept_lookup_token(
+            "test-switchboard-core-secret", sub=str(self.superuser.pk), kid="cass-switchboard",
+        )
+        response = self._get(token)
+        self.assertIn(response.status_code, (401, 403))
+
+    def test_missing_kid_is_refused(self):
+        token = _mint_concept_lookup_token(
+            "test-switchboard-core-secret", sub=str(self.superuser.pk), kid=None,
+        )
         response = self._get(token)
         self.assertIn(response.status_code, (401, 403))

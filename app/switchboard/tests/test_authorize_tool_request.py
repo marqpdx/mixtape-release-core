@@ -12,7 +12,7 @@ _DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000001"
 _DEFAULT_TENANT_NAMESPACE = "platform:crossroads"
 
 
-def _service_token(scopes: list[str]) -> str:
+def _service_token(scopes: list[str], *, kid: str = "crossroads-switchboard") -> str:
     now = int(time.time())
     claims = {
         "sub": "switchboard",
@@ -21,12 +21,15 @@ def _service_token(scopes: list[str]) -> str:
         "nbf": now - 5,
         "exp": now + 600,
         "iss": "mixtape",
-        "aud": "django-api",
+        "aud": "switchboard-core",
     }
-    return jwt.encode(claims, settings.SERVICE_JWT_SECRET, algorithm="HS256")
+    secret = settings.SWITCHBOARD_CORE_JWT_SECRETS[kid]
+    return jwt.encode(claims, secret, algorithm="HS256", headers={"kid": kid})
 
 
-@override_settings(SERVICE_JWT_SECRET="authorize-tool-request-test-secret")
+@override_settings(
+    SWITCHBOARD_CORE_JWT_SECRETS={"crossroads-switchboard": "authorize-tool-request-test-secret"},
+)
 class AuthorizeToolRequestTests(TestCase):
     def setUp(self):
         self.client = APIClient()
