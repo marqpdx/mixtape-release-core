@@ -16,7 +16,7 @@ from jsonschema import Draft7Validator
 
 from .bundle import BUNDLE_PATH, digest
 
-SHELVES = ("writing", "shuttle")
+SHELVES = ("writing", "shuttle", "argus")
 STRATEGY = "writing.fiction_note_reading"
 
 
