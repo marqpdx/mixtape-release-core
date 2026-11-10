@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import time
-
-import jwt
 import requests
 from django.conf import settings
+
+from inkwell.client import InkwellUnavailableError, _mint_inkwell_service_token
 
 
 class AgentResearchError(RuntimeError):
@@ -13,24 +12,6 @@ class AgentResearchError(RuntimeError):
         self.detail = detail
         self.status_code = status_code
         self.body = body
-
-
-def _mint_inkwell_service_token(subject: str = "switchboard") -> str:
-    now = int(time.time())
-    ttl = int(getattr(settings, "SERVICE_JWT_TTL_SECONDS", 600))
-    claims = {
-        "sub": subject,
-        "iat": now,
-        "nbf": now,
-        "exp": now + ttl,
-        "iss": getattr(settings, "SERVICE_JWT_ISS", "mixtape"),
-        "aud": "django-inkwell",
-    }
-    return jwt.encode(
-        claims,
-        settings.SERVICE_JWT_SECRET,
-        algorithm=getattr(settings, "SERVICE_JWT_ALG", "HS256"),
-    )
 
 
 def summarize_via_inkwell(*, text: str, words: int = 60, style: str = "neutral") -> str:
@@ -42,10 +23,15 @@ def summarize_via_inkwell(*, text: str, words: int = 60, style: str = "neutral")
     payload = {"text": text, "words": words, "style": style}
 
     try:
+        token = _mint_inkwell_service_token(subject="switchboard")
+    except InkwellUnavailableError as exc:
+        raise AgentResearchError(str(exc), status_code=503) from exc
+
+    try:
         response = requests.post(
             f"{base_url}/service/summarize",
             json=payload,
-            headers={"X-Service-Token": _mint_inkwell_service_token()},
+            headers={"X-Service-Token": token},
             timeout=60,
         )
     except requests.exceptions.ReadTimeout as exc:
@@ -77,10 +63,15 @@ def research_via_inkwell(*, query: str) -> dict:
     }
 
     try:
+        token = _mint_inkwell_service_token(subject="switchboard")
+    except InkwellUnavailableError as exc:
+        raise AgentResearchError(str(exc), status_code=503) from exc
+
+    try:
         response = requests.post(
             f"{base_url}/v1/research/research",
             json=payload,
-            headers={"X-Service-Token": _mint_inkwell_service_token()},
+            headers={"X-Service-Token": token},
             timeout=90,
         )
     except requests.exceptions.ReadTimeout as exc:
