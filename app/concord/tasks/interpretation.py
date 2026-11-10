@@ -16,6 +16,8 @@ from celery.exceptions import MaxRetriesExceededError
 from django.db import transaction
 from django.utils import timezone
 
+from concord.services.errors import CloudAIDisabledError
+
 logger = logging.getLogger(__name__)
 
 
@@ -23,20 +25,20 @@ logger = logging.getLogger(__name__)
 def interpret_recording_task(
     self,
     recording_id: str,
-    use_llm: bool = False,  # Default to extractive; inkwell will handle LLM later
+    use_llm: bool = False,
 ) -> dict:
     """
     Interpret a recording's transcription and transition to ready.
 
     This task:
     1. Gets the latest transcription for the recording
-    2. Generates a summary (LLM or extractive)
+    2. Generates an extractive summary
     3. Stores summary on the Recording
     4. Transitions recording status to 'ready'
 
     Args:
         recording_id: Recording UUID
-        use_llm: Whether to attempt LLM-based summarization
+        use_llm: Legacy flag; True returns a cloud_ai_disabled error
 
     Returns:
         Dict with results: {recording_id, status, summary_length, method}
@@ -73,6 +75,10 @@ def interpret_recording_task(
 
         try:
             result = interpret_recording(recording_id, use_llm=use_llm)
+        except CloudAIDisabledError as e:
+            logger.warning("Direct cloud AI denied: %s", e)
+            _mark_recording_failed(recording, str(e))
+            return {"status": "error", "error": str(e), "error_code": e.code}
         except Exception as e:
             logger.warning(f"[interpret] Interpretation failed, using fallback: {e}")
             # Don't fail the whole task, just skip summarization
