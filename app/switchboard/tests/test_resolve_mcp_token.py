@@ -14,7 +14,7 @@ from tenant_runtime.resolve import ensure_person_runtime
 User = get_user_model()
 
 
-def _service_token(scopes):
+def _service_token(scopes, *, kid="crossroads-switchboard"):
     now = int(time.time())
     claims = {
         "sub": "switchboard",
@@ -23,9 +23,10 @@ def _service_token(scopes):
         "nbf": now - 5,
         "exp": now + 600,
         "iss": "mixtape",
-        "aud": "django-api",
+        "aud": "switchboard-core",
     }
-    return jwt.encode(claims, settings.SERVICE_JWT_SECRET, algorithm="HS256")
+    secret = settings.SWITCHBOARD_CORE_JWT_SECRETS[kid]
+    return jwt.encode(claims, secret, algorithm="HS256", headers={"kid": kid})
 
 
 def _patch_pool(members):
@@ -36,7 +37,9 @@ def _patch_pool(members):
     ]
 
 
-@override_settings(SERVICE_JWT_SECRET="resolve-mcp-token-test-secret")
+@override_settings(
+    SWITCHBOARD_CORE_JWT_SECRETS={"crossroads-switchboard": "resolve-mcp-token-test-secret"},
+)
 class ResolveMcpTokenTests(TestCase):
     def setUp(self):
         self.client = APIClient()

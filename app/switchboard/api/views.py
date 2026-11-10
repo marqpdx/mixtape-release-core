@@ -27,6 +27,7 @@ from initiatives.models import (
 )
 from livewire.auth import InternalServiceAuthentication
 from livewire.permissions import HasAuthorizationReadScope, HasMcpResolveScope
+from switchboard.auth import SwitchboardCoreAuthentication
 from switchboard.api.serializers import (
     AgentAddCommandSerializer,
     AgentFindCommandSerializer,
@@ -60,7 +61,7 @@ _VALID_SURFACES = {"console", "puddlejump"}
 
 
 @api_view(["POST"])
-@authentication_classes([InternalServiceAuthentication])
+@authentication_classes([SwitchboardCoreAuthentication])
 @permission_classes([HasAuthorizationReadScope])
 def authorize_tool_request(request):
     """
@@ -126,7 +127,7 @@ def authorize_tool_request(request):
 
 
 @api_view(["POST"])
-@authentication_classes([InternalServiceAuthentication])
+@authentication_classes([SwitchboardCoreAuthentication])
 @permission_classes([HasMcpResolveScope])
 def resolve_mcp_token(request):
     """
