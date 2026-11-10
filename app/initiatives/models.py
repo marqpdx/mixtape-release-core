@@ -322,12 +322,30 @@ class Initiative(BaseModel):
             "profile in use is never silently deleted out from under its Initiatives."
         ),
     )
+    block_slug = models.CharField(
+        max_length=80,
+        null=True,
+        blank=True,
+        help_text=(
+            "D3, amended 2026-11-09: the real field a Surface's per-Initiative specifics key "
+            "off (for Argus, the block's slug), unique within this Initiative's Surface. Not "
+            "`seed_context`, which already carries fork-snapshot semantics. Null for every "
+            "Initiative outside a Surface that uses this, including every Atrium Initiative."
+        ),
+    )
 
     class Meta(BaseModel.Meta):
         ordering = ["-updated_at"]
         indexes = [
             models.Index(fields=["sponsor_content_type", "sponsor_object_id", "-updated_at"]),
             models.Index(fields=["status", "-updated_at"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["surface", "block_slug"],
+                condition=models.Q(block_slug__isnull=False),
+                name="initiative_unique_block_slug_per_surface",
+            ),
         ]
 
     def __str__(self):

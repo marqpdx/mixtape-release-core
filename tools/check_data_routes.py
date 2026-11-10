@@ -15,7 +15,10 @@ It fails when, outside the approved places listed in tools/data-routes.toml:
   3. a call to the shared Claude runner does not name its tools (`tools=`);
   4. an http(s) host appears in code that is not on the allowlist;
   5. a call to the shared Claude or Codex runner does not name the person's
-     runtime (`run_as_user=`): no run on the server's own login (ST-3 Part C).
+     runtime (`run_as_user=`): no run on the server's own login (ST-3 Part C);
+  6. a `[[surface_tool]]` entry (R4, charter-amendment-surface-profiles.md) names
+     "crossroads" in `reaches` without `read_only = true` (R2), or a `write_grant`
+     outside R3's four rungs (none, own_records, propose, canon_writer).
 
 Limits: hosts built from settings or the environment (Inkwell, Stackroom, Switchboard)
 are not seen here; the Argus block data-routes-01 checks the deployed settings.
@@ -48,6 +51,7 @@ CLI_NAMES = {"claude", "codex"}
 CLI_BIN_HELPERS = {"_claude_bin", "_codex_bin"}
 HOST_RE = re.compile(r"https?://([A-Za-z0-9.-]+)")
 SKIP_PARTS = {"tests", "test", "migrations", "__pycache__", "node_modules"}
+WRITE_GRANTS = {"none", "own_records", "propose", "canon_writer"}
 
 
 def _skip(path: Path) -> bool:
@@ -168,12 +172,27 @@ def load_allowlist() -> dict:
         "sdk_imports": {e["sdk"]: e["paths"] for e in data.get("sdk_import", [])},
         "cli_launchers": [p for e in data.get("cli_launcher", []) for p in e["paths"]],
         "hosts": hosts,
+        "surface_tools": data.get("surface_tool", []),
     }
+
+
+def check_surface_tools(entries: list[dict]) -> list[str]:
+    """R4: a non-read_only tool never reaches Crossroads (R2); write_grant is
+    one of R3's four rungs. See the Headnote in tools/data-routes.toml for
+    what this does and does not check."""
+    problems: list[str] = []
+    for entry in entries:
+        label = f"tools/data-routes.toml: surface_tool '{entry.get('tool')}'"
+        if "crossroads" in entry.get("reaches", []) and not entry.get("read_only"):
+            problems.append(f"{label} reaches crossroads but is not read_only (R2)")
+        if entry.get("write_grant") not in WRITE_GRANTS:
+            problems.append(f"{label} has write_grant '{entry.get('write_grant')}', not one of R3's rungs")
+    return problems
 
 
 def main() -> int:
     allow = load_allowlist()
-    problems: list[str] = []
+    problems: list[str] = check_surface_tools(allow["surface_tools"])
     for path in sorted(APP.rglob("*.py")):
         if _skip(path):
             continue
