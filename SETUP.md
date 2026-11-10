@@ -281,7 +281,10 @@ as Switchboard (`/var/www/switchboard/app/.env.prod`).
 - The systemd units (gunicorn and every `crossroads-celery-*` unit) load it with
   `EnvironmentFile=/var/www/crossroads/app/.env.prod`.
 - `prod.py` loads the same file (`BASE_DIR.parent / ".env.prod"`, no override), so a hand-run
-  `manage.py` sees the same settings without exporting anything first.
+  `manage.py` sees the same settings once it is running prod settings. It only gets there if the
+  shell says so: `manage.py` picks its module from `DJANGO_SETTINGS_MODULE`, else `DJANGO_ENV`,
+  else **dev**. So in an SSH shell, first `set -a; . /var/www/crossroads/app/.env.prod; set +a`
+  (or `export DJANGO_SETTINGS_MODULE=mixtape.settings.prod`).
 - There is no `app/app/.env` and no symlink. The old pair (`/var/www/crossroads/.env` for systemd,
   a separate copy at `app/app/.env` for `load_dotenv`) drifted apart, and the copy kept a key that
   had been removed from the systemd file. Don't recreate either.
