@@ -112,6 +112,7 @@ urlpatterns = [
     path("api/mindmaps/", include("mindmap.api.urls")),
     path("api/livewire/", include("livewire.api.urls")),
     path("api/ops/", include("ops.api.urls")),
+    path("api/argus/", include("surfaces.api.urls")),
     path("api/opportunities/", include("sourcework.api.opportunity_urls")),
     path("api/projects/", include("projects.api.urls")),
     path("api/appearance/", include("appearance.api.urls")),

@@ -32,7 +32,7 @@ class PuddlejumpPathState:
 
 
 def build_project_status() -> dict[str, Any]:
-    path_state = _resolve_puddlejump_path()
+    path_state = resolve_puddlejump_path()
     generated_at = timezone.now().isoformat()
 
     if not path_state.available or path_state.root is None:
@@ -57,7 +57,7 @@ def build_project_status() -> dict[str, Any]:
     }
 
 
-def _resolve_puddlejump_path() -> PuddlejumpPathState:
+def resolve_puddlejump_path() -> PuddlejumpPathState:
     configured = getattr(settings, "PUDDLEJUMP_PATH", None)
     if not configured:
         return PuddlejumpPathState(False, reason="PUDDLEJUMP_PATH is not configured.")
