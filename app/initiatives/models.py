@@ -115,6 +115,18 @@ class ActionRunInitiatorType(models.TextChoices):
     SYSTEM = "system", "System"
 
 
+class RunSeriesStatus(models.TextChoices):
+    """ADR-0064 D9. Stopping takes effect at once -> no intermediate 'stopping' state."""
+    ACTIVE = "active", "Active"
+    STOPPED = "stopped", "Stopped"
+    COMPLETED = "completed", "Completed"
+
+
+class RunSeriesSpanKind(models.TextChoices):
+    DAYS = "days", "Days"
+    RUNS = "runs", "Runs"
+
+
 class TaskStatus(models.TextChoices):
     TODO = "todo", "To do"
     IN_PROGRESS = "in_progress", "In progress"
@@ -541,6 +553,14 @@ class ActionRun(BaseModel):
         blank=True,
         related_name="action_runs",
     )
+    run_series = models.ForeignKey(
+        "RunSeries",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="action_runs",
+        help_text="Set when this run belongs to a run series (D9); null for a one-off 'Run now'.",
+    )
     source_grant = models.ForeignKey(
         "sourcework.SourceGrant",
         on_delete=models.SET_NULL,
@@ -611,6 +631,105 @@ class ActionRun(BaseModel):
 
     def __str__(self):
         return f"ActionRun [{self.tool_name}] {self.status}"
+
+
+# ---------------------------------------------------------------------------
+# RunSeries — ADR-0064 D9
+# ---------------------------------------------------------------------------
+
+class RunSeries(BaseModel):
+    """
+    D9: a schedule of runs, and the series IS the consent record. Lives
+    beside the Initiative, never on it (ADR-0064 §3). Every row here is a
+    bounded series (an end date or count): an open-ended request ("every 2
+    days, forever") is never stored as a RunSeries -- it asks the builder
+    each time instead, so nothing open-ended runs by itself.
+
+    Limits over every series (enforced by the runner on Cass; `clean()`
+    below only catches the one limit knowable from this row alone):
+    one run at a time on Cass, this series lasts at most seven days,
+    a daily token ceiling across all series, stopping takes effect at once.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    initiative = models.ForeignKey(
+        Initiative,
+        on_delete=models.CASCADE,
+        related_name="run_series",
+        help_text="The block's Argus Initiative this series runs beside.",
+    )
+    block_slug = models.CharField(max_length=80)
+
+    cadence_hours = models.PositiveIntegerField()
+    span_kind = models.CharField(max_length=10, choices=RunSeriesSpanKind.choices)
+    span_value = models.PositiveIntegerField(
+        help_text="Days (span_kind=days, at most 7 per D9) or a run count (span_kind=runs).",
+    )
+    per_turn_caps = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="max_tokens, max_turns, max_wall_clock_seconds -- enforced by the Cass runner, recorded here.",
+    )
+
+    status = models.CharField(
+        max_length=10,
+        choices=RunSeriesStatus.choices,
+        default=RunSeriesStatus.ACTIVE,
+    )
+    started_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="started_run_series",
+    )
+    stopped_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(BaseModel.Meta):
+        ordering = ["-created_at"]
+        verbose_name = "Run series"
+        verbose_name_plural = "Run series"
+
+    def __str__(self):
+        return f"RunSeries({self.block_slug}, every {self.cadence_hours}h, {self.status})"
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+
+        if self.span_kind == RunSeriesSpanKind.DAYS and self.span_value > 7:
+            raise ValidationError("A run series lasts at most seven days (D9).")
+
+    def stop(self):
+        """Immediate stop (D9: 'stopping takes effect at once')."""
+        self.status = RunSeriesStatus.STOPPED
+        self.stopped_at = timezone.now()
+        self.save(update_fields=["status", "stopped_at", "updated_at"])
+
+    @property
+    def runs_done(self) -> int:
+        return self.action_runs.count()
+
+    @property
+    def runs_total(self) -> int | None:
+        """None when the span is in days and the count isn't fixed (open until the span ends)."""
+        if self.span_kind == RunSeriesSpanKind.RUNS:
+            return self.span_value
+        return None
+
+    @property
+    def day_of_span(self) -> int | None:
+        if self.span_kind != RunSeriesSpanKind.DAYS:
+            return None
+        elapsed = timezone.now() - self.created_at
+        return min(self.span_value, elapsed.days + 1)
+
+    @property
+    def findings_count(self) -> int:
+        """
+        Runs so far with a non-empty findings Artifact. Always 0 until AC-4c's
+        findings Artifact kind exists -- there is nothing to count yet.
+        """
+        return 0
 
 
 # ---------------------------------------------------------------------------
