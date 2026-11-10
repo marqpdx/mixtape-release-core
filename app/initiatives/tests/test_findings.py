@@ -1,6 +1,9 @@
+import tempfile
+from pathlib import Path
+
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from initiatives.models import (
     ActionRun,
@@ -68,6 +71,34 @@ class FindingsArtifactTests(TestCase):
     def test_incomplete_without_outcome_reason_rejected(self):
         with self.assertRaises(FindingsShapeError):
             create_findings_artifact(action_run=self.run, payload=_payload(outcome="incomplete"))
+
+    def test_undeclared_finding_type_rejected_when_block_is_readable(self):
+        tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(tmpdir.cleanup)
+        root = Path(tmpdir.name)
+        blocks_dir = root / "decisions" / "argus" / "audit-blocks"
+        blocks_dir.mkdir(parents=True)
+        (blocks_dir / "help-fidelity-01.md").write_text(
+            "---\nblock: help-fidelity-01\ndomain: help\nblock_state: ready\n"
+            "finding_types:\n- outdated-description\n---\n\n# Block\n"
+        )
+
+        bad_findings = [{
+            "finding_id": "f1",
+            "type": "not-a-declared-type",
+            "severity": "medium",
+            "confidence": "high",
+            "title": "Example",
+            "location": [{"ref": "content/help/x.md"}],
+            "issue": "Out of date.",
+            "recommendation": "Update it.",
+        }]
+        with override_settings(PUDDLEJUMP_PATH=str(root)):
+            with self.assertRaises(FindingsShapeError):
+                create_findings_artifact(
+                    action_run=self.run,
+                    payload=_payload(outcome="found", findings=bad_findings),
+                )
 
 
 class RunSeriesFindingsCountTests(TestCase):
