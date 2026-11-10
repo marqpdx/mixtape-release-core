@@ -272,26 +272,23 @@ python manage.py migrate <app_name> --fake
 ### Issue: Profile not created automatically on signup
 **Solution**: For Phase 1, profiles are created manually. In Phase 2, we'll add a signal to auto-create profiles.
 
-### Issue: `ImproperlyConfigured` / bad-value errors for a setting that's clearly in `.env` (production servers)
-**Cause**: `load_dotenv()` in `base.py`/`prod.py` loads `.env` from `BASE_DIR`, which resolves to the
-Django project directory (same level as `manage.py` — locally, `mixtape-release-core/app/.env`). On the
-`crossroads` production server, the repo is checked out one level up from where you'd expect
-(`/var/www/crossroads/app/` is the repo root), so the canonical `.env` lives at
-`/var/www/crossroads/app/app/.env` to match — **not** `/var/www/crossroads/.env`.
+### Issue: `ImproperlyConfigured` / bad-value errors for a setting that's clearly set (production servers)
+**One production env file (2026-11-10).** On Crossroads the repo is checked out at
+`/var/www/crossroads/app/`, and production settings live in one file at its root:
+`/var/www/crossroads/app/.env.prod` (git-ignored, mode 640, owner `crossroads`). The same layout
+as Switchboard (`/var/www/switchboard/app/.env.prod`).
 
-If `.env` was placed at the repo root instead, `load_dotenv()` silently finds nothing (no error) and
-falls through to whatever's already in the process's environment. The live site itself is unaffected —
-gunicorn's systemd unit sets env vars directly via `EnvironmentFile=`, independent of `load_dotenv()` —
-but any `manage.py` command run manually from an SSH shell will only see vars that happen to already be
-exported in that shell session, which can mask this for a long time until a genuinely new var is needed.
+- The systemd units (gunicorn and every `crossroads-celery-*` unit) load it with
+  `EnvironmentFile=/var/www/crossroads/app/.env.prod`.
+- `prod.py` loads the same file (`BASE_DIR.parent / ".env.prod"`, no override), so a hand-run
+  `manage.py` sees the same settings without exporting anything first.
+- There is no `app/app/.env` and no symlink. The old pair (`/var/www/crossroads/.env` for systemd,
+  a separate copy at `app/app/.env` for `load_dotenv`) drifted apart, and the copy kept a key that
+  had been removed from the systemd file. Don't recreate either.
 
-**Solution**: keep a symlink from the repo-root `.env` into the Django project dir so both the systemd
-service and manual `manage.py` invocations resolve to the same file:
-```bash
-ln -s /var/www/crossroads/.env /var/www/crossroads/app/app/.env
-```
-Verify with `python -c "import os; print(repr(os.environ.get('YOUR_VAR')))"` run from a plain shell
-(not just via a running service) after any new env var is added.
+If a setting reads wrong, check the one file, then the unit's `EnvironmentFile=` line
+(`systemctl cat <unit>`). Verify a new variable with
+`python -c "import os; print(bool(os.environ.get('YOUR_VAR')))"` from `manage.py shell`.
 
 ---
 
