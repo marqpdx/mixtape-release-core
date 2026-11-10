@@ -40,6 +40,7 @@ class BundleGenerationTests(TestCase):
             root = Path(directory)
             schema = json.loads((root / "writing/character.schema.json").read_text())
             schema["properties"]["shape_version"]["const"] = "0.0.9"
+            schema["$id"] = "urn:contour:writing.character:0.0.9"
             old = root / "writing/versions/character.0.0.9.schema.json"
             old.parent.mkdir()
             old.write_text(json.dumps(schema))

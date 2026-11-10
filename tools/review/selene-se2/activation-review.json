@@ -1,0 +1,59 @@
+{
+  "status": "unapplied_review_only",
+  "canonical_source_commit": "0700f0f15efa05cbb49f56aca4b9aee3947fa47e",
+  "current_library_version": "0.4.6",
+  "proposed_library_version": "0.4.7",
+  "proposed_files": [
+    "manifest.yaml",
+    "shared/README.md",
+    "shared/dictionary_entry.schema.json",
+    "shared/sighting_provenance.schema.json",
+    "writing/README.md",
+    "writing/character.extraction.md",
+    "writing/character.schema.json",
+    "writing/character.shape.yaml",
+    "writing/character.template.md",
+    "writing/character.validation.md",
+    "writing/setting.extraction.md",
+    "writing/setting.schema.json",
+    "writing/setting.shape.yaml",
+    "writing/setting.template.md",
+    "writing/setting.validation.md",
+    "writing/strategies/fiction-note-recognition.md",
+    "writing/strategies/fiction-note-recognition.strategy.yaml",
+    "writing/versions/character.0.1.0.extraction.md",
+    "writing/versions/character.0.1.0.schema.json",
+    "writing/versions/character.0.1.0.shape.yaml",
+    "writing/versions/character.0.1.0.template.md",
+    "writing/versions/character.0.1.0.validation.md",
+    "writing/versions/setting.0.1.0.extraction.md",
+    "writing/versions/setting.0.1.0.schema.json",
+    "writing/versions/setting.0.1.0.shape.yaml",
+    "writing/versions/setting.0.1.0.template.md",
+    "writing/versions/setting.0.1.0.validation.md"
+  ],
+  "retained_original_sha256": {
+    "writing/character.schema.json": "08be84f0b2c613e1e91305462092d36e8123cb4518bf7e870ea067ec209ec53a",
+    "writing/character.shape.yaml": "09dae0aaf20b2b9b84598ef12198415e1a7a64313c969df5a4251c7a93ff7a41",
+    "writing/character.template.md": "0a54b2bbefee9c6d2d563dabd673ac8e6dfdc62dcdca29ed24e14238ef7aff8b",
+    "writing/character.extraction.md": "532e534c673ab49fef428b70dde76c278a7fd55a0323e16605840bb03b9c13a1",
+    "writing/character.validation.md": "6fce478a90dead5b826c0280fd3c2abc46a236c2028121d8674a23bb91af7945",
+    "writing/setting.schema.json": "52eee588b084bb51aba691ad6112f5e2497832b3dff9b586cc2a37e4c8c56bd4",
+    "writing/setting.shape.yaml": "831733022f125affbcf6b812b34fcafca4d377dcf48492cc65372f52aa05fd28",
+    "writing/setting.template.md": "914a09596194f12d540be0039436f004c082d2a71611f2791bbb3a5404f57dd3",
+    "writing/setting.extraction.md": "4f37c7001f4cb76d03b3032ec4859168d82c854fd1283ce6758753e8455a322a",
+    "writing/setting.validation.md": "2ff620e91b4e19d61eed5a11a38702606e644d171e8bb674212534167cda7f82"
+  },
+  "checks": [
+    "retained 0.1.0 files byte-identical",
+    "all shared refs resolve offline",
+    "composed Strategy still reads retained 0.1.0 descriptors",
+    "actual draft schemas enforce provenance, conditional confidence, UUID and UTC date-time"
+  ],
+  "schema_cases": {
+    "accepted": 7,
+    "rejected": 12
+  },
+  "review_bundle_digest": "8b19dcf98489f158241f04e2129fca0b6c88c57b6b6c05fbe553b4a57474880e",
+  "activation_patch_sha256": "699920a4e350436515aa75f54fb9835f699d9bbbf1167703375d672227ef44ed"
+}

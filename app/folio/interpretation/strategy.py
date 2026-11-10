@@ -8,9 +8,9 @@ import json
 import re
 
 import yaml
-from jsonschema import Draft7Validator, ValidationError
+from jsonschema import ValidationError
 
-from heddle.bundle import _load, bundle_identity, digest, shape_schema
+from heddle.bundle import _load, bundle_identity, digest, shape_schema, schema_validator
 from heddle.contract import Reading, source_digest
 from heddle.steps import Step
 
@@ -35,7 +35,13 @@ def dependencies():
         raise ValidationError("Unrecognised Fiction Strategy version")
     cues = []
     for shape_id in SHAPES:
-        document = yaml.safe_load(files[f"writing/{shape_id.split('.')[1]}.shape.yaml"]["text"])
+        name = shape_id.split(".")[1]
+        document = yaml.safe_load(files[f"writing/{name}.shape.yaml"]["text"])
+        if document.get("version") != VERSION:
+            retained = files.get(f"writing/versions/{name}.{VERSION}.shape.yaml")
+            if retained is None:
+                raise ValidationError("Pinned Fiction Shape descriptor unavailable")
+            document = yaml.safe_load(retained["text"])
         if document["id"] != shape_id or document["version"] != VERSION:
             raise ValidationError("Unrecognised Writing Shape version")
         for word in document["synonyms"]:
@@ -74,7 +80,7 @@ def response_schema():
 def validate_findings(result, sources):
     if len(json.dumps(result, ensure_ascii=False)) > MAX_OUTPUT_CHARS:
         raise ValidationError("Reading output exceeds budget")
-    Draft7Validator(response_schema()).validate(result)
+    schema_validator(response_schema()).validate(result)
     for sighting in result["sightings"]:
         if sighting["shape_id"] == "writing.scene":
             if sighting["text"] != sighting["passage"]["quote"]:
