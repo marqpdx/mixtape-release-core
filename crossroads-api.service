@@ -1,0 +1,57 @@
+# /etc/systemd/system/crossroads-api.service
+
+[Unit]
+Description=Crossroads Django API
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=notify
+User=crossroads
+Group=crossroads
+WorkingDirectory=/var/www/crossroads/app/app
+Environment=DJANGO_SETTINGS_MODULE=mixtape.settings.prod
+Environment=PGPORT=5432
+EnvironmentFile=/var/www/crossroads/app/.env.prod
+
+# Create and manage these directories automatically
+RuntimeDirectory=crossroads
+RuntimeDirectoryMode=0755
+
+LogsDirectory=crossroads
+LogsDirectoryMode=0755
+
+# Optional but often helpful if you use /var/lib for uploads, etc.
+# StateDirectory=crossroads
+# StateDirectoryMode=0755
+
+# Gunicorn socket now lives in /run (systemd-managed, always writable, auto-cleaned)
+ExecStart=/var/www/crossroads/app/venv/bin/gunicorn \
+  --workers 2 \
+  --bind unix:/run/crossroads/gunicorn.sock \
+  --timeout 240 \
+  --access-logfile - \
+  --error-logfile - \
+  --capture-output \
+  --log-level info \
+  mixtape.wsgi:application
+
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+
+# Allow writes only where needed
+ReadWritePaths=/var/www/crossroads /var/log/crossroads /run/crossroads
+
+# Restart on failure
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

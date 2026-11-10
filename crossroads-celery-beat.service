@@ -1,0 +1,28 @@
+[Unit]
+Description=Crossroads Celery Beat
+After=network.target rabbitmq-server.service
+Requires=rabbitmq-server.service
+
+[Service]
+Type=simple
+User=crossroads
+Group=crossroads
+WorkingDirectory=/var/www/crossroads/app/app
+EnvironmentFile=/var/www/crossroads/app/.env.prod
+
+# If you use django-celery-beat or a schedule file, add:
+# ExecStart=... beat --schedule /var/www/crossroads/celerybeat-schedule
+ExecStart=/var/www/crossroads/app/venv/bin/celery -A mixtape.celery_app beat \
+  --loglevel=INFO --schedule /var/www/crossroads/var/celerybeat-schedule.db
+
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=true
+PrivateTmp=true
+ReadWritePaths=/var/www/crossroads
+
+[Install]
+WantedBy=multi-user.target

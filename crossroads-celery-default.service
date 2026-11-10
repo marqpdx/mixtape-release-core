@@ -1,0 +1,34 @@
+[Unit]
+Description=Crossroads Celery Worker (default queue)
+After=network.target rabbitmq-server.service
+Requires=rabbitmq-server.service
+
+[Service]
+Type=simple
+User=crossroads
+Group=crossroads
+WorkingDirectory=/var/www/crossroads/app/app
+EnvironmentFile=/var/www/crossroads/app/.env.prod
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# IMPORTANT: do not rely on ${VAR} expansion in ExecStart
+ExecStart=/var/www/crossroads/app/venv/bin/celery -A mixtape.celery_app worker \
+  --loglevel=INFO \
+  --concurrency=2 \
+  --prefetch-multiplier=1 \
+  -Q mixtape_shared_rabbit_chat_queue_prod,push \
+  -n default-worker@%%h
+
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=true
+PrivateTmp=true
+ReadWritePaths=/var/www/crossroads
+
+[Install]
+WantedBy=multi-user.target
