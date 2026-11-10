@@ -58,6 +58,7 @@ class ArtifactKind(models.TextChoices):
     QUESTION = "question", "Question"
     ACTION = "action", "Action"
     ANNOTATION = "annotation", "Annotation"
+    FINDINGS = "findings", "Findings"
 
 
 class QualityScanState(models.TextChoices):
@@ -481,6 +482,24 @@ class Artifact(BaseModel):
         help_text="Optional human note — e.g. where this came from for Direct Annotations.",
     )
 
+    # --- Shaped structured data (D6: findings are validated like any other
+    # shaped record; kept generic for any future shaped Artifact kind) ---
+    action_run = models.ForeignKey(
+        "ActionRun",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="artifacts",
+        help_text="The ActionRun this Artifact's findings belong to, when kind=findings.",
+    )
+    shape_id = models.CharField(max_length=80, blank=True, default="")
+    shape_version = models.CharField(max_length=20, blank=True, default="")
+    structured_data = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="The full Shape-validated payload (e.g. argus.findings) for a structured Artifact kind.",
+    )
+
     # --- Quality scan (async, non-blocking) ---
     quality_scan_result = models.JSONField(
         null=True,
@@ -725,11 +744,15 @@ class RunSeries(BaseModel):
 
     @property
     def findings_count(self) -> int:
-        """
-        Runs so far with a non-empty findings Artifact. Always 0 until AC-4c's
-        findings Artifact kind exists -- there is nothing to count yet.
-        """
-        return 0
+        """Runs so far with a non-empty findings Artifact (AC-4c)."""
+        return (
+            Artifact.objects.filter(
+                action_run__run_series=self,
+                kind=ArtifactKind.FINDINGS,
+            )
+            .exclude(structured_data__findings=[])
+            .count()
+        )
 
 
 # ---------------------------------------------------------------------------

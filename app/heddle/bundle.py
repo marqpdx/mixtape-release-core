@@ -47,3 +47,16 @@ def validate_sighting(sighting):
     schema = shape_schema(sighting.get("shape_id"), sighting.get("shape_version"))
     Draft7Validator(schema).validate(sighting)
     return sighting
+
+
+def validate_shaped_payload(payload):
+    """
+    Generic Shape validation, for any bundled Shape -- not just sightings.
+    The payload names its own shape_id/shape_version (required fields on
+    every Shape); this looks up and applies that Shape's schema.
+    """
+    if not isinstance(payload, dict):
+        raise ValidationError("Payload must be an object")
+    schema = shape_schema(payload.get("shape_id"), payload.get("shape_version"))
+    Draft7Validator(schema).validate(payload)
+    return payload
