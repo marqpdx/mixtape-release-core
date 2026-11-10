@@ -16,6 +16,8 @@ from celery.exceptions import MaxRetriesExceededError
 from django.db import transaction
 from django.utils import timezone
 
+from concord.services.errors import CloudAIDisabledError
+
 if TYPE_CHECKING:
     pass
 
@@ -99,6 +101,10 @@ def transcribe_recording_task(
                 model_name=model_name,
                 language=language,
             )
+        except CloudAIDisabledError as e:
+            logger.warning("Direct cloud AI denied: %s", e)
+            _mark_recording_failed(recording, str(e))
+            return {"status": "error", "error": str(e), "error_code": e.code}
         except FileNotFoundError as e:
             logger.error(f"[transcribe] Audio file not found: {e}")
             _mark_recording_failed(recording, str(e))

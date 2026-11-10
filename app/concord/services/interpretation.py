@@ -16,15 +16,11 @@ Usage:
 
 from __future__ import annotations
 
-import logging
-import os
 import re
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import List
 
-from django.conf import settings
-
-logger = logging.getLogger(__name__)
+from .errors import CloudAIDisabledError
 
 
 # ============================================================================
@@ -37,7 +33,7 @@ class InterpretationResult:
     summary: str
     key_points: List[str]
     word_count: int
-    method: str  # 'llm' or 'extractive'
+    method: str  # 'extractive' or 'none'
 
 
 # ============================================================================
@@ -58,32 +54,12 @@ class InterpretationService:
     - Sentiment analysis
     """
 
-    def __init__(self, use_llm: bool = True):
-        """
-        Initialize interpretation service.
-
-        Args:
-            use_llm: Whether to attempt LLM-based summarization
-        """
-        self.use_llm = use_llm
-        self._llm_client = None
-
-    def _get_llm_client(self):
-        """Get OpenAI client if available."""
-        if self._llm_client is not None:
-            return self._llm_client
-
-        api_key = getattr(settings, 'OPENAI_API_KEY', None) or os.getenv('OPENAI_API_KEY')
-        if not api_key:
-            return None
-
-        try:
-            import openai
-            self._llm_client = openai.OpenAI(api_key=api_key)
-            return self._llm_client
-        except ImportError:
-            logger.warning("OpenAI package not installed, falling back to extractive summary")
-            return None
+    def __init__(self, use_llm: bool = False):
+        """Initialize local interpretation; explicit cloud requests are refused."""
+        if use_llm:
+            raise CloudAIDisabledError(
+                "Direct cloud interpretation is disabled; use a gated Switchboard capability."
+            )
 
     def interpret(
         self,
@@ -112,92 +88,7 @@ class InterpretationService:
 
         word_count = len(text.split())
 
-        # Try LLM summarization first
-        if self.use_llm:
-            result = self._summarize_with_llm(text, max_summary_length, extract_key_points)
-            if result:
-                result.word_count = word_count
-                return result
-
-        # Fallback to extractive summarization
         return self._summarize_extractive(text, max_summary_length, word_count)
-
-    def _summarize_with_llm(
-        self,
-        text: str,
-        max_summary_length: int,
-        extract_key_points: bool,
-    ) -> Optional[InterpretationResult]:
-        """Generate summary using LLM."""
-        client = self._get_llm_client()
-        if not client:
-            return None
-
-        try:
-            # Truncate text if too long (keep first ~8000 chars for context window)
-            truncated_text = text[:8000] if len(text) > 8000 else text
-
-            prompt = f"""Summarize this transcription in {max_summary_length} characters or less.
-Be concise and capture the main points.
-
-Transcription:
-{truncated_text}
-
-Provide:
-1. A brief summary (2-3 sentences)
-2. 3-5 key points as bullet points
-
-Format your response as:
-SUMMARY:
-[your summary here]
-
-KEY POINTS:
-- [point 1]
-- [point 2]
-- [point 3]"""
-
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant that summarizes audio transcriptions concisely."},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=500,
-                temperature=0.3,
-            )
-
-            content = response.choices[0].message.content
-
-            # Parse response
-            summary = ""
-            key_points = []
-
-            if "SUMMARY:" in content:
-                parts = content.split("KEY POINTS:")
-                summary_part = parts[0].replace("SUMMARY:", "").strip()
-                summary = summary_part[:max_summary_length]
-
-                if len(parts) > 1:
-                    points_part = parts[1].strip()
-                    key_points = [
-                        line.strip().lstrip("- •").strip()
-                        for line in points_part.split("\n")
-                        if line.strip() and line.strip().startswith(("-", "•", "*"))
-                    ]
-            else:
-                # Fallback if format not matched
-                summary = content[:max_summary_length]
-
-            return InterpretationResult(
-                summary=summary,
-                key_points=key_points[:5],
-                word_count=0,  # Will be set by caller
-                method="llm",
-            )
-
-        except Exception as e:
-            logger.warning(f"LLM summarization failed: {e}")
-            return None
 
     def _summarize_extractive(
         self,
@@ -259,7 +150,7 @@ KEY POINTS:
 def interpret_transcription(
     text: str,
     max_summary_length: int = 500,
-    use_llm: bool = False,  # Default to extractive; inkwell will handle LLM later
+    use_llm: bool = False,
 ) -> InterpretationResult:
     """
     Convenience function to interpret transcription text.
@@ -267,7 +158,7 @@ def interpret_transcription(
     Args:
         text: Transcription text
         max_summary_length: Maximum summary length
-        use_llm: Whether to try LLM summarization
+        use_llm: Legacy flag; True raises CloudAIDisabledError
 
     Returns:
         InterpretationResult with summary and key points
@@ -284,7 +175,7 @@ def interpret_recording(recording_id: str, use_llm: bool = False) -> Interpretat
 
     Args:
         recording_id: Recording UUID
-        use_llm: Whether to try LLM summarization
+        use_llm: Legacy flag; True raises CloudAIDisabledError
 
     Returns:
         InterpretationResult

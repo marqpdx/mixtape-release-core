@@ -4,7 +4,6 @@ Whisper transcription service.
 
 Supports multiple backends:
 - faster-whisper (recommended for production - uses CTranslate2)
-- OpenAI Whisper API (cloud-based)
 - Local whisper model (fallback)
 
 Usage:
@@ -26,8 +25,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, List
 
-from django.conf import settings
 from django.core.files.storage import default_storage
+
+from .errors import CloudAIDisabledError
 
 if TYPE_CHECKING:
     pass
@@ -99,8 +99,9 @@ class WhisperService:
 
     Automatically selects the best available backend:
     1. faster-whisper (if installed)
-    2. OpenAI API (if API key configured)
-    3. openai-whisper (if installed)
+    2. openai-whisper (if installed; runs locally)
+
+    Direct cloud transcription is refused, including explicit overrides.
     """
 
     # Available model sizes
@@ -134,7 +135,9 @@ class WhisperService:
             if override in ("faster-whisper", "faster_whisper", "faster"):
                 return "faster-whisper"
             if override in ("openai-api", "openai_api", "openai"):
-                return "openai-api"
+                raise CloudAIDisabledError(
+                    "Direct cloud transcription is disabled; use a gated Switchboard capability."
+                )
             if override in ("whisper", "openai-whisper", "openai_whisper"):
                 return "whisper"
 
@@ -145,14 +148,6 @@ class WhisperService:
         except ImportError:
             pass
 
-        # Check for OpenAI API key
-        if getattr(settings, 'OPENAI_API_KEY', None) or os.getenv('OPENAI_API_KEY'):
-            try:
-                import openai
-                return "openai-api"
-            except ImportError:
-                pass
-
         # Check for local whisper
         try:
             import whisper
@@ -161,8 +156,8 @@ class WhisperService:
             pass
 
         raise ImportError(
-            "No Whisper backend available. Install one of: "
-            "faster-whisper, openai, or openai-whisper"
+            "No local Whisper backend available. Install faster-whisper or openai-whisper; "
+            "cloud transcription is disabled."
         )
 
     def _load_model(self):
@@ -175,8 +170,6 @@ class WhisperService:
 
         if self._backend == "faster-whisper":
             self._load_faster_whisper()
-        elif self._backend == "openai-api":
-            self._load_openai_api()
         elif self._backend == "whisper":
             self._load_local_whisper()
 
@@ -211,13 +204,6 @@ class WhisperService:
         self.model_name = model_size
         self._backend = "faster-whisper"
 
-    def _load_openai_api(self):
-        """Configure OpenAI API client."""
-        import openai
-
-        api_key = getattr(settings, 'OPENAI_API_KEY', None) or os.getenv('OPENAI_API_KEY')
-        self._model = openai.OpenAI(api_key=api_key)
-
     def _load_local_whisper(self):
         """Load local whisper model."""
         import whisper
@@ -251,8 +237,6 @@ class WhisperService:
 
         if self._backend == "faster-whisper":
             return self._transcribe_faster_whisper(audio_path, language, word_timestamps)
-        elif self._backend == "openai-api":
-            return self._transcribe_openai_api(audio_path, language)
         elif self._backend == "whisper":
             return self._transcribe_local_whisper(audio_path, language, word_timestamps)
 
@@ -306,43 +290,6 @@ class WhisperService:
             confidence_avg=avg_confidence,
             model_name=self.model_name,
             backend=self._backend or "",
-            duration_ms=duration_ms,
-        )
-
-    def _transcribe_openai_api(
-        self,
-        audio_path: str,
-        language: Optional[str],
-    ) -> TranscriptionResult:
-        """Transcribe using OpenAI API."""
-        with open(audio_path, "rb") as audio_file:
-            # Use timestamps for segment extraction
-            response = self._model.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file,
-                language=language,
-                response_format="verbose_json",
-                timestamp_granularities=["segment"],
-            )
-
-        segments = []
-        for seg in getattr(response, 'segments', []):
-            segments.append(TranscriptSegment(
-                start_ms=int(seg.get('start', 0) * 1000),
-                end_ms=int(seg.get('end', 0) * 1000),
-                text=seg.get('text', '').strip(),
-                confidence=seg.get('avg_logprob', 0.0),
-            ))
-
-        duration_ms = int(getattr(response, 'duration', 0) * 1000)
-
-        return TranscriptionResult(
-            text=response.text,
-            language=getattr(response, 'language', language or 'en'),
-            segments=segments,
-            confidence_avg=0.0,  # OpenAI doesn't provide overall confidence
-            model_name="whisper-1",
-            backend=self._backend or "openai-api",
             duration_ms=duration_ms,
         )
 
