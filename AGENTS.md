@@ -119,6 +119,31 @@ Several agents work at once (CTO, 2026-10-23). So none overwrites another:
 - **`packages/api`:** edit only your own client folder (for example `clients/shuttle/`, `clients/folio/`), and say so in your update before touching a shared index or barrel file.
 - **Contour is the source for Shape schemas** (`puddlejump/reference/contour/`). A copy in core or `packages/api` is never edited on its own: change Contour first, then the copy.
 
+## Commits Say Who Made Them, and Finish the Whole Unit
+
+**Every commit names its agent and says what it does (CTO, 2026-11-11).** A one-line commit with no author line can't be traced back to an agent once several agents share a checkout and one git identity. Every commit message has:
+
+1. A conventional subject line (`feat(scope): …`, `fix(scope): …`, `docs(scope): …`).
+2. A body of two to six lines saying what changed, why, and what was checked (tests run, or "not run").
+3. The authority it acts on: the handoff path, or the CTO's approval with its date ("CTO approved activation, 2026-11-11").
+4. Trailers naming the agent, the model and the session:
+
+```
+Agent: MA (Codex)
+Model: <model name and version, as your runtime reports it>
+Session: <session id or link, if your runtime has one>
+```
+
+Claude Code sessions keep the `Co-Authored-By` and `Claude-Session` lines their harness adds, and add `Agent: <name>`.
+
+**An approval covers the whole unit, including its paired steps (CTO, 2026-11-11).** When the CTO approves a change, finish everything that change requires, in the same sitting:
+- the commit itself;
+- any paired commit in another repo (a Contour change in Puddlejump needs core's `contour_bundle.json` regenerated and checked; a core verifier change needs its Switchboard client);
+- your own status rows;
+- the agent-inbox update.
+
+If you can't do one of these steps, say so in your update, and name who should. Never leave an approved change uncommitted in a shared checkout. Learned 2026-11-11: Contour 0.4.7 was activated in Puddlejump with no message body or agent line, and without core's bundle, record or update.
+
 ## Commit Handoff
 
 After completing a commit that has been approved by the CTO, produce a
