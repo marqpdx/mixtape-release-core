@@ -140,10 +140,10 @@ class DefinitionGenerationTests(TestCase):
         root=Path(directory)
         original=self.checkout(root)
         manifest=yaml.safe_load((root/"manifest.yaml").read_text())
-        manifest["schema_definitions"]=[{"id": "shared.test_provenance", "version": "0.1.0",
-            "schema_file": "shared/test.schema.json"}]
+        manifest.setdefault("schema_definitions", []).append({"id": "shared.test_provenance", "version": "0.1.0",
+            "schema_file": "shared/test.schema.json"})
         path=root/"shared/test.schema.json"
-        path.parent.mkdir()
+        path.parent.mkdir(exist_ok=True)
         path.write_text(json.dumps(PROVENANCE))
         (root/"manifest.yaml").write_text(yaml.safe_dump(manifest))
         return original,manifest
@@ -160,7 +160,9 @@ class DefinitionGenerationTests(TestCase):
             original,_=self.add_definition(directory)
             (Path(directory)/"shared/unselected.schema.json").write_text('{"type":"string"}')
             result=generate(directory,original["source_commit"])
-            self.assertEqual(result["definitions"], {"shared.test_provenance@0.1.0": "shared/test.schema.json"})
+            expected = dict(original.get("definitions", {}))
+            expected["shared.test_provenance@0.1.0"] = "shared/test.schema.json"
+            self.assertEqual(result["definitions"], expected)
             self.assertNotIn("shared/unselected.schema.json",result["files"])
 
     def test_definition_id_mismatch_and_duplicate_are_rejected(self):
@@ -168,11 +170,11 @@ class DefinitionGenerationTests(TestCase):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
                 original,manifest=self.add_definition(directory)
                 if failure=="identity":
-                    manifest["schema_definitions"][0]["version"]="0.9.0"
+                    manifest["schema_definitions"][-1]["version"]="0.9.0"
                 elif failure=="duplicate":
-                    manifest["schema_definitions"].append(manifest["schema_definitions"][0])
+                    manifest["schema_definitions"].append(manifest["schema_definitions"][-1])
                 else:
-                    manifest["schema_definitions"][0]["schema_file"]="../outside.schema.json"
+                    manifest["schema_definitions"][-1]["schema_file"]="../outside.schema.json"
                 (Path(directory)/"manifest.yaml").write_text(yaml.safe_dump(manifest))
                 with self.assertRaises(ValueError):
                     generate(directory,original["source_commit"])
@@ -185,6 +187,11 @@ class DefinitionGenerationTests(TestCase):
             entry={"id":"writing.fiction_note_recognition","version":"0.1.0",
                 "contract_file":"puddlejump/reference/contour/writing/strategies/fiction-note-recognition.strategy.yaml",
                 "prose_file":"puddlejump/reference/contour/writing/strategies/fiction-note-recognition.md"}
+            manifest["strategies"][0]["entries"] = [
+                item for item in manifest["strategies"][0]["entries"]
+                if item["id"] != "writing.fiction_note_recognition"
+            ]
+            (root/"manifest.yaml").write_text(yaml.safe_dump(manifest))
             for name in ("fiction-note-recognition.strategy.yaml","fiction-note-recognition.md"):
                 (root/"writing/strategies"/name).write_text("test only")
             result=generate(root,original["source_commit"])
@@ -205,7 +212,7 @@ class RetainedDescriptorTests(TestCase):
         bundle=json.loads(BUNDLE_PATH.read_text())
         for name in ("character","setting"):
             current=f"writing/{name}.shape.yaml"
-            bundle["files"][f"writing/versions/{name}.0.1.0.shape.yaml"]=deepcopy(bundle["files"][current])
+            bundle["files"].setdefault(f"writing/versions/{name}.0.1.0.shape.yaml", deepcopy(bundle["files"][current]))
             document=yaml.safe_load(bundle["files"][current]["text"])
             document["version"]="0.2.0"
             document["synonyms"]=["not-an-old-cue"]
@@ -224,8 +231,9 @@ class RetainedDescriptorTests(TestCase):
             original=generation_fixtures.BundleGenerationTests().checkout(directory)
             root=Path(directory)
             retained=root/"writing/versions/character.0.1.0.shape.yaml"
-            retained.parent.mkdir()
-            retained.write_text((root/"writing/character.shape.yaml").read_text())
+            retained.parent.mkdir(exist_ok=True)
+            if not retained.exists():
+                retained.write_text((root/"writing/character.shape.yaml").read_text())
             result=generate(root,original["source_commit"])
             self.assertIn("writing/versions/character.0.1.0.shape.yaml",result["files"])
 
