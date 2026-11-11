@@ -81,7 +81,11 @@ class ArgusApiTests(TestCase):
                 "block_slug": "help-fidelity-01",
                 "cadence_hours": 2,
                 "span": {"kind": "days", "value": 3},
-                "per_turn_caps": {"max_tokens": 50000},
+                "per_turn_caps": {
+                    "max_tokens": 50000,
+                    "max_turns": 20,
+                    "max_wall_clock_seconds": 600,
+                },
             },
             format="json",
         )
@@ -111,7 +115,103 @@ class ArgusApiTests(TestCase):
                 "block_slug": "help-fidelity-01",
                 "cadence_hours": 2,
                 "span": {"kind": "days", "value": 10},
+                "per_turn_caps": {"max_tokens": 1000, "max_turns": 5, "max_wall_clock_seconds": 60},
             },
             format="json",
         )
         self.assertEqual(response.status_code, 400)
+
+    def test_run_series_rejects_run_count_span_over_seven_days(self):
+        self.client.force_authenticate(self.superuser)
+        response = self.client.post(
+            "/api/argus/series/",
+            {
+                "block_slug": "help-fidelity-01",
+                "cadence_hours": 24,
+                "span": {"kind": "runs", "value": 100},
+                "per_turn_caps": {"max_tokens": 1000, "max_turns": 5, "max_wall_clock_seconds": 60},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("span", response.data)
+
+    def test_run_series_rejects_negative_per_turn_caps(self):
+        self.client.force_authenticate(self.superuser)
+        response = self.client.post(
+            "/api/argus/series/",
+            {
+                "block_slug": "help-fidelity-01",
+                "cadence_hours": 2,
+                "span": {"kind": "days", "value": 3},
+                "per_turn_caps": {"max_tokens": -1, "max_turns": 5, "max_wall_clock_seconds": 60},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("per_turn_caps", response.data)
+
+    def test_run_series_rejects_missing_per_turn_caps(self):
+        self.client.force_authenticate(self.superuser)
+        response = self.client.post(
+            "/api/argus/series/",
+            {
+                "block_slug": "help-fidelity-01",
+                "cadence_hours": 2,
+                "span": {"kind": "days", "value": 3},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("per_turn_caps", response.data)
+
+    def test_run_series_rejects_missing_per_turn_caps_key(self):
+        self.client.force_authenticate(self.superuser)
+        response = self.client.post(
+            "/api/argus/series/",
+            {
+                "block_slug": "help-fidelity-01",
+                "cadence_hours": 2,
+                "span": {"kind": "days", "value": 3},
+                "per_turn_caps": {"max_tokens": 1000},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("per_turn_caps", response.data)
+
+    def test_run_series_rejects_unknown_block_slug(self):
+        self.client.force_authenticate(self.superuser)
+        response = self.client.post(
+            "/api/argus/series/",
+            {
+                "block_slug": "abe-no-such-block",
+                "cadence_hours": 2,
+                "span": {"kind": "days", "value": 3},
+                "per_turn_caps": {"max_tokens": 1000, "max_turns": 5, "max_wall_clock_seconds": 60},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("block_slug", response.data)
+
+    def test_run_series_rejects_block_not_ready(self):
+        root = Path(self.tmpdir.name)
+        (root / "decisions" / "argus" / "audit-blocks" / "not-ready-block.md").write_text(
+            BLOCK_MD.replace("help-fidelity-01", "not-ready-block").replace(
+                "block_state: ready", "block_state: draft"
+            )
+        )
+        self.client.force_authenticate(self.superuser)
+        response = self.client.post(
+            "/api/argus/series/",
+            {
+                "block_slug": "not-ready-block",
+                "cadence_hours": 2,
+                "span": {"kind": "days", "value": 3},
+                "per_turn_caps": {"max_tokens": 1000, "max_turns": 5, "max_wall_clock_seconds": 60},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("block_slug", response.data)
