@@ -20,6 +20,8 @@ class BundleGenerationTests(TestCase):
         manifest = {"library_version": bundle["library_version"],
                     "verticals": bundle["selection"]["verticals"],
                     "strategies": [{"entries": bundle["selection"]["strategies"]}]}
+        if "schema_definitions" in bundle["selection"]:
+            manifest["schema_definitions"] = bundle["selection"]["schema_definitions"]
         (root / "manifest.yaml").write_text(yaml.safe_dump(manifest))
         return bundle
 
@@ -42,7 +44,7 @@ class BundleGenerationTests(TestCase):
             schema["properties"]["shape_version"]["const"] = "0.0.9"
             schema["$id"] = "urn:contour:writing.character:0.0.9"
             old = root / "writing/versions/character.0.0.9.schema.json"
-            old.parent.mkdir()
+            old.parent.mkdir(exist_ok=True)
             old.write_text(json.dumps(schema))
             rebuilt = generate(root, original["source_commit"])
             self.assertIn("writing.character@0.0.9", rebuilt["schemas"])
@@ -54,8 +56,9 @@ class BundleGenerationTests(TestCase):
             root = Path(directory)
             schema = json.loads((root / "writing/character.schema.json").read_text())
             schema["required"].append("invented")
-            old = root / "writing/versions/character.0.1.0.schema.json"
-            old.parent.mkdir()
+            version = schema["properties"]["shape_version"]["const"]
+            old = root / f"writing/versions/character.{version}.schema.json"
+            old.parent.mkdir(exist_ok=True)
             old.write_text(json.dumps(schema))
             with self.assertRaisesRegex(ValueError, "Conflicting retained schema"):
                 generate(root, original["source_commit"])
