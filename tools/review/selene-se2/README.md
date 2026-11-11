@@ -1,5 +1,33 @@
 # Selene SE-2 — offline resolver prerequisite and Contour activation review
 
+## Activation completed — 2026-11-11
+
+CTO approved activation after Blue/Puddlejump review. MA applied the exact reviewed
+patch plus the requested manifest update line in Puddlejump `e8a2664f —
+feat(contour): activate reviewed Folio recognition definitions (0.4.7)`.
+Core `d003b2a2 — feat(heddle): pin activated Contour recognition bundle (0.4.7)`
+regenerated the shipped bundle from that committed canon. The bundle records
+source commit `e8a2664f` and digest
+`81d0277bf554ae228be38c8487b81709cf26a1546013f91662f231f3da8ebc04`.
+
+The 40 named database-free regressions below pass, including the Argus payload
+format regression in `test_schema_registry`; Django system checks and the canonical
+bundle drift check pass. The first post-activation test run exposed pre-activation
+fixture assumptions (omitted shared definitions, directories assumed absent,
+recognition assumed unselected, and current descriptors copied over retained
+ones). The bundle commit updates those two fixture modules; runtime resolver and
+generator behavior did not need changing. All ten retained 0.1.0 canonical files
+were byte-checked against their original contents; the activated schemas, shared
+definitions and recognition Strategy match the reviewed proposals exactly.
+
+No database-backed lifecycle/migration suite, static type check, model inference,
+host-fit/firewall check or live trial was run for activation. No recognition
+consumer/capability was enabled. SE-2 remains in progress. Push Puddlejump and Core
+together so remote drift checks see the same canon. The review package below is
+the historical, unapplied preparation evidence; do not reapply its patch to 0.4.7.
+
+## Original review package — prepared 2026-11-10
+
 Prepared by MA, 2026-11-10. **Review only: canonical Contour is not activated.**
 The CTO approved resolver implementation and preparation of this activation
 proposal after the SE-2 dependency check. Blue/Puddlejump review and canonical
