@@ -586,6 +586,14 @@ ARGUS_RUN_JWT_ISS = os.getenv("ARGUS_RUN_JWT_ISS", "crossroads-core")
 ARGUS_RUN_JWT_AUD = os.getenv("ARGUS_RUN_JWT_AUD", "cass-switchboard-argus")
 ARGUS_RUN_JWT_TTL_SECONDS = int(os.getenv("ARGUS_RUN_JWT_TTL_SECONDS", "120"))
 
+# ADR-0064 AC-5a, the client side (zz/_handoffs/handoff-2026-11-11-blue-
+# ac5-client-and-dispatch.md): core -> Cass's Switchboard for the two
+# argus.* tools. Unset by default, same convention as CROSSROADS_BASE_URL
+# above -- this is genuinely not provisioned until AC-3's tunnel exists, so
+# there's no safe localhost default to fall back to. Dispatch (surfaces.
+# services.argus_switchboard_client) treats unset the same as unreachable.
+ARGUS_SWITCHBOARD_URL = os.getenv("ARGUS_SWITCHBOARD_URL")
+
 # ADR-0064 AC-5a, Switchboard -> core (CTO-approved direction, 2026-11-10,
 # resolving the gap Blue flagged while building ARGUS_RUN_JWT_SECRET above).
 # Replaces SERVICE_JWT_SECRET for exactly the five Switchboard-facing calls
