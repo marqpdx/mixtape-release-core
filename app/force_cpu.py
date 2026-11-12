@@ -9,6 +9,8 @@ Usage:
     import torch
 """
 
+import importlib.abc
+import importlib.util
 import os
 import sys
 
@@ -56,35 +58,83 @@ def patch_torch():
         print(f"⚠️  force_cpu: Unexpected error patching torch: {e}")
 
 
-# Patch torch if it's already imported
+class _PatchingLoader(importlib.abc.Loader):
+    """
+    Wraps torch's real loader so patch_torch() runs once, right after
+    torch's module body finishes executing -- not before, and not by
+    importing torch ourselves to find out it exists.
+    """
+
+    def __init__(self, wrapped_loader, hook):
+        self._wrapped = wrapped_loader
+        self._hook = hook
+
+    def create_module(self, spec):
+        return self._wrapped.create_module(spec)
+
+    def exec_module(self, module):
+        self._wrapped.exec_module(module)
+        # The hook has done its job; remove it so it never runs twice and
+        # never intercepts a later, unrelated "torch" lookup.
+        if self._hook in sys.meta_path:
+            sys.meta_path.remove(self._hook)
+        patch_torch()
+
+
+class TorchImportHook(importlib.abc.MetaPathFinder):
+    """
+    Patches torch the first time something actually imports it, without
+    importing torch ourselves to set that up.
+
+    Replaces the pre-3.12 find_module/load_module finder protocol (PEP 302),
+    which Python 3.12 removed from importlib -- on 3.12+ that protocol is
+    never invoked, so the old version of this hook never fired (confirmed by
+    a stand-in test on 3.14; see SR-0,
+    zz/startup-review-sr0-sr1-findings.md in puddlejump). find_spec is the
+    protocol importlib has called since 3.4 and still calls on every later
+    version, including 3.12+.
+    """
+
+    def find_spec(self, fullname, path, target=None):
+        if fullname != 'torch':
+            return None
+
+        # Ask the rest of sys.meta_path for the real spec. Remove self first
+        # so this lookup can't recurse back into this method.
+        sys.meta_path.remove(self)
+        try:
+            spec = importlib.util.find_spec(fullname)
+        finally:
+            if self not in sys.meta_path:
+                sys.meta_path.insert(0, self)
+
+        if spec is None or spec.loader is None:
+            return spec
+
+        spec.loader = _PatchingLoader(spec.loader, self)
+        return spec
+
+
+def ensure_hook_installed():
+    """
+    Idempotent: installs TorchImportHook unless torch is already loaded or
+    an instance of this hook is already on sys.meta_path. Safe to call from
+    anywhere that wants "torch will be patched on first import" without
+    importing torch to find out whether that's already arranged.
+    """
+    if 'torch' in sys.modules:
+        return
+    if any(isinstance(finder, TorchImportHook) for finder in sys.meta_path):
+        return
+    sys.meta_path.insert(0, TorchImportHook())
+    print("🔧 force_cpu: Import hook installed to patch torch on first import")
+
+
+# Patch torch if it's already imported; otherwise install the lazy hook.
 if 'torch' in sys.modules:
     patch_torch()
 else:
-    # Set up import hook to patch torch when it gets imported
-    class TorchImportHook:
-        def find_module(self, fullname, path=None):
-            if fullname == 'torch':
-                return self
-            return None
-
-        def load_module(self, fullname):
-            if fullname in sys.modules:
-                return sys.modules[fullname]
-
-            # Remove self from meta_path to avoid recursion
-            sys.meta_path.remove(self)
-
-            # Import torch normally
-            import torch
-
-            # Patch it
-            patch_torch()
-
-            return torch
-
-    # Install import hook
-    sys.meta_path.insert(0, TorchImportHook())
-    print("🔧 force_cpu: Import hook installed to patch torch on first import")
+    ensure_hook_installed()
 
 
 def patch_tqdm():
