@@ -1,0 +1,229 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "profile_digest",
+    "binding",
+    "request_fingerprint",
+    "candidates"
+  ],
+  "properties": {
+    "protocol": {
+      "const": "selene.recognition/0.1.0"
+    },
+    "profile_digest": {
+      "const": "64b40ea0957964bb4ff23643457284e6ebefbebbe9be4d7b822f0a3c62bca837"
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "weave_action_run_id",
+        "execution_action_run_id",
+        "attempt_id",
+        "revision",
+        "source_digest",
+        "context_revision",
+        "context_digest",
+        "contract_version",
+        "prompt_version",
+        "strategy_id",
+        "strategy_version",
+        "steps_digest",
+        "bundle_digest",
+        "reference_fields_digest",
+        "step_id",
+        "step_version",
+        "input_digest"
+      ],
+      "properties": {
+        "weave_action_run_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "execution_action_run_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "context_revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "context_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "contract_version": {
+          "const": "0.1.0"
+        },
+        "prompt_version": {
+          "const": "0.1.0"
+        },
+        "strategy_id": {
+          "const": "writing.fiction_note_recognition"
+        },
+        "strategy_version": {
+          "const": "0.1.0"
+        },
+        "steps_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "bundle_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "reference_fields_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "step_id": {
+          "const": "mention_recognition"
+        },
+        "step_version": {
+          "const": "0.1.0"
+        },
+        "input_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "request_fingerprint": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "candidate_id",
+          "candidate_kind",
+          "type",
+          "source_locator",
+          "score",
+          "negated",
+          "ambiguous",
+          "uncertain",
+          "producer"
+        ],
+        "properties": {
+          "candidate_id": {
+            "type": "string",
+            "pattern": "^m-[a-f0-9]{32}$"
+          },
+          "candidate_kind": {
+            "const": "mention"
+          },
+          "type": {
+            "enum": [
+              "writing.character",
+              "writing.setting"
+            ]
+          },
+          "source_locator": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source_ref",
+              "source_revision",
+              "start",
+              "end",
+              "quote"
+            ],
+            "properties": {
+              "source_ref": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255
+              },
+              "source_revision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "start": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "end": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "quote": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4000
+              }
+            }
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "negated": {
+            "const": false
+          },
+          "ambiguous": {
+            "const": true
+          },
+          "uncertain": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "minItems": 1,
+            "maxItems": 20
+          },
+          "producer": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "id",
+              "version",
+              "model_revision",
+              "profile_digest"
+            ],
+            "properties": {
+              "kind": {
+                "const": "model"
+              },
+              "id": {
+                "const": "urchade/gliner_small-v2.1"
+              },
+              "version": {
+                "const": "0.2.30"
+              },
+              "model_revision": {
+                "const": "4e091416cf7c3481db542c2a3d26156916f3a47f"
+              },
+              "profile_digest": {
+                "const": "64b40ea0957964bb4ff23643457284e6ebefbebbe9be4d7b822f0a3c62bca837"
+              }
+            }
+          }
+        }
+      },
+      "maxItems": 256
+    }
+  }
+}

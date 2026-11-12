@@ -1,0 +1,101 @@
+{
+  "protocol": "selene.recognition/0.1.0",
+  "profile_digest": "64b40ea0957964bb4ff23643457284e6ebefbebbe9be4d7b822f0a3c62bca837",
+  "binding": {
+    "weave_action_run_id": "11111111-1111-4111-8111-111111111111",
+    "execution_action_run_id": "22222222-2222-4222-8222-222222222222",
+    "attempt_id": "66666666-6666-4666-8666-666666666666",
+    "revision": 1,
+    "source_digest": "88eae789c7ec3d60a0b2a01151511e9bc750034b64ff8d11df0d9f6bcabf402f",
+    "context_revision": 2,
+    "context_digest": "633fef91e6a9738c19010407bcbf1ea0f247ebc9445591b9f08093366b02ff28",
+    "contract_version": "0.1.0",
+    "prompt_version": "0.1.0",
+    "strategy_id": "writing.fiction_note_recognition",
+    "strategy_version": "0.1.0",
+    "steps_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "bundle_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "reference_fields_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "step_id": "mention_recognition",
+    "step_version": "0.1.0",
+    "input_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "request_fingerprint": "1b41ee2e9383d65427dd5d74e19d753339038867e34b5b531ff87d287d25eabc",
+  "candidates": [
+    {
+      "candidate_id": "m-9ffa082448176b83f999e786defedf79",
+      "candidate_kind": "mention",
+      "type": "writing.character",
+      "source_locator": {
+        "source_ref": "folio_note:33333333-3333-4333-8333-333333333333",
+        "source_revision": 0,
+        "start": 2,
+        "end": 6,
+        "quote": "Mara"
+      },
+      "score": 0.713,
+      "negated": false,
+      "ambiguous": true,
+      "uncertain": [
+        "Provisional NER label; no Fiction judgement or confirmation."
+      ],
+      "producer": {
+        "kind": "model",
+        "id": "urchade/gliner_small-v2.1",
+        "version": "0.2.30",
+        "model_revision": "4e091416cf7c3481db542c2a3d26156916f3a47f",
+        "profile_digest": "64b40ea0957964bb4ff23643457284e6ebefbebbe9be4d7b822f0a3c62bca837"
+      }
+    },
+    {
+      "candidate_id": "m-12dbf21e8cb66a829861cc391b48d7af",
+      "candidate_kind": "mention",
+      "type": "writing.setting",
+      "source_locator": {
+        "source_ref": "folio_note:33333333-3333-4333-8333-333333333333",
+        "source_revision": 0,
+        "start": 21,
+        "end": 26,
+        "quote": "Café"
+      },
+      "score": 0.55,
+      "negated": false,
+      "ambiguous": true,
+      "uncertain": [
+        "Provisional NER label; no Fiction judgement or confirmation."
+      ],
+      "producer": {
+        "kind": "model",
+        "id": "urchade/gliner_small-v2.1",
+        "version": "0.2.30",
+        "model_revision": "4e091416cf7c3481db542c2a3d26156916f3a47f",
+        "profile_digest": "64b40ea0957964bb4ff23643457284e6ebefbebbe9be4d7b822f0a3c62bca837"
+      }
+    },
+    {
+      "candidate_id": "m-0b58a4d2a5d9896d67c8f6e04ad39221",
+      "candidate_kind": "mention",
+      "type": "writing.setting",
+      "source_locator": {
+        "source_ref": "correction:44444444-4444-4444-8444-444444444444",
+        "source_revision": 1,
+        "start": 15,
+        "end": 20,
+        "quote": "Paris"
+      },
+      "score": 0.88,
+      "negated": false,
+      "ambiguous": true,
+      "uncertain": [
+        "Provisional NER label; no Fiction judgement or confirmation."
+      ],
+      "producer": {
+        "kind": "model",
+        "id": "urchade/gliner_small-v2.1",
+        "version": "0.2.30",
+        "model_revision": "4e091416cf7c3481db542c2a3d26156916f3a47f",
+        "profile_digest": "64b40ea0957964bb4ff23643457284e6ebefbebbe9be4d7b822f0a3c62bca837"
+      }
+    }
+  ]
+}
