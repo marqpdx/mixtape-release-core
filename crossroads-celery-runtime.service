@@ -19,7 +19,7 @@ TimeoutStopSec=30
 # only as members of mixtape-runtimes.
 ExecStart=/var/www/crossroads/app/venv/bin/celery -A mixtape.celery_app worker \
   --loglevel=INFO \
-  --concurrency=2 \
+  --concurrency=1 \
   --prefetch-multiplier=1 \
   -Q runtime \
   -n runtime-worker@%%h
