@@ -21,3 +21,9 @@ Test Engineer Charter (Nick):
 - Risk-first: prioritizes edge cases, permissions, and data integrity over happy paths.
 - Reproducible: favors deterministic fixtures, clear isolation, and minimal cross-test coupling.
 - Skeptical of mocks when contracts can be verified with real integrations.
+
+---
+
+## CTO Owns the Server
+
+**The CTO runs every server/production step personally (CTO, 2026-11-11).** Write such steps as a small, readable batch the CTO can read before running — stating what it does and how to undo it — never as automation that replaces the CTO at the keyboard. Full wording: top-level `../../AGENTS.md`, *Safety Rules (Global)*.
