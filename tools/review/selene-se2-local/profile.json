@@ -1,0 +1,27 @@
+{
+  "id": "gliner-fiction-mentions/0.1.0",
+  "model_id": "urchade/gliner_small-v2.1",
+  "model_revision": "4e091416cf7c3481db542c2a3d26156916f3a47f",
+  "labels": [
+    "character",
+    "setting"
+  ],
+  "threshold": 0.5,
+  "flat_ner": false,
+  "multi_label": false,
+  "cpu_threads": 2,
+  "seed": 0,
+  "max_source_chars": 4000,
+  "max_sources": 12,
+  "max_words_per_source": 384,
+  "max_encoder_tokens_per_source": 512,
+  "max_candidates": 256,
+  "library_version": "0.2.30",
+  "torch_version": "2.6.0",
+  "transformers_version": "4.57.3",
+  "device": "cpu",
+  "dtype": "float32",
+  "max_request_bytes": 200000,
+  "max_response_bytes": 200000,
+  "max_context_chars": 40000
+}

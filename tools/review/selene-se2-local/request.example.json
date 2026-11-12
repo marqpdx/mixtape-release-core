@@ -1,0 +1,55 @@
+{
+  "protocol": "selene.recognition/0.1.0",
+  "profile_digest": "64b40ea0957964bb4ff23643457284e6ebefbebbe9be4d7b822f0a3c62bca837",
+  "binding": {
+    "weave_action_run_id": "11111111-1111-4111-8111-111111111111",
+    "execution_action_run_id": "22222222-2222-4222-8222-222222222222",
+    "attempt_id": "66666666-6666-4666-8666-666666666666",
+    "revision": 1,
+    "source_digest": "88eae789c7ec3d60a0b2a01151511e9bc750034b64ff8d11df0d9f6bcabf402f",
+    "context_revision": 2,
+    "context_digest": "633fef91e6a9738c19010407bcbf1ea0f247ebc9445591b9f08093366b02ff28",
+    "contract_version": "0.1.0",
+    "prompt_version": "0.1.0",
+    "strategy_id": "writing.fiction_note_recognition",
+    "strategy_version": "0.1.0",
+    "steps_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "bundle_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "reference_fields_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "step_id": "mention_recognition",
+    "step_version": "0.1.0",
+    "input_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "sources": [
+    {
+      "source_ref": "folio_note:33333333-3333-4333-8333-333333333333",
+      "source_revision": 0,
+      "text": "🦉 Mara meets Lucy in Café."
+    },
+    {
+      "source_ref": "correction:44444444-4444-4444-8444-444444444444",
+      "source_revision": 1,
+      "text": "The setting is Paris."
+    }
+  ],
+  "context": {
+    "revision": 2,
+    "folio_id": "55555555-5555-4555-8555-555555555555",
+    "work_type": "fiction",
+    "title": "Quiet City",
+    "title_is_writer_set": true,
+    "bundle": {
+      "library_id": "contour",
+      "library_version": "0.4.7",
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "source_commit": "e8a2664f"
+    },
+    "dictionary": {
+      "revision": 0,
+      "entries": []
+    },
+    "project_markers": [],
+    "field_labels": []
+  },
+  "local_only": true
+}
