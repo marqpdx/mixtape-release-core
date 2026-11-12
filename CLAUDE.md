@@ -94,6 +94,10 @@ Avoid vague summaries like "fixed some bugs."]
 
 ---
 
+## Prefer the Polymorphic Sponsor Pattern Over a Direct FK
+
+**When a model's relationship to content could plausibly be owned by either a `Group` or a `UserProfile`, use the sponsor GFK, not a direct FK (CTO, 2026-11-12).** Full wording: `AGENTS.md`, beside *Uniqueness Lives in the Sponsor's Info-Sphere*.
+
 ## CTO Owns the Server
 
 **The CTO runs every server/production step personally (CTO, 2026-11-11).** Write such steps as a small, readable batch the CTO can read before running — stating what it does and how to undo it — never as automation that replaces the CTO at the keyboard. Full wording: `../puddlejump/CLAUDE.md`, *Decision Authority*.
