@@ -11,14 +11,14 @@ WorkingDirectory=/var/www/crossroads/app/app
 EnvironmentFile=/var/www/crossroads/app/.env.prod
 
 Environment=CELERY_POOL=prefork
-Environment=CELERY_CONCURRENCY=2
+Environment=CELERY_CONCURRENCY=1
 Environment=OMP_NUM_THREADS=4
 Environment=CUDA_VISIBLE_DEVICES=
 Environment=PYTORCH_ENABLE_MPS_FALLBACK=0
 
 ExecStart=/var/www/crossroads/app/venv/bin/celery -A mixtape.celery_app worker \
   --loglevel=INFO \
-  --concurrency=2 \
+  --concurrency=1 \
   -P prefork \
   --prefetch-multiplier=1 \
   -Q commons \
