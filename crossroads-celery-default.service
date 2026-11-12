@@ -16,7 +16,7 @@ TimeoutStopSec=30
 # IMPORTANT: do not rely on ${VAR} expansion in ExecStart
 ExecStart=/var/www/crossroads/app/venv/bin/celery -A mixtape.celery_app worker \
   --loglevel=INFO \
-  --concurrency=2 \
+  --concurrency=1 \
   --prefetch-multiplier=1 \
   -Q mixtape_shared_rabbit_chat_queue_prod,push \
   -n default-worker@%%h
