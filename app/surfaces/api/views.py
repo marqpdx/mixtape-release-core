@@ -7,10 +7,16 @@
 # Blocks list/detail read Puddlejump's audit-blocks via PUDDLEJUMP_PATH
 # (surfaces.services.argus_blocks) -- not configured on Crossroads today,
 # so "available": false is the honest answer there until that's decided.
-# Run series (create/get/stop) are fully real: nothing about them needs
-# Cass. "Run now" is not: AC-5's path to Cass's Switchboard doesn't exist
-# yet, so it always returns not_reachable, same stance the sketch
-# describes, and records why on the ActionRun it still creates.
+# That stays the source for the registry here; switching it to Switchboard's
+# list_blocks when reachable is a separate decision, not made in this pass
+# (ADR-0064 AC-5a build, zz/_handoffs/handoff-2026-11-11-blue-ac5-client-and-
+# dispatch.md). Run series (create/get/stop) are fully real: nothing about
+# them needs Cass. "Run now" dispatches through surfaces.services.
+# argus_switchboard_client, which switches on only once ARGUS_SWITCHBOARD_URL
+# (AC-3's tunnel) and ARGUS_RUN_JWT_SECRET both exist; until then every call
+# still degrades to not_reachable, same stance as before, and records why on
+# the ActionRun it still creates. Nothing dispatches on a schedule yet --
+# that's AC-8.
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -36,8 +42,11 @@ from ops.api.permissions import IsSuperuser
 from surfaces.api.serializers import CreateRunSeriesSerializer
 from surfaces.services.argus_blocks import read_audit_block, read_audit_blocks
 from surfaces.services.argus_initiatives import ensure_block_initiative
-
-NOT_REACHABLE_REASON = "Cass is not reachable yet (AC-5 pending)."
+from surfaces.services.argus_switchboard_client import (
+    ArgusSwitchboardError,
+    NotReachable,
+    start_run as switchboard_start_run,
+)
 
 
 def _active_series_id(block_slug: str) -> str | None:
@@ -131,18 +140,43 @@ class ArgusRunNowView(APIView):
             return Response({"available": False, "reason": reason}, status=status.HTTP_404_NOT_FOUND)
 
         initiative = ensure_block_initiative(slug, site_owner=request.user)
-        ActionRun.objects.create(
+        tenant_namespace = getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", "platform:crossroads")
+        common_fields = dict(
             initiative=initiative,
             tool_name="argus.start_run",
-            status=ActionRunStatus.FAILED,
             tenant_id=request.user.pk,
-            tenant_namespace=getattr(settings, "SWITCHBOARD_DEFAULT_TENANT_NAMESPACE", "platform:crossroads"),
+            tenant_namespace=tenant_namespace,
             initiator_type=ActionRunInitiatorType.HUMAN,
             initiator_id=str(request.user.pk),
-            error_payload={"reason": "not_reachable", "detail": NOT_REACHABLE_REASON},
+        )
+
+        try:
+            result = switchboard_start_run(block_slug=slug, actor_user_id=str(request.user.pk))
+        except ArgusSwitchboardError as exc:
+            ActionRun.objects.create(
+                **common_fields,
+                status=ActionRunStatus.FAILED,
+                error_payload={"reason": "validation_error", "detail": exc.detail, "status_code": exc.status_code},
+                completed_at=timezone.now(),
+            )
+            return Response({"status": "error", "detail": exc.detail}, status=status.HTTP_400_BAD_REQUEST)
+
+        if isinstance(result, NotReachable):
+            ActionRun.objects.create(
+                **common_fields,
+                status=ActionRunStatus.FAILED,
+                error_payload={"reason": "not_reachable", "detail": result.reason},
+                completed_at=timezone.now(),
+            )
+            return Response({"status": "not_reachable", "detail": result.reason})
+
+        ActionRun.objects.create(
+            **common_fields,
+            status=ActionRunStatus.SUCCEEDED,
+            result_payload=result,
             completed_at=timezone.now(),
         )
-        return Response({"status": "not_reachable", "detail": NOT_REACHABLE_REASON})
+        return Response(result)
 
 
 class ArgusRunSeriesListCreateView(APIView):

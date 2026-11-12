@@ -1,12 +1,14 @@
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import override_settings
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from initiatives.models import RunSeries, RunSeriesStatus
+from initiatives.models import ActionRun, ActionRunStatus, RunSeries, RunSeriesStatus
+from surfaces.services.argus_switchboard_client import ArgusSwitchboardError, NotReachable
 
 User = get_user_model()
 
@@ -64,6 +66,9 @@ class ArgusApiTests(TestCase):
         self.puddlejump_override.enable()
 
     def test_run_now_is_not_reachable_and_records_an_action_run(self):
+        # ARGUS_SWITCHBOARD_URL is unset in test settings, so this exercises
+        # the client's own unset-URL degrade -- no mocking needed, same as
+        # before this view was wired to the client.
         self.client.force_authenticate(self.superuser)
         response = self.client.post("/api/argus/blocks/help-fidelity-01/run/")
         self.assertEqual(response.status_code, 200)
@@ -72,6 +77,49 @@ class ArgusApiTests(TestCase):
         detail = self.client.get("/api/argus/blocks/help-fidelity-01/")
         self.assertEqual(len(detail.data["runs"]), 1)
         self.assertEqual(detail.data["runs"][0]["status"], "failed")
+
+    def test_run_now_succeeds_when_switchboard_is_reachable(self):
+        self.client.force_authenticate(self.superuser)
+        with patch("surfaces.api.views.switchboard_start_run") as mock_start_run:
+            mock_start_run.return_value = {"status": "started", "tool": "argus.start_run", "reason": ""}
+            response = self.client.post("/api/argus/blocks/help-fidelity-01/run/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["status"], "started")
+
+        run = ActionRun.objects.get(tool_name="argus.start_run")
+        self.assertEqual(run.status, ActionRunStatus.SUCCEEDED)
+        self.assertEqual(run.result_payload["status"], "started")
+
+    def test_run_now_not_reachable_from_switchboard_itself_records_the_cause(self):
+        self.client.force_authenticate(self.superuser)
+        with patch("surfaces.api.views.switchboard_start_run") as mock_start_run:
+            mock_start_run.return_value = NotReachable("Switchboard error 503: unavailable")
+            response = self.client.post("/api/argus/blocks/help-fidelity-01/run/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["status"], "not_reachable")
+        self.assertIn("503", response.data["detail"])
+
+        run = ActionRun.objects.get(tool_name="argus.start_run")
+        self.assertEqual(run.status, ActionRunStatus.FAILED)
+        self.assertEqual(run.error_payload["reason"], "not_reachable")
+
+    def test_run_now_validation_error_from_switchboard_returns_400(self):
+        self.client.force_authenticate(self.superuser)
+        with patch("surfaces.api.views.switchboard_start_run") as mock_start_run:
+            mock_start_run.side_effect = ArgusSwitchboardError(
+                "Switchboard rejected the request (422).", status_code=422, body="bad payload",
+            )
+            response = self.client.post("/api/argus/blocks/help-fidelity-01/run/")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["status"], "error")
+
+        run = ActionRun.objects.get(tool_name="argus.start_run")
+        self.assertEqual(run.status, ActionRunStatus.FAILED)
+        self.assertEqual(run.error_payload["reason"], "validation_error")
+        self.assertEqual(run.error_payload["status_code"], 422)
 
     def test_run_series_create_get_stop(self):
         self.client.force_authenticate(self.superuser)
