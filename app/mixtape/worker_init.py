@@ -5,6 +5,7 @@ This module sets up each worker process when it starts.
 """
 
 import logging
+import sys
 import traceback as tb
 
 from celery.signals import task_failure, worker_process_init
@@ -42,18 +43,27 @@ def init_worker_process(**kwargs):
     """
     Called when each worker process starts (after fork).
 
-    This is where we need to patch torch to disable MPS,
-    since each forked worker gets a fresh Python interpreter.
+    This is where we make sure torch gets patched to disable MPS before
+    anything uses it -- without importing torch ourselves just to do that.
+    Each forked worker gets a fresh Python interpreter, so this runs once
+    per process either way.
     """
     logger.info("🔧 Worker process initializing...")
 
     # Import and apply force_cpu patch
     try:
         import force_cpu
-        force_cpu.patch_torch()  # Explicitly call patch
+        # Only patch directly if something already imported torch (e.g. via
+        # an earlier import in this same process). Otherwise, leave it to
+        # the lazy hook force_cpu installs -- importing torch here just to
+        # check would defeat the point (SR-0/SR-2,
+        # zz/startup-review-sr0-sr1-findings.md in puddlejump).
+        if 'torch' in sys.modules:
+            force_cpu.patch_torch()
+        else:
+            force_cpu.ensure_hook_installed()
         # Skip patch_tqdm if fake tqdm module is already injected
         if getattr(force_cpu, "__file__", "") and "force_cpu.py" in force_cpu.__file__:
-            import sys
             tqdm_module = sys.modules.get("tqdm")
             if tqdm_module and tqdm_module.__class__.__name__ == "FakeTqdm":
                 logger.info("ℹ️  Worker process: Fake tqdm already injected, skipping patch_tqdm")
