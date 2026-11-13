@@ -106,6 +106,8 @@ Operating rule: Meridian first. Files second. Search last.
 
 **Very few things are unique across the whole system (CTO, 2026-10-23).** A record's slug, name or title is unique within its sponsor's info-sphere (a member's, or a group's), not platform-wide. Content that a member or a group can own takes a polymorphic sponsor and sponsor-scoped uniqueness; the standard way is `fundamentals.BaseContent` (sponsor, `UniqueConstraint` on sponsor and slug, a sponsor-scoped `slug_exists`, and a placeholder slug replaced once when a real title arrives). A platform-wide unique constraint needs a stated reason (usernames, for example). Folio was the case that surfaced this.
 
+**Two deployments of the same caller need a kid-keyed secret, not one shared value (CTO, 2026-11-12).** Full wording: `CLAUDE.md`, *Internal Service Auth Conventions*.
+
 **Prefer the polymorphic sponsor pattern over a direct FK (CTO, 2026-11-12).** When a model's relationship to content could plausibly be owned by either a `Group` or a `UserProfile`, use the sponsor GFK (`sponsor_content_type` + `sponsor_object_id` + `sponsor = GenericForeignKey`, as `fundamentals.BaseContent` already provides) rather than a direct FK to one type. A direct FK locks the relationship to one owner type and needs a migration to support the other. Raise it as a question before merging any new direct FK to `groups.Group` or `profiles.UserProfile` for an ownership/context relationship — the answer is almost always yes unless the FK is a hard structural dependency, not ownership.
 
 ## CTO Owns the Server
