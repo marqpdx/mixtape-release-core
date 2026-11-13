@@ -29,3 +29,5 @@ Test Engineer Charter (Nick):
 **The CTO runs every server/production step personally (CTO, 2026-11-11).** Write such steps as a small, readable batch the CTO can read before running — stating what it does and how to undo it — never as automation that replaces the CTO at the keyboard. Full wording: top-level `../../AGENTS.md`, *Safety Rules (Global)*.
 
 **Prefer the polymorphic sponsor pattern over a direct FK** (CTO, 2026-11-12): when a Django model's relationship to content could plausibly be owned by either a `Group` or a `UserProfile`, use the sponsor GFK, not a direct FK. Full wording: `../AGENTS.md`, beside *Uniqueness Lives in the Sponsor's Info-Sphere*.
+
+**Two deployments of the same caller need a kid-keyed secret, not one shared value** (CTO, 2026-11-12): when a verifier's caller runs on two hosts that should hold independently-revocable credentials, give the verifier a `kid`-keyed secrets dict, not a single shared secret. Full wording: `../CLAUDE.md`, *Internal Service Auth Conventions*.
