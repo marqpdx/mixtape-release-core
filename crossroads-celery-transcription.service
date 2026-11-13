@@ -10,8 +10,8 @@ Group=crossroads
 WorkingDirectory=/var/www/crossroads/app/app
 EnvironmentFile=/var/www/crossroads/app/.env.prod
 
-# Torch-safe settings (mirror your script intent)
-Environment=CELERY_POOL=solo
+# CPU-only inference runs in one child, released after each completed task.
+Environment=CELERY_POOL=prefork
 Environment=CELERY_CONCURRENCY=1
 Environment=OMP_NUM_THREADS=4
 Environment=CUDA_VISIBLE_DEVICES=
@@ -20,7 +20,8 @@ Environment=PYTORCH_ENABLE_MPS_FALLBACK=0
 ExecStart=/var/www/crossroads/app/venv/bin/celery -A mixtape.celery_app worker \
   --loglevel=INFO \
   --concurrency=1 \
-  -P solo \
+  -P prefork \
+  --max-tasks-per-child=1 \
   --prefetch-multiplier=1 \
   -Q transcription \
   -n transcription-worker@%%h
