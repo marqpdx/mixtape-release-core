@@ -108,6 +108,8 @@ Operating rule: Meridian first. Files second. Search last.
 
 **Two deployments of the same caller need a kid-keyed secret, not one shared value (CTO, 2026-11-12).** Full wording: `CLAUDE.md`, *Internal Service Auth Conventions*.
 
+**Frugal by habit: be resourceful with the hardware we have** (CTO, 2026-11-13): treat scarce memory and compute as the place to learn frugality, not a reason to add hardware. Prefer loading on demand and releasing, recycling, sharing and smaller forms over keeping things resident; measure before and after (swap as well as resident); add hardware only as demand and income grow. Reliability still comes first. Full wording: `puddlejump/CLAUDE.md`, *Build Principle: Frugal by Habit*.
+
 **Prefer the polymorphic sponsor pattern over a direct FK (CTO, 2026-11-12).** When a model's relationship to content could plausibly be owned by either a `Group` or a `UserProfile`, use the sponsor GFK (`sponsor_content_type` + `sponsor_object_id` + `sponsor = GenericForeignKey`, as `fundamentals.BaseContent` already provides) rather than a direct FK to one type. A direct FK locks the relationship to one owner type and needs a migration to support the other. Raise it as a question before merging any new direct FK to `groups.Group` or `profiles.UserProfile` for an ownership/context relationship — the answer is almost always yes unless the FK is a hard structural dependency, not ownership.
 
 ## CTO Owns the Server

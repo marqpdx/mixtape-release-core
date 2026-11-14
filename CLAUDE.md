@@ -77,6 +77,8 @@ Two authentication classes cover all internal service-to-service calls. Do not i
 
 **Two deployments of the same caller need a kid-keyed secret, not one shared value (CTO, 2026-11-12).** When a verifier's caller runs on two hosts that should hold independently-revocable credentials (e.g. Crossroads' and Cass's Switchboard both calling core), give the verifier `FOO_SECRETS` — a dict keyed by a `kid` the minter stamps into the JWT header — rather than a single `FOO_SECRET` shared by both deployments. The minter refuses to mint under an unset or placeholder `kid`. Ask "are there two deployments of this caller?" before choosing a secret shape for any new cross-host auth direction — retrofitting this after a first pass ships with one shared secret cost an extra build pass on `SWITCHBOARD_CORE_JWT_SECRETS` (2026-11-10).
 
+**Frugal by habit: be resourceful with the hardware we have** (CTO, 2026-11-13): treat scarce memory and compute as the place to learn frugality, not a reason to add hardware. Prefer loading on demand and releasing, recycling, sharing and smaller forms over keeping things resident; measure before and after (swap as well as resident); add hardware only as demand and income grow. Reliability still comes first. Full wording: `puddlejump/CLAUDE.md`, *Build Principle: Frugal by Habit*.
+
 ---
 
 File content:
