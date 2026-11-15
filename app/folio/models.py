@@ -28,6 +28,9 @@ class Folio(BaseContent):
     work_type = models.CharField(max_length=32, blank=True, default="", choices=[("fiction", "Fiction")])
     local_only = models.BooleanField(default=False)
     context_revision = models.PositiveIntegerField(default=0)
+    # The Folio Dictionary's revision. Null: this Folio has no Dictionary.
+    # 0: an opened, empty one. Every Dictionary change adds one.
+    dictionary_revision = models.PositiveIntegerField(null=True, blank=True)
     prepared_context = models.JSONField(default=dict, blank=True)
     orientation_confirmed_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="confirmed_folio_orientations")
     orientation_confirmed_at = models.DateTimeField(null=True, blank=True)
@@ -283,3 +286,56 @@ class FolioSightingDecision(BaseModel):
                 | models.Q(disposition="link_entity", provisional_data__isnull=True, entity__isnull=False)
             ), name="folio_decision_target"),
         ]
+
+
+class FolioDictionaryEntry(BaseModel):
+    """One confirmed referent in this Folio's Dictionary.
+
+    It hangs from the Folio and has no sponsor of its own: ownership is read
+    through the Folio's sponsor (CTO, 2026-11-15). Names and note are stored
+    exactly as typed; only matching normalizes (folio.dictionary.matching).
+    No uniqueness on names: two entries may share a spelling.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    folio = models.ForeignKey(Folio, on_delete=models.CASCADE, related_name="dictionary_entries")
+    entity = models.ForeignKey("storyboard.Entity", on_delete=models.PROTECT, related_name="folio_dictionary_entries")
+    shape_id = models.CharField(max_length=100)
+    shape_version = models.CharField(max_length=32)
+    revision = models.PositiveIntegerField(default=1)
+    main_name = models.CharField(max_length=255)
+    variants = models.JSONField(default=list, blank=True)
+    note = models.TextField(blank=True, default="")  # never sent in the recognition context
+    state = models.CharField(max_length=8, default="active",
+                             choices=[("active", "Active"), ("removed", "Removed"), ("merged", "Merged")])
+    merged_into = models.ForeignKey("self", null=True, blank=True, on_delete=models.PROTECT, related_name="merged_from")
+    created_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="created_folio_dictionary_entries")
+
+    class Meta(BaseModel.Meta):
+        ordering = ["id"]
+        constraints = [models.UniqueConstraint(fields=["folio", "entity", "shape_id"],
+            condition=models.Q(state="active"), name="folio_dictionary_active_entry")]
+
+
+class FolioDictionaryEntryRevision(models.Model):
+    """Write-once: what an entry meant at one revision, so an earlier match still resolves."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    entry = models.ForeignKey(FolioDictionaryEntry, on_delete=models.PROTECT, related_name="revisions")
+    revision = models.PositiveIntegerField()
+    value = models.JSONField()  # the full Contour shared.dictionary_entry value, note included
+    operation = models.CharField(max_length=8, choices=[("add", "Add"), ("edit", "Edit"), ("merge", "Merge"), ("remove", "Remove")])
+    actor = models.ForeignKey(User, on_delete=models.PROTECT, related_name="folio_dictionary_revisions")
+    operation_id = models.UUIDField()
+    recorded_at = models.DateTimeField()
+    dictionary_revision = models.PositiveIntegerField()  # the Dictionary revision this change produced
+
+    class Meta:
+        ordering = ["entry_id", "revision"]
+        constraints = [models.UniqueConstraint(fields=["entry", "revision"], name="folio_dictionary_entry_revision")]
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError("FolioDictionaryEntryRevision is write-once.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("FolioDictionaryEntryRevision is write-once.")

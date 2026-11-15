@@ -15,9 +15,7 @@ from heddle.errors import InterpretationError
 
 def entry(main="Mara", **changes):
     value = {"entry_id": str(uuid4()), "revision": 1, "shape_id": "writing.character", "shape_version": "0.2.0",
-             "names": {"main": main, "variants": []},
-             "provenance": {"kind": "person", "actor_id": str(uuid4()), "operation_id": str(uuid4()),
-                            "recorded_at": "2026-11-15T00:00:00Z"}}
+             "names": {"main": main, "variants": []}}
     value.update(changes)
     return value
 
@@ -86,6 +84,7 @@ class DictionaryProviderTests(TestCase):
             {"revision": 1, "entries": [entry(revision=0)]}, {"revision": 1, "entries": [entry(entry_id="mara")]},
             {"revision": 1, "entries": [entry(names={"main": " ", "variants": []})]},
             {"revision": 1, "entries": [entry(folio_id="x")]}, {"revision": 1, "entries": [same, dict(same)]},
+            {"revision": 1, "entries": [entry(note="private")]}, {"revision": 1, "entries": [entry(shape_id="")]},
         ):
             with self.subTest(snapshot=snapshot), self.stored(snapshot), self.assertLogs(provider.logger, "ERROR"):
                 self.assertIsNone(provider.provide(self.user, self.folio))
