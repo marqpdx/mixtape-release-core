@@ -27,7 +27,8 @@ from commons.models import CommonsItem
 from commons.services import capture_item
 from fundamentals.services.name_matching import MatchState, match_against_queryset
 from initiatives.models import ActionRunStatus
-from relations.models import Relationship, RelationshipType
+from relations.models import Relationship
+from relations.service import RelationshipService
 from tapestry.models import Location, Place
 from writing.models import Seed
 
@@ -225,19 +226,12 @@ def _create_idea_tag(*, wording: str) -> Tag:
 
 
 def _create_adjacency(*, source: CommonsItem, target: CommonsItem, reason: str, author) -> Relationship:
-    relationship_type = RelationshipType.objects.get(slug="adjacent", domain=RelationshipType.DOMAIN_COMMONS)
-    return Relationship.objects.create(
-        source_content_type=_content_type(source),
-        source_object_id=source.pk,
-        target_content_type=_content_type(target),
-        target_object_id=target.pk,
-        relationship_type=relationship_type,
-        notes=reason,
+    # Through the service (ADR-0042 invariant 3). A Shuttle adjacency has no
+    # Group to own it, so the confirming member is its sponsor.
+    return RelationshipService.create_adjacency(
+        source=source,
+        target=target,
         created_by=author,
+        sponsor=author,
+        reason=reason,
     )
-
-
-def _content_type(obj):
-    from django.contrib.contenttypes.models import ContentType
-
-    return ContentType.objects.get_for_model(obj)

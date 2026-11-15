@@ -45,7 +45,7 @@ class CommonsAdjacencyServiceTests(TestCase):
             source=self.taco_cart,
             target=self.noodle_cart,
             created_by=self.author,
-            owner_group=self.owner_group,
+            sponsor=self.owner_group,
             reason="Same lot, same food-cart pod",
         )
 
@@ -56,8 +56,35 @@ class CommonsAdjacencyServiceTests(TestCase):
             relationship.metadata[RelationshipService.ADJACENCY_OWNER_GROUP_ID_KEY],
             str(self.owner_group.pk),
         )
+        self.assertEqual(
+            relationship.metadata[RelationshipService.ADJACENCY_SPONSOR_TYPE_KEY],
+            "groups.group",
+        )
+        self.assertEqual(
+            relationship.metadata[RelationshipService.ADJACENCY_SPONSOR_ID_KEY],
+            str(self.owner_group.pk),
+        )
 
         relationship.refresh_from_db()
         self.assertEqual(relationship.source_object_id, self.taco_cart.pk)
         self.assertEqual(relationship.target_object_id, self.noodle_cart.pk)
         self.assertEqual(relationship.notes, "Same lot, same food-cart pod")
+
+    def test_a_member_can_sponsor_an_adjacency_when_no_group_applies(self):
+        relationship = RelationshipService.create_adjacency(
+            source=self.taco_cart,
+            target=self.noodle_cart,
+            created_by=self.author,
+            sponsor=self.author,
+            reason="Same lot",
+        )
+
+        self.assertEqual(
+            relationship.metadata[RelationshipService.ADJACENCY_SPONSOR_TYPE_KEY],
+            f"{self.author._meta.app_label}.{self.author._meta.model_name}",
+        )
+        self.assertEqual(
+            relationship.metadata[RelationshipService.ADJACENCY_SPONSOR_ID_KEY],
+            str(self.author.pk),
+        )
+        self.assertNotIn(RelationshipService.ADJACENCY_OWNER_GROUP_ID_KEY, relationship.metadata)

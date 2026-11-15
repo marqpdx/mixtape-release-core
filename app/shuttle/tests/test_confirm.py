@@ -6,6 +6,7 @@ from commons.models import CommonsItem, LeafEntry
 from commons.services import capture_item
 from initiatives.models import ActionRun, ActionRunStatus
 from relations.models import Relationship
+from relations.service import RelationshipService
 from shuttle.confirm import confirm_weave
 from shuttle.models import IdeaTuple
 from shuttle.services import ShuttleEnvelopeError, hold_packet, start_weave
@@ -177,6 +178,15 @@ class ConfirmWeaveTests(TestCase):
         adjacency_rows = [w for w in result["written"] if w["written_as"] == "relations.Relationship"]
         self.assertEqual(len(adjacency_rows), 1)
         self.assertEqual(Relationship.objects.count(), before + 1)
+
+    def test_shuttle_adjacency_goes_through_the_service_and_is_sponsored_by_the_member(self):
+        confirm_weave(action_run_id=self.action_run_id, confirm_in=self.confirm_in, author=self.author)
+        relationship = Relationship.objects.get(relationship_type__slug="adjacent")
+        self.assertEqual(relationship.created_by, self.author)
+        self.assertEqual(
+            relationship.metadata[RelationshipService.ADJACENCY_SPONSOR_ID_KEY],
+            str(self.author.pk),
+        )
 
     def test_stories_not_yet_told_answer_true_writes_idea_tuples(self):
         result = confirm_weave(action_run_id=self.action_run_id, confirm_in=self.confirm_in, author=self.author)

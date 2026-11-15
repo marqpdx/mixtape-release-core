@@ -25,12 +25,16 @@ class RelationshipService:
     THREAD_CLOSED_KEY = "thread_closed"
 
     # -------------------------------------------------------------------------
-    # Adjacency owner convention (Shuttle ADR-0058 D6, D10; SH-2)
+    # Adjacency sponsor convention (Shuttle ADR-0058 D6, D10; SH-2)
     # -------------------------------------------------------------------------
     # An adjacency cluster has no separate model either — it is whichever
-    # `adjacent` Relationships a person has drawn together. Its owner (a
-    # Group, for now) lives in `metadata`, the same convention as Thread
-    # identity above: a plain scalar, not a FK.
+    # `adjacent` Relationships a person has drawn together. Its sponsor (a
+    # Group or a member's User, the same polymorphic sponsor as BaseContent)
+    # lives in `metadata`, the same convention as Thread identity above: plain
+    # scalars (content type label and UUID), not a FK. A Group sponsor also
+    # keeps `owner_group_id` for readers of the earlier convention.
+    ADJACENCY_SPONSOR_TYPE_KEY = "sponsor_content_type"
+    ADJACENCY_SPONSOR_ID_KEY = "sponsor_object_id"
     ADJACENCY_OWNER_GROUP_ID_KEY = "owner_group_id"
 
     # -------------------------------------------------------------------------
@@ -145,24 +149,30 @@ class RelationshipService:
         source,
         target,
         created_by,
-        owner_group,
+        sponsor,
         reason: str,
     ) -> Relationship:
         """
         Link two things or Places via `commons/adjacent` (D6), undirected.
         The one-line reason a person gave for the edge goes in `notes`;
-        the owning Group goes in `metadata` (ADJACENCY_OWNER_GROUP_ID_KEY),
-        the same convention as Thread identity on `continues`.
+        the sponsor (a Group, or a member's User when no Group applies) goes
+        in `metadata` (ADJACENCY_SPONSOR_*_KEY), the same convention as Thread
+        identity on `continues`.
         """
+        sponsor_ct = ContentType.objects.get_for_model(sponsor.__class__)
+        metadata = {
+            RelationshipService.ADJACENCY_SPONSOR_TYPE_KEY: f"{sponsor_ct.app_label}.{sponsor_ct.model}",
+            RelationshipService.ADJACENCY_SPONSOR_ID_KEY: str(sponsor.pk),
+        }
+        if sponsor_ct.app_label == "groups" and sponsor_ct.model == "group":
+            metadata[RelationshipService.ADJACENCY_OWNER_GROUP_ID_KEY] = str(sponsor.pk)
         return RelationshipService.create_relationship(
             type_slug="adjacent",
             source=source,
             target=target,
             created_by=created_by,
             notes=reason,
-            metadata={
-                RelationshipService.ADJACENCY_OWNER_GROUP_ID_KEY: str(owner_group.pk),
-            },
+            metadata=metadata,
         )
 
     @staticmethod
