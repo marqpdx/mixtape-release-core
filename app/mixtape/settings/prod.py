@@ -38,6 +38,12 @@ for _var, _val in _required.items():
         raise ImproperlyConfigured(f"{_var} must be set in production")
 
 
+# LiveKit: base.py carries development fallbacks ("devkey"/"devsecret"). The
+# repo is public, so production must never run on them: with no value set, the
+# bridge token call fails when used, rather than signing with a known pair.
+LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
+LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
+
 # Production settings
 DEBUG = False
 DJANGO_ENV = "prod"
