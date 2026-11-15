@@ -8,6 +8,31 @@ from django.db import transaction
 from .models import Relationship, RelationshipAnnotation, RelationshipType
 
 
+class RelationshipConstraintError(ValueError):
+    """A relationship's endpoints do not fit its type's valid_source_types / valid_target_types."""
+
+
+def _model_label(obj) -> str:
+    meta = obj._meta.concrete_model._meta
+    return f"{meta.app_label}.{meta.model_name}"
+
+
+def _enforce_type_constraints(rel_type: RelationshipType, source, target) -> None:
+    """ADR-0042 invariant 6: type constraints are enforced at the service layer.
+    An empty list means any model. Labels are "app_label.ModelName", compared
+    case-insensitively against the endpoint's concrete model."""
+    for side, obj, allowed in (
+        ("source", source, rel_type.valid_source_types),
+        ("target", target, rel_type.valid_target_types),
+    ):
+        if not allowed:
+            continue
+        if _model_label(obj) not in {a.lower() for a in allowed}:
+            raise RelationshipConstraintError(
+                f"{rel_type.slug}: {side} must be one of {sorted(allowed)}, got {_model_label(obj)}"
+            )
+
+
 class RelationshipService:
     """
     Single entry point for all Relationship creation, archival, and traversal.
@@ -56,6 +81,7 @@ class RelationshipService:
         metadata: dict | None = None,
     ) -> Relationship:
         rel_type = RelationshipType.objects.get(slug=type_slug)
+        _enforce_type_constraints(rel_type, source, target)
         source_ct = ContentType.objects.get_for_model(source.__class__)
         target_ct = ContentType.objects.get_for_model(target.__class__)
 
