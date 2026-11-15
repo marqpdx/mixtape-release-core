@@ -28,7 +28,7 @@ class Command(BaseCommand):
     def _get_or_create_superuser_dev(self):
         # DEV-ONLY defaults; do not print password
         username = "admin"
-        email = "marqpdx@gmail.com"
+        email = os.getenv("DJANGO_SUPERUSER_EMAIL")
         # The repo is public: no password lives in code. Set it in the environment.
         password = os.getenv("DJANGO_SUPERUSER_PASSWORD")
 
@@ -37,9 +37,9 @@ class Command(BaseCommand):
             self.stdout.write(f"Superuser exists: {su.username}")
             return su
 
-        if not password:
+        if not password or not email:
             self.stderr.write(self.style.ERROR(
-                "Set DJANGO_SUPERUSER_PASSWORD in the environment to bootstrap a dev superuser."
+                "Set DJANGO_SUPERUSER_PASSWORD and DJANGO_SUPERUSER_EMAIL in the environment to bootstrap a dev superuser."
             ))
             sys.exit(1)
 
@@ -65,7 +65,7 @@ class Command(BaseCommand):
             return su
 
         u = os.getenv("DJANGO_SUPERUSER_USERNAME", "admin")
-        e = os.getenv("DJANGO_SUPERUSER_EMAIL", "marqpdx@gmail.com")
+        e = os.getenv("DJANGO_SUPERUSER_EMAIL")
 
         if not u or not e:
             self.stderr.write(self.style.ERROR(

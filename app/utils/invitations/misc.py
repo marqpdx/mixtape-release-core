@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.mail import send_mail
 
 
@@ -21,7 +22,7 @@ def send_contact(request):
                 "SITE Inquiry - "+ name,# subject,
                 message,#message
                 email,# from email
-                ["marqpdx@gmail.com"],# to email,
+                [settings.CONTACT_NOTIFICATION_EMAIL] if settings.CONTACT_NOTIFICATION_EMAIL else [],# to email (env: CONTACT_NOTIFICATION_EMAIL),
                 #fail_silently=False
             )
             context = {"mail_response":True}

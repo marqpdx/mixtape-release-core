@@ -20,8 +20,9 @@ env = environ.Env(
     DEBUG=(bool, False)
 )
 
-SITE_ADMIN_EMAIL = "marqpdx@gmail.com"
-CONTACT_NOTIFICATION_EMAIL = "marqpdx@gmail.com"
+# The repo is public: no personal address in code. Set both in the environment.
+SITE_ADMIN_EMAIL = os.getenv("SITE_ADMIN_EMAIL", "")
+CONTACT_NOTIFICATION_EMAIL = os.getenv("CONTACT_NOTIFICATION_EMAIL", "")
 
 DEFAULT_FROM_EMAIL = "Crossroads <connect@crossroads.place>"
 
