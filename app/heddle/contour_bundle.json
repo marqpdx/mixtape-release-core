@@ -1,9 +1,10 @@
 {
   "definitions": {
     "shared.dictionary_entry@0.1.0": "shared/dictionary_entry.schema.json",
+    "shared.dictionary_snapshot_entry@0.1.0": "shared/dictionary_snapshot_entry.schema.json",
     "shared.sighting_provenance@0.1.0": "shared/sighting_provenance.schema.json"
   },
-  "digest": "4c091942ba71358cef332a59ea46991ce5c5e019a37175f0f70db8602a019ec3",
+  "digest": "46e491878c41706f5fd4092ef94ca7d6ffa5d2b7fe648128c80ce58d1c2769e7",
   "files": {
     "argus/README.md": {
       "sha256": "a7793623dde68ff3b7ac636bb5ef46b4d0b96521f8f92a3e477c3b4a1d3defdc",
@@ -32,6 +33,10 @@
     "shared/dictionary_entry.schema.json": {
       "sha256": "32988cc069f778c59b75e51879f4b0d69c5e177c4bf0080c2ee299048507408b",
       "text": "{\n  \"$schema\": \"http://json-schema.org/draft-07/schema#\",\n  \"$id\": \"urn:contour:shared.dictionary_entry:0.1.0\",\n  \"title\": \"DictionaryEntry (draft for Contour intake)\",\n  \"description\": \"Neutral writer-confirmed value; Folio, Entity, authority, command receipts and lifecycle belong to the storage/API wrapper.\",\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"entry_id\",\n    \"revision\",\n    \"shape_id\",\n    \"shape_version\",\n    \"names\",\n    \"provenance\"\n  ],\n  \"properties\": {\n    \"entry_id\": {\n      \"type\": \"string\",\n      \"format\": \"uuid\"\n    },\n    \"revision\": {\n      \"type\": \"integer\",\n      \"minimum\": 1\n    },\n    \"shape_id\": {\n      \"type\": \"string\",\n      \"minLength\": 1,\n      \"pattern\": \"\\\\S\"\n    },\n    \"shape_version\": {\n      \"type\": \"string\",\n      \"pattern\": \"^\\\\d+\\\\.\\\\d+\\\\.\\\\d+(?:[-+][A-Za-z0-9.-]+)?$\"\n    },\n    \"names\": {\n      \"type\": \"object\",\n      \"additionalProperties\": false,\n      \"required\": [\n        \"main\",\n        \"variants\"\n      ],\n      \"properties\": {\n        \"main\": {\n          \"type\": \"string\",\n          \"minLength\": 1,\n          \"pattern\": \"\\\\S\",\n          \"maxLength\": 255\n        },\n        \"variants\": {\n          \"type\": \"array\",\n          \"maxItems\": 32,\n          \"uniqueItems\": true,\n          \"items\": {\n            \"type\": \"string\",\n            \"minLength\": 1,\n            \"pattern\": \"\\\\S\",\n            \"maxLength\": 255\n          }\n        }\n      }\n    },\n    \"note\": {\n      \"type\": \"string\",\n      \"maxLength\": 2000\n    },\n    \"provenance\": {\n      \"allOf\": [\n        {\n          \"$ref\": \"urn:contour:shared.sighting_provenance:0.1.0\"\n        },\n        {\n          \"properties\": {\n            \"kind\": {\n              \"const\": \"person\"\n            }\n          }\n        }\n      ]\n    }\n  }\n}\n"
+    },
+    "shared/dictionary_snapshot_entry.schema.json": {
+      "sha256": "e75e8fd2ff960eeac8ea99569aefd7b10c17c5ae69a2d0a70b7c9a0184893413",
+      "text": "{\n  \"$schema\": \"http://json-schema.org/draft-07/schema#\",\n  \"$id\": \"urn:contour:shared.dictionary_snapshot_entry:0.1.0\",\n  \"title\": \"DictionarySnapshotEntry\",\n  \"description\": \"What a reading's context carries for one confirmed Dictionary entry: identity, Shape and names. A projection of shared.dictionary_entry 0.1.0. The writer's note and the provenance stay with the storage wrapper and are never sent.\",\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"entry_id\",\n    \"revision\",\n    \"shape_id\",\n    \"shape_version\",\n    \"names\"\n  ],\n  \"properties\": {\n    \"entry_id\": {\n      \"type\": \"string\",\n      \"format\": \"uuid\"\n    },\n    \"revision\": {\n      \"type\": \"integer\",\n      \"minimum\": 1\n    },\n    \"shape_id\": {\n      \"type\": \"string\",\n      \"minLength\": 1,\n      \"pattern\": \"\\\\S\"\n    },\n    \"shape_version\": {\n      \"type\": \"string\",\n      \"pattern\": \"^\\\\d+\\\\.\\\\d+\\\\.\\\\d+(?:[-+][A-Za-z0-9.-]+)?$\"\n    },\n    \"names\": {\n      \"type\": \"object\",\n      \"additionalProperties\": false,\n      \"required\": [\n        \"main\",\n        \"variants\"\n      ],\n      \"properties\": {\n        \"main\": {\n          \"type\": \"string\",\n          \"minLength\": 1,\n          \"pattern\": \"\\\\S\",\n          \"maxLength\": 255\n        },\n        \"variants\": {\n          \"type\": \"array\",\n          \"maxItems\": 32,\n          \"uniqueItems\": true,\n          \"items\": {\n            \"type\": \"string\",\n            \"minLength\": 1,\n            \"pattern\": \"\\\\S\",\n            \"maxLength\": 255\n          }\n        }\n      }\n    }\n  }\n}\n"
     },
     "shared/sighting_provenance.schema.json": {
       "sha256": "861c330d6af495b8fbb2deab24868dee09f1f2f02c0c227505573f3ee31d3c63",
@@ -285,6 +290,11 @@
         "id": "shared.dictionary_entry",
         "schema_file": "shared/dictionary_entry.schema.json",
         "version": "0.1.0"
+      },
+      {
+        "id": "shared.dictionary_snapshot_entry",
+        "schema_file": "shared/dictionary_snapshot_entry.schema.json",
+        "version": "0.1.0"
       }
     ],
     "strategies": [
@@ -446,5 +456,5 @@
       }
     ]
   },
-  "source_commit": "06a1da4d5df90a375fdf163112deae3081cb0008"
+  "source_commit": "e182aa407d725bf673d5ee342e52b1ffc5756715"
 }
