@@ -38,7 +38,8 @@ The previously filed aggregate-only count command remains CTO-run.
   counts, Wilson intervals for precision/recall/refusal rates, errors, can't-tell,
   candidate ambiguity/uncertainty, overlap pairs, actions/time, score-band outcomes
   and conditional candidate-exact Brier scores. Empty denominators are null.
-- Replays an evaluation-only Dictionary using only human-confirmed names in
+- Imports Folio's pure shared `folio.dictionary.matching` implementation and
+  replays an evaluation-only Dictionary using only human-confirmed names in
   earlier notes of the same Folio AND split; gives private per-note revision/hits
   and public per-split model/Dictionary/union counts and recall. No self-note or
   tuning-to-holdout name leakage. Actual Folio capture order is preserved.
@@ -166,13 +167,16 @@ It never changes Selene's globals, accepted profile or exact-profile metrics.
 Diagnostic candidate counts are reported separately; semantic review metrics
 for this auxiliary run are not implemented. Do not tune on the held-out split.
 
-Dictionary reference rule: NFC(casefold(NFC(value))). Prefix/suffix boundary
+Shared Folio rule: NFC(casefold(NFC(value))). Folio's normalization-unit
 alignment prevents partial matches inside expansions or normalization units;
 quotes/offsets always address the original source. No accent stripping, fuzzy
-matching, implicit entity merging or new word-boundary rule. Pin Unicode database
+matching, implicit entity merging or new word-boundary rule. Folio's word-boundary
+flag stays evidence; it does not suppress a lexical hit. Pin Unicode database
 version and runner hash. Sources above 4,000 code points are explicitly not run
-through the reference matcher. This is not a production provider; product
-promotion requires the consumer's reviewed implementation to become the source.
+through the reference matcher. This is not a production provider. Folio's matcher landed as the runner was being
+finished (`0263c5d3` adds storage; matcher already present by that checkout), so
+the temporary evaluation matcher was replaced with an import. No duplicate
+normalization implementation remains; run metadata pins the shared matcher hash.
 
 This first runner does not calculate repeat-review agreement, entity-identity
 false merges/splits, or diagnostic-profile semantic metrics. It retains separate

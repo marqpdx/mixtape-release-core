@@ -14,7 +14,6 @@ import re
 import socket
 import subprocess
 import sys
-import unicodedata
 from uuid import UUID, uuid4
 
 VERSION = '1.0.0'
@@ -206,47 +205,42 @@ def cue_spans(text, pinned):
     return result
 
 
+def matching_module():
+    # Folio's committed matcher is pure stdlib. Do not import models or Django.
+    sys.path.insert(0, str(HERE.parents[2] / 'app'))
+    return importlib.import_module('folio.dictionary.matching')
+
+
 def normalized(text):
-    return unicodedata.normalize('NFC', unicodedata.normalize('NFC', text).casefold())
+    return matching_module().match_key(text)
 
 
 def dictionary_matches(text, entries):
-    """Evaluation reference, NOT the absent production Dictionary provider.
-
-    Boundary alignment rejects fragments of normalization units and expansions.
-    Prefix/suffix checks deliberately favor clarity over throughput (<=4k chars).
-    """
+    """Adapt private eval entries to Folio's one shared Unicode matcher."""
     need(len(text) <= 4000, 'dictionary_source_budget')
     if not entries:
         return []
-    whole = normalized(text)
-    offsets = {}
-    for i in range(len(text) + 1):
-        left, right = normalized(text[:i]), normalized(text[i:])
-        if left + right == whole:
-            offsets[len(left)] = i
-    found = []
+    values = []
+    types = {}
     for entry in entries:
-        seen = set()
-        for name in entry['names']:
-            target = normalized(name)
-            need(bool(target), 'empty_dictionary_name')
-            start = 0
-            while (start := whole.find(target, start)) >= 0:
-                end = start + len(target)
-                if start in offsets and end in offsets:
-                    loc = (offsets[start], offsets[end])
-                    if loc not in seen:
-                        found.append({'entry_id': entry['entry_id'], 'entry_revision': entry['revision'],
-                            'type': entry['type'], **span(text, {'start': loc[0], 'end': loc[1]})})
-                        seen.add(loc)
-                start += 1
-    return found
+        need(isinstance(entry['names'], list) and bool(entry['names']) and
+             all(isinstance(n, str) and bool(n) for n in entry['names']), 'empty_dictionary_name')
+        values.append({'entry_id': entry['entry_id'], 'revision': entry['revision'],
+            'names': {'main': entry['names'][0], 'variants': entry['names'][1:]}})
+        types[(entry['entry_id'], entry['revision'])] = entry['type']
+    result = []
+    for hit in matching_module().find_matches(text, values):
+        for alternative in hit['alternatives']:
+            result.append({**alternative, 'type': types[(alternative['entry_id'], alternative['entry_revision'])],
+                'start': hit['start'], 'end': hit['end'], 'quote': hit['quote'],
+                'word_bounded': hit['word_bounded'], 'rule': hit['rule']})
+    return result
 
 
 def code_identity(selene_root):
     result = {}
-    for root, paths in ((HERE, ['shadow.py', 'shadow_report.py']),
+    for root, paths in ((HERE.parents[2], ['tools/eval/folio-ner/shadow.py', 'tools/eval/folio-ner/shadow_report.py',
+                         'app/folio/dictionary/matching.py']),
                         (selene_root, ['selene/gliner_adapter.py', 'selene/recognition_contract.py',
                          'selene/artifacts.py', 'selene/contracts/profile.json',
                          'selene/contracts/request.schema.json', 'selene/contracts/response.schema.json',
@@ -372,7 +366,8 @@ def run(workspace, package, selene_root, bundle, unaided_path, diagnostic_thresh
         'runtime_versions': {name: importlib.metadata.version(name) for name in ('gliner', 'torch', 'transformers')},
         'evidence_sha256': {n['note_id'] + '.json': sha(output / (n['note_id'] + '.json')) for n in data['notes']},
         'unaided_sha256': sha(output / 'unaided.json'), 'accounting': 'offline UUIDs only; no ActionRuns created',
-        'dictionary': 'evaluation-only replay from human decisions; never supplied as invented production authority'}
+        'dictionary_matching': matching_module().identity(),
+        'dictionary': 'evaluation-only replay from human decisions using shared Folio matcher; no production writes'}
     write(output / 'run.json', meta)
     sheets = []
     for note, row in zip(data['notes'], evidence):

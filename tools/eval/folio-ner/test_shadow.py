@@ -298,6 +298,15 @@ class ShadowTests(unittest.TestCase):
         self.assertEqual(result.stdout, 'aggregate\n')
         self.assertEqual(result.stderr, '')
 
+    def test_uses_shared_product_matcher_without_django(self):
+        matching = s.matching_module()
+        self.assertEqual(Path(matching.__file__).resolve(), CORE / 'app/folio/dictionary/matching.py')
+        entries = [{'entry_id': 'e', 'revision': 1, 'type': 'writing.character', 'names': ['Nell']}]
+        with patch.object(matching, 'find_matches', wraps=matching.find_matches) as shared:
+            s.dictionary_matches('Nell', entries)
+        shared.assert_called_once()
+        self.assertNotIn('django', sys.modules)
+
     def test_dictionary_replay_no_self_or_cross_split(self):
         folio = str(uuid4())
         ns = [{**note('Nell', folio, i), 'split': split} for i, split in enumerate(('tuning', 'holdout', 'tuning'))]

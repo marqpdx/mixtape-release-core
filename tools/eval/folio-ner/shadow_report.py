@@ -1,13 +1,11 @@
 """Private human review records and text-free aggregate export for shadow.py."""
 from collections import Counter, defaultdict
 import math
-from pathlib import Path
-import unicodedata
 from uuid import uuid4
 from typing import Any
 
 from shadow import (KINDS, ROLES, dictionary_matches, digest, frozen, need,
-                    now, person, private, read, sha, span, write)
+                    now, person, private, read, sha, span, write, matching_module)
 
 
 def load(workspace, run):
@@ -243,8 +241,7 @@ def tally(workspace, run, reviews):
         'manifest_sha256': meta['manifest_sha256'], 'code': meta['code'], 'splits': sections, 'blind_comparison': blind_summary,
         'diagnostic': {'profile_digest': meta['diagnostic_profile_digest'],
             'counts': dict(diagnostic_counts), 'review_metrics': 'not_computed'},
-        'dictionary': {'rule': 'folio_dictionary.nfc_casefold.v1', 'unicode_version': unicodedata.unidata_version,
-            'implementation_sha256': sha(Path(__file__).with_name('shadow.py')),
+        'dictionary': {**matching_module().identity(),
             'by_split': dictionary_splits},
         'limits': ['one-writer labelled set, not production acceptance',
             'candidate Brier is conditional on emitted, reviewed candidates; not a calibrated confidence claim',
