@@ -138,15 +138,15 @@ Several agents work at once (CTO, 2026-10-23). So none overwrites another:
 1. A conventional subject line (`feat(scope): …`, `fix(scope): …`, `docs(scope): …`).
 2. A body of two to six lines saying what changed, why, and what was checked (tests run, or "not run").
 3. The authority it acts on: the handoff path, or the CTO's approval with its date ("CTO approved activation, 2026-11-11").
-4. Trailers naming the agent, the model and the session:
+4. Trailers naming the agent and the model (and the session, **except in the public repos**):
 
 ```
 Agent: MA (Codex)
 Model: <model name and version, as your runtime reports it>
-Session: <session id or link, if your runtime has one>
+Session: <session id or link, if your runtime has one>   # omit in mixtape-release-core and mixtape-release-frontend
 ```
 
-Claude Code sessions keep the `Co-Authored-By` and `Claude-Session` lines their harness adds, and add `Agent: <name>`.
+Claude Code sessions keep the `Co-Authored-By` line their harness adds and add `Agent: <name>`. **`mixtape-release-core` and `mixtape-release-frontend` are public on GitHub: no `Session:` or `Claude-Session:` trailer in them (CTO, 2026-11-15).** The agent and model lines still say who made the commit; the session link adds nothing a reader needs. Existing trailers are not rewritten unless a history scrub runs anyway.
 
 **An approval covers the whole unit, including its paired steps (CTO, 2026-11-11).** When the CTO approves a change, finish everything that change requires, in the same sitting:
 - the commit itself;
