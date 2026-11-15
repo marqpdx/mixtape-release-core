@@ -587,6 +587,15 @@ class FolioInterpretationContextView(APIView):
         return _folio_context_command(request, folio_id, FolioContextPrepareSerializer, prepare_context)
 
 
+class FolioLocalPolicyView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, folio_id):
+        from .serializers import FolioLocalPolicySerializer
+        from folio.services.local_policy import change_local_only
+        return _folio_context_command(request, folio_id, FolioLocalPolicySerializer, change_local_only)
+
+
 class FolioOrientationConfirmView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 

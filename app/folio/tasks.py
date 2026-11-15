@@ -28,6 +28,8 @@ from inkwell.stackroom_enqueue import enqueue_stackroom_ingest
 from initiatives.models import ActionRun, ActionRunExecutionMode, ActionRunInitiatorType, ActionRunStatus
 from switchboard.dispatch import enqueue_switchboard_task
 
+from folio.interpretation.recognition import apply_recognition  # noqa: F401
+
 TENDING_CAPABILITY = "folio_note_tend"
 _DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000001"
 _DEFAULT_TENANT_NAMESPACE = "platform:crossroads"

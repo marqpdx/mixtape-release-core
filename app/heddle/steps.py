@@ -31,6 +31,10 @@ class Step:
     should_run: Callable | None = None
     build_prompt: Callable | None = None
     response_schema: dict | None = None
+    backend: str = "cloud"
+    build_request: Callable | None = None
+    validate_response: Callable | None = None
+    execution_identity: str | None = None
 
 
 def definitions(reading):
@@ -42,13 +46,18 @@ def definitions(reading):
             raise ValueError("Invalid ordered Heddle Step definition")
         if step.kind == "deterministic" and step.run is None:
             raise ValueError("Deterministic Step requires a run hook")
-        if step.kind == "model" and (step.build_prompt is None or step.response_schema is None):
-            raise ValueError("Model Step requires a prompt hook and response schema")
+        if step.kind == "model":
+            if step.backend == "local":
+                if not (step.build_request and step.validate_response and step.execution_identity):
+                    raise ValueError("Local Step requires request, response and execution identity")
+            elif step.backend != "cloud" or step.build_prompt is None or step.response_schema is None:
+                raise ValueError("Model Step requires a prompt hook and response schema")
         seen.add(step.id)
     return [{"id": s.id, "version": s.version, "kind": s.kind,
              "input_contract": s.input_contract, "output_contract": s.output_contract,
              "requires": list(s.requires), "required": s.required,
-             "response_schema_digest": digest(s.response_schema) if s.response_schema is not None else None} for s in reading.steps]
+             "response_schema_digest": digest(s.response_schema) if s.response_schema is not None else None,
+             **({"backend": "local", "execution_identity": s.execution_identity} if s.backend == "local" else {})} for s in reading.steps]
 
 
 def context_snapshot(reading, author, parent):
@@ -74,6 +83,8 @@ def plan_identity(reading):
 
 
 def assert_current(reading, state, author, parent):
+    if reading.execution_guard:
+        reading.execution_guard(author, parent, state)
     if digest(context_snapshot(reading, author, parent)) != digest(state["context"]):
         raise InterpretationError("context_conflict", 409)
     if state.get("plan") != plan_identity(reading):

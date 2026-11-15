@@ -4,8 +4,11 @@
 from django.urls import path
 
 from . import views
+from .recognition import RecognitionClaimView
 
 urlpatterns = [
+    path("recognition-executions/<uuid:execution_action_run_id>/claim", RecognitionClaimView.as_view(), name="folio-recognition-claim"),
+    path("folios/<uuid:folio_id>/local-policy", views.FolioLocalPolicyView.as_view(), name="folio-local-policy"),
     path("folios/<uuid:folio_id>/interpretation-context", views.FolioInterpretationContextView.as_view(), name="folio-interpretation-context"),
     path("folios/<uuid:folio_id>/orientation/confirm", views.FolioOrientationConfirmView.as_view(), name="folio-orientation-confirm"),
     path("inceptions", views.FolioInceptionListCreateView.as_view(), name="folio-inception-list-create"),

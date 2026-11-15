@@ -69,6 +69,8 @@ def run_cloud_interpretation(*, action_run_id, reading: Reading, apply_fn):
         if reading.steps:
             from .ordered import verify_worker
             verify_worker(reading, parent, state, child, data, author)
+        from .local import assert_cloud_allowed
+        assert_cloud_allowed(parent, author)
         from cloud_agents.generate import generate
         try:
             gen = generate(author=author, capability=reading.capability, prompt=data["prompt"], timeout=180)

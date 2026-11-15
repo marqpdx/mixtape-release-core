@@ -16,7 +16,7 @@ def owned_folio(author, folio_id, *, lock=False):
     qs = member_folios(author)
     if lock:
         qs = qs.select_for_update()
-    folio = qs.filter(pk=folio_id).first()
+    folio = qs.filter(pk=folio_id, deleted_at__isnull=True).first()
     if folio is None:
         raise InterpretationError("not_found", 404)
     return folio
@@ -41,7 +41,7 @@ def context_snapshot(folio):
         entity["id"] = str(entity["id"])
     from folio.interpretation.strategy import context_dependencies
     snapshot = {"folio_id": str(folio.pk), "work_type": folio.work_type,
-                "title": folio.title, "entities": entities,
+                "title": folio.title, "entities": entities, "local_only": folio.local_only,
                 **context_dependencies(), "title_is_writer_set": bool(folio.title)}
     import json
     if len(json.dumps(snapshot, ensure_ascii=False)) > MAX_CONTEXT_CHARS:

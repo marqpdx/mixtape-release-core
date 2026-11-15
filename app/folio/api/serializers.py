@@ -9,8 +9,8 @@ from folio.shapes import Shape
 class FolioSerializer(serializers.ModelSerializer):
     class Meta:
         model = Folio
-        fields = ["id", "slug", "slug_history", "title", "work_type", "context_revision", "orientation_confirmed_at", "orientation_confirmed_digest", "created_at", "updated_at"]
-        read_only_fields = ["id", "slug", "slug_history", "created_at", "updated_at"]
+        fields = ["id", "slug", "slug_history", "title", "work_type", "local_only", "context_revision", "orientation_confirmed_at", "orientation_confirmed_digest", "created_at", "updated_at"]
+        read_only_fields = ["id", "slug", "slug_history", "local_only", "created_at", "updated_at"]
 
 
 class FolioMaterialCandidateSerializer(serializers.ModelSerializer):
@@ -89,6 +89,17 @@ class FolioContextCommandSerializer(serializers.Serializer):
             if unknown:
                 raise serializers.ValidationError({key: "Unknown field." for key in sorted(unknown)})
         return super().to_internal_value(data)
+
+
+class FolioLocalPolicySerializer(FolioContextCommandSerializer):
+    request_id = serializers.UUIDField()
+    expected_revision = serializers.IntegerField(min_value=0)
+    local_only = serializers.BooleanField()
+
+    def validate_local_only(self, value):
+        if type(self.initial_data.get("local_only")) is not bool:
+            raise serializers.ValidationError("A JSON Boolean is required.")
+        return value
 
 
 class FolioContextPrepareSerializer(FolioContextCommandSerializer):

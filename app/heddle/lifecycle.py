@@ -60,12 +60,19 @@ def snapshot(parent, *, reading: Reading):
         status, error = "failed", (child.error_payload or {}).get("error", "execution_failed")
     elif child and child.status == ActionRunStatus.RUNNING and status == "pending":
         status = "running"
+    if reading.local_enabled_setting and status == "succeeded":
+        status = "partial"
+    elif reading.local_enabled_setting and error and status != "superseded":
+        status = "failed"  # Partial coverage is success-only; retain typed refusal.
     result = {"contract_version": reading.version, "weave_action_run_id": str(parent.pk),
             "execution_action_run_id": str(child.pk) if child else None,
             "revision": state["revision"], "source_digest": source_digest(state["sources"]),
             "sources": state["sources"], "status": status, "error": error,
             "findings": state.get("findings"),
             "cloud_requested": bool(getattr(settings, reading.cloud_setting_name, True))}
+    if reading.local_enabled_setting:
+        result.update(cloud_requested=False, scope="recognition_only", semantic_interpretation="not_run",
+                      strategy_execution_status=state["status"])
     if reading.steps:
         from .steps import identity
         result.update(context=state["context"], **identity(state),
@@ -99,7 +106,7 @@ def begin(*, author, request_id, reading: Reading, parent_factory, source_ref, s
     parent.request_payload["interpretation"] = {
         "request_id": str(request_id), conflict_key: conflict_value, "revision": 0,
         "sources": [{"source_ref": source_ref, "source_revision": 0, "text": source_text}],
-        "status": "awaiting_cloud_approval" if getattr(settings, reading.cloud_setting_name, True) else "pending",
+        "status": "awaiting_cloud_approval" if not reading.local_enabled_setting and getattr(settings, reading.cloud_setting_name, True) else "pending",
         "requests": {}, "execution_id": None, "findings": None, "error": None}
     if reading.steps:
         from .steps import context_snapshot, plan_identity
@@ -133,7 +140,7 @@ def correct(*, author, action_run_id, request_id, expected_revision, reading: Re
     state["sources"].append({"source_ref": f"{source_ref_prefix}:{request_id}",
         "source_revision": state["revision"], "text": text})
     state["requests"][key] = {"revision": state["revision"], "fingerprint": fingerprint}
-    state["status"] = "awaiting_cloud_approval" if getattr(settings, reading.cloud_setting_name, True) else "pending"
+    state["status"] = "awaiting_cloud_approval" if not reading.local_enabled_setting and getattr(settings, reading.cloud_setting_name, True) else "pending"
     state["execution_id"], state["error"] = None, None
     # Prior findings are prompt context only; never present them as this revision's result.
     state["previous_findings"], state["findings"] = state.get("findings") or state.get("previous_findings"), None
@@ -171,6 +178,8 @@ def execute(*, author, action_run_id, request_id, expected_revision, digest, rea
         raise InterpretationError("execution_in_progress", 409)
     cloud = bool(getattr(settings, reading.cloud_setting_name, True))
     if cloud:
+        from .local import assert_cloud_allowed
+        assert_cloud_allowed(parent, author)
         if not consent:
             raise InterpretationError("cloud_approval_required", 403)
         if not author.has_perm("initiatives.approve_cloud_dispatch"):

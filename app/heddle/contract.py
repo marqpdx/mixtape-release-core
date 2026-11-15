@@ -48,6 +48,8 @@ class Reading:
     strategy_version: str | None = None
     reference_fields: tuple[tuple[str, tuple[str, ...]], ...] = ()
     max_prompt_chars: int = 150000
+    local_enabled_setting: str | None = None
+    execution_guard: Callable | None = None
 
 
 _REGISTRY: dict[str, Reading] = {}

@@ -29,11 +29,16 @@ def binding(reading, state, record):
 
 def dispatch(parent, state, reading, step, author):
     from .lifecycle import _enqueue, person_runtime
+    if step.backend == "local":
+        from .local import dispatch
+        return dispatch(parent, state, reading, step, author)
     cloud = bool(getattr(settings, reading.cloud_setting_name, True))
-    # There is no approved local execution adapter for these new steps yet.
+    # Disabling a cloud Step never silently selects a different backend.
     if not cloud:
         raise InterpretationError("backend_unavailable", 409)
     steps.assert_current(reading, state, author, parent)
+    from .local import assert_cloud_allowed
+    assert_cloud_allowed(parent, author)
     if not author.has_perm("initiatives.approve_cloud_dispatch"):
         raise InterpretationError("cloud_approval_not_permitted", 403)
     person_runtime(author, reading=reading)
@@ -97,7 +102,11 @@ def execute(*, author, action_run_id, request_id, expected_revision, digest_valu
     if state.get("execution_id") and parent.child_actions.filter(pk=state["execution_id"],
             status__in=[ActionRunStatus.PENDING, ActionRunStatus.RUNNING]).exists():
         raise InterpretationError("execution_in_progress", 409)
-    if any(s.kind == "model" for s in reading.steps):
+    if reading.local_enabled_setting and not getattr(settings, reading.local_enabled_setting, False):
+        raise InterpretationError("backend_unavailable", 503)
+    if any(s.kind == "model" and s.backend == "cloud" for s in reading.steps):
+        from .local import assert_cloud_allowed
+        assert_cloud_allowed(parent, author)
         if not consent:
             raise InterpretationError("cloud_approval_required", 403)
         if not getattr(settings, reading.cloud_setting_name, True):
@@ -106,8 +115,13 @@ def execute(*, author, action_run_id, request_id, expected_revision, digest_valu
             raise InterpretationError("cloud_approval_not_permitted", 403)
         person_runtime(author, reading=reading)
     steps.initialize(reading, state, request_id)
-    state["consent"] = {"approved_at": timezone.now().isoformat(),
-                        "steps": steps.definitions(reading), **expected}
+    if reading.local_enabled_setting:
+        state["local_command"] = {"requested_at": timezone.now().isoformat(),
+                                  "steps": steps.definitions(reading), **expected}
+        state.pop("consent", None)
+    else:
+        state["consent"] = {"approved_at": timezone.now().isoformat(),
+                            "steps": steps.definitions(reading), **expected}
     next_step = steps.advance(reading, state)
     if next_step:
         dispatch(parent, state, reading, next_step, author)
@@ -134,7 +148,7 @@ def refresh_context(*, author, action_run_id, expected_context_revision, reading
         raise InterpretationError("context_revision_required", 409)
     steps.archive(state)
     state.update(context=current, plan=steps.plan_identity(reading), findings=None,
-                 execution_id=None, error=None, status="awaiting_cloud_approval")
+                 execution_id=None, error=None, status="pending" if reading.local_enabled_setting else "awaiting_cloud_approval")
     save(parent, state)
     return snapshot(parent, reading=reading)
 
@@ -155,7 +169,11 @@ def verify_worker(reading, parent, state, child, data, author):
 
 def validate_model_output(reading, child, output):
     data = child.request_payload["capability_payload"]
-    step = next(s for s in reading.steps if s.id == data["step_id"])
+    step_id = data.get("binding", data)["step_id"]
+    step = next(s for s in reading.steps if s.id == step_id)
+    if getattr(step, "backend", "cloud") == "local":
+        step.validate_response(data, output)
+        return
     schema_validator(step.response_schema).validate(output)
     if step.validate:
         step.validate(output)
@@ -181,11 +199,15 @@ def apply(child, parent, state, reading, author):
     elif child.status == ActionRunStatus.SUCCEEDED:
         try:
             result = child.result_payload["result"]
+            if reading.local_enabled_setting and not child.request_payload.get("local_claimed"):
+                raise InterpretationError("execution_not_claimed", 409)
             output = result["findings"]
             validate_model_output(reading, child, output)
             step = next(s for s in reading.steps if s.id == record["id"])
             steps.accept_output(step, record, output)
-            record["provenance"] = result["provenance"]
+            record["provenance"] = ({"provider": "selene", "execution_action_run_id": str(child.pk),
+                "model_calls": 1, "execution_identity": step.execution_identity}
+                if step.backend == "local" else result["provenance"])
             state["execution_id"] = None
             next_step = steps.advance(reading, state)
             if next_step:

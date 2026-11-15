@@ -26,6 +26,7 @@ class Folio(BaseContent):
     title = models.CharField(max_length=255, blank=True, default="")
 
     work_type = models.CharField(max_length=32, blank=True, default="", choices=[("fiction", "Fiction")])
+    local_only = models.BooleanField(default=False)
     context_revision = models.PositiveIntegerField(default=0)
     prepared_context = models.JSONField(default=dict, blank=True)
     orientation_confirmed_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="confirmed_folio_orientations")

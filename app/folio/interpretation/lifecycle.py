@@ -41,7 +41,9 @@ def begin_reading(*, author, folio_id, note_id, request_id, reading):
     record = FolioInterpretation.objects.filter(folio_note=note, initiated_by=author).first()
     if record:
         parent = heddle.owned_parent(record.action_run_id, author, tool_name=reading.tool_name, lock=True)
-        context_provider(author, parent)
+        if parent.request_payload["interpretation"].get("plan", {}).get("strategy_id") != reading.strategy_id:
+            raise InterpretationError("strategy_conflict", 409)
+        reading.context_provider(author, parent)
         return _public(parent, reading, record)
 
     def parent_factory():
@@ -65,5 +67,7 @@ def inspect_reading(*, author, folio_id, note_id, reading_id, reading):
     if record is None:
         raise InterpretationError("not_found", 404)
     parent = heddle.owned_parent(record.action_run_id, author, tool_name=reading.tool_name)
-    context_provider(author, parent)
+    if parent.request_payload["interpretation"].get("plan", {}).get("strategy_id") != reading.strategy_id:
+        raise InterpretationError("strategy_conflict", 409)
+    reading.context_provider(author, parent)
     return _public(parent, reading, record)

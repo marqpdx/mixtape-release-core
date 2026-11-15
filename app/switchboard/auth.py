@@ -7,6 +7,7 @@ CTO-approved direction, 2026-11-10):
     POST   /api/initiatives/action-runs           orchestration:write
     PATCH  /api/initiatives/action-runs/{id}      orchestration:write
     GET    /api/ariadne/concepts/[...]            concept:lookup
+    POST   /api/folio/recognition-executions/{id}/claim  folio:recognition:claim
 
 Deliberately separate from `livewire.auth.InternalServiceAuthentication`
 and `ariadne.auth.ConceptLookupServiceAuthentication`: both of those check
