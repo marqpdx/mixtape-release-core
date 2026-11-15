@@ -29,12 +29,19 @@ class Command(BaseCommand):
         # DEV-ONLY defaults; do not print password
         username = "admin"
         email = "marqpdx@gmail.com"
-        password = "***REMOVED***"
+        # The repo is public: no password lives in code. Set it in the environment.
+        password = os.getenv("DJANGO_SUPERUSER_PASSWORD")
 
         su = User.objects.filter(is_superuser=True).first()
         if su:
             self.stdout.write(f"Superuser exists: {su.username}")
             return su
+
+        if not password:
+            self.stderr.write(self.style.ERROR(
+                "Set DJANGO_SUPERUSER_PASSWORD in the environment to bootstrap a dev superuser."
+            ))
+            sys.exit(1)
 
         try:
             su = User.objects.create_superuser(

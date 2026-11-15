@@ -44,6 +44,11 @@ for _var, _val in _required.items():
 LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
 LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
 
+# Object storage: base.py carries a development access-key default. Production
+# takes it from the environment only (Crossroads' .env.prod sets it, CTO
+# 2026-11-15); unset, storage calls fail when used rather than using the default.
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
+
 # Production settings
 DEBUG = False
 DJANGO_ENV = "prod"
