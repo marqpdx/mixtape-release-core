@@ -144,8 +144,14 @@ def confirm_orientation(*, author, folio_id, expected_digest, title, work_type, 
 @transaction.atomic
 def decide_sighting(*, author, interpretation_id, attempt_id, sighting_id,
                     request_id, disposition, reviewed_digest, reaffirmed=False,
-                    clarification="", entity_id=None, new_entity_name=None):
-    """Resolve the server's checked occurrence, never a caller-supplied Sighting."""
+                    clarification="", entity_id=None, new_entity_name=None, remember=False):
+    """Resolve the server's checked occurrence, never a caller-supplied Sighting.
+
+    `remember=True` is Confirm and remember: with `link_entity`, the same
+    transaction also adds the Entity to this Folio's Dictionary (or reuses its
+    entry, adding the occurrence's spelling as a variant). Any refusal from
+    the Dictionary rolls back the whole decision.
+    """
     from folio.models import FolioInterpretation
     from heddle.handoff import keep_sighting
     from heddle.steps import identity
@@ -163,6 +169,8 @@ def decide_sighting(*, author, interpretation_id, attempt_id, sighting_id,
         "disposition": disposition, "reviewed_digest": reviewed_digest,
         "reaffirmed": reaffirmed, "clarification": clarification,
         "entity_id": str(entity_id) if entity_id else None, "new_entity_name": new_entity_name}
+    if remember:  # only when set, so earlier requests keep their digests
+        command["remember"] = True
     fingerprint = digest(command)
     prior = record.decisions.filter(actor=author, request_id=request_id).first()
     if prior:
@@ -213,6 +221,14 @@ def decide_sighting(*, author, interpretation_id, attempt_id, sighting_id,
                 sponsor_object_id=folio.sponsor_object_id, created_by=author)
     elif disposition != "dismiss" or entity_id or new_entity_name is not None:
         raise InterpretationError("invalid_disposition", 422)
+    entry = None
+    if remember is not False:
+        if remember is not True or disposition != "link_entity":
+            raise InterpretationError("invalid_remember", 422)
+        from folio.dictionary.commands import remember as remember_entry
+        locator = sighting.get("source_locator") or [{}]
+        entry, _ = remember_entry(author=author, folio=folio, entity=entity, shape_id=sighting["shape_id"],
+            occurrence_text=locator[0].get("quote"), operation_id=request_id, request=command, now=timezone.now())
     decision = FolioSightingDecision.objects.create(interpretation=record,
         actor=author, attempt_id=attempt_id, sighting_id=sighting_id,
         disposition=disposition, request_id=request_id, request_digest=fingerprint,
@@ -220,7 +236,7 @@ def decide_sighting(*, author, interpretation_id, attempt_id, sighting_id,
         original_identity=identity(attempt) if "sources" in attempt else {
             k: attempt[k] for k in ("revision", "source_digest", "context_revision", "context_digest")},
         reaffirmed=reaffirmed, clarification=clarification,
-        provisional_data=provisional, entity=entity)
+        provisional_data=provisional, entity=entity, dictionary_entry=entry)
     if entity:
         _prepare(folio)
     return decision

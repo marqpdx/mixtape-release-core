@@ -275,6 +275,9 @@ class FolioSightingDecision(BaseModel):
     clarification = models.TextField(blank=True, default="")
     provisional_data = models.ForeignKey("sourcework.ProvisionalData", null=True, blank=True, on_delete=models.PROTECT, related_name="folio_decisions")
     entity = models.ForeignKey("storyboard.Entity", null=True, blank=True, on_delete=models.PROTECT, related_name="folio_decisions")
+    # Set by Confirm and remember: the Dictionary entry this link added or reused.
+    dictionary_entry = models.ForeignKey("folio.FolioDictionaryEntry", null=True, blank=True,
+                                         on_delete=models.PROTECT, related_name="decisions")
 
     class Meta(BaseModel.Meta):
         constraints = [
@@ -339,3 +342,33 @@ class FolioDictionaryEntryRevision(models.Model):
 
     def delete(self, *args, **kwargs):
         raise ValueError("FolioDictionaryEntryRevision is write-once.")
+
+
+class FolioDictionaryOperation(models.Model):
+    """Write-once receipt for one Dictionary command, so a retry replays it.
+
+    The same operation id with the same request replays `result`; with a
+    different request it is refused. A refused command leaves no receipt.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    folio = models.ForeignKey(Folio, on_delete=models.CASCADE, related_name="dictionary_operations")
+    actor = models.ForeignKey(User, on_delete=models.PROTECT, related_name="folio_dictionary_operations")
+    operation_id = models.UUIDField()
+    kind = models.CharField(max_length=8, choices=[("add", "Add"), ("edit", "Edit"), ("remove", "Remove"),
+                                                   ("remember", "Confirm and remember")])
+    request_digest = models.CharField(max_length=64)
+    result = models.JSONField()
+    recorded_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ["recorded_at"]
+        constraints = [models.UniqueConstraint(fields=["folio", "actor", "operation_id"],
+                                               name="folio_dictionary_operation")]
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError("FolioDictionaryOperation is write-once.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("FolioDictionaryOperation is write-once.")

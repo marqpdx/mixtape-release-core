@@ -621,3 +621,67 @@ def _folio_context_command(request, folio_id, serializer_type, operation):
         return Response(_folio_context_response(result))
     except InterpretationError as exc:
         return Response({"error": exc.code}, status=exc.status)
+
+
+# Folio Dictionary (ADR-0063 SE-2). Author only; every write is a command with
+# an operation id that replays its receipt. Merge is refused for now.
+
+def _dictionary_call(request, folio_id, operation, serializer_type=None, **ids):
+    from heddle.errors import InterpretationError
+    # Resolve authority before validating or replaying a command.
+    get_object_or_404(member_folios(request.user), pk=folio_id, deleted_at__isnull=True)
+    data = {}
+    if serializer_type is not None:
+        serializer = serializer_type(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+    try:
+        return Response(operation(author=request.user, folio_id=folio_id, **ids, **data))
+    except InterpretationError as exc:
+        body = {"error": exc.code}
+        if getattr(exc, "message", None):
+            body["message"] = exc.message
+        return Response(body, status=exc.status)
+
+
+class FolioDictionaryView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, folio_id):
+        from folio.dictionary.commands import read_dictionary
+        return _dictionary_call(request, folio_id, read_dictionary)
+
+    def post(self, request, folio_id):
+        from .serializers import DictionaryAddSerializer
+        from folio.dictionary.commands import add_entry
+        return _dictionary_call(request, folio_id, add_entry, DictionaryAddSerializer)
+
+
+class FolioDictionaryEntryView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, folio_id, entry_id):
+        from folio.dictionary.commands import read_entry
+        return _dictionary_call(request, folio_id, read_entry, entry_id=entry_id)
+
+    def patch(self, request, folio_id, entry_id):
+        from .serializers import DictionaryEditSerializer
+        from folio.dictionary.commands import edit_entry
+        return _dictionary_call(request, folio_id, edit_entry, DictionaryEditSerializer, entry_id=entry_id)
+
+
+class FolioDictionaryEntryRemoveView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, folio_id, entry_id):
+        from .serializers import DictionaryRemoveSerializer
+        from folio.dictionary.commands import remove_entry
+        return _dictionary_call(request, folio_id, remove_entry, DictionaryRemoveSerializer, entry_id=entry_id)
+
+
+class FolioDictionaryEntryMergeView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, folio_id, entry_id):
+        from folio.dictionary.commands import merge_entries
+        return _dictionary_call(request, folio_id, merge_entries, entry_id=entry_id)

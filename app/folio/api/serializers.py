@@ -186,3 +186,35 @@ class FolioNoteMentionConfirmSerializer(serializers.Serializer):
 class FolioNoteTextCreateSerializer(serializers.Serializer):
     raw_text = serializers.CharField(allow_blank=False, trim_whitespace=False)
     source = serializers.CharField(required=False, allow_blank=True, default="", max_length=32)
+
+
+# Folio Dictionary commands. Shapes and types only: the service checks content
+# (names, limits, Shape, Entity) so a writer gets one typed refusal, not two kinds.
+def _text(**kwargs):
+    return serializers.CharField(trim_whitespace=False, allow_blank=True, **kwargs)
+
+
+class DictionaryAddSerializer(serializers.Serializer):
+    operation_id = serializers.UUIDField()
+    expected_dictionary_revision = serializers.IntegerField(min_value=0)
+    shape_id = serializers.CharField()
+    main_name = _text()
+    variants = serializers.ListField(child=_text(), required=False, default=list)
+    note = _text(required=False, default="")
+    entity_id = serializers.UUIDField(required=False, allow_null=True, default=None)
+    new_entity_name = _text(required=False, allow_null=True, default=None)
+
+
+class DictionaryEditSerializer(serializers.Serializer):
+    operation_id = serializers.UUIDField()
+    expected_dictionary_revision = serializers.IntegerField(min_value=0)
+    expected_entry_revision = serializers.IntegerField(min_value=1)
+    main_name = _text(required=False, allow_null=True, default=None)
+    variants = serializers.ListField(child=_text(), required=False, allow_null=True, default=None)
+    note = _text(required=False, allow_null=True, default=None)
+
+
+class DictionaryRemoveSerializer(serializers.Serializer):
+    operation_id = serializers.UUIDField()
+    expected_dictionary_revision = serializers.IntegerField(min_value=0)
+    expected_entry_revision = serializers.IntegerField(min_value=1)
