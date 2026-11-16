@@ -117,3 +117,27 @@ class WorkTableInitiativeAccessTests(TestCase):
         self.assertEqual(self.client.get(url).status_code, status.HTTP_200_OK)
         self.client.force_authenticate(self.other)
         self.assertEqual(self.client.get(url).status_code, status.HTTP_404_NOT_FOUND)
+
+    # -- malformed initiative_id is a 400, not a 500 ------------------------
+
+    def test_stream_rejects_malformed_initiative_id(self):
+        self.client.force_authenticate(self.owner)
+        response = self.client.get(
+            STREAM_URL, {"scope": "initiative", "initiative_id": "not-a-uuid"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("error", response.data)
+
+    def test_prose_rejects_malformed_initiative_id_and_writes_nothing(self):
+        self.client.force_authenticate(self.owner)
+        response = self._prose(initiative_id="not-a-uuid")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("error", response.data)
+        self.assertEqual(self.log.entries.count(), 1)
+        self.assertFalse(
+            Initiative.objects.filter(
+                is_personal=True,
+                sponsor_content_type=self.user_ct,
+                sponsor_object_id=self.owner.id,
+            ).exists()
+        )

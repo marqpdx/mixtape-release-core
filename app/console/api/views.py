@@ -273,6 +273,10 @@ class WorkTableProseView(APIView):
         if initiative_id:
             from initiatives.api.permissions import get_initiative_for_log
 
+            try:
+                initiative_id = uuid.UUID(str(initiative_id))
+            except ValueError:
+                return Response({"error": "initiative_id must be a valid UUID"}, status=status.HTTP_400_BAD_REQUEST)
             initiative, err = get_initiative_for_log(request, initiative_id)
             if err:
                 return err
@@ -382,6 +386,10 @@ class WorkTableStreamView(APIView):
             from initiatives.api.permissions import get_initiative_for_log
             from initiatives.models import InitiativeLog, InitiativeLogEntry
 
+            try:
+                initiative_id = uuid.UUID(initiative_id)
+            except ValueError:
+                return Response({"error": "initiative_id must be a valid UUID"}, status=status.HTTP_400_BAD_REQUEST)
             initiative, err = get_initiative_for_log(request, initiative_id)
             if err:
                 return err
