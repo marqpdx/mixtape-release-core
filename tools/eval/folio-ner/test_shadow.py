@@ -307,6 +307,14 @@ class ShadowTests(unittest.TestCase):
         shared.assert_called_once()
         self.assertNotIn('django', sys.modules)
 
+    def test_preflight_requires_pinned_tokenizer_protobuf(self):
+        versions = {'gliner': '0.2.30', 'torch': '2.6.0', 'transformers': '4.57.3',
+            'protobuf': '6.33.1', 'PyYAML': '6.0.3', 'jsonschema': '4.26.0', 'pydantic': '2.13.1'}
+        with patch.object(s.importlib.metadata, 'version', side_effect=versions.__getitem__):
+            result = s.environment(SELENE)
+        self.assertFalse(result['ready'])
+        self.assertEqual(result['missing_or_conflicting'], ['protobuf'])
+
     def test_dictionary_replay_no_self_or_cross_split(self):
         folio = str(uuid4())
         ns = [{**note('Nell', folio, i), 'split': split} for i, split in enumerate(('tuning', 'holdout', 'tuning'))]

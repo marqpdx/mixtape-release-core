@@ -53,13 +53,15 @@ not proof of anonymization. Only `tally` output is intended to be shared.
 
 No packages are installed or downloaded by this tool. `freeze`, `review` and
 `tally` use Python's standard library. Native `run` additionally needs Selene's
-existing pinned GLiNER/torch/transformers versions plus PyYAML, jsonschema and
+existing pinned GLiNER/torch/transformers versions plus protobuf 5.29.5 (the SE-P/M2 pin), PyYAML, jsonschema and
 pydantic; paths must select the reviewed Selene checkout. This checks installed
 versions, not a clean combined serving-environment build.
 
-The old scratch `/private/tmp/selene-se-p/env/bin/python` currently lacks GLiNER
-metadata (checked November 15). Therefore a native run is **not ready in that
-environment**. Restore/approve a compatible environment separately; do not assume
+The old scratch `/private/tmp/selene-se-p/env/bin/python` lacks GLiNER
+metadata (checked November 15). A native run is **not ready in that
+environment**. The November 15 fresh-environment smoke also exposed a missing
+protobuf dependency in the GLiNER lock: DeBERTa's fast-tokenizer conversion needs
+it. The lock and preflight now require the already used 5.29.5 pin. Restore/approve a compatible environment separately; do not assume
 that artifact packaging installed Python packages or fetch replacements silently.
 
 From `tools/eval/folio-ner/`, with the chosen Python:

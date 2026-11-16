@@ -275,7 +275,8 @@ def quiet_model_output():
 def environment(selene_root):
     profile = read(selene_root / 'selene/contracts/profile.json')
     expected = {'gliner': profile['library_version'], 'torch': profile['torch_version'],
-                'transformers': profile['transformers_version']}
+                'transformers': profile['transformers_version'],
+                'protobuf': '5.29.5'}  # DeBERTa fast-tokenizer conversion; SE-P/M2 pin.
     versions: dict[str, str | None] = {}
     failures = []
     for name in (*expected, 'PyYAML', 'jsonschema', 'pydantic'):
