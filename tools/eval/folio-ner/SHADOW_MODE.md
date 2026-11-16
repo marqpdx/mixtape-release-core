@@ -57,12 +57,17 @@ existing pinned GLiNER/torch/transformers versions plus protobuf 5.29.5 (the SE-
 pydantic; paths must select the reviewed Selene checkout. This checks installed
 versions, not a clean combined serving-environment build.
 
-The old scratch `/private/tmp/selene-se-p/env/bin/python` lacks GLiNER
-metadata (checked November 15). A native run is **not ready in that
-environment**. The November 15 fresh-environment smoke also exposed a missing
-protobuf dependency in the GLiNER lock: DeBERTa's fast-tokenizer conversion needs
-it. The lock and preflight now require the already used 5.29.5 pin. Restore/approve a compatible environment separately; do not assume
-that artifact packaging installed Python packages or fetch replacements silently.
+A compatible isolated Python 3.12 environment is available locally at:
+
+`~/Library/Application Support/Mixtape/Environments/selene-shadow-py312-20261115/venv/bin/python`
+
+It contains 37 pinned runtime/validation packages, including protobuf 5.29.5
+needed for DeBERTa fast-tokenizer conversion. The old scratch environment remains
+incomplete and should not be used. A fresh native smoke passed on November 16;
+see `runs/2026-11-16-selene-native-smoke/README.md` for evidence and rebuild steps.
+The runner installs/downloads nothing. Model packaging and environment setup
+remain separate operations; the prepared environment is for evaluation, not an
+accepted combined ASGI/service deployment.
 
 From `tools/eval/folio-ner/`, with the chosen Python:
 
@@ -205,7 +210,11 @@ python -B -m unittest discover -s tools/eval/folio-ner -p test_shadow.py -v
 The test's `SELENE_TEST_ROOT` and `CORE_TEST_ROOT` variables can override sibling
 paths. MA's review concentrated on private/public separation, source identity,
 exclusive writes, no false success on refusals, Unicode alignment and split/order
-leakage. Those are covered by tests. Native integration remains blocked by the
-missing runtime environment and was not tested on real notes. That environment
-restoration and one synthetic native smoke trial are the next review gates,
-before the CTO's private pilot. No server step belongs to this workflow.
+leakage. All 30 tests pass in the prepared Python 3.12 environment. The separate
+November 16 native smoke loaded the durable model and completed the nine-case
+synthetic freeze/run/review/tally workflow under macOS-denied networking: five
+read, four typed refusals, ten exact-source candidate spans checked, and model
+process exit 0. Review in that smoke was scripted against authored gold, not a
+human quality judgement. No real notes were read. Local environment/native-smoke
+gates are satisfied; the CTO can prepare private inputs for the owner-run pilot.
+No server step belongs to this workflow.

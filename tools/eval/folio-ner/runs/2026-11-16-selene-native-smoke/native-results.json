@@ -1,0 +1,328 @@
+[
+  {
+    "label": "unicode",
+    "status": "read",
+    "refusal_code": null,
+    "candidates": [
+      {
+        "candidate_id": "m-e53a189352149a700e761f9c97aec54d",
+        "candidate_kind": "mention",
+        "type": "writing.character",
+        "source_locator": {
+          "source_ref": "offline_note:3c1eaa65-ab68-5f29-b0b4-08f7bda20d44",
+          "source_revision": 0,
+          "start": 2,
+          "end": 6,
+          "quote": "Nell"
+        },
+        "score": 0.8609684109687805,
+        "negated": false,
+        "ambiguous": true,
+        "uncertain": [
+          "Provisional NER label; no Fiction judgement or confirmation."
+        ],
+        "producer": {
+          "kind": "model",
+          "id": "urchade/gliner_small-v2.1",
+          "version": "0.2.30",
+          "model_revision": "4e091416cf7c3481db542c2a3d26156916f3a47f",
+          "profile_digest": "64b40ea0957964bb4ff23643457284e6ebefbebbe9be4d7b822f0a3c62bca837"
+        }
+      },
+      {
+        "candidate_id": "m-074360e270e1203b77f31f1abd35a084",
+        "candidate_kind": "mention",
+        "type": "writing.setting",
+        "source_locator": {
+          "source_ref": "offline_note:3c1eaa65-ab68-5f29-b0b4-08f7bda20d44",
+          "source_revision": 0,
+          "start": 36,
+          "end": 47,
+          "quote": "Copperhaven"
+        },
+        "score": 0.7893255949020386,
+        "negated": false,
+        "ambiguous": true,
+        "uncertain": [
+          "Provisional NER label; no Fiction judgement or confirmation."
+        ],
+        "producer": {
+          "kind": "model",
+          "id": "urchade/gliner_small-v2.1",
+          "version": "0.2.30",
+          "model_revision": "4e091416cf7c3481db542c2a3d26156916f3a47f",
+          "profile_digest": "64b40ea0957964bb4ff23643457284e6ebefbebbe9be4d7b822f0a3c62bca837"
+        }
+      }
+    ],
+    "cues": [],
+    "semantic_interpretation": "not_run"
+  },
+  {
+    "label": "correction",
+    "status": "read",
+    "refusal_code": null,
+    "candidates": [
+      {
+        "candidate_id": "m-63259f50b58103b6e53122f586ec995e",
+        "candidate_kind": "mention",
+        "type": "writing.character",
+        "source_locator": {
+          "source_ref": "offline_note:fced6a8e-ad46-5ecf-b43f-0aa0659672f0",
+          "source_revision": 0,
+          "start": 12,
+          "end": 16,
+          "quote": "Nell"
+        },
+        "score": 0.9553075432777405,
+        "negated": false,
+        "ambiguous": true,
+        "uncertain": [
+          "Provisional NER label; no Fiction judgement or confirmation."
+        ],
+        "producer": {
+          "kind": "model",
+          "id": "urchade/gliner_small-v2.1",
+          "version": "0.2.30",
+          "model_revision": "4e091416cf7c3481db542c2a3d26156916f3a47f",
+          "profile_digest": "64b40ea0957964bb4ff23643457284e6ebefbebbe9be4d7b822f0a3c62bca837"
+        }
+      },
+      {
+        "candidate_id": "m-d7a6c6d1e7a8813cb59847d4e76698ca",
+        "candidate_kind": "mention",
+        "type": "writing.setting",
+        "source_locator": {
+          "source_ref": "offline_note:fced6a8e-ad46-5ecf-b43f-0aa0659672f0",
+          "source_revision": 0,
+          "start": 26,
+          "end": 37,
+          "quote": "Copperhaven"
+        },
+        "score": 0.8784406185150146,
+        "negated": false,
+        "ambiguous": true,
+        "uncertain": [
+          "Provisional NER label; no Fiction judgement or confirmation."
+        ],
+        "producer": {
+          "kind": "model",
+          "id": "urchade/gliner_small-v2.1",
+          "version": "0.2.30",
+          "model_revision": "4e091416cf7c3481db542c2a3d26156916f3a47f",
+          "profile_digest": "64b40ea0957964bb4ff23643457284e6ebefbebbe9be4d7b822f0a3c62bca837"
+        }
+      },
+      {
+        "candidate_id": "m-5ffd88ca6ef01db46e43066431fc2abc",
+        "candidate_kind": "mention",
+        "type": "writing.character",
+        "source_locator": {
+          "source_ref": "offline_note:fced6a8e-ad46-5ecf-b43f-0aa0659672f0",
+          "source_revision": 0,
+          "start": 39,
+          "end": 43,
+          "quote": "Bram"
+        },
+        "score": 0.943665087223053,
+        "negated": false,
+        "ambiguous": true,
+        "uncertain": [
+          "Provisional NER label; no Fiction judgement or confirmation."
+        ],
+        "producer": {
+          "kind": "model",
+          "id": "urchade/gliner_small-v2.1",
+          "version": "0.2.30",
+          "model_revision": "4e091416cf7c3481db542c2a3d26156916f3a47f",
+          "profile_digest": "64b40ea0957964bb4ff23643457284e6ebefbebbe9be4d7b822f0a3c62bca837"
+        }
+      }
+    ],
+    "cues": [],
+    "semantic_interpretation": "not_run"
+  },
+  {
+    "label": "negative_editor",
+    "status": "read",
+    "refusal_code": null,
+    "candidates": [
+      {
+        "candidate_id": "m-b929ffdb7d58016336db77518f75d552",
+        "candidate_kind": "mention",
+        "type": "writing.character",
+        "source_locator": {
+          "source_ref": "offline_note:44916406-abd9-5693-8801-0fea7c9e3034",
+          "source_revision": 0,
+          "start": 11,
+          "end": 22,
+          "quote": "Rowan Ellis"
+        },
+        "score": 0.8234279751777649,
+        "negated": false,
+        "ambiguous": true,
+        "uncertain": [
+          "Provisional NER label; no Fiction judgement or confirmation."
+        ],
+        "producer": {
+          "kind": "model",
+          "id": "urchade/gliner_small-v2.1",
+          "version": "0.2.30",
+          "model_revision": "4e091416cf7c3481db542c2a3d26156916f3a47f",
+          "profile_digest": "64b40ea0957964bb4ff23643457284e6ebefbebbe9be4d7b822f0a3c62bca837"
+        }
+      }
+    ],
+    "cues": [],
+    "semantic_interpretation": "not_run"
+  },
+  {
+    "label": "decomposed",
+    "status": "read",
+    "refusal_code": null,
+    "candidates": [
+      {
+        "candidate_id": "m-68230706db8ddf9554934efb634f650b",
+        "candidate_kind": "mention",
+        "type": "writing.character",
+        "source_locator": {
+          "source_ref": "offline_note:21a049a5-7bd4-5832-bbcd-a23d67fc8d2e",
+          "source_revision": 0,
+          "start": 0,
+          "end": 3,
+          "quote": "Evi"
+        },
+        "score": 0.957229495048523,
+        "negated": false,
+        "ambiguous": true,
+        "uncertain": [
+          "Provisional NER label; no Fiction judgement or confirmation."
+        ],
+        "producer": {
+          "kind": "model",
+          "id": "urchade/gliner_small-v2.1",
+          "version": "0.2.30",
+          "model_revision": "4e091416cf7c3481db542c2a3d26156916f3a47f",
+          "profile_digest": "64b40ea0957964bb4ff23643457284e6ebefbebbe9be4d7b822f0a3c62bca837"
+        }
+      },
+      {
+        "candidate_id": "m-36b868d0eeec878524d03631dcd0dc6b",
+        "candidate_kind": "mention",
+        "type": "writing.setting",
+        "source_locator": {
+          "source_ref": "offline_note:21a049a5-7bd4-5832-bbcd-a23d67fc8d2e",
+          "source_revision": 0,
+          "start": 13,
+          "end": 25,
+          "quote": "Café Argent"
+        },
+        "score": 0.7326876521110535,
+        "negated": false,
+        "ambiguous": true,
+        "uncertain": [
+          "Provisional NER label; no Fiction judgement or confirmation."
+        ],
+        "producer": {
+          "kind": "model",
+          "id": "urchade/gliner_small-v2.1",
+          "version": "0.2.30",
+          "model_revision": "4e091416cf7c3481db542c2a3d26156916f3a47f",
+          "profile_digest": "64b40ea0957964bb4ff23643457284e6ebefbebbe9be4d7b822f0a3c62bca837"
+        }
+      },
+      {
+        "candidate_id": "m-e81889350d2fe7fbf688d8f60646310d",
+        "candidate_kind": "mention",
+        "type": "writing.setting",
+        "source_locator": {
+          "source_ref": "offline_note:21a049a5-7bd4-5832-bbcd-a23d67fc8d2e",
+          "source_revision": 0,
+          "start": 19,
+          "end": 25,
+          "quote": "Argent"
+        },
+        "score": 0.6287614107131958,
+        "negated": false,
+        "ambiguous": true,
+        "uncertain": [
+          "Provisional NER label; no Fiction judgement or confirmation."
+        ],
+        "producer": {
+          "kind": "model",
+          "id": "urchade/gliner_small-v2.1",
+          "version": "0.2.30",
+          "model_revision": "4e091416cf7c3481db542c2a3d26156916f3a47f",
+          "profile_digest": "64b40ea0957964bb4ff23643457284e6ebefbebbe9be4d7b822f0a3c62bca837"
+        }
+      },
+      {
+        "candidate_id": "m-10e0a613a192dedfce1d0d9d4106919b",
+        "candidate_kind": "mention",
+        "type": "writing.character",
+        "source_locator": {
+          "source_ref": "offline_note:21a049a5-7bd4-5832-bbcd-a23d67fc8d2e",
+          "source_revision": 0,
+          "start": 32,
+          "end": 37,
+          "quote": "Tomas"
+        },
+        "score": 0.9334198832511902,
+        "negated": false,
+        "ambiguous": true,
+        "uncertain": [
+          "Provisional NER label; no Fiction judgement or confirmation."
+        ],
+        "producer": {
+          "kind": "model",
+          "id": "urchade/gliner_small-v2.1",
+          "version": "0.2.30",
+          "model_revision": "4e091416cf7c3481db542c2a3d26156916f3a47f",
+          "profile_digest": "64b40ea0957964bb4ff23643457284e6ebefbebbe9be4d7b822f0a3c62bca837"
+        }
+      }
+    ],
+    "cues": [],
+    "semantic_interpretation": "not_run"
+  },
+  {
+    "label": "plain_negative",
+    "status": "read",
+    "refusal_code": null,
+    "candidates": [],
+    "cues": [],
+    "semantic_interpretation": "not_run"
+  },
+  {
+    "label": "character_overflow",
+    "status": "refused",
+    "refusal_code": "source_too_long",
+    "candidates": [],
+    "cues": [],
+    "semantic_interpretation": "not_run"
+  },
+  {
+    "label": "word_overflow",
+    "status": "refused",
+    "refusal_code": "source_word_budget",
+    "candidates": [],
+    "cues": [],
+    "semantic_interpretation": "not_run"
+  },
+  {
+    "label": "token_overflow",
+    "status": "refused",
+    "refusal_code": "source_token_budget",
+    "candidates": [],
+    "cues": [],
+    "semantic_interpretation": "not_run"
+  },
+  {
+    "label": "blank",
+    "status": "refused",
+    "refusal_code": "invalid_request",
+    "candidates": [],
+    "cues": [],
+    "semantic_interpretation": "not_run"
+  }
+]

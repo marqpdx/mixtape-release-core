@@ -1,0 +1,30 @@
+{
+  "sample_count": 23,
+  "sample_seconds": 21.51912462495966,
+  "swap_before": "vm.swapusage: total = 15360.00M  used = 14679.88M  free = 680.12M  (encrypted)",
+  "swap_after": "vm.swapusage: total = 15360.00M  used = 14663.88M  free = 696.12M  (encrypted)",
+  "page_size_bytes": 16384,
+  "counters": {
+    "Swapins": {
+      "before_pages": 67697342,
+      "after_pages": 67698235,
+      "delta_mib": 13.953125
+    },
+    "Swapouts": {
+      "before_pages": 72296055,
+      "after_pages": 72296055,
+      "delta_mib": 0.0
+    },
+    "Pages free": {
+      "before_pages": 4337,
+      "after_pages": 9131,
+      "delta_mib": 74.90625
+    },
+    "Pages occupied by compressor": {
+      "before_pages": 374126,
+      "after_pages": 380293,
+      "delta_mib": 96.359375
+    }
+  },
+  "limits": "global system observations; no matched control or model-attributable swap estimate; ps was sandbox-denied; child self-reported peak RSS"
+}

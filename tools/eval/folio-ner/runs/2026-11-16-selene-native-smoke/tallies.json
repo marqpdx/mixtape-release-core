@@ -1,0 +1,518 @@
+{
+  "version": "1.0.0",
+  "created_at": "2026-11-16T17:01:18.736989+00:00",
+  "set_digest": "f3b35152f315567f1257b6d097d22930e3cb50c72fb306ebb37a9de3ffec00aa",
+  "run_digest": "6261ac240f48c31f11ac41bad223435f03868eac515127abf1630fe4e4dba883",
+  "review_sha256": "c76a17e1cbd51f7215337efcb8105bbbf186034e8c09b7c1447617125282cbce",
+  "profile_digest": "64b40ea0957964bb4ff23643457284e6ebefbebbe9be4d7b822f0a3c62bca837",
+  "manifest_sha256": "d00e8d3f0063e676e91dde6cbef8b42f944fda2fe195cf30e783a9cf7c81f344",
+  "code": {
+    "mixtape-release-core": {
+      "commit": "5b350ee74d18f02b77e902de01200c5d74e9550a",
+      "subject": "fix(eval): detect missing tokenizer protobuf before reading notes",
+      "files": {
+        "tools/eval/folio-ner/shadow.py": "f70e04fec8e38b43f1cf46174fa94f45e2f7d4939655ae4db9312e518d9f5191",
+        "tools/eval/folio-ner/shadow_report.py": "5ee9a2dd658fe8567fdc391007fc01c674f71bde7dfe5ae8e016bf99725bde76",
+        "app/folio/dictionary/matching.py": "27a1799fea82a76499359a3fa6bc6f436f7124de893040f563b1e3d6f49fb7bb"
+      }
+    },
+    "mixtape-release-selene": {
+      "commit": "3de14163f5f4f91813dd0d4e6a7e4031d19c5a96",
+      "subject": "fix(deps): pin protobuf for offline DeBERTa tokenizer conversion",
+      "files": {
+        "selene/gliner_adapter.py": "c7bf6886b4d396c73e799c5c603df7b08493779c1b3923b58ad3b5f47def5ec4",
+        "selene/recognition_contract.py": "f1f775583d4fd13e111c5b58297a1958c44d50321b87adc66d8c1f05d3df60af",
+        "selene/artifacts.py": "5bdc18d7a753e86d71901b2e88b2a8bb02b0f1c1d7bde41363e62ff2708286ed",
+        "selene/contracts/profile.json": "1eb5e4c88870a0cec4b4e0c31933aa8bff03cc9448c5ad1483b309c84bf37941",
+        "selene/contracts/request.schema.json": "705ce53b86f23c26d3b036cfa018148317827ffa5a4b37ded1661d09e26ecdad",
+        "selene/contracts/response.schema.json": "70791b41232dd1f2eeb6f39821c475f576717a4cda5c059ed735f7cf692fd103",
+        "selene/contracts/model-config.json": "eb963bd7182a1eaed4d170a87348ab62de6fc4eb30cfa7130c80846fee43d0ac"
+      }
+    }
+  },
+  "splits": {
+    "tuning": {
+      "counts": {
+        "notes": 8,
+        "read": 4,
+        "refused": 4,
+        "actions": 0,
+        "seconds": 0,
+        "no_candidate": 1,
+        "candidate_cap_reached": 0,
+        "ambiguous_candidates": 6,
+        "uncertain_candidates": 6,
+        "overlapping_candidate_pairs": 0,
+        "candidates": 6,
+        "missed_annotations": 0,
+        "role:writing.character": 3,
+        "span:exact": 5,
+        "role:writing.setting": 2,
+        "role:outside_story": 1,
+        "span:not_mention": 1,
+        "refusal:source_too_long": 1,
+        "refusal:source_word_budget": 1,
+        "refusal:source_token_budget": 1,
+        "refusal:invalid_request": 1
+      },
+      "metrics": {
+        "writing.character": {
+          "exact": {
+            "tp": 3,
+            "fp": 1,
+            "fn": 0
+          },
+          "overlap": {
+            "tp": 3,
+            "fp": 1,
+            "fn": 0
+          },
+          "precision": {
+            "value": 0.75,
+            "n": 4,
+            "wilson95": [
+              0.30064184258240184,
+              0.9544127391902995
+            ]
+          },
+          "recall": {
+            "value": 1.0,
+            "n": 3,
+            "wilson95": [
+              0.4385029682449546,
+              1
+            ]
+          },
+          "brier_candidate_exact": 0.17563361278483924,
+          "score_bands": [
+            {
+              "lower": 0.5,
+              "upper": 0.6,
+              "confirmed": {
+                "value": null,
+                "n": 0,
+                "wilson95": null
+              }
+            },
+            {
+              "lower": 0.6,
+              "upper": 0.7,
+              "confirmed": {
+                "value": null,
+                "n": 0,
+                "wilson95": null
+              }
+            },
+            {
+              "lower": 0.7,
+              "upper": 0.7999999999999999,
+              "confirmed": {
+                "value": null,
+                "n": 0,
+                "wilson95": null
+              }
+            },
+            {
+              "lower": 0.8,
+              "upper": 0.9,
+              "confirmed": {
+                "value": 0.5,
+                "n": 2,
+                "wilson95": [
+                  0.09453120573423074,
+                  0.9054687942657693
+                ]
+              }
+            },
+            {
+              "lower": 0.9,
+              "upper": 1,
+              "confirmed": {
+                "value": 1.0,
+                "n": 2,
+                "wilson95": [
+                  0.34238022750665303,
+                  1
+                ]
+              }
+            }
+          ]
+        },
+        "writing.setting": {
+          "exact": {
+            "tp": 2,
+            "fp": 0,
+            "fn": 0
+          },
+          "overlap": {
+            "tp": 2,
+            "fp": 0,
+            "fn": 0
+          },
+          "precision": {
+            "value": 1.0,
+            "n": 2,
+            "wilson95": [
+              0.34238022750665303,
+              1
+            ]
+          },
+          "recall": {
+            "value": 1.0,
+            "n": 2,
+            "wilson95": [
+              0.34238022750665303,
+              1
+            ]
+          },
+          "brier_candidate_exact": 0.029580194095196077,
+          "score_bands": [
+            {
+              "lower": 0.5,
+              "upper": 0.6,
+              "confirmed": {
+                "value": null,
+                "n": 0,
+                "wilson95": null
+              }
+            },
+            {
+              "lower": 0.6,
+              "upper": 0.7,
+              "confirmed": {
+                "value": null,
+                "n": 0,
+                "wilson95": null
+              }
+            },
+            {
+              "lower": 0.7,
+              "upper": 0.7999999999999999,
+              "confirmed": {
+                "value": 1.0,
+                "n": 1,
+                "wilson95": [
+                  0.20654931437723745,
+                  1
+                ]
+              }
+            },
+            {
+              "lower": 0.8,
+              "upper": 0.9,
+              "confirmed": {
+                "value": 1.0,
+                "n": 1,
+                "wilson95": [
+                  0.20654931437723745,
+                  1
+                ]
+              }
+            },
+            {
+              "lower": 0.9,
+              "upper": 1,
+              "confirmed": {
+                "value": null,
+                "n": 0,
+                "wilson95": null
+              }
+            }
+          ]
+        }
+      },
+      "refusal_rate": {
+        "value": 0.5,
+        "n": 8,
+        "wilson95": [
+          0.21521606221387757,
+          0.7847839377861224
+        ]
+      }
+    },
+    "holdout": {
+      "counts": {
+        "notes": 1,
+        "read": 1,
+        "refused": 0,
+        "actions": 0,
+        "seconds": 0,
+        "no_candidate": 0,
+        "candidate_cap_reached": 0,
+        "ambiguous_candidates": 4,
+        "uncertain_candidates": 4,
+        "overlapping_candidate_pairs": 1,
+        "candidates": 4,
+        "missed_annotations": 0,
+        "role:writing.character": 2,
+        "span:exact": 3,
+        "role:writing.setting": 2,
+        "span:wrong_edges": 1
+      },
+      "metrics": {
+        "writing.character": {
+          "exact": {
+            "tp": 2,
+            "fp": 0,
+            "fn": 0
+          },
+          "overlap": {
+            "tp": 2,
+            "fp": 0,
+            "fn": 0
+          },
+          "precision": {
+            "value": 1.0,
+            "n": 2,
+            "wilson95": [
+              0.34238022750665303,
+              1
+            ]
+          },
+          "recall": {
+            "value": 1.0,
+            "n": 2,
+            "wilson95": [
+              0.34238022750665303,
+              1
+            ]
+          },
+          "brier_candidate_exact": 0.003131114020044734,
+          "score_bands": [
+            {
+              "lower": 0.5,
+              "upper": 0.6,
+              "confirmed": {
+                "value": null,
+                "n": 0,
+                "wilson95": null
+              }
+            },
+            {
+              "lower": 0.6,
+              "upper": 0.7,
+              "confirmed": {
+                "value": null,
+                "n": 0,
+                "wilson95": null
+              }
+            },
+            {
+              "lower": 0.7,
+              "upper": 0.7999999999999999,
+              "confirmed": {
+                "value": null,
+                "n": 0,
+                "wilson95": null
+              }
+            },
+            {
+              "lower": 0.8,
+              "upper": 0.9,
+              "confirmed": {
+                "value": null,
+                "n": 0,
+                "wilson95": null
+              }
+            },
+            {
+              "lower": 0.9,
+              "upper": 1,
+              "confirmed": {
+                "value": 1.0,
+                "n": 2,
+                "wilson95": [
+                  0.34238022750665303,
+                  1
+                ]
+              }
+            }
+          ]
+        },
+        "writing.setting": {
+          "exact": {
+            "tp": 1,
+            "fp": 1,
+            "fn": 0
+          },
+          "overlap": {
+            "tp": 1,
+            "fp": 1,
+            "fn": 0
+          },
+          "precision": {
+            "value": 0.5,
+            "n": 2,
+            "wilson95": [
+              0.09453120573423074,
+              0.9054687942657693
+            ]
+          },
+          "recall": {
+            "value": 1.0,
+            "n": 1,
+            "wilson95": [
+              0.20654931437723745,
+              1
+            ]
+          },
+          "brier_candidate_exact": 0.23339840146797464,
+          "score_bands": [
+            {
+              "lower": 0.5,
+              "upper": 0.6,
+              "confirmed": {
+                "value": null,
+                "n": 0,
+                "wilson95": null
+              }
+            },
+            {
+              "lower": 0.6,
+              "upper": 0.7,
+              "confirmed": {
+                "value": 0.0,
+                "n": 1,
+                "wilson95": [
+                  0,
+                  0.7934506856227626
+                ]
+              }
+            },
+            {
+              "lower": 0.7,
+              "upper": 0.7999999999999999,
+              "confirmed": {
+                "value": 1.0,
+                "n": 1,
+                "wilson95": [
+                  0.20654931437723745,
+                  1
+                ]
+              }
+            },
+            {
+              "lower": 0.8,
+              "upper": 0.9,
+              "confirmed": {
+                "value": null,
+                "n": 0,
+                "wilson95": null
+              }
+            },
+            {
+              "lower": 0.9,
+              "upper": 1,
+              "confirmed": {
+                "value": null,
+                "n": 0,
+                "wilson95": null
+              }
+            }
+          ]
+        }
+      },
+      "refusal_rate": {
+        "value": 0.0,
+        "n": 1,
+        "wilson95": [
+          0,
+          0.7934506856227626
+        ]
+      }
+    }
+  },
+  "blind_comparison": {
+    "notes": 0,
+    "unaided_mentions": 0,
+    "assisted_missed_annotations": 0
+  },
+  "diagnostic": {
+    "profile_digest": null,
+    "counts": {},
+    "review_metrics": "not_computed"
+  },
+  "dictionary": {
+    "rule": "folio_dictionary.nfc_casefold.v1",
+    "implementation_sha256": "27a1799fea82a76499359a3fa6bc6f436f7124de893040f563b1e3d6f49fb7bb",
+    "unicode_version": "15.0.0",
+    "by_split": {
+      "tuning": {
+        "both": 2,
+        "model_only": 4,
+        "dictionary_only": 0,
+        "required_gold": 5,
+        "dictionary_gold_hits": 2,
+        "model_gold_hits": 5,
+        "union_gold_hits": 5,
+        "dictionary_recall": {
+          "value": 0.4,
+          "n": 5,
+          "wilson95": [
+            0.11762077423264783,
+            0.769275718723987
+          ]
+        },
+        "model_recall": {
+          "value": 1.0,
+          "n": 5,
+          "wilson95": [
+            0.5655175352168251,
+            1
+          ]
+        },
+        "union_recall": {
+          "value": 1.0,
+          "n": 5,
+          "wilson95": [
+            0.5655175352168251,
+            1
+          ]
+        },
+        "not_run_source_too_long": 1
+      },
+      "holdout": {
+        "both": 0,
+        "model_only": 4,
+        "dictionary_only": 0,
+        "required_gold": 3,
+        "dictionary_gold_hits": 0,
+        "model_gold_hits": 3,
+        "union_gold_hits": 3,
+        "dictionary_recall": {
+          "value": 0.0,
+          "n": 3,
+          "wilson95": [
+            5.551115123125783e-17,
+            0.5614970317550454
+          ]
+        },
+        "model_recall": {
+          "value": 1.0,
+          "n": 3,
+          "wilson95": [
+            0.4385029682449546,
+            1
+          ]
+        },
+        "union_recall": {
+          "value": 1.0,
+          "n": 3,
+          "wilson95": [
+            0.4385029682449546,
+            1
+          ]
+        },
+        "not_run_source_too_long": 0
+      }
+    }
+  },
+  "limits": [
+    "one-writer labelled set, not production acceptance",
+    "candidate Brier is conditional on emitted, reviewed candidates; not a calibrated confidence claim",
+    "cant_tell excluded from precision; counts retained",
+    "Dictionary replay isolated by split and based only on earlier confirmed notes",
+    "diagnostic outputs not mixed into exact-profile tallies",
+    "repeat-review agreement and entity-matching quality require separately adjudicated comparisons"
+  ]
+}

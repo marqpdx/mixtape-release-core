@@ -1,0 +1,17 @@
+[
+  {
+    "attempt": "synthetic-smoke-1",
+    "outcome": "monitoring process failed when OS sandbox denied /bin/ps",
+    "followup": "no matching runner process remained; sampler made tolerant; output preserved in environment root"
+  },
+  {
+    "attempt": "synthetic-smoke-2",
+    "outcome": "native runner refused operation_failed; no completed run manifest",
+    "diagnosis": "a no-note loader diagnostic exposed missing protobuf during DeBERTa fast-tokenizer conversion",
+    "followup": "pinned SE-P/M2 protobuf 5.29.5; pip check and preflight pass; new attempt succeeded"
+  },
+  {
+    "attempt": "synthetic-smoke-3",
+    "outcome": "full native workflow passed; model process exited 0"
+  }
+]

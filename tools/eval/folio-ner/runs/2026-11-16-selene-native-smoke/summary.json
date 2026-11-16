@@ -1,0 +1,335 @@
+{
+  "kind": "synthetic native smoke; NOT a benchmark, held-out result or human review",
+  "completed_at": "2026-11-16T17:01:18.899506+00:00",
+  "python": "3.12.13 (main, Mar  3 2026, 12:39:30) [Clang 17.0.0 (clang-1700.6.3.2)]",
+  "machine": "arm64",
+  "driver_sha256": "1b0363238a1955adf6b3c22a2f2d940585a9e9467dfb9be11159d443223af3df",
+  "preflight": {
+    "ready": true,
+    "versions": {
+      "gliner": "0.2.30",
+      "torch": "2.6.0",
+      "transformers": "4.57.3",
+      "protobuf": "5.29.5",
+      "PyYAML": "6.0.3",
+      "jsonschema": "4.26.0",
+      "pydantic": "2.13.1"
+    },
+    "missing_or_conflicting": [],
+    "model_loaded": false,
+    "input_read": false
+  },
+  "freeze": {
+    "notes": 9,
+    "blind_notes": 0,
+    "set_digest": "f3b35152f315567f1257b6d097d22930e3cb50c72fb306ebb37a9de3ffec00aa"
+  },
+  "native": {
+    "run_directory": "~/Library/Application Support/Mixtape/Environments/selene-shadow-py312-20261115/synthetic-smoke-3/workspace/run-c545303b-ddff-4c86-a0e2-e831e780bea1",
+    "notes": 9,
+    "read": 5,
+    "refused": 4
+  },
+  "returncode": 0,
+  "wall_seconds": 18.461892875027843,
+  "load_seconds": 15.245491083012894,
+  "peak_rss_bytes_macos": 1388969984,
+  "profile_digest": "64b40ea0957964bb4ff23643457284e6ebefbebbe9be4d7b822f0a3c62bca837",
+  "manifest_sha256": "d00e8d3f0063e676e91dde6cbef8b42f944fda2fe195cf30e783a9cf7c81f344",
+  "code": {
+    "mixtape-release-core": {
+      "commit": "5b350ee74d18f02b77e902de01200c5d74e9550a",
+      "subject": "fix(eval): detect missing tokenizer protobuf before reading notes",
+      "files": {
+        "tools/eval/folio-ner/shadow.py": "f70e04fec8e38b43f1cf46174fa94f45e2f7d4939655ae4db9312e518d9f5191",
+        "tools/eval/folio-ner/shadow_report.py": "5ee9a2dd658fe8567fdc391007fc01c674f71bde7dfe5ae8e016bf99725bde76",
+        "app/folio/dictionary/matching.py": "27a1799fea82a76499359a3fa6bc6f436f7124de893040f563b1e3d6f49fb7bb"
+      }
+    },
+    "mixtape-release-selene": {
+      "commit": "3de14163f5f4f91813dd0d4e6a7e4031d19c5a96",
+      "subject": "fix(deps): pin protobuf for offline DeBERTa tokenizer conversion",
+      "files": {
+        "selene/gliner_adapter.py": "c7bf6886b4d396c73e799c5c603df7b08493779c1b3923b58ad3b5f47def5ec4",
+        "selene/recognition_contract.py": "f1f775583d4fd13e111c5b58297a1958c44d50321b87adc66d8c1f05d3df60af",
+        "selene/artifacts.py": "5bdc18d7a753e86d71901b2e88b2a8bb02b0f1c1d7bde41363e62ff2708286ed",
+        "selene/contracts/profile.json": "1eb5e4c88870a0cec4b4e0c31933aa8bff03cc9448c5ad1483b309c84bf37941",
+        "selene/contracts/request.schema.json": "705ce53b86f23c26d3b036cfa018148317827ffa5a4b37ded1661d09e26ecdad",
+        "selene/contracts/response.schema.json": "70791b41232dd1f2eeb6f39821c475f576717a4cda5c059ed735f7cf692fd103",
+        "selene/contracts/model-config.json": "eb963bd7182a1eaed4d170a87348ab62de6fc4eb30cfa7130c80846fee43d0ac"
+      }
+    }
+  },
+  "cases": [
+    {
+      "label": "unicode",
+      "status": "read",
+      "refusal_code": null,
+      "candidates": 2,
+      "inference_seconds": 0.3053901660023257,
+      "preflight": [
+        {
+          "words": 9,
+          "encoder_tokens": 18
+        }
+      ]
+    },
+    {
+      "label": "correction",
+      "status": "read",
+      "refusal_code": null,
+      "candidates": 3,
+      "inference_seconds": 0.07821637502638623,
+      "preflight": [
+        {
+          "words": 10,
+          "encoder_tokens": 18
+        }
+      ]
+    },
+    {
+      "label": "negative_editor",
+      "status": "read",
+      "refusal_code": null,
+      "candidates": 1,
+      "inference_seconds": 0.12065720796817914,
+      "preflight": [
+        {
+          "words": 15,
+          "encoder_tokens": 22
+        }
+      ]
+    },
+    {
+      "label": "decomposed",
+      "status": "read",
+      "refusal_code": null,
+      "candidates": 4,
+      "inference_seconds": 0.07814012502785772,
+      "preflight": [
+        {
+          "words": 10,
+          "encoder_tokens": 18
+        }
+      ]
+    },
+    {
+      "label": "plain_negative",
+      "status": "read",
+      "refusal_code": null,
+      "candidates": 0,
+      "inference_seconds": 0.07284158299444243,
+      "preflight": [
+        {
+          "words": 14,
+          "encoder_tokens": 21
+        }
+      ]
+    },
+    {
+      "label": "character_overflow",
+      "status": "refused",
+      "refusal_code": "source_too_long",
+      "candidates": 0,
+      "inference_seconds": null,
+      "preflight": null
+    },
+    {
+      "label": "word_overflow",
+      "status": "refused",
+      "refusal_code": "source_word_budget",
+      "candidates": 0,
+      "inference_seconds": null,
+      "preflight": null
+    },
+    {
+      "label": "token_overflow",
+      "status": "refused",
+      "refusal_code": "source_token_budget",
+      "candidates": 0,
+      "inference_seconds": null,
+      "preflight": null
+    },
+    {
+      "label": "blank",
+      "status": "refused",
+      "refusal_code": "invalid_request",
+      "candidates": 0,
+      "inference_seconds": null,
+      "preflight": null
+    }
+  ],
+  "checked_candidates": 10,
+  "refusals": {
+    "source_too_long": 1,
+    "source_word_budget": 1,
+    "source_token_budget": 1,
+    "invalid_request": 1
+  },
+  "scripted_review_only": true,
+  "review_snapshots_preserved": true,
+  "tallies_text_free": true,
+  "network_policy": "macOS deny network* inherited by subprocess; loopback EPERM verified",
+  "model_process_exited": true,
+  "retained_model_in_driver": false,
+  "limits": [
+    "single laptop smoke on authored examples, not quality acceptance",
+    "system swap samples reflect all applications, not model-attributable swap",
+    "no model unload/reload trial or Crossroads host-fit claim",
+    "no real notes, DB/ActionRuns, ASGI/Switchboard route or production deployment"
+  ],
+  "installed_distributions": [
+    [
+      "Jinja2",
+      "3.1.6"
+    ],
+    [
+      "MarkupSafe",
+      "3.0.4"
+    ],
+    [
+      "PyYAML",
+      "6.0.3"
+    ],
+    [
+      "annotated-types",
+      "0.7.0"
+    ],
+    [
+      "attrs",
+      "26.1.0"
+    ],
+    [
+      "certifi",
+      "2026.10.23"
+    ],
+    [
+      "charset-normalizer",
+      "3.5.2"
+    ],
+    [
+      "filelock",
+      "4.2.10"
+    ],
+    [
+      "fsspec",
+      "2026.9.0"
+    ],
+    [
+      "gliner",
+      "0.2.30"
+    ],
+    [
+      "hf-xet",
+      "1.8.0"
+    ],
+    [
+      "huggingface_hub",
+      "0.36.2"
+    ],
+    [
+      "idna",
+      "3.20"
+    ],
+    [
+      "jsonschema",
+      "4.26.0"
+    ],
+    [
+      "jsonschema-specifications",
+      "2025.9.1"
+    ],
+    [
+      "mpmath",
+      "1.3.0"
+    ],
+    [
+      "networkx",
+      "3.7"
+    ],
+    [
+      "numpy",
+      "2.2.6"
+    ],
+    [
+      "packaging",
+      "26.3"
+    ],
+    [
+      "pip",
+      "26.0"
+    ],
+    [
+      "protobuf",
+      "5.29.5"
+    ],
+    [
+      "pydantic",
+      "2.13.1"
+    ],
+    [
+      "pydantic_core",
+      "2.46.1"
+    ],
+    [
+      "referencing",
+      "0.37.0"
+    ],
+    [
+      "regex",
+      "2026.11.9"
+    ],
+    [
+      "requests",
+      "2.34.2"
+    ],
+    [
+      "rpds-py",
+      "2026.9.1"
+    ],
+    [
+      "safetensors",
+      "0.8.0"
+    ],
+    [
+      "sentencepiece",
+      "0.2.2"
+    ],
+    [
+      "setuptools",
+      "84.2.1"
+    ],
+    [
+      "sympy",
+      "1.13.1"
+    ],
+    [
+      "tokenizers",
+      "0.22.2"
+    ],
+    [
+      "torch",
+      "2.6.0"
+    ],
+    [
+      "tqdm",
+      "4.70.1"
+    ],
+    [
+      "transformers",
+      "4.57.3"
+    ],
+    [
+      "typing-inspection",
+      "0.4.2"
+    ],
+    [
+      "typing_extensions",
+      "4.16.0"
+    ],
+    [
+      "urllib3",
+      "2.8.0"
+    ]
+  ]
+}

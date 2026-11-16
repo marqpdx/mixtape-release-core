@@ -1,0 +1,68 @@
+{
+  "kind": "authored diagnostic, not held-out or human review",
+  "labels": {
+    "3c1eaa65-ab68-5f29-b0b4-08f7bda20d44": "unicode",
+    "fced6a8e-ad46-5ecf-b43f-0aa0659672f0": "correction",
+    "44916406-abd9-5693-8801-0fea7c9e3034": "negative_editor",
+    "21a049a5-7bd4-5832-bbcd-a23d67fc8d2e": "decomposed",
+    "af4d2df3-33f8-55c8-ab4c-53890bc64ffe": "plain_negative",
+    "118ba2d9-cb52-5a04-9786-1fa33776b101": "character_overflow",
+    "833dd8b7-3a2e-5688-852e-84d57e2c2e78": "word_overflow",
+    "0a6643d2-23e3-5269-8ae7-d35437756868": "token_overflow",
+    "519dbcb6-7a76-5927-bc68-672a3d00fa29": "blank"
+  },
+  "annotations": {
+    "3c1eaa65-ab68-5f29-b0b4-08f7bda20d44": [
+      {
+        "start": 2,
+        "end": 6,
+        "role": "writing.character"
+      },
+      {
+        "start": 36,
+        "end": 47,
+        "role": "writing.setting"
+      }
+    ],
+    "fced6a8e-ad46-5ecf-b43f-0aa0659672f0": [
+      {
+        "start": 12,
+        "end": 16,
+        "role": "writing.character"
+      },
+      {
+        "start": 26,
+        "end": 37,
+        "role": "writing.setting"
+      },
+      {
+        "start": 39,
+        "end": 43,
+        "role": "writing.character"
+      }
+    ],
+    "44916406-abd9-5693-8801-0fea7c9e3034": [],
+    "21a049a5-7bd4-5832-bbcd-a23d67fc8d2e": [
+      {
+        "start": 0,
+        "end": 3,
+        "role": "writing.character"
+      },
+      {
+        "start": 13,
+        "end": 25,
+        "role": "writing.setting"
+      },
+      {
+        "start": 32,
+        "end": 37,
+        "role": "writing.character"
+      }
+    ],
+    "af4d2df3-33f8-55c8-ab4c-53890bc64ffe": [],
+    "118ba2d9-cb52-5a04-9786-1fa33776b101": [],
+    "833dd8b7-3a2e-5688-852e-84d57e2c2e78": [],
+    "0a6643d2-23e3-5269-8ae7-d35437756868": [],
+    "519dbcb6-7a76-5927-bc68-672a3d00fa29": []
+  }
+}
