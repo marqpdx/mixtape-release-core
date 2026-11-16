@@ -38,6 +38,9 @@ class GroupInitiativesApiTests(TestCase):
         )
         self.group_ct = ContentType.objects.get_for_model(self.group)
         self.base_url = f"/api/groups/{self.group.slug}/initiatives"
+        # The list/create route is the "" pattern under "<slug>/initiatives/",
+        # so it ends in a slash; APPEND_SLASH is False, so the bare path 404s.
+        self.list_url = f"{self.base_url}/"
 
     def _create_initiative(self, **overrides):
         data = {
@@ -52,15 +55,15 @@ class GroupInitiativesApiTests(TestCase):
         return Initiative.objects.create(**data)
 
     def test_initiative_list_requires_authentication(self):
-        response = self.client.get(self.base_url)
+        response = self.client.get(self.list_url)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_initiative_list_and_create_require_superuser(self):
         self.client.force_authenticate(self.member)
 
-        list_response = self.client.get(self.base_url)
+        list_response = self.client.get(self.list_url)
         create_response = self.client.post(
-            self.base_url,
+            self.list_url,
             {"title": "Blocked Initiative", "direction": "No access"},
             format="json",
         )
@@ -72,7 +75,7 @@ class GroupInitiativesApiTests(TestCase):
         self.client.force_authenticate(self.superuser)
 
         response = self.client.post(
-            self.base_url,
+            self.list_url,
             {
                 "title": "Create Initiative",
                 "direction": "Investigate a new path",
@@ -101,7 +104,7 @@ class GroupInitiativesApiTests(TestCase):
 
         self.client.force_authenticate(self.superuser)
 
-        response = self.client.get(self.base_url)
+        response = self.client.get(self.list_url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ids = {row["id"] for row in response.data}
@@ -116,7 +119,7 @@ class GroupInitiativesApiTests(TestCase):
 
         self.client.force_authenticate(self.superuser)
 
-        response = self.client.get(f"{self.base_url}?include_resolved=true")
+        response = self.client.get(f"{self.list_url}?include_resolved=true")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ids = {row["id"] for row in response.data}
