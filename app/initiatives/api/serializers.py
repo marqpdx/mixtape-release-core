@@ -91,8 +91,9 @@ class InitiativeSerializer(serializers.ModelSerializer):
 
         Uses prefetched sessions when available (list view); falls back to
         DB queries (detail view). Artifacts and linked outputs always query
-        the DB — add prefetch_related("artifacts", "linked_outputs") to the
-        list queryset when scale requires it.
+        the DB; linked outputs are "outputs-from" Relationships since REL-9,
+        so a GFK prefetch can't cover them. Add prefetch_related("artifacts")
+        to the list queryset when scale requires it.
         """
         cutoff = timezone.now() - datetime.timedelta(days=_MOMENTUM_WINDOW_DAYS)
 
@@ -109,7 +110,8 @@ class InitiativeSerializer(serializers.ModelSerializer):
         )
 
         artifact_count = obj.artifacts.count()
-        linked_output_count = obj.linked_outputs.count()
+        from relations.service import RelationshipService
+        linked_output_count = RelationshipService.get_outgoing(obj, type_slug="outputs-from").count()
 
         mass = session_count + distillation_items + artifact_count + linked_output_count
 
