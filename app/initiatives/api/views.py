@@ -59,7 +59,7 @@ from initiatives.api.serializers import (
     SessionSerializer,
     TaskSerializer,
 )
-from initiatives.api.permissions import HasOrchestrationWriteScope
+from initiatives.api.permissions import HasOrchestrationWriteScope, get_initiative_for_log
 from switchboard.auth import SwitchboardCoreAuthentication
 from initiatives.services import (
     AgentParseError,
@@ -1345,17 +1345,7 @@ def _artifacts_to_distillation(artifact_specs: list[dict]) -> dict:
 # InitiativeLog views
 # ---------------------------------------------------------------------------
 
-def _get_initiative_for_log(request, initiative_id):
-    """Return initiative if user is the sponsor (member ownership check)."""
-    initiative = get_object_or_404(Initiative, pk=initiative_id)
-    user_ct = ContentType.objects.get_for_model(request.user.__class__)
-    is_owner = (
-        initiative.sponsor_content_type_id == user_ct.id
-        and str(initiative.sponsor_object_id) == str(request.user.id)
-    )
-    if not is_owner and not request.user.is_superuser:
-        return None, Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-    return initiative, None
+_get_initiative_for_log = get_initiative_for_log
 
 
 class InitiativeLogView(APIView):

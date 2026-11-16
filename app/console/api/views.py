@@ -271,10 +271,11 @@ class WorkTableProseView(APIView):
         from initiatives.models import InitiativeLog, InitiativeLogEntry, InitiativeLogEntryKind, Initiative
 
         if initiative_id:
-            try:
-                initiative = Initiative.objects.get(id=initiative_id)
-            except Initiative.DoesNotExist:
-                return Response({"error": "initiative not found"}, status=status.HTTP_404_NOT_FOUND)
+            from initiatives.api.permissions import get_initiative_for_log
+
+            initiative, err = get_initiative_for_log(request, initiative_id)
+            if err:
+                return err
         else:
             user_ct = ContentType.objects.get_for_model(request.user.__class__)
             initiative = (
@@ -378,9 +379,14 @@ class WorkTableStreamView(APIView):
             if not initiative_id:
                 return Response({"error": "initiative_id required for initiative scope"}, status=status.HTTP_400_BAD_REQUEST)
 
+            from initiatives.api.permissions import get_initiative_for_log
             from initiatives.models import InitiativeLog, InitiativeLogEntry
+
+            initiative, err = get_initiative_for_log(request, initiative_id)
+            if err:
+                return err
             try:
-                initiative_log = InitiativeLog.objects.get(initiative_id=initiative_id)
+                initiative_log = InitiativeLog.objects.get(initiative=initiative)
             except InitiativeLog.DoesNotExist:
                 return Response({"entries": [], "has_more": False, "cursor": None})
 
