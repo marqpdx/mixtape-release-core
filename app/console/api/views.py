@@ -88,9 +88,9 @@ class HubCaptureListCreateView(APIView):
         group = None
         if group_slug:
             from groups.models import Group
-            try:
-                group = Group.objects.get(slug=group_slug)
-            except Group.DoesNotExist:
+            group = Group.objects.filter(slug=group_slug).first()
+            # A group the caller doesn't belong to answers as an unknown slug.
+            if group is None or not group.is_member(request.user):
                 return Response({"error": "group not found"}, status=status.HTTP_404_NOT_FOUND)
 
         # visibility only meaningful when group is set
@@ -160,9 +160,9 @@ class HubCaptureVoiceView(APIView):
         group = None
         if group_slug:
             from groups.models import Group
-            try:
-                group = Group.objects.get(slug=group_slug)
-            except Group.DoesNotExist:
+            group = Group.objects.filter(slug=group_slug).first()
+            # A group the caller doesn't belong to answers as an unknown slug.
+            if group is None or not group.is_member(request.user):
                 return Response({"error": "group not found"}, status=status.HTTP_404_NOT_FOUND)
 
         base_name = audio_file.name or "voice-note.m4a"
