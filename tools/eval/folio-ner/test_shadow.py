@@ -14,7 +14,13 @@ import shadow as s
 import shadow_report as report
 
 # Staged tests can override paths; installed tests default to sibling checkouts.
-RELEASE = Path(__file__).resolve().parents[4] if Path(__file__).resolve().parents[1].name == 'eval' else Path('~/Sites/ml/active/mixtape/release')
+if Path(__file__).resolve().parents[1].name == 'eval':
+    RELEASE = Path(__file__).resolve().parents[4]
+else:
+    release_root = os.environ.get('RELEASE_ROOT')
+    if not release_root:
+        raise unittest.SkipTest('Set RELEASE_ROOT to the release directory to run shadow tests')
+    RELEASE = Path(release_root)
 SELENE = Path(os.environ.get('SELENE_TEST_ROOT', RELEASE / 'mixtape-release-selene'))
 CORE = Path(os.environ.get('CORE_TEST_ROOT', RELEASE / 'mixtape-release-core'))
 sys.path.insert(0, str(SELENE))
