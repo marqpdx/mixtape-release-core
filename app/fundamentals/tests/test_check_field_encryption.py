@@ -6,6 +6,7 @@ from io import StringIO
 from cryptography.fernet import Fernet
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.db import connection
 from django.test import TestCase, override_settings
 
 from sourcework.encryption_canary import CANARY_PLAINTEXT, canary_queryset
@@ -69,9 +70,16 @@ class CheckFieldEncryptionTests(TestCase):
         self.assertIn("result: FAILED", out)
 
     def test_plaintext_and_empty_values_are_not_counted(self):
+        # Raw SQL: the ORM (update() too) encrypts even "" on the way in, so
+        # legacy plaintext and a truly empty column can only be made directly.
         with override_settings(FIELD_ENCRYPTION_KEY=KEY_A):
-            row = _connection()
-            ExternalConnection.objects.filter(pk=row.pk).update(credential_payload="")
+            legacy, empty = _connection(), _connection()
+            table = ExternalConnection._meta.db_table
+            with connection.cursor() as cur:
+                for row, value in ((legacy, "legacy plaintext"), (empty, "")):
+                    cur.execute(
+                        f"UPDATE {table} SET credential_payload = %s WHERE id = %s", [value, row.pk]
+                    )
             code, out, _ = probe()
         self.assertEqual(code, 0)
         self.assertIn(f"{SOURCEWORK}: fernet-shaped ok 0, failed 0", out)
