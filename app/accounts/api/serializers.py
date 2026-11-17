@@ -368,6 +368,10 @@ class TokenRefreshSerializer(serializers.Serializer):
             # Generate new refresh token
             refresh.set_jti()
             refresh.set_exp()
+            # As stock SimpleJWT does: record the rotated token, so the
+            # password-reset blacklist loop can end it.
+            refresh.set_iat()
+            refresh.outstand()
             data["refresh"] = str(refresh)
             data["refresh_expires"] = refresh["exp"]
 
