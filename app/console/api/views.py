@@ -585,13 +585,24 @@ class WorkTableEntryArchiveView(APIView):
     def post(self, request, entry_id):
         from django.core.exceptions import PermissionDenied
         from django.http import Http404
+        from initiatives.api.permissions import get_initiative_for_log
+
+        # A refusal answers exactly as an unknown id does, so the route
+        # doesn't confirm that someone else's entry exists.
+        not_found = Response({"error": "entry not found"}, status=status.HTTP_404_NOT_FOUND)
 
         try:
-            obj, _ = _get_stream_entry_for_user(entry_id, request.user)
-        except Http404:
-            return Response({"error": "entry not found"}, status=status.HTTP_404_NOT_FOUND)
-        except PermissionDenied:
-            return Response({"error": "forbidden"}, status=status.HTTP_403_FORBIDDEN)
+            obj, entry_type = _get_stream_entry_for_user(entry_id, request.user)
+        except (Http404, PermissionDenied):
+            return not_found
+
+        # _get_stream_entry_for_user checks the author only on ordinary
+        # entries; a system-generated entry has no author to check, so it
+        # needs the Initiative's own rule (sponsor or superuser).
+        if entry_type == "log_entry" and obj.is_system_generated:
+            _, err = get_initiative_for_log(request, obj.initiative_log.initiative_id)
+            if err:
+                return not_found
 
         if obj.archived_at is None:
             obj.archived_at = timezone.now()
