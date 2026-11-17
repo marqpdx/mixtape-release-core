@@ -65,6 +65,8 @@ ACCESS_TOKEN_SIGNING_KEY=your-jwt-signing-key-here
 # EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend
 ```
 
+**Test database password**: the local test database password lives in git-ignored `app/.env.local` as `TEST_DB_PASSWORD`, which `mixtape.settings.dev` and `mixtape.settings.test` load.
+
 **Generate secret keys**:
 ```bash
 python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
