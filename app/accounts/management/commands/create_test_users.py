@@ -5,12 +5,18 @@ Create/update test users for Playwright E2E testing
 This command ensures test users exist with known credentials.
 Safe to run multiple times (idempotent).
 
+Refuses to run unless DEBUG is true: it creates a superuser with a fixed,
+public password (and resets that password on an existing `admin`). Pass
+--allow-nonlocal only for a deliberate run against a non-DEBUG test database.
+
 Usage:
     python manage.py create_test_users
+    python manage.py create_test_users --allow-nonlocal
 """
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from profiles.services.profiles import ensure_user_profile
@@ -22,7 +28,21 @@ User = get_user_model()
 class Command(BaseCommand):
     help = "Create/update test users for Playwright E2E testing"
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--allow-nonlocal",
+            action="store_true",
+            help="Run even though DEBUG is false. Creates a superuser with a public password.",
+        )
+
     def handle(self, *args, **options):
+        if not settings.DEBUG and not options["allow_nonlocal"]:
+            raise CommandError(
+                "create_test_users creates a superuser with a public password and "
+                "refuses to run while DEBUG is false. Pass --allow-nonlocal only if "
+                "this is a throwaway test database."
+            )
+
         self.stdout.write(self.style.WARNING("Setting up test users for E2E testing..."))
 
         with transaction.atomic():
