@@ -1,6 +1,10 @@
 from django.test import SimpleTestCase
 
-from utils.writing.writing_utils import render_html_from_prosemirror
+from utils.writing.writing_utils import (
+    count_words_in_prosemirror,
+    extract_text_from_prosemirror,
+    render_html_from_prosemirror,
+)
 
 
 def doc(*nodes):
@@ -97,3 +101,44 @@ class RenderHtmlTest(SimpleTestCase):
         node = para(text("a"), {"type": "hardBreak"}, text("b"))
         result = render_html_from_prosemirror(doc(node))
         self.assertEqual(result, "<p>a<br>b</p>")
+
+
+def aside(label, **extra):
+    node = {"type": "dialogueAside", "attrs": {"label": label, "request": "asked", "response": "answered"}}
+    node.update(extra)
+    return node
+
+
+def circle(hex_value):
+    return {"type": "colorCircle", "attrs": {"hex": hex_value}}
+
+
+class WritingExtrasNodesTest(SimpleTestCase):
+    """Inline atoms from the writing toolbar's Ext. row keep their visible words."""
+
+    def test_aside_renders_its_phrase_as_prose(self):
+        html = render_html_from_prosemirror(doc(para(text("So "), aside("I asked"), text(", then"))))
+        self.assertEqual(html, "<p>So I asked, then</p>")
+
+    def test_aside_phrase_is_escaped_and_keeps_marks(self):
+        node = aside("<b>x</b>", marks=[mark("italic")])
+        self.assertEqual(render_html_from_prosemirror(doc(para(node))), "<p><em>&lt;b&gt;x&lt;/b&gt;</em></p>")
+
+    def test_aside_exchange_is_not_emitted(self):
+        html = render_html_from_prosemirror(doc(para(aside("phrase"))))
+        self.assertNotIn("asked", html)
+        self.assertNotIn("answered", html)
+
+    def test_aside_phrase_counts_toward_text_and_words(self):
+        body = doc(para(text("one"), aside("two three")))
+        self.assertIn("two three", extract_text_from_prosemirror(body))
+        self.assertEqual(count_words_in_prosemirror(body), 3)
+
+    def test_color_circle_renders_coloured_dot(self):
+        html = render_html_from_prosemirror(doc(para(circle("#0B5B2A"))))
+        self.assertEqual(html, '<p><span style="color:#0B5B2A" title="#0B5B2A">&#9679;</span></p>')
+
+    def test_color_circle_rejects_anything_but_six_digit_hex(self):
+        for bad in ["red", "#0B5", "#0B5B2A;background:url(x)", None]:
+            self.assertEqual(render_html_from_prosemirror(doc(para(circle(bad)))), "<p></p>")
+

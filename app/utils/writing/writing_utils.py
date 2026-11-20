@@ -52,6 +52,10 @@ def _extract_node_text(node: dict[Any, Any]) -> str:
     if node.get("type") == "text":
         return node.get("text", "")
 
+    # Inline atoms whose visible words live in attrs (the writing toolbar's Ext. row)
+    if node.get("type") == "dialogueAside":
+        return _inline_atom_label(node)
+
     # Nodes with content have child nodes
     if "content" in node and isinstance(node["content"], list):
         return " ".join(_extract_node_text(child) for child in node["content"])
@@ -148,6 +152,15 @@ def _apply_marks(text: str, marks: list) -> str:
     return text
 
 
+def _inline_atom_label(node: dict) -> str:
+    """Visible phrase of a dialogueAside node (an inline atom: no text children)."""
+    label = (node.get("attrs") or {}).get("label")
+    return label if isinstance(label, str) else ""
+
+
+_HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+
 def _render_node(node: dict) -> str:
     if not isinstance(node, dict):
         return ""
@@ -175,6 +188,19 @@ def _render_node(node: dict) -> str:
 
     if kind == "hardBreak":
         return "<br>"
+
+    # Writing toolbar Ext. nodes. Email and other static HTML can't show the
+    # aside's hover or popover, so the phrase reads as ordinary prose.
+    if kind == "dialogueAside":
+        phrase = _escape(_inline_atom_label(node))
+        marks = node.get("marks", [])
+        return _apply_marks(phrase, marks) if marks else phrase
+
+    if kind == "colorCircle":
+        hex_value = (node.get("attrs") or {}).get("hex")
+        if not isinstance(hex_value, str) or not _HEX_COLOR.match(hex_value):
+            return ""
+        return f'<span style="color:{hex_value}" title="{hex_value}">&#9679;</span>'
 
     if kind == "bulletList":
         inner = "".join(_render_node(c) for c in children)
